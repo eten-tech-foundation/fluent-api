@@ -82,14 +82,17 @@ const assignUsersToChaptersRoute = createRoute({
   middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_ASSIGN)] as const,
   request: {
     params: z.object({
-      userId: z.coerce.number().int().positive(),
+      userId: z.preprocess(
+        (val) => (val === 'null' ? null : val),
+        z.coerce.number().int().positive().nullable()
+      ),
     }),
     body: jsonContent(
       z.object({
         chapterAssignmentIds: z
           .array(z.number().int())
           .min(1, 'At least one chapter assignment ID is required'),
-        peerCheckerId: z.number().int(),
+        peerCheckerId: z.number().int().nullable(),
       }),
       'Add chapter assignment IDs and peer checker ID'
     ),
@@ -125,8 +128,8 @@ const assignUsersToChaptersRoute = createRoute({
 });
 
 server.openapi(assignUsersToChaptersRoute, async (c) => {
-  const assignedUserId = c.req.valid('param').userId;
-  const assignmentData = c.req.valid('json');
+  const assignedUserId = c.req.valid('param').userId; // now number | null
+  const assignmentData = c.req.valid('json'); // peerCheckerId: number | null
   const currentUser = c.get('user')!;
   const policyUser = {
     id: currentUser.id,
@@ -134,9 +137,12 @@ server.openapi(assignUsersToChaptersRoute, async (c) => {
     organization: currentUser.organization,
   };
 
-  const targetUserResult = await userService.getUserById(assignedUserId);
-  if (!targetUserResult.ok || !UserPolicy.view(policyUser, targetUserResult.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
+  // Guard: only look up user if assignedUserId is non-null
+  if (assignedUserId !== null) {
+    const targetUserResult = await userService.getUserById(assignedUserId);
+    if (!targetUserResult.ok || !UserPolicy.view(policyUser, targetUserResult.data)) {
+      return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
+    }
   }
 
   const firstAssignmentResult = await chapterAssignmentService.getChapterAssignment(
@@ -151,9 +157,9 @@ server.openapi(assignUsersToChaptersRoute, async (c) => {
   }
 
   const result = await usersChapterAssignmentsService.assignUserToChapters(
-    assignedUserId,
+    assignedUserId, // now passes null through
     assignmentData.chapterAssignmentIds,
-    assignmentData.peerCheckerId
+    assignmentData.peerCheckerId // now passes null through
   );
 
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);

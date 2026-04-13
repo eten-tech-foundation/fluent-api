@@ -215,8 +215,8 @@ export interface BulkUpdateResult {
 
 export async function bulkUpdateAssignments(
   ids: number[],
-  assignedUserId: number,
-  peerCheckerId: number,
+  assignedUserId: number | null,
+  peerCheckerId: number | null,
   tx: DbTransaction
 ): Promise<BulkUpdateResult[]> {
   return tx

@@ -82,11 +82,10 @@ export async function getAllChapterAssignmentsByUserId(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
-
 export async function assignUserToChapters(
-  assignedUserId: number,
+  assignedUserId: number | null,
   chapterAssignmentIds: number[],
-  peerCheckerId: number
+  peerCheckerId: number | null
 ): Promise<Result<number[]>> {
   if (chapterAssignmentIds.length === 0) return ok([]);
 
@@ -106,12 +105,11 @@ export async function assignUserToChapters(
 
       const updated = await repo.bulkUpdateAssignments(
         chapterAssignmentIds,
-        assignedUserId,
-        peerCheckerId,
+        assignedUserId, // passes null through to repo
+        peerCheckerId, // passes null through to repo
         tx
       );
 
-      // Record history for changed assignments
       const assignedUserHistoryRecords = [];
       const statusHistoryRecords = [];
 
@@ -119,7 +117,8 @@ export async function assignUserToChapters(
         const current = currentAssignments.find((a) => a.id === updatedAssignment.id);
         if (!current) continue;
 
-        if (current.assignedUserId !== assignedUserId) {
+        // Only record drafter history if assignedUserId is non-null and changed
+        if (assignedUserId !== null && current.assignedUserId !== assignedUserId) {
           assignedUserHistoryRecords.push({
             chapterAssignmentId: updatedAssignment.id,
             assignedUserId,
@@ -128,7 +127,8 @@ export async function assignUserToChapters(
           });
         }
 
-        if (current.peerCheckerId !== peerCheckerId) {
+        // Only record peer checker history if peerCheckerId is non-null and changed
+        if (peerCheckerId !== null && current.peerCheckerId !== peerCheckerId) {
           assignedUserHistoryRecords.push({
             chapterAssignmentId: updatedAssignment.id,
             assignedUserId: peerCheckerId,
