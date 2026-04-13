@@ -5,19 +5,18 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertTranslatedVersesSchema } from '@/db/schema';
-import { ChapterAssignmentPolicy } from '@/domains/chapter-assignments/chapter-assignments.policy';
-import { getAssignmentForVerse } from '@/domains/chapter-assignments/chapter-assignments.service';
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectHandler from '@/domains/projects/projects.service';
-import { getProjectIdByUnitId } from '@/domains/projects/projects.service';
-import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireTranslatedVerseAccess } from './translated-verse-auth.middleware';
 import * as translatedVersesService from './translated-verses.service';
-import { translatedVerseResponseSchema } from './translated-verses.types';
+import {
+  PROJECT_UNIT_ID_SOURCES,
+  TRANSLATED_VERSE_ACTIONS,
+  translatedVerseResponseSchema,
+} from './translated-verses.types';
 
 // ─── GET /translated-verses/:id ───────────────────────────────────────────────
 
@@ -25,7 +24,15 @@ const getTranslatedVerseRoute = createRoute({
   tags: ['Translated Verses'],
   method: 'get',
   path: '/translated-verses/{id}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireTranslatedVerseAccess(
+      TRANSLATED_VERSE_ACTIONS.READ,
+      PROJECT_UNIT_ID_SOURCES.VERSE_PARAM,
+      'id'
+    ),
+  ] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -59,44 +66,8 @@ const getTranslatedVerseRoute = createRoute({
 });
 
 server.openapi(getTranslatedVerseRoute, async (c) => {
-  const { id } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    role: currentUser.role,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const verseResult = await translatedVersesService.getTranslatedVerseById(id);
-  if (!verseResult.ok) {
-    return c.json(
-      { message: verseResult.error.message },
-      getHttpStatus(verseResult.error) as never
-    );
-  }
-
-  const unitResult = await getProjectIdByUnitId(verseResult.data.projectUnitId);
-  if (!unitResult.ok) {
-    return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  const projectResult = await projectHandler.getProjectById(unitResult.data.projectId);
-  if (!projectResult.ok) {
-    return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  const isProjectMember = await resolveIsProjectMember(
-    unitResult.data.projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-
-  if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
-
-  return c.json(verseResult.data, HttpStatusCodes.OK);
+  const verse = c.get('translatedVerse')!;
+  return c.json(verse, HttpStatusCodes.OK);
 });
 
 // ─── POST /translated-verses ──────────────────────────────────────────────────
@@ -105,7 +76,11 @@ const upsertTranslatedVerseRoute = createRoute({
   tags: ['Translated Verses'],
   method: 'post',
   path: '/translated-verses',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireTranslatedVerseAccess(TRANSLATED_VERSE_ACTIONS.EDIT, PROJECT_UNIT_ID_SOURCES.BODY),
+  ] as const,
   request: {
     body: jsonContent(insertTranslatedVersesSchema, 'The translated verse to create or update'),
   },
@@ -150,40 +125,9 @@ const upsertTranslatedVerseRoute = createRoute({
 server.openapi(upsertTranslatedVerseRoute, async (c) => {
   const translatedVerseData = c.req.valid('json');
   const currentUser = c.get('user')!;
-  // organization is required by edit() for the org-boundary check.
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
 
   if (!translatedVerseData.assignedUserId) {
     translatedVerseData.assignedUserId = currentUser.id;
-  }
-
-  // getAssignmentForVerse now also joins project_units → projects and returns
-  // organizationId on the PolicyChapterAssignment, so edit() can verify the
-  // translator belongs to the same tenant as the assignment.
-  const assignmentResult = await getAssignmentForVerse(
-    translatedVerseData.projectUnitId,
-    translatedVerseData.bibleTextId
-  );
-  if (!assignmentResult.ok) {
-    return c.json({ message: assignmentResult.error.message }, HttpStatusCodes.BAD_REQUEST);
-  }
-
-  const unitResult = await getProjectIdByUnitId(translatedVerseData.projectUnitId);
-  const isProjectMember = unitResult.ok
-    ? await resolveIsProjectMember(unitResult.data.projectId, currentUser.id, currentUser.roleName)
-    : false;
-
-  // policyAssignment now includes organizationId sourced directly from the
-  // handler query — no extra project lookup needed here.
-  if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember)) {
-    return c.json(
-      { message: 'Forbidden: You do not have permission to edit this verse right now.' },
-      HttpStatusCodes.FORBIDDEN
-    );
   }
 
   const result = await translatedVersesService.upsertTranslatedVerse(translatedVerseData);
@@ -200,7 +144,11 @@ const listTranslatedVersesRoute = createRoute({
   tags: ['Translated Verses'],
   method: 'get',
   path: '/translated-verses',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireTranslatedVerseAccess(TRANSLATED_VERSE_ACTIONS.READ, PROJECT_UNIT_ID_SOURCES.QUERY),
+  ] as const,
   request: {
     query: z.object({
       projectUnitId: z.coerce
@@ -259,33 +207,6 @@ const listTranslatedVersesRoute = createRoute({
 
 server.openapi(listTranslatedVersesRoute, async (c) => {
   const { projectUnitId, bookId, chapterNumber } = c.req.valid('query');
-  const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    role: currentUser.role,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const unitResult = await getProjectIdByUnitId(projectUnitId);
-  if (!unitResult.ok) {
-    return c.json({ message: unitResult.error.message }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  const projectResult = await projectHandler.getProjectById(unitResult.data.projectId);
-  if (!projectResult.ok) {
-    return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  const isProjectMember = await resolveIsProjectMember(
-    unitResult.data.projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-
-  if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
 
   const result = await translatedVersesService.listTranslatedVerses({
     projectUnitId,

@@ -33,3 +33,22 @@ export const translatedVerseResponseSchema = z.object({
 });
 
 export type TranslatedVerseResponse = z.infer<typeof translatedVerseResponseSchema>;
+
+// Const enumerations
+
+export const TRANSLATED_VERSE_ACTIONS = {
+  READ: 'read',
+  EDIT: 'edit',
+} as const;
+
+export type TranslatedVerseAction =
+  (typeof TRANSLATED_VERSE_ACTIONS)[keyof typeof TRANSLATED_VERSE_ACTIONS];
+
+export const PROJECT_UNIT_ID_SOURCES = {
+  VERSE_PARAM: 'verseParam',
+  QUERY: 'query',
+  BODY: 'body',
+} as const;
+
+export type ProjectUnitIdSource =
+  (typeof PROJECT_UNIT_ID_SOURCES)[keyof typeof PROJECT_UNIT_ID_SOURCES];

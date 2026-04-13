@@ -4,9 +4,8 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectService from '@/domains/projects/projects.service';
-import * as projectUsersService from '@/domains/projects/users/project-users.service';
+import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
+import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -19,7 +18,11 @@ const getProjectBooksRoute = createRoute({
   tags: ['Projects - Bible Books'],
   method: 'get',
   path: '/projects/{projectId}/books',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
   request: {
     params: projectIdParamSchema,
   },
@@ -51,25 +54,6 @@ const getProjectBooksRoute = createRoute({
 
 server.openapi(getProjectBooksRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok) {
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-  }
-
-  const isProjectMember = await projectUsersService.resolveIsProjectMember(
-    projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-
-  if (!ProjectPolicy.read(currentUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
 
   const result = await projectBooksService.getBooksByProjectId(projectId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);

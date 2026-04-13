@@ -62,6 +62,8 @@ export interface AppBindings {
 // eslint-disable-next-line ts/no-empty-object-type
 export type AppOpenAPI<S extends Schema = {}> = OpenAPIHono<AppBindings, S>;
 
+// @deprecated — uses AppBindings (base type). Route handlers should use
+// the server's inferred types from AppEnv (server/context.types) instead.
 export type AppRouteHandler<R extends RouteConfig> = RouteHandler<R, AppBindings>;
 
 // ─── Error codes ──────────────────────────────────────────────────────────────

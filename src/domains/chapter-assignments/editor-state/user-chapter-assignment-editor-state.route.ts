@@ -5,8 +5,8 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertUserChapterAssignmentEditorStateSchema } from '@/db/schema';
-import { ChapterAssignmentPolicy } from '@/domains/chapter-assignments/chapter-assignments.policy';
-import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
+import { requireChapterAssignmentAccess } from '@/domains/chapter-assignments/chapter-assignment-auth.middleware';
+import { CHAPTER_ASSIGNMENT_ACTIONS } from '@/domains/chapter-assignments/chapter-assignments.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -33,7 +33,11 @@ const getEditorStateRoute = createRoute({
   tags: ['Chapter Assignments - Editor State'],
   method: 'get',
   path: '/chapter-assignments/{chapterAssignmentId}/editor-state',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
+  ] as const,
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
@@ -65,23 +69,6 @@ const getEditorStateRoute = createRoute({
 server.openapi(getEditorStateRoute, async (c) => {
   const { chapterAssignmentId } = c.req.valid('param');
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const assignmentResult = await chapterAssignmentService.getChapterAssignment(chapterAssignmentId);
-  if (!assignmentResult.ok) {
-    return c.json(
-      { message: assignmentResult.error.message },
-      getHttpStatus(assignmentResult.error) as never
-    );
-  }
-
-  if (!ChapterAssignmentPolicy.isParticipant(policyUser, assignmentResult.data)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
 
   const result = await editorStateService.getEditorState(currentUser.id, chapterAssignmentId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
@@ -94,7 +81,11 @@ const saveEditorStateRoute = createRoute({
   tags: ['Chapter Assignments - Editor State'],
   method: 'put',
   path: '/chapter-assignments/{chapterAssignmentId}/editor-state',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
+  ] as const,
   request: {
     params: chapterAssignmentIdParam,
     body: jsonContent(
@@ -135,23 +126,6 @@ server.openapi(saveEditorStateRoute, async (c) => {
   const { chapterAssignmentId } = c.req.valid('param');
   const editorStateData = c.req.valid('json');
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const assignmentResult = await chapterAssignmentService.getChapterAssignment(chapterAssignmentId);
-  if (!assignmentResult.ok) {
-    return c.json(
-      { message: assignmentResult.error.message },
-      getHttpStatus(assignmentResult.error) as never
-    );
-  }
-
-  if (!ChapterAssignmentPolicy.isParticipant(policyUser, assignmentResult.data)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
 
   const result = await editorStateService.upsertEditorState({
     userId: currentUser.id,

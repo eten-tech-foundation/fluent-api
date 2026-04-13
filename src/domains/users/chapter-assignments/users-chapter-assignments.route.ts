@@ -6,8 +6,8 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { ChapterAssignmentPolicy } from '@/domains/chapter-assignments/chapter-assignments.policy';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
-import { UserPolicy } from '@/domains/users/user.policy';
-import * as userService from '@/domains/users/users.service';
+import { requireUserAccess } from '@/domains/users/user-auth.middleware';
+import { USER_ACTIONS } from '@/domains/users/users.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -20,7 +20,11 @@ const getChapterAssignmentsByUserIdRoute = createRoute({
   tags: ['Users - Chapter Assignments'],
   method: 'get',
   path: '/users/{userId}/chapter-assignments',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_VIEW),
+    requireUserAccess(USER_ACTIONS.VIEW, 'userId'),
+  ] as const,
   request: {
     params: z.object({
       userId: z.coerce.number().int().positive(),
@@ -54,21 +58,6 @@ const getChapterAssignmentsByUserIdRoute = createRoute({
 
 server.openapi(getChapterAssignmentsByUserIdRoute, async (c) => {
   const { userId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const targetUserResult = await userService.getUserById(userId);
-  if (!targetUserResult.ok) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  if (!UserPolicy.view(policyUser, targetUserResult.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await usersChapterAssignmentsService.getAllChapterAssignmentsByUserId(userId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
@@ -79,7 +68,13 @@ const assignUsersToChaptersRoute = createRoute({
   tags: ['Users - Chapter Assignments'],
   method: 'patch',
   path: '/users/{userId}/chapter-assignments',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_ASSIGN)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_ASSIGN),
+    // 'view' is intentional — we only verify the target user is visible to the caller.
+    // The actual write permission is checked inline via ChapterAssignmentPolicy.assignDrafter.
+    requireUserAccess(USER_ACTIONS.VIEW, 'userId'),
+  ] as const,
   request: {
     params: z.object({
       userId: z.coerce.number().int().positive(),
@@ -133,11 +128,6 @@ server.openapi(assignUsersToChaptersRoute, async (c) => {
     roleName: currentUser.roleName,
     organization: currentUser.organization,
   };
-
-  const targetUserResult = await userService.getUserById(assignedUserId);
-  if (!targetUserResult.ok || !UserPolicy.view(policyUser, targetUserResult.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const firstAssignmentResult = await chapterAssignmentService.getChapterAssignment(
     assignmentData.chapterAssignmentIds[0]

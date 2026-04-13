@@ -5,9 +5,8 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { ChapterAssignmentPolicy } from '@/domains/chapter-assignments/chapter-assignments.policy';
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectService from '@/domains/projects/projects.service';
-import { resolveIsProjectMember } from '@/domains/projects/users/project-users.repository';
+import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
+import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -28,7 +27,11 @@ const getProjectChapterAssignmentsRoute = createRoute({
   tags: ['Projects - Chapter Assignments'],
   method: 'get',
   path: '/projects/{projectId}/chapter-assignments',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
   summary: 'Get project chapter assignments',
   description: 'Returns a list of chapter assignments for the project.',
   request: { params: projectIdParam },
@@ -55,23 +58,6 @@ const getProjectChapterAssignmentsRoute = createRoute({
 
 server.openapi(getProjectChapterAssignmentsRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok)
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-
-  const isProjectMember = await resolveIsProjectMember(
-    projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-  if (!ProjectPolicy.read(currentUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await service.getProjectChapterAssignments(projectId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
@@ -84,7 +70,11 @@ const deleteProjectChapterAssignmentsRoute = createRoute({
   tags: ['Projects - Chapter Assignments'],
   method: 'delete',
   path: '/projects/{projectId}/chapter-assignments',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_ASSIGN)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_ASSIGN),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
   summary: 'Delete all chapter assignments for a project',
   description: 'Deletes all chapter assignments associated with a specific project. Manager only.',
   request: { params: projectIdParam },
@@ -112,15 +102,14 @@ const deleteProjectChapterAssignmentsRoute = createRoute({
 server.openapi(deleteProjectChapterAssignmentsRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const currentUser = c.get('user')!;
+  const project = c.get('project')!;
+  const policyUser = {
+    id: currentUser.id,
+    roleName: currentUser.roleName,
+    organization: currentUser.organization,
+  };
 
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok)
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-
-  if (!ChapterAssignmentPolicy.deleteAll(currentUser, projectResult.data.organization)) {
+  if (!ChapterAssignmentPolicy.deleteAll(policyUser, project.organization)) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }
 
@@ -135,7 +124,11 @@ const getChapterAssignmentProgressRoute = createRoute({
   tags: ['Projects - Chapter Assignments'],
   method: 'get',
   path: '/projects/{projectId}/chapter-assignments/progress',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
   summary: 'Get chapter assignment progress',
   description: 'Returns chapter assignments with progress completion statistics for a project.',
   request: { params: projectIdParam },
@@ -162,23 +155,6 @@ const getChapterAssignmentProgressRoute = createRoute({
 
 server.openapi(getChapterAssignmentProgressRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok)
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-
-  const isProjectMember = await resolveIsProjectMember(
-    projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-  if (!ProjectPolicy.read(currentUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await service.getChapterAssignmentProgressByProject(projectId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
@@ -191,7 +167,11 @@ const assignAllRoute = createRoute({
   tags: ['Projects - Chapter Assignments'],
   method: 'patch',
   path: '/projects/{projectId}/chapter-assignments/assign-all',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_ASSIGN)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_ASSIGN),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
   summary: 'Assign users to all chapters for a project',
   description:
     'Assigns a drafter and/or peer checker to all chapter assignments for a project. Manager only.',
@@ -228,15 +208,14 @@ server.openapi(assignAllRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const assignmentData = c.req.valid('json');
   const currentUser = c.get('user')!;
+  const project = c.get('project')!;
+  const policyUser = {
+    id: currentUser.id,
+    roleName: currentUser.roleName,
+    organization: currentUser.organization,
+  };
 
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok)
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-
-  if (!ChapterAssignmentPolicy.assignAll(currentUser, projectResult.data.organization)) {
+  if (!ChapterAssignmentPolicy.assignAll(policyUser, project.organization)) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }
 

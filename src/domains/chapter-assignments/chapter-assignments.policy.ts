@@ -7,6 +7,8 @@
 
 import { ROLES } from '@/lib/roles';
 
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
+
 interface PolicyUser {
   id: number;
   roleName: string;
@@ -31,10 +33,10 @@ export const ChapterAssignmentPolicy = {
 
     if (user.roleName === ROLES.PROJECT_MANAGER) {
       return (
-        assignment.status === 'community_review' ||
-        assignment.status === 'linguist_check' ||
-        assignment.status === 'theological_check' ||
-        assignment.status === 'consultant_check'
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
       );
     }
 
@@ -44,16 +46,16 @@ export const ChapterAssignmentPolicy = {
     }
 
     switch (assignment.status) {
-      case 'draft':
+      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
         return assignment.assignedUserId === user.id;
 
-      case 'peer_check':
+      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
         return assignment.peerCheckerId === user.id;
 
-      case 'community_review':
-      case 'linguist_check':
-      case 'theological_check':
-      case 'consultant_check':
+      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
+      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
+      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
+      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
         return isProjectMember;
 
       default:
@@ -148,10 +150,10 @@ export const ChapterAssignmentPolicy = {
 
     if (user.roleName === ROLES.PROJECT_MANAGER) {
       return (
-        assignment.status === 'community_review' ||
-        assignment.status === 'linguist_check' ||
-        assignment.status === 'theological_check' ||
-        assignment.status === 'consultant_check'
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
       );
     }
 
@@ -161,16 +163,16 @@ export const ChapterAssignmentPolicy = {
 
     // Refactored to use switch statement for expressive intent and consistency
     switch (assignment.status) {
-      case 'draft':
+      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
         return assignment.assignedUserId === user.id;
 
-      case 'peer_check':
+      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
         return assignment.peerCheckerId === user.id;
 
-      case 'community_review':
-      case 'linguist_check':
-      case 'theological_check':
-      case 'consultant_check':
+      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
+      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
+      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
+      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
         return isProjectMember;
 
       default:

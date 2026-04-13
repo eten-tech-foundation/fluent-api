@@ -2,7 +2,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 
-import type { AppBindings } from '@/lib/types';
+import type { AppEnv } from '@/server/context.types';
 
 import { logger } from '@/lib/logger';
 
@@ -17,7 +17,7 @@ const processEmailFromUI = async (c: any, next: any) => {
 };
 
 export function createServer() {
-  const app = new OpenAPIHono<AppBindings>({
+  const app = new OpenAPIHono<AppEnv>({
     strict: false,
   });
 

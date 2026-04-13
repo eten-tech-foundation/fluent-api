@@ -49,3 +49,15 @@ export const updateUserRequestSchema = z.object({
   status: z.enum(['invited', 'verified', 'inactive']).optional(),
   // 'organization' is omitted to prevent cross-tenant transfers.
 });
+
+// Const enumerations
+
+export const USER_ACTIONS = {
+  LIST: 'list',
+  CREATE: 'create',
+  VIEW: 'view',
+  UPDATE: 'update',
+  DELETE: 'delete',
+} as const;
+
+export type UserAction = (typeof USER_ACTIONS)[keyof typeof USER_ACTIONS];

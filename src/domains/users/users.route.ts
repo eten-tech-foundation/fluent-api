@@ -11,11 +11,13 @@ import { createUserWithInvitation } from '@/lib/services/auth/auth0.service';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireUserAccess } from './user-auth.middleware';
 import { UserPolicy } from './user.policy';
 import * as userService from './users.service';
 import {
   createUserRequestSchema,
   updateUserRequestSchema,
+  USER_ACTIONS,
   userResponseSchema,
 } from './users.types';
 
@@ -25,7 +27,11 @@ const listUsersRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_VIEW),
+    requireUserAccess(USER_ACTIONS.LIST),
+  ] as const,
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       userResponseSchema.array().openapi('Users'),
@@ -50,18 +56,6 @@ const listUsersRoute = createRoute({
 
 server.openapi(listUsersRoute, async (c) => {
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  if (!UserPolicy.list(policyUser)) {
-    return c.json(
-      { message: 'Forbidden: You do not have permission to list users.' },
-      HttpStatusCodes.FORBIDDEN
-    );
-  }
 
   const result = await userService.getUsersByOrganization(currentUser.organization);
   if (result.ok) {
@@ -77,7 +71,11 @@ const createUserRoute = createRoute({
   tags: ['Users'],
   method: 'post',
   path: '/users',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_CREATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_CREATE),
+    requireUserAccess(USER_ACTIONS.CREATE),
+  ] as const,
   request: {
     body: jsonContent(createUserRequestSchema, 'The user to create'),
   },
@@ -115,18 +113,6 @@ const createUserRoute = createRoute({
 server.openapi(createUserRoute, async (c) => {
   const requestData = c.req.valid('json');
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  if (!UserPolicy.create(policyUser)) {
-    return c.json(
-      { message: 'Forbidden: You do not have permission to create users.' },
-      HttpStatusCodes.FORBIDDEN
-    );
-  }
 
   // Safely map the API request schema into the DB-bound input type
   const userData = {
@@ -148,7 +134,11 @@ const createUserWithInvitationRoute = createRoute({
   tags: ['Users'],
   method: 'post',
   path: '/users/invite',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_CREATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_CREATE),
+    requireUserAccess(USER_ACTIONS.CREATE),
+  ] as const,
   request: {
     body: jsonContent(createUserRequestSchema, 'The user to create and invite'),
   },
@@ -189,18 +179,6 @@ const createUserWithInvitationRoute = createRoute({
 server.openapi(createUserWithInvitationRoute, async (c) => {
   const requestData = c.req.valid('json');
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  if (!UserPolicy.create(policyUser)) {
-    return c.json(
-      { message: 'Forbidden: You do not have permission to invite users.' },
-      HttpStatusCodes.FORBIDDEN
-    );
-  }
 
   const userData = {
     ...requestData,
@@ -216,6 +194,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
 });
 
 // ─── GET /users/email/:email ──────────────────────────────────────────────────
+// Stays inline — unique email-based lookup, not ID param.
 
 const getUserByEmailRoute = createRoute({
   tags: ['Users'],
@@ -283,7 +262,11 @@ const getUserRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users/{id}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_VIEW),
+    requireUserAccess(USER_ACTIONS.VIEW),
+  ] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -312,25 +295,8 @@ const getUserRoute = createRoute({
 });
 
 server.openapi(getUserRoute, async (c) => {
-  const { id } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const result = await userService.getUserById(id);
-
-  if (!result.ok) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  if (!UserPolicy.view(policyUser, result.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  return c.json(result.data, HttpStatusCodes.OK);
+  const targetUser = c.get('targetUser')!;
+  return c.json(targetUser, HttpStatusCodes.OK);
 });
 
 // ─── PATCH /users/:id ─────────────────────────────────────────────────────────
@@ -339,7 +305,11 @@ const updateUserRoute = createRoute({
   tags: ['Users'],
   method: 'patch',
   path: '/users/{id}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_UPDATE),
+    requireUserAccess(USER_ACTIONS.UPDATE),
+  ] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -388,11 +358,6 @@ server.openapi(updateUserRoute, async (c) => {
   const { id } = c.req.valid('param');
   const updates = c.req.valid('json');
   const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -411,16 +376,6 @@ server.openapi(updateUserRoute, async (c) => {
       },
       HttpStatusCodes.UNPROCESSABLE_ENTITY
     );
-  }
-
-  const targetResult = await userService.getUserById(id);
-
-  if (!targetResult.ok) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  if (!UserPolicy.update(policyUser, targetResult.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
   }
 
   if (currentUser.roleName === ROLES.TRANSLATOR) {
@@ -442,7 +397,11 @@ const deleteUserRoute = createRoute({
   tags: ['Users'],
   method: 'delete',
   path: '/users/{id}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_DELETE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_DELETE),
+    requireUserAccess(USER_ACTIONS.DELETE),
+  ] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -474,22 +433,6 @@ const deleteUserRoute = createRoute({
 
 server.openapi(deleteUserRoute, async (c) => {
   const { id } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-  const policyUser = {
-    id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  const targetResult = await userService.getUserById(id);
-
-  if (!targetResult.ok) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
-
-  if (!UserPolicy.delete(policyUser, targetResult.data)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await userService.deleteUser(id);
 

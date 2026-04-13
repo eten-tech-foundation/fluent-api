@@ -1,12 +1,10 @@
-import type { DbTransaction } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectHandler from '@/domains/projects/projects.service';
-import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
 import type {
   ChapterAssignmentRecord,
   ChapterAssignmentResponse,
@@ -16,6 +14,7 @@ import type {
 } from './chapter-assignments.types';
 
 import * as repo from './chapter-assignments.repository';
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export function toChapterAssignmentResponse(
   record: ChapterAssignmentRecord
@@ -39,50 +38,13 @@ export function getChapterAssignment(id: number) {
   return repo.findByIdWithOrg(id);
 }
 
-export async function getChapterAssignmentWithAuth(
-  chapterAssignmentId: number,
-  currentUser: {
-    id: number;
-    role: number;
-    roleName: string;
-    organization: number;
-  }
-) {
-  // Get assignment with auth context in single query
-  const assignmentResult = await repo.findByIdWithAuthContext(
-    chapterAssignmentId,
-    currentUser.id,
-    currentUser.roleName
-  );
-  if (!assignmentResult.ok) {
-    return assignmentResult;
-  }
-
-  const assignment = assignmentResult.data;
-  const policyUser = {
-    id: currentUser.id,
-    role: currentUser.role,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
-  };
-
-  // Get project data for policy check (still using existing handlers)
-  const projectResult = await projectHandler.getProjectById(assignment.projectId);
-  if (!projectResult.ok) {
-    return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND); // Consistent with current behavior
-  }
-
-  // Authorization check - moved from route handler
-  const isProjectMember =
-    currentUser.roleName === 'translator'
-      ? assignment.isProjectMember
-      : await resolveIsProjectMember(assignment.projectId, currentUser.id, currentUser.roleName);
-
-  if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-    return err(ErrorCode.FORBIDDEN);
-  }
-
-  return ok(toChapterAssignmentResponse(assignment));
+// Fetch a chapter assignment with auth context for middleware policy evaluation.
+export function getChapterAssignmentWithAuthContext(
+  id: number,
+  userId: number,
+  roleName: string
+): Promise<Result<ChapterAssignmentWithAuthContext>> {
+  return repo.findByIdWithAuthContext(id, userId, roleName);
 }
 
 export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number) {
@@ -94,7 +56,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
     try {
       const assignment = await repo.insert(data, tx);
 
-      await repo.insertStatusHistory(tx, assignment.id, 'not_started');
+      await repo.insertStatusHistory(tx, assignment.id, CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED);
 
       if (assignment.assignedUserId) {
         await repo.insertUserAssignmentHistory(
@@ -102,7 +64,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           assignment.id,
           assignment.assignedUserId,
           'drafter',
-          'not_started'
+          CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
         );
       }
       if (assignment.peerCheckerId) {
@@ -111,7 +73,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           assignment.id,
           assignment.peerCheckerId,
           'peer_checker',
-          'not_started'
+          CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
         );
       }
 
@@ -200,28 +162,28 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
       let snapshotUser: number | null;
 
       switch (current.status) {
-        case 'draft':
-          nextStatus = 'peer_check';
+        case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK;
           snapshotUser = current.assignedUserId;
           break;
-        case 'peer_check':
-          nextStatus = 'community_review';
+        case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
           snapshotUser = current.peerCheckerId;
           break;
-        case 'community_review':
-          nextStatus = 'linguist_check';
+        case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
           snapshotUser = current.assignedUserId;
           break;
-        case 'linguist_check':
-          nextStatus = 'theological_check';
+        case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK;
           snapshotUser = current.assignedUserId;
           break;
-        case 'theological_check':
-          nextStatus = 'consultant_check';
+        case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK;
           snapshotUser = current.assignedUserId;
           break;
-        case 'consultant_check':
-          nextStatus = 'complete';
+        case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
+          nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
           snapshotUser = current.assignedUserId;
           break;
         default:
@@ -264,11 +226,11 @@ function applyAutoTransition(
 ): UpdateChapterAssignmentRequestData {
   const hasUserAssignment = data.assignedUserId !== undefined || data.peerCheckerId !== undefined;
   const shouldAutoTransitionToDraft =
-    current.status === 'not_started' && hasUserAssignment && !data.status;
+    current.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED && hasUserAssignment && !data.status;
 
   return {
     ...data,
-    ...(shouldAutoTransitionToDraft && { status: 'draft' as const }),
+    ...(shouldAutoTransitionToDraft && { status: CHAPTER_ASSIGNMENT_STATUS.DRAFT }),
   };
 }
 

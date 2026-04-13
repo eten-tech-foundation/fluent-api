@@ -77,3 +77,14 @@ export interface CreateProjectServiceInput extends CreateProjectInput {
   organization: number;
   createdBy: number;
 }
+
+// Const enumerations
+
+export const PROJECT_ACTIONS = {
+  LIST: 'list',
+  READ: 'read',
+  UPDATE: 'update',
+  DELETE: 'delete',
+} as const;
+
+export type ProjectAction = (typeof PROJECT_ACTIONS)[keyof typeof PROJECT_ACTIONS];

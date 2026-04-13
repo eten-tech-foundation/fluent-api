@@ -4,8 +4,8 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectService from '@/domains/projects/projects.service';
+import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
+import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -25,7 +25,11 @@ const getProjectUsersRoute = createRoute({
   tags: ['Projects - Users'],
   method: 'get',
   path: '/projects/{projectId}/users',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
   request: { params: projectIdParamSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
@@ -55,25 +59,6 @@ const getProjectUsersRoute = createRoute({
 
 server.openapi(getProjectUsersRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok) {
-    return c.json(
-      { message: projectResult.error.message },
-      getHttpStatus(projectResult.error) as never
-    );
-  }
-
-  const isProjectMember = await projectUsersService.resolveIsProjectMember(
-    projectId,
-    currentUser.id,
-    currentUser.roleName
-  );
-
-  if (!ProjectPolicy.read(currentUser, projectResult.data, isProjectMember)) {
-    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
-  }
 
   const result = await projectUsersService.getProjectUsers(projectId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
@@ -87,7 +72,11 @@ const addProjectUserRoute = createRoute({
   tags: ['Projects - Users'],
   method: 'post',
   path: '/projects/{projectId}/users',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
   request: {
     params: projectIdParamSchema,
     body: jsonContentRequired(addProjectUserSchema, 'User to add to the project'),
@@ -125,12 +114,6 @@ const addProjectUserRoute = createRoute({
 server.openapi(addProjectUserRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const { userId } = c.req.valid('json');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok || !ProjectPolicy.update(currentUser, projectResult.data)) {
-    return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await projectUsersService.addProjectUser(projectId, userId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
@@ -144,7 +127,11 @@ const removeProjectUserRoute = createRoute({
   tags: ['Projects - Users'],
   method: 'delete',
   path: '/projects/{projectId}/users/{userId}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
   request: {
     params: removeProjectUserParamSchema,
   },
@@ -180,12 +167,6 @@ const removeProjectUserRoute = createRoute({
 
 server.openapi(removeProjectUserRoute, async (c) => {
   const { projectId, userId } = c.req.valid('param');
-  const currentUser = c.get('user')!;
-
-  const projectResult = await projectService.getProjectById(projectId);
-  if (!projectResult.ok || !ProjectPolicy.update(currentUser, projectResult.data)) {
-    return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-  }
 
   const result = await projectUsersService.removeProjectUser(projectId, userId);
   if (result.ok) return c.body(null, HttpStatusCodes.NO_CONTENT);
