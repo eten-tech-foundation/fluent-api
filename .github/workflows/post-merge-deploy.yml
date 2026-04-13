@@ -67,7 +67,7 @@ jobs:
           node scripts/setup-webjob.js
 
       - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: node-app
           path: deployment/
