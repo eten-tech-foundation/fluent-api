@@ -4,8 +4,8 @@ export function getProjectUsers(projectId: number) {
   return repo.getProjectUsers(projectId);
 }
 
-export function addProjectUser(projectId: number, userId: number) {
-  return repo.addProjectUser(projectId, userId);
+export function addProjectUsers(projectId: number, userIds: number[]) {
+  return repo.addProjectUsers(projectId, userIds);
 }
 
 export function removeProjectUser(projectId: number, userId: number) {

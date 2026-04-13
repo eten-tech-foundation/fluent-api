@@ -1,4 +1,4 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -46,36 +46,45 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
   }
 }
 
-export async function addProjectUser(
+export async function addProjectUsers(
   projectId: number,
-  userId: number
-): Promise<Result<ProjectUserRecord>> {
+  userIds: number[]
+): Promise<Result<ProjectUserRecord[]>> {
   try {
-    const [user] = await db
-      .select({ username: users.username, role: users.role })
+    const userRows = await db
+      .select({ id: users.id, username: users.username, role: users.role })
       .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+      .where(inArray(users.id, userIds));
 
-    if (!user) return err(ErrorCode.USER_NOT_FOUND);
+    const foundIds = new Set(userRows.map((u) => u.id));
+    const missingId = userIds.find((id) => !foundIds.has(id));
+    if (missingId) return err(ErrorCode.USER_NOT_FOUND);
 
-    const [inserted] = await db.insert(project_users).values({ projectId, userId }).returning();
+    const inserted = await db
+      .insert(project_users)
+      .values(userIds.map((userId) => ({ projectId, userId })))
+      .onConflictDoNothing()
+      .returning();
 
-    return ok({
-      projectId: inserted.projectId,
-      userId: inserted.userId,
-      displayName: user.username,
-      roleID: user.role,
-      createdAt: inserted.createdAt,
-    });
+    const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+    return ok(
+      inserted.map((row) => ({
+        projectId: row.projectId,
+        userId: row.userId,
+        displayName: userMap.get(row.userId)!.username,
+        roleID: userMap.get(row.userId)!.role,
+        createdAt: row.createdAt,
+      }))
+    );
   } catch (e) {
     if (handleUniqueConstraintError(e)) {
       return err(ErrorCode.USER_ALREADY_IN_PROJECT);
     }
     logger.error({
       cause: e,
-      message: 'Failed to add user to project',
-      context: { projectId, userId },
+      message: 'Failed to bulk add users to project',
+      context: { projectId, userIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

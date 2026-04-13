@@ -36,7 +36,7 @@ export const removeProjectUserParamSchema = z.object({
 });
 
 export const addProjectUserSchema = z.object({
-  userId: z.number().int(),
+  userIds: z.array(z.number().int().positive()).min(1, 'At least one user ID is required'),
 });
 
 // Domain types inferred from zod
