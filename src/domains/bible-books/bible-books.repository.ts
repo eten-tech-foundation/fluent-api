@@ -4,6 +4,8 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_books, bibles, books } from '@/db/schema';
+import { handleConstraintError } from '@/lib/db-errors';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { BibleBook, BibleBookWithDetails, CreateBibleBookInput } from './bible-books.types';
@@ -34,7 +36,12 @@ export async function getByBibleId(bibleId: number): Promise<Result<BibleBookWit
       .where(eq(bible_books.bibleId, bibleId));
 
     return ok(bibleBookList);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get bible books by bibleId',
+      context: { bibleId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -54,7 +61,12 @@ export async function getByBibleIdAndBookId(
 
     if (!bibleBook) return err(ErrorCode.BIBLE_BOOK_NOT_FOUND);
     return ok(bibleBook);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get bible book by ID',
+      context: { bibleId, bookId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -65,13 +77,7 @@ export async function create(input: CreateBibleBookInput): Promise<Result<BibleB
     if (!bibleBook) return err(ErrorCode.INTERNAL_ERROR);
     return ok(bibleBook);
   } catch (error) {
-    if (error instanceof Error && error.message.includes('unique constraint')) {
-      return err(ErrorCode.DUPLICATE);
-    }
-    if (error instanceof Error && error.message.includes('foreign key constraint')) {
-      return err(ErrorCode.INVALID_REFERENCE);
-    }
-    return err(ErrorCode.INTERNAL_ERROR);
+    return handleConstraintError(error);
   }
 }
 
@@ -84,7 +90,12 @@ export async function remove(bibleId: number, bookId: number): Promise<Result<vo
 
     if (!deleted) return err(ErrorCode.BIBLE_BOOK_NOT_FOUND);
     return ok(undefined);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to remove bible book',
+      context: { bibleId, bookId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

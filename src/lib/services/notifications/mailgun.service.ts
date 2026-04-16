@@ -1,5 +1,9 @@
 import Mailgun from 'mailgun.js';
 
+import type { Result } from '@/lib/types';
+
+import { ErrorCode } from '@/lib/types';
+
 const mailgun = new Mailgun(FormData);
 
 const mg = mailgun.client({
@@ -20,25 +24,34 @@ export async function sendInvitationEmail({
   ticketUrl,
   firstName,
   lastName,
-}: InvitationEmailData): Promise<{ success: boolean; messageId?: string; error?: string }> {
+}: InvitationEmailData): Promise<Result<{ messageId?: string }>> {
   if (!process.env.EMAIL_SERVICE_API_KEY) {
     return {
-      success: false,
-      error: 'Email service API key is not configured',
+      ok: false,
+      error: {
+        code: ErrorCode.EMAIL_SERVICE_ERROR,
+        message: 'Email service API key is not configured',
+      },
     };
   }
 
   if (!process.env.EMAIL_SERVICE_DOMAIN) {
     return {
-      success: false,
-      error: 'Email service domain is not configured',
+      ok: false,
+      error: {
+        code: ErrorCode.EMAIL_SERVICE_ERROR,
+        message: 'Email service domain is not configured',
+      },
     };
   }
 
   if (!process.env.EMAIL_SERVICE_SENDER) {
     return {
-      success: false,
-      error: 'Email service sender is not configured',
+      ok: false,
+      error: {
+        code: ErrorCode.EMAIL_SERVICE_ERROR,
+        message: 'Email service sender is not configured',
+      },
     };
   }
 
@@ -61,14 +74,17 @@ export async function sendInvitationEmail({
     const response = await mg.messages.create(process.env.EMAIL_SERVICE_DOMAIN!, emailData);
 
     return {
-      success: true,
-      messageId: response.id,
+      ok: true,
+      data: { messageId: response.id },
     };
   } catch (error) {
     console.error('Full error object:', error);
     return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown email error',
+      ok: false,
+      error: {
+        code: ErrorCode.EMAIL_SERVICE_ERROR,
+        message: error instanceof Error ? error.message : 'Unknown email error',
+      },
     };
   }
 }

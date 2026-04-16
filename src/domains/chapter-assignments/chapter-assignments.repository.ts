@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
 import type { VerseData } from '@/lib/usfm-converter';
@@ -6,15 +7,18 @@ import type { VerseData } from '@/lib/usfm-converter';
 import { db } from '@/db';
 import {
   bible_texts,
+  bibles,
   books,
   chapter_assignment_assigned_user_history,
   chapter_assignment_snapshots,
   chapter_assignment_status_history,
   chapter_assignments,
+  languages,
   project_units,
   project_users,
   projects,
   translated_verses,
+  users,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -22,6 +26,7 @@ import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
 
 import type { PolicyChapterAssignment } from './chapter-assignments.policy';
 import type {
+  ChapterAssignmentProgressInfo,
   ChapterAssignmentRecord,
   ChapterAssignmentRecordWithOrg,
   ChapterAssignmentStatus,
@@ -75,8 +80,8 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
 
     if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     return ok(assignment);
-  } catch (e) {
-    logger.error({ cause: e, message: 'Failed to fetch chapter assignment', context: { id } });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to fetch chapter assignment', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -124,9 +129,9 @@ export async function findByIdWithAuthContext(
 
     if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     return ok(assignment);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to fetch chapter assignment with auth context',
       context: { id, userId },
     });
@@ -168,9 +173,9 @@ export async function findForVerse(
 
     if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     return ok(assignment);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to resolve chapter assignment for verse',
       context: { projectUnitId, bibleTextId },
     });
@@ -249,9 +254,9 @@ export async function getContent(
     }
 
     return ok(conversionResult.data);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to generate assignment content',
       context: { assignmentId: assignment.id },
     });
@@ -309,8 +314,8 @@ export async function remove(id: number): Promise<Result<void>> {
       .returning({ id: chapter_assignments.id });
     if (!deleted) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     return ok(undefined);
-  } catch (e) {
-    logger.error({ cause: e, message: 'Failed to delete chapter assignment', context: { id } });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to delete chapter assignment', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -345,4 +350,118 @@ export async function insertSnapshot(
   }
 ): Promise<void> {
   await tx.insert(chapter_assignment_snapshots).values(data);
+}
+
+export async function findAssignmentsProgress(
+  filters: {
+    projectId?: number;
+    assignedUserId?: number;
+    peerCheckerId?: number;
+    status?: ChapterAssignmentStatus;
+  },
+  tx?: DbTransaction
+): Promise<Result<ChapterAssignmentProgressInfo[]>> {
+  try {
+    const conn = tx ?? db;
+    const assignedUser = alias(users, 'assignedUser');
+    const peerChecker = alias(users, 'peerChecker');
+    const sourceLang = alias(languages, 'sourceLang');
+    const targetLang = alias(languages, 'targetLang');
+
+    const baseQuery = conn
+      .select({
+        assignmentId: chapter_assignments.id,
+        projectId: projects.id,
+        projectName: projects.name,
+        projectUnitId: chapter_assignments.projectUnitId,
+        bibleId: chapter_assignments.bibleId,
+        bibleName: bibles.name,
+        bookId: chapter_assignments.bookId,
+        bookCode: books.code,
+        bookNameEng: books.eng_display_name,
+        chapterNumber: chapter_assignments.chapterNumber,
+        status: chapter_assignments.status,
+        targetLanguage: targetLang.langName,
+        sourceLangCode: sourceLang.langCodeIso6393,
+        totalVerses: sql<number>`COUNT(${bible_texts.id})`.mapWith(Number),
+        completedVerses:
+          sql<number>`COUNT(CASE WHEN ${translated_verses.content} != '' AND ${translated_verses.content} IS NOT NULL THEN 1 END)`.mapWith(
+            Number
+          ),
+        assignedUserId: chapter_assignments.assignedUserId,
+        assignedUserDisplayName: assignedUser.username,
+        peerCheckerId: chapter_assignments.peerCheckerId,
+        peerCheckerDisplayName: peerChecker.username,
+        submittedTime: chapter_assignments.submittedTime,
+        createdAt: chapter_assignments.createdAt,
+        updatedAt: chapter_assignments.updatedAt,
+      })
+      .from(chapter_assignments)
+      .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
+      .innerJoin(projects, eq(project_units.projectId, projects.id))
+      .innerJoin(books, eq(chapter_assignments.bookId, books.id))
+      .innerJoin(bibles, eq(bibles.id, chapter_assignments.bibleId))
+      .leftJoin(targetLang, eq(projects.targetLanguage, targetLang.id))
+      .leftJoin(sourceLang, eq(projects.sourceLanguage, sourceLang.id))
+      .leftJoin(assignedUser, eq(chapter_assignments.assignedUserId, assignedUser.id))
+      .leftJoin(peerChecker, eq(chapter_assignments.peerCheckerId, peerChecker.id))
+      .innerJoin(
+        bible_texts,
+        and(
+          eq(bible_texts.bibleId, chapter_assignments.bibleId),
+          eq(bible_texts.bookId, chapter_assignments.bookId),
+          eq(bible_texts.chapterNumber, chapter_assignments.chapterNumber)
+        )
+      )
+      .leftJoin(
+        translated_verses,
+        and(
+          eq(translated_verses.bibleTextId, bible_texts.id),
+          eq(translated_verses.projectUnitId, chapter_assignments.projectUnitId)
+        )
+      );
+
+    const conditions = [];
+    if (filters.projectId !== undefined) {
+      conditions.push(eq(project_units.projectId, filters.projectId));
+    }
+    if (filters.assignedUserId !== undefined) {
+      conditions.push(eq(chapter_assignments.assignedUserId, filters.assignedUserId));
+    }
+    if (filters.peerCheckerId !== undefined) {
+      conditions.push(eq(chapter_assignments.peerCheckerId, filters.peerCheckerId));
+    }
+    if (filters.status !== undefined) {
+      conditions.push(eq(chapter_assignments.status, filters.status));
+    }
+
+    let finalQuery = baseQuery;
+    if (conditions.length > 0) {
+      finalQuery = finalQuery.where(and(...conditions)) as any;
+    }
+
+    const rows = await finalQuery
+      .groupBy(
+        chapter_assignments.id,
+        projects.id,
+        projects.name,
+        bibles.name,
+        targetLang.langName,
+        sourceLang.langCodeIso6393,
+        books.code,
+        books.eng_display_name,
+        assignedUser.username,
+        peerChecker.username
+      )
+      .orderBy(projects.name, books.eng_display_name, chapter_assignments.chapterNumber);
+
+    return ok(rows);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to find assignments progress',
+      context: { filters },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

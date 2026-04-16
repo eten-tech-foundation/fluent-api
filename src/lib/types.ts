@@ -177,8 +177,16 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
 
 export interface AppError {
   message: string;
-  code?: ErrorCode;
-  context?: Record<string, unknown>;
+  code: ErrorCode;
+}
+
+/**
+ * Shared identity for authorization policies across all domains.
+ */
+export interface AppPolicyUser {
+  id: number;
+  roleName: string;
+  organization: number;
 }
 
 // ─── Result type + factories ──────────────────────────────────────────────────
@@ -187,12 +195,9 @@ export type Result<T, E = AppError> = { ok: true; data: T } | { ok: false; error
 
 export const ok = <T>(data: T): Extract<Result<T>, { ok: true }> => ({ ok: true, data });
 
-export const err = (
-  code: ErrorCode,
-  context?: Record<string, unknown>
-): Extract<Result<never>, { ok: false }> => ({
+export const err = (code: ErrorCode): Extract<Result<never>, { ok: false }> => ({
   ok: false,
-  error: { message: ErrorMessages[code], code, context },
+  error: { message: ErrorMessages[code], code },
 });
 
 // Falls back to 500 for legacy handlers that don't use err() yet.

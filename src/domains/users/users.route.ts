@@ -8,6 +8,7 @@ import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ROLES } from '@/lib/roles';
 import { createUserWithInvitation } from '@/lib/services/auth/auth0.service';
+import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -62,7 +63,7 @@ server.openapi(listUsersRoute, async (c) => {
     return c.json(result.data, HttpStatusCodes.OK);
   }
 
-  return c.json({ message: result.error.message as string }, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── POST /users ──────────────────────────────────────────────────────────────
@@ -81,9 +82,13 @@ const createUserRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent(userResponseSchema, 'The created user'),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Username or Email already exists'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Validation error or duplicate user'
+      'Validation error'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -125,7 +130,7 @@ server.openapi(createUserRoute, async (c) => {
     return c.json(result.data, HttpStatusCodes.CREATED);
   }
 
-  return c.json({ message: result.error.message as string }, HttpStatusCodes.BAD_REQUEST);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── POST /users/invite ───────────────────────────────────────────────────────
@@ -147,9 +152,13 @@ const createUserWithInvitationRoute = createRoute({
       z.object({ user: userResponseSchema, auth0_user_id: z.string(), ticket_url: z.string() }),
       'User created and invitation sent'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Username or Email already exists'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Validation error, duplicate user, or Auth0 error'
+      'Validation error or Auth0 error'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -190,7 +199,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
     return c.json(result.data, HttpStatusCodes.CREATED);
   }
 
-  return c.json({ message: result.error.message as string }, HttpStatusCodes.BAD_REQUEST);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── GET /users/email/:email ──────────────────────────────────────────────────
@@ -243,14 +252,14 @@ server.openapi(getUserByEmailRoute, async (c) => {
   const result = await userService.getUserByEmail(email.toLowerCase());
 
   if (!result.ok) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
   const { roleName: _roleName, ...targetUser } = result.data;
 
   // Returning 404 instead of 403 to prevent email enumeration across orgs
   if (!UserPolicy.view(policyUser, targetUser)) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
+    return c.json({ message: ErrorMessages[ErrorCode.USER_NOT_FOUND] }, HttpStatusCodes.NOT_FOUND);
   }
 
   return c.json(targetUser, HttpStatusCodes.OK);
@@ -325,6 +334,10 @@ const updateUserRoute = createRoute({
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'User not found'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Username or Email already exists'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
       'Validation or constraint error'
@@ -388,7 +401,7 @@ server.openapi(updateUserRoute, async (c) => {
     return c.json(result.data, HttpStatusCodes.OK);
   }
 
-  return c.json({ message: result.error.message as string }, HttpStatusCodes.BAD_REQUEST);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── DELETE /users/:id ────────────────────────────────────────────────────────
@@ -440,5 +453,5 @@ server.openapi(deleteUserRoute, async (c) => {
     return c.body(null, HttpStatusCodes.NO_CONTENT);
   }
 
-  return c.json({ message: result.error.message as string }, HttpStatusCodes.NOT_FOUND);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

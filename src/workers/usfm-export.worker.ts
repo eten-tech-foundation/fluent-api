@@ -4,7 +4,7 @@ import { Buffer } from 'node:buffer';
 
 import type { USFMExportJob } from '@/lib/queue';
 
-import { createUSFMZipStreamAsync, getProjectName } from '@/domains/usfm/usfm.handlers';
+import * as usfmService from '@/domains/usfm/usfm.service';
 import { saveExportFile } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { QUEUE_NAMES } from '@/lib/queue';
@@ -33,13 +33,13 @@ export async function processUSFMExportJob(job: JobPayload): Promise<any> {
   });
 
   try {
-    const exportResult = await createUSFMZipStreamAsync(projectUnitId, bookIds);
+    const exportResultObj = await usfmService.createUSFMZipStreamAsync(projectUnitId, bookIds);
 
-    if (!exportResult) {
+    if (!exportResultObj.ok || !exportResultObj.data) {
       throw new Error('No books available for export');
     }
 
-    const { stream, cleanup } = exportResult;
+    const { stream, cleanup } = exportResultObj.data;
 
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
@@ -53,7 +53,8 @@ export async function processUSFMExportJob(job: JobPayload): Promise<any> {
 
     const { filename, expiresAt } = await saveExportFile(job.id, zipBuffer);
 
-    const projectName = await getProjectName(projectUnitId);
+    const projectNameResult = await usfmService.getProjectName(projectUnitId);
+    const projectName = projectNameResult.ok ? projectNameResult.data : null;
     const displayFilename = projectName
       ? `${projectName.trim().replace(/[<>:"/\\|?*]/g, '_')}.zip`
       : filename;
@@ -128,10 +129,10 @@ export async function registerUSFMExportWorker(
             const duration = Date.now() - start;
             hooks?.onJobSuccess?.(duration);
             return value;
-          } catch (err) {
+          } catch (error) {
             const duration = Date.now() - start;
             hooks?.onJobFailure?.(duration);
-            throw err;
+            throw error;
           }
         })
       );

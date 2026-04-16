@@ -4,6 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, translated_verses } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
@@ -36,7 +37,12 @@ export async function getById(id: number): Promise<Result<TranslatedVerseRecord>
     }
 
     return ok(verse);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get translated verse by ID',
+      context: { id },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -53,7 +59,12 @@ export async function create(
     }
 
     return ok(result.data);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to create translated verse',
+      context: { input },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -79,7 +90,12 @@ export async function update(
     }
 
     return ok(result.data);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to update translated verse',
+      context: { id, input },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -106,7 +122,12 @@ export async function upsert(
     }
 
     return ok(result.data);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to upsert translated verse',
+      context: { input },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -149,7 +170,12 @@ export async function list(
             bible_texts.verseNumber
           );
     return ok(verses);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to list translated verses',
+      context: { filters },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

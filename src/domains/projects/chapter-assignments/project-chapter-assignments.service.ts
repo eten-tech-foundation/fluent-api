@@ -3,6 +3,8 @@ import type { Result } from '@/lib/types';
 import { db } from '@/db';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { toChapterAssignmentResponse } from '@/domains/chapter-assignments/chapter-assignments.service';
+import * as projectsService from '@/domains/projects/projects.service';
+import * as usersService from '@/domains/users/users.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -25,8 +27,33 @@ export function deleteChapterAssignmentsByProject(projectId: number) {
   return repo.deleteByProject(projectId);
 }
 
-export function getChapterAssignmentProgressByProject(projectId: number) {
-  return repo.getProgressByProject(projectId);
+export async function getChapterAssignmentProgressByProject(projectId: number) {
+  const result = await chapterAssignmentService.getAssignmentsProgress({ projectId });
+  if (!result.ok) return result;
+
+  const mapped = result.data.map((info) => ({
+    assignmentId: info.assignmentId,
+    projectUnitId: info.projectUnitId,
+    status: info.status,
+    bookNameEng: info.bookNameEng,
+    chapterNumber: info.chapterNumber,
+    bibleId: info.bibleId,
+    bookId: info.bookId,
+    bookCode: info.bookCode,
+    sourceLangCode: info.sourceLangCode ?? '',
+    assignedUser: info.assignedUserId
+      ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
+      : null,
+    peerChecker: info.peerCheckerId
+      ? { id: info.peerCheckerId, displayName: info.peerCheckerDisplayName ?? '' }
+      : null,
+    totalVerses: info.totalVerses,
+    completedVerses: info.completedVerses,
+    createdAt: info.createdAt,
+    updatedAt: info.updatedAt,
+    submittedTime: info.submittedTime,
+  }));
+  return ok(mapped);
 }
 
 export async function assignAllProjectChapterAssignmentsToUser(
@@ -34,22 +61,20 @@ export async function assignAllProjectChapterAssignmentsToUser(
   assignmentData: AssignUserInput
 ) {
   return db.transaction(async (tx) => {
-    if (assignmentData.assignedUserId !== undefined) {
-      const isValid = await repo.isUserInProjectOrganization(
-        assignmentData.assignedUserId,
-        projectId,
-        tx
-      );
-      if (!isValid) return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
-    }
+    const projectResult = await projectsService.getProjectById(projectId);
+    if (!projectResult.ok) return err(ErrorCode.PROJECT_NOT_FOUND);
+    const projectOrgId = projectResult.data.organization;
 
-    if (assignmentData.peerCheckerId !== undefined) {
-      const isValid = await repo.isUserInProjectOrganization(
-        assignmentData.peerCheckerId,
-        projectId,
-        tx
+    if (assignmentData.assignedUserId !== undefined || assignmentData.peerCheckerId !== undefined) {
+      const userIds = [assignmentData.assignedUserId, assignmentData.peerCheckerId].filter(
+        (id): id is number => id !== undefined
       );
-      if (!isValid) return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
+
+      const usersResult = await usersService.getUsersByIds(userIds);
+      if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+
+      const invalidUsers = usersResult.data.some((u) => u.organization !== projectOrgId);
+      if (invalidUsers) return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
     }
 
     const assignmentIds = await repo.getAssignmentIdsByProject(projectId, tx);
@@ -85,9 +110,11 @@ export async function assignSelectedChapters(
         tx
       );
       if (invalidAssignmentIds.length > 0) {
-        return err(ErrorCode.NOT_FOUND, {
-          message: `Chapter assignments not found in project: ${invalidAssignmentIds.join(', ')}`,
+        logger.warn('Invalid chapter assignment IDs requested for project', {
+          projectId,
+          invalidAssignmentIds,
         });
+        return err(ErrorCode.NOT_FOUND);
       }
 
       const allUserIds = [
@@ -98,11 +125,22 @@ export async function assignSelectedChapters(
         ),
       ];
       if (allUserIds.length > 0) {
-        const invalidUserIds = await repo.findUserIdsNotInProjectOrg(projectId, allUserIds, tx);
+        const projectResult = await projectsService.getProjectById(projectId);
+        if (!projectResult.ok) return err(ErrorCode.PROJECT_NOT_FOUND);
+        const projectOrgId = projectResult.data.organization;
+
+        const usersResult = await usersService.getUsersByIds(allUserIds);
+        if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+
+        const validUserIds = new Set(
+          usersResult.data.filter((u) => u.organization === projectOrgId).map((u) => u.id)
+        );
+
+        const invalidUserIds = allUserIds.filter((id) => !validUserIds.has(id));
+
         if (invalidUserIds.length > 0) {
-          return err(ErrorCode.NOT_FOUND, {
-            message: `Users not found in project organization: ${invalidUserIds.join(', ')}`,
-          });
+          logger.warn('Users not found in project organization', { projectId, invalidUserIds });
+          return err(ErrorCode.NOT_FOUND);
         }
       }
 
@@ -123,11 +161,42 @@ export async function assignSelectedChapters(
         updatedIds.push(item.chapterAssignmentId);
       }
 
-      return ok(await repo.findFullAssignmentsByIds(updatedIds, tx));
+      const assignmentsResult = await chapterAssignmentService.getAssignmentsProgress(
+        { projectId },
+        tx
+      );
+      if (!assignmentsResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+
+      const mapped = assignmentsResult.data
+        .filter((info) => updatedIds.includes(info.assignmentId))
+        .map((info) => ({
+          assignmentId: info.assignmentId,
+          projectUnitId: info.projectUnitId,
+          status: info.status,
+          bookNameEng: info.bookNameEng,
+          chapterNumber: info.chapterNumber,
+          bibleId: info.bibleId,
+          bookId: info.bookId,
+          bookCode: info.bookCode,
+          sourceLangCode: info.sourceLangCode ?? '',
+          assignedUser: info.assignedUserId
+            ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
+            : null,
+          peerChecker: info.peerCheckerId
+            ? { id: info.peerCheckerId, displayName: info.peerCheckerDisplayName ?? '' }
+            : null,
+          totalVerses: info.totalVerses,
+          completedVerses: info.completedVerses,
+          createdAt: info.createdAt,
+          updatedAt: info.updatedAt,
+          submittedTime: info.submittedTime,
+        }));
+
+      return ok(mapped);
     });
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to assign selected chapters',
       context: { projectId, assignments },
     });

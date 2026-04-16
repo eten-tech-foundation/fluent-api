@@ -3,6 +3,8 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { AppEnv } from '@/server/context.types';
 
+import { getHttpStatus } from '@/lib/types';
+
 import type { UserAction } from './users.types';
 
 import { UserPolicy } from './user.policy';
@@ -36,7 +38,7 @@ export function requireUserAccess(action: UserAction, paramName = 'id') {
 
     const result = await userService.getUserById(targetUserId);
     if (!result.ok) {
-      return c.json({ message: 'User not found' }, HttpStatusCodes.NOT_FOUND);
+      return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
     }
 
     const targetUser = result.data;

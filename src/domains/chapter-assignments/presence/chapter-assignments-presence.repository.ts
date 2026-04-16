@@ -61,9 +61,9 @@ export async function upsertAndQueryFirstEditor(
         firstEditorName: isFirst ? null : firstEditor.username,
       });
     });
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to register presence',
       context: { userId, chapterAssignmentId },
     });
@@ -85,9 +85,9 @@ export async function deleteByUserAndAssignment(
         )
       );
     return ok(undefined);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to remove presence',
       context: { userId, chapterAssignmentId },
     });

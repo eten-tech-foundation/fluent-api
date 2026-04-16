@@ -4,6 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { BibleTextResponse, BulkVerseRow } from './bible-texts.types';
@@ -33,7 +34,12 @@ export async function getByChapter(
 
     if (texts.length === 0) return err(ErrorCode.NOT_FOUND);
     return ok(texts);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get bible text by chapter',
+      context: { bibleId, bookId, chapterNumber },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -69,7 +75,12 @@ export async function getByChapters(
     if (rows.length === 0) return err(ErrorCode.NOT_FOUND);
 
     return ok(rows);
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get bible texts by multiple chapters',
+      context: { bibleId, chaptersCount: chapters.length },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

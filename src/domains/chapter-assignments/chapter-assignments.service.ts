@@ -6,6 +6,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
 import type {
+  ChapterAssignmentProgressInfo,
   ChapterAssignmentRecord,
   ChapterAssignmentResponse,
   ChapterAssignmentStatus,
@@ -47,6 +48,18 @@ export function getChapterAssignmentWithAuthContext(
   return repo.findByIdWithAuthContext(id, userId, roleName);
 }
 
+export function getAssignmentsProgress(
+  filters: {
+    projectId?: number;
+    assignedUserId?: number;
+    peerCheckerId?: number;
+    status?: ChapterAssignmentStatus;
+  },
+  tx?: DbTransaction
+): Promise<Result<ChapterAssignmentProgressInfo[]>> {
+  return repo.findAssignmentsProgress(filters, tx);
+}
+
 export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number) {
   return repo.findForVerse(projectUnitId, bibleTextId);
 }
@@ -78,8 +91,12 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
       }
 
       return ok(toChapterAssignmentResponse(assignment));
-    } catch (e) {
-      logger.error({ cause: e, message: 'Failed to create chapter assignment', context: { data } });
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Failed to create chapter assignment',
+        context: { data },
+      });
       return err(ErrorCode.INTERNAL_ERROR);
     }
   });
@@ -111,9 +128,9 @@ export async function createChapterAssignmentForProjectUnit(
 
     const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to create chapter assignments for project unit',
       context: { projectUnitId, bibleId, bookIds },
     });
@@ -139,9 +156,9 @@ export async function updateChapterAssignment(
       await recordUserAssignmentChanges(tx, current, updated, data);
 
       return ok(toChapterAssignmentResponse(updated));
-    } catch (e) {
+    } catch (error) {
       logger.error({
-        cause: e,
+        cause: error,
         message: 'Failed to update chapter assignment',
         context: { chapterAssignmentId: id, data },
       });
@@ -205,9 +222,9 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
         { submittedTime: new Date(), status: nextStatus },
         tx
       );
-    } catch (e) {
+    } catch (error) {
       logger.error({
-        cause: e,
+        cause: error,
         message: 'Failed to submit chapter assignment',
         context: { chapterAssignmentId },
       });

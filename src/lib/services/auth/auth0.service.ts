@@ -7,6 +7,7 @@ import type { Result } from '@/lib/types';
 import { createUser, deleteUser } from '@/domains/users/users.service';
 import env from '@/env';
 import { sendInvitationEmail } from '@/lib/services/notifications/mailgun.service';
+import { ErrorCode } from '@/lib/types';
 
 const management = new ManagementClient({
   domain: env.AUTH0_DOMAIN,
@@ -59,6 +60,7 @@ export async function createUserWithInvitation(
     return {
       ok: false,
       error: {
+        code: ErrorCode.AUTH0_ERROR,
         message: `User creation failed during Auth0 sync and was rolled back. Reason: ${errorMessage}`,
       },
     };
@@ -88,6 +90,7 @@ export async function sendInvitationToExistingUser(
     return {
       ok: false,
       error: {
+        code: ErrorCode.AUTH0_ERROR,
         message: error instanceof Error ? error.message : 'Failed to send invitation',
       },
     };
@@ -138,8 +141,8 @@ async function sendUserInvitationEmail(
     lastName: input.lastName ?? undefined,
   });
 
-  if (!emailResult.success) {
-    console.error('Failed to send invitation email:', emailResult.error);
+  if (!emailResult.ok) {
+    console.error('Failed to send invitation email:', emailResult.error.message);
   }
 }
 

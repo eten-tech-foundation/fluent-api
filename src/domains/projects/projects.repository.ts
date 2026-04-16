@@ -9,8 +9,10 @@ import {
   chapterStatusEnum,
   project_unit_bible_books,
   project_units,
+  project_users,
   projects,
 } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { RawProjectRow } from './projects.query-builder';
@@ -38,7 +40,7 @@ const WORKFLOW_DEFINITION: WorkflowStep[] = chapterStatusEnum.enumValues.map((st
 }));
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
-function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
+export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
   const { counts, ...rest } = rawProject;
   const defaultCounts = chapterStatusEnum.enumValues.reduce((acc, status) => {
     acc[status] = 0;
@@ -60,7 +62,28 @@ export async function getByOrganization(
   try {
     const rawProjects = await baseJoinQuery().where(eq(projects.organization, organizationId));
     return ok(rawProjects.map(mapToProjectWithLanguages));
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get projects by organization',
+      context: { organizationId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function getByUserId(userId: number): Promise<Result<ProjectWithLanguageNames[]>> {
+  try {
+    const rawProjects = await baseJoinQuery()
+      .innerJoin(project_users, eq(project_users.projectId, projects.id))
+      .where(eq(project_users.userId, userId));
+    return ok(rawProjects.map(mapToProjectWithLanguages));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get projects by user ID',
+      context: { userId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -70,7 +93,8 @@ export async function getById(id: number): Promise<Result<ProjectWithLanguageNam
     const rawProjects = await baseJoinQuery().where(eq(projects.id, id)).limit(1);
     if (rawProjects.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
     return ok(mapToProjectWithLanguages(rawProjects[0]));
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get project by ID', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -137,7 +161,8 @@ export async function remove(id: number): Promise<Result<void>> {
       .returning({ id: projects.id });
     if (!deleted) return err(ErrorCode.PROJECT_NOT_FOUND);
     return ok(undefined);
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to delete project', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -152,7 +177,12 @@ export async function getProjectIdByUnitId(projectUnitId: number): Promise<Resul
 
     if (!unit) return err(ErrorCode.PROJECT_UNIT_NOT_FOUND);
     return ok({ projectId: unit.projectId });
-  } catch {
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get project unit ID by project ID',
+      context: { projectUnitId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

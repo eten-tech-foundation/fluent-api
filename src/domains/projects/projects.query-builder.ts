@@ -65,6 +65,8 @@ export const projectWithLangNames = {
   createdAt: projects.createdAt,
   updatedAt: projects.updatedAt,
   metadata: projects.metadata,
+  sourceLanguageId: projects.sourceLanguage,
+  targetLanguageId: projects.targetLanguage,
   sourceLanguageName: sourceLanguages.langName,
   targetLanguageName: targetLanguages.langName,
   sourceName: sourceBibles.name,

@@ -1,44 +1,45 @@
+import type { ChapterAssignmentProgressInfo } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { Result } from '@/lib/types';
 
+import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
-  UserChapterAssignment,
   UserChapterAssignmentResponse,
   UserChapterAssignmentsByUserResponse,
 } from './users-chapter-assignments.types';
 
-import * as repo from './users-chapter-assignments.repository';
-
-export function toResponse(assignment: UserChapterAssignment): UserChapterAssignmentResponse {
+export function toResponse(
+  assignment: ChapterAssignmentProgressInfo
+): UserChapterAssignmentResponse {
   return {
-    chapterAssignmentId: assignment.chapterAssignmentId,
+    chapterAssignmentId: assignment.assignmentId,
     projectId: assignment.projectId,
     projectName: assignment.projectName,
     projectUnitId: assignment.projectUnitId,
     bibleId: assignment.bibleId,
-    bibleName: assignment.bibleName,
-    chapterStatus: assignment.chapterStatus,
-    targetLanguage: assignment.targetLanguage,
-    sourceLangCode: assignment.sourceLangCode,
+    bibleName: assignment.bibleName ?? '',
+    chapterStatus: assignment.status,
+    targetLanguage: assignment.targetLanguage ?? '',
+    sourceLangCode: assignment.sourceLangCode ?? '',
     bookCode: assignment.bookCode,
     bookId: assignment.bookId,
-    book: assignment.book,
+    book: assignment.bookNameEng,
     chapterNumber: assignment.chapterNumber,
     totalVerses: assignment.totalVerses,
     completedVerses: assignment.completedVerses,
-    submittedTime: assignment.submittedTime,
+    submittedTime: assignment.submittedTime?.toISOString() ?? null,
     assignedUserId: assignment.assignedUserId,
     peerCheckerId: assignment.peerCheckerId,
-    updatedAt: assignment.updatedAt,
+    updatedAt: assignment.updatedAt?.toISOString() ?? null,
   };
 }
 
 export async function getAssignedChaptersByUserId(
   userId: number
 ): Promise<Result<UserChapterAssignmentResponse[]>> {
-  const result = await repo.findAssignedByUserId(userId);
+  const result = await chapterAssignmentService.getAssignmentsProgress({ assignedUserId: userId });
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }
@@ -46,7 +47,10 @@ export async function getAssignedChaptersByUserId(
 export async function getPeerCheckChaptersByUserId(
   userId: number
 ): Promise<Result<UserChapterAssignmentResponse[]>> {
-  const result = await repo.findPeerCheckByUserId(userId);
+  const result = await chapterAssignmentService.getAssignmentsProgress({
+    peerCheckerId: userId,
+    status: 'peer_check',
+  });
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }
@@ -67,9 +71,9 @@ export async function getAllChapterAssignmentsByUserId(
       assignedChapters: assignedResult.data,
       peerCheckChapters: peerCheckResult.data,
     });
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to fetch all chapter assignments by user ID',
       context: { userId },
     });

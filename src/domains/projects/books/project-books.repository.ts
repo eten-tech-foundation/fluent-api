@@ -33,9 +33,9 @@ export async function getBooksByProjectId(projectId: number): Promise<Result<Pro
     }));
 
     return ok(mappedBooks);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to fetch project books',
       context: { projectId },
     });

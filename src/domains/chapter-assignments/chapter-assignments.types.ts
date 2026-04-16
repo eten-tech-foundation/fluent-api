@@ -37,6 +37,31 @@ export interface ChapterAssignmentRecordWithOrg extends ChapterAssignmentRecord 
   organizationId: number;
 }
 
+export interface ChapterAssignmentProgressInfo {
+  assignmentId: number;
+  projectId: number;
+  projectName: string;
+  projectUnitId: number;
+  bibleId: number;
+  bibleName: string | null;
+  bookId: number;
+  bookCode: string;
+  bookNameEng: string;
+  chapterNumber: number;
+  status: string;
+  targetLanguage: string | null;
+  sourceLangCode: string | null;
+  totalVerses: number;
+  completedVerses: number;
+  assignedUserId: number | null;
+  assignedUserDisplayName: string | null;
+  peerCheckerId: number | null;
+  peerCheckerDisplayName: string | null;
+  submittedTime: Date | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
 // ─── Service input types ──────────────────────────────────────────────────────
 
 export interface CreateChapterAssignmentRequestData {

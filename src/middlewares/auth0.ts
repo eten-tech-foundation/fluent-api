@@ -23,7 +23,7 @@ export const auth0Middleware: MiddlewareHandler = async (c, next) => {
     // Cast to Auth0JWTPayload for type safety
     c.set('jwtPayload', payload as Auth0JWTPayload);
     await next();
-  } catch (err) {
-    return c.json({ error: 'Invalid or expired token', details: (err as Error).message }, 401);
+  } catch (error) {
+    return c.json({ error: 'Invalid or expired token', details: (error as Error).message }, 401);
   }
 };

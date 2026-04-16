@@ -10,12 +10,7 @@ import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { server } from '@/server/server';
 
-import {
-  createUSFMZipStreamAsync,
-  getAvailableBooksForExport,
-  getProjectName,
-  validateBookIds,
-} from './usfm.handlers';
+import * as usfmService from './usfm.service';
 
 interface ErrorResponse {
   error: string;
@@ -160,7 +155,16 @@ const downloadExportRoute = createRoute({
 server.openapi(getExportableBooksRoute, async (c) => {
   try {
     const { projectUnitId } = c.req.valid('param');
-    const books = await getAvailableBooksForExport(projectUnitId);
+    const booksResult = await usfmService.getAvailableBooksForExport(projectUnitId);
+
+    if (!booksResult.ok) {
+      return c.json(
+        { error: 'Failed to get exportable books' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      );
+    }
+
+    const books = booksResult.data;
 
     return c.json(
       {
@@ -194,19 +198,22 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
   logger.info('Synchronous USFM export requested', { projectUnitId, bookIds });
 
   try {
-    if (bookIds && !(await validateBookIds(projectUnitId, bookIds))) {
-      logger.warn('Invalid book IDs provided for export', { projectUnitId, bookIds });
-      return c.json(
-        {
-          error: 'Invalid book IDs',
-          details: 'One or more book IDs do not belong to this project unit',
-        },
-        HttpStatusCodes.BAD_REQUEST
-      );
+    if (bookIds) {
+      const isValidResult = await usfmService.validateBookIds(projectUnitId, bookIds);
+      if (!isValidResult.ok || !isValidResult.data) {
+        logger.warn('Invalid book IDs provided for export', { projectUnitId, bookIds });
+        return c.json(
+          {
+            error: 'Invalid book IDs',
+            details: 'One or more book IDs do not belong to this project unit',
+          },
+          HttpStatusCodes.BAD_REQUEST
+        );
+      }
     }
 
-    const projectName = await getProjectName(projectUnitId);
-    if (!projectName) {
+    const projectNameResult = await usfmService.getProjectName(projectUnitId);
+    if (!projectNameResult.ok || !projectNameResult.data) {
       logger.warn('Project not found for project unit', { projectUnitId });
       return c.json(
         { error: 'Project not found for this project unit' },
@@ -214,13 +221,15 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
       );
     }
 
-    const exportResult = await createUSFMZipStreamAsync(projectUnitId, bookIds);
-    if (!exportResult) {
+    const projectName = projectNameResult.data;
+
+    const exportResultObj = await usfmService.createUSFMZipStreamAsync(projectUnitId, bookIds);
+    if (!exportResultObj.ok || !exportResultObj.data) {
       logger.warn('No books available for export', { projectUnitId, bookIds });
       return c.json({ error: 'No books available for export' }, HttpStatusCodes.BAD_REQUEST);
     }
 
-    const { stream: zipStream, cleanup } = exportResult;
+    const { stream: zipStream, cleanup } = exportResultObj.data;
     const filename = `${projectName.trim().replace(/[<>:"/\\|?*]/g, '_')}.zip`;
 
     c.header('Content-Type', 'application/zip');
@@ -289,14 +298,17 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
   logger.info('Asynchronous USFM export requested', { projectUnitId, bookIds });
 
   try {
-    if (bookIds && !(await validateBookIds(projectUnitId, bookIds))) {
-      return c.json(
-        {
-          error: 'Invalid book IDs',
-          details: 'One or more book IDs do not belong to this project unit',
-        },
-        HttpStatusCodes.BAD_REQUEST
-      );
+    if (bookIds) {
+      const isValidResult = await usfmService.validateBookIds(projectUnitId, bookIds);
+      if (!isValidResult.ok || !isValidResult.data) {
+        return c.json(
+          {
+            error: 'Invalid book IDs',
+            details: 'One or more book IDs do not belong to this project unit',
+          },
+          HttpStatusCodes.BAD_REQUEST
+        );
+      }
     }
 
     const boss = await getQueue();
@@ -314,7 +326,14 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
     });
 
     if (!jobId) {
-      throw new Error('Failed to queue job: no job ID returned');
+      logger.error('Failed to queue USFM export - no job ID returned', { projectUnitId });
+      return c.json(
+        {
+          error: 'Failed to queue export',
+          details: 'No job ID from queue',
+        },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      );
     }
 
     logger.info('USFM export job queued', { jobId, projectUnitId, bookIds });
@@ -397,7 +416,7 @@ server.openapi(downloadExportRoute, async (c) => {
 
     logger.info('File downloaded', { filename, sizeBytes: fileBuffer.length });
 
-    return new Response(fileBuffer, {
+    return new Response(fileBuffer as unknown as BodyInit, {
       status: 200,
       headers: {
         'Content-Type': 'application/zip',

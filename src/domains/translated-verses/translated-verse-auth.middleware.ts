@@ -8,6 +8,7 @@ import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter
 import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { getHttpStatus } from '@/lib/types';
 
 import type { ProjectUnitIdSource, TranslatedVerseAction } from './translated-verses.types';
 
@@ -94,7 +95,10 @@ export function requireTranslatedVerseAccess(
         body.bibleTextId
       );
       if (!assignmentResult.ok) {
-        return c.json({ message: assignmentResult.error.message }, HttpStatusCodes.BAD_REQUEST);
+        return c.json(
+          { message: assignmentResult.error.message },
+          getHttpStatus(assignmentResult.error) as never
+        );
       }
 
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);

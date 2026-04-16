@@ -46,6 +46,12 @@ export async function getUserById(id: number): Promise<Result<UserResponse>> {
   return ok(toUserResponse(result.data));
 }
 
+export async function getUsersByIds(ids: number[]): Promise<Result<UserResponse[]>> {
+  const result = await repo.findByIds(ids);
+  if (!result.ok) return result;
+  return ok(result.data.map(toUserResponse));
+}
+
 export async function getUserByEmail(
   email: string
 ): Promise<Result<UserResponse & { roleName: string }>> {

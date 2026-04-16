@@ -1,10 +1,6 @@
-import { ROLES } from '@/lib/roles';
+import type { AppPolicyUser } from '@/lib/types';
 
-interface PolicyUser {
-  id: number;
-  roleName: string;
-  organization: number;
-}
+import { ROLES } from '@/lib/roles';
 
 interface PolicyTargetUser {
   id: number;
@@ -18,7 +14,7 @@ export const UserPolicy = {
    * Manager    : yes.
    * Translator : no (they can only view themselves via their specific ID).
    */
-  list(user: PolicyUser): boolean {
+  list(user: AppPolicyUser): boolean {
     return user.roleName === ROLES.PROJECT_MANAGER;
   },
 
@@ -28,7 +24,7 @@ export const UserPolicy = {
    * Manager    : yes, if the target is in the same organisation.
    * Translator : yes, only if the target is themselves.
    */
-  view(user: PolicyUser, targetUser: PolicyTargetUser): boolean {
+  view(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
     if (user.roleName === ROLES.PROJECT_MANAGER) {
       return user.organization === targetUser.organization;
     }
@@ -46,7 +42,7 @@ export const UserPolicy = {
    * Manager    : yes — requirePermission already confirmed user:create.
    * Translator : never reaches here, blocked by requirePermission.
    */
-  create(user: PolicyUser): boolean {
+  create(user: AppPolicyUser): boolean {
     return user.roleName === ROLES.PROJECT_MANAGER;
   },
 
@@ -59,7 +55,7 @@ export const UserPolicy = {
    * Note: role and organisation fields are stripped from updates
    * for non-managers in the handler before this is called.
    */
-  update(user: PolicyUser, targetUser: PolicyTargetUser): boolean {
+  update(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
     if (user.roleName === ROLES.PROJECT_MANAGER) {
       return user.organization === targetUser.organization;
     }
@@ -77,7 +73,7 @@ export const UserPolicy = {
    * Manager    : yes, if the target is in the same organisation.
    * Translator : never reaches here, blocked by requirePermission.
    */
-  delete(user: PolicyUser, targetUser: PolicyTargetUser): boolean {
+  delete(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
     if (user.roleName === ROLES.PROJECT_MANAGER) {
       return user.organization === targetUser.organization;
     }

@@ -29,9 +29,9 @@ export async function findByUserAndAssignment(
       .limit(1);
 
     return ok(result?.resources ?? null);
-  } catch (e) {
+  } catch (error) {
     logger.error({
-      cause: e,
+      cause: error,
       message: 'Failed to fetch editor state',
       context: { userId, chapterAssignmentId },
     });
@@ -57,8 +57,8 @@ export async function upsert(input: UpsertEditorStateInput): Promise<Result<Edit
       .returning({ resources: user_chapter_assignment_editor_state.resources });
 
     return ok(result.resources);
-  } catch (e) {
-    logger.error({ cause: e, message: 'Failed to upsert editor state', context: { input } });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to upsert editor state', context: { input } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

@@ -170,7 +170,7 @@ describe('projects service', () => {
       vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue(mockUnit);
 
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
-        err(ErrorCode.INTERNAL_ERROR, { message: 'Assignment failed' })
+        err(ErrorCode.INTERNAL_ERROR)
       );
 
       const result = await createProject(mockInput as any);

@@ -4,6 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { books } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Book } from './books.types';
@@ -85,7 +86,8 @@ const NEW_TESTAMENT_CODES = [
 export async function getAll(): Promise<Result<Book[]>> {
   try {
     return ok(await db.select().from(books));
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get all books' });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -95,7 +97,8 @@ export async function getById(id: number): Promise<Result<Book>> {
     const [book] = await db.select().from(books).where(eq(books.id, id)).limit(1);
     if (!book) return err(ErrorCode.BOOK_NOT_FOUND);
     return ok(book);
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get book by ID', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -109,7 +112,8 @@ export async function getByCode(code: string): Promise<Result<Book>> {
       .limit(1);
     if (!book) return err(ErrorCode.BOOK_NOT_FOUND);
     return ok(book);
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get book by code', context: { code } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -117,7 +121,8 @@ export async function getByCode(code: string): Promise<Result<Book>> {
 export async function getOldTestament(): Promise<Result<Book[]>> {
   try {
     return ok(await db.select().from(books).where(inArray(books.code, OLD_TESTAMENT_CODES)));
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get Old Testament books' });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -125,7 +130,8 @@ export async function getOldTestament(): Promise<Result<Book[]>> {
 export async function getNewTestament(): Promise<Result<Book[]>> {
   try {
     return ok(await db.select().from(books).where(inArray(books.code, NEW_TESTAMENT_CODES)));
-  } catch {
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get New Testament books' });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

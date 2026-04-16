@@ -2,6 +2,8 @@ import type { Context } from 'hono';
 
 import { vi } from 'vitest';
 
+import { ErrorCode } from '@/lib/types';
+
 /**
  * Creates a mock Hono Context with commonly used methods
  */
@@ -274,5 +276,11 @@ export function resetAllMocks() {
 export function createResult<T>(data: T, success: boolean = true) {
   return success
     ? { ok: true, data }
-    : { ok: false, error: { message: typeof data === 'string' ? data : 'Error occurred' } };
+    : {
+        ok: false,
+        error: {
+          code: ErrorCode.INTERNAL_ERROR,
+          message: typeof data === 'string' ? data : 'Error occurred',
+        },
+      };
 }

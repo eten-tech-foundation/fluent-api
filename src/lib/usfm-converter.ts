@@ -3,6 +3,7 @@ import usfmGrammar from 'usfm-grammar';
 import type { Result, USJDocument } from '@/lib/types';
 
 import { logger } from '@/lib/logger';
+import { ErrorCode } from '@/lib/types';
 
 const { USFMParser } = usfmGrammar;
 
@@ -22,7 +23,10 @@ export interface VerseData {
  */
 function validateUSFMInput(usfmText: string): Result<void> {
   if (!usfmText || usfmText.trim().length === 0) {
-    return { ok: false, error: { message: 'USFM text cannot be empty' } };
+    return {
+      ok: false,
+      error: { code: ErrorCode.VALIDATION_ERROR, message: 'USFM text cannot be empty' },
+    };
   }
   return { ok: true, data: undefined };
 }
@@ -58,6 +62,7 @@ function convertUSFMToUSJ(usfmText: string): Result<USJDocument> {
     return {
       ok: false,
       error: {
+        code: ErrorCode.INTERNAL_ERROR,
         message: error instanceof Error ? error.message : 'Failed to convert USFM to USJ',
       },
     };

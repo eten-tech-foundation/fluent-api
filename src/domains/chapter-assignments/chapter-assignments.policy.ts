@@ -5,15 +5,11 @@
  * Now includes strict Organization-level multi-tenant isolation.
  */
 
+import type { AppPolicyUser } from '@/lib/types';
+
 import { ROLES } from '@/lib/roles';
 
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
-
-interface PolicyUser {
-  id: number;
-  roleName: string;
-  organization: number;
-}
 
 export interface PolicyChapterAssignment {
   organizationId: number;
@@ -26,7 +22,11 @@ export const ChapterAssignmentPolicy = {
   /**
    * Can this user edit the content of this chapter assignment?
    */
-  edit(user: PolicyUser, assignment: PolicyChapterAssignment, isProjectMember: boolean): boolean {
+  edit(
+    user: AppPolicyUser,
+    assignment: PolicyChapterAssignment,
+    isProjectMember: boolean
+  ): boolean {
     if (user.organization !== assignment.organizationId) {
       return false;
     }
@@ -66,28 +66,28 @@ export const ChapterAssignmentPolicy = {
   /**
    * Can this user view a list of all chapter assignments in this org?
    */
-  viewAll(user: PolicyUser, targetOrganizationId: number): boolean {
+  viewAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
     return user.organization === targetOrganizationId;
   },
 
   /**
    * Can this user view this specific chapter assignment?
    */
-  view(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  view(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return user.organization === assignment.organizationId;
   },
 
   /**
    * Can this user create a chapter assignment?
    */
-  create(user: PolicyUser, targetOrganizationId: number): boolean {
+  create(user: AppPolicyUser, targetOrganizationId: number): boolean {
     return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
   },
 
   /**
    * Can this user update this chapter assignment (e.g., metadata, non-content)?
    */
-  update(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  update(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return (
       user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
     );
@@ -96,7 +96,7 @@ export const ChapterAssignmentPolicy = {
   /**
    * Can this user delete this chapter assignment?
    */
-  delete(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  delete(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return (
       user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
     );
@@ -105,21 +105,21 @@ export const ChapterAssignmentPolicy = {
   /**
    * Can this user delete all chapter assignments for a project/org?
    */
-  deleteAll(user: PolicyUser, targetOrganizationId: number): boolean {
+  deleteAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
     return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
   },
 
   /**
    * Can this user assign all chapter assignments for a project/org?
    */
-  assignAll(user: PolicyUser, targetOrganizationId: number): boolean {
+  assignAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
     return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
   },
 
   /**
    * Base assignment logic (Internal abstraction)
    */
-  _assign(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  _assign(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return (
       user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
     );
@@ -128,21 +128,25 @@ export const ChapterAssignmentPolicy = {
   /**
    * Can this user assign a drafter to this assignment?
    */
-  assignDrafter(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  assignDrafter(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return this._assign(user, assignment);
   },
 
   /**
    * Can this user assign a peer checker to this assignment?
    */
-  assignPeerChecker(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  assignPeerChecker(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     return this._assign(user, assignment);
   },
 
   /**
    * Can this user submit (advance the status of) this assignment?
    */
-  submit(user: PolicyUser, assignment: PolicyChapterAssignment, isProjectMember: boolean): boolean {
+  submit(
+    user: AppPolicyUser,
+    assignment: PolicyChapterAssignment,
+    isProjectMember: boolean
+  ): boolean {
     // 1. Strict Organization Boundary Check
     if (user.organization !== assignment.organizationId) {
       return false;
@@ -183,7 +187,7 @@ export const ChapterAssignmentPolicy = {
   /**
    * Is this user a direct participant in this assignment?
    */
-  isParticipant(user: PolicyUser, assignment: PolicyChapterAssignment): boolean {
+  isParticipant(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     // 1. Strict Organization Boundary Check
     if (user.organization !== assignment.organizationId) {
       return false;

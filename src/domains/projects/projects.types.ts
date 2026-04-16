@@ -27,6 +27,8 @@ export const projectResponseSchema = selectProjectsSchema.openapi('Project');
 export const projectWithLanguageNamesSchema = selectProjectsSchema
   .omit({ sourceLanguage: true, targetLanguage: true })
   .extend({
+    sourceLanguageId: z.number().int(),
+    targetLanguageId: z.number().int(),
     sourceLanguageName: z.string(),
     targetLanguageName: z.string(),
     sourceName: z.string(),
