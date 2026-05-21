@@ -255,6 +255,7 @@ describe('user Service Functions', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         email: mockUserInput.email.toLowerCase(),
+        authUserId: null,
       };
       (db.insert as any).mockReturnValue({
         values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([createdUser]) }),

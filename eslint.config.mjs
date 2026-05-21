@@ -38,5 +38,11 @@ export default antfu(
         },
       ],
     },
+  },
+  {
+    files: ['src/db/scripts/**', 'src/db/seeds/**'],
+    rules: {
+      'no-console': 'off',
+    },
   }
 );

@@ -6,38 +6,20 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import type { Permission } from '@/lib/permissions';
 import type { AppBindings } from '@/lib/types';
 
-import { getUserByEmail } from '@/domains/users/users.service';
 import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
-
-export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-export function emailMatch(sourceEmail: string, targetEmail: string): boolean {
-  return normalizeEmail(sourceEmail) === normalizeEmail(targetEmail);
-}
 
 /**
  * 1. Authentication Middleware
  * Validates the token, fetches the user, checks status, and stores in context.
  */
 export async function authenticateUser(c: Context<AppBindings>, next: Next) {
-  const userEmail = c.get('loggedInUserEmail');
-  if (!userEmail) {
+  const user = c.get('user');
+
+  if (!user) {
     throw new HTTPException(HttpStatusCodes.UNAUTHORIZED, {
-      message: 'User email not found in token',
+      message: 'User not authenticated',
     });
   }
-
-  const userResult = await getUserByEmail(userEmail);
-
-  if (!userResult.ok) {
-    throw new HTTPException(HttpStatusCodes.UNAUTHORIZED, {
-      message: 'User not found in database',
-    });
-  }
-
-  const user = userResult.data;
 
   if (user.status === 'inactive') {
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {

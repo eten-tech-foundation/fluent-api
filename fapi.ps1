@@ -303,14 +303,23 @@ switch ($Command) {
   "run"          { Invoke-ExecApi (@("npm", "run") + $ExtraArgs) }
 
   "db:migrate" { Write-Running "Running fluent-api migrations..."; Invoke-ExecApi @("npx", "drizzle-kit", "migrate") }
-  "db:seed"    { Write-Running "Seeding RBAC data..."; Invoke-ExecApi @("npx", "tsx", "src/db/seeds/rbac.ts") }
+  "db:seed" {
+    Write-Running "Seeding organizations..."
+    Invoke-ExecApi @("npm", "run", "db:seed:org")
+    Write-Running "Seeding roles..."
+    Invoke-ExecApi @("npm", "run", "db:seed:roles")
+    Write-Running "Seeding RBAC data..."
+    Invoke-ExecApi @("npm", "run", "db:seed:rbac")
+    Write-Running "Seeding dev users..."
+    Invoke-ExecApi @("npm", "run", "db:seed:dev-users")
+    Write-Success "All seeds complete."
+  }
 
   "db:init" {
     Write-Running "Full database initialization (migrations + seeds)..."
     $confirm = Read-Host "This will run all migrations and seeds. Continue? [y/N]"
     if ($confirm -match "^[Yy]$") {
-      Invoke-ExecApi @("npx", "drizzle-kit", "migrate")
-      Invoke-ExecApi @("npx", "tsx", "src/db/seeds/rbac.ts")
+      Invoke-ExecApi @("npm", "run", "db:setup")
       Write-Success "Database initialization complete."
     } else { Write-Host "Aborted." }
   }
@@ -421,7 +430,7 @@ switch ($Command) {
         Write-Host "Created empty .env file"
       }
     } else { Write-Host ".env already exists, skipping." }
-    Write-Host "Remember to fill in credentials in .env (Auth0, etc.)"
+    Write-Host "Remember to fill in DATABASE_URL and BETTER_AUTH_SECRET in .env before running db:init."
   }
 
   default {
@@ -454,8 +463,8 @@ Development (runs in API container):
 
 Database:
   db:migrate             Run Drizzle migrations
-  db:seed                Seed RBAC data
-  db:init                Run all migrations then all seeds
+  db:seed                Seed all data (org, roles, RBAC, dev users)
+  db:init                Run migrations + all seeds (delegates to npm run db:setup)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host
   db:psql                Open psql session

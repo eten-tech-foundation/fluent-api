@@ -59,8 +59,86 @@ export const organizations = pgTable('organizations', {
     .$onUpdate(() => new Date()),
 });
 
+// ─── BetterAuth Core Tables ──────────────────────────────────────────────────
+
+export const authUser = pgTable('auth_user', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: varchar('image', { length: 255 }),
+  twoFactorEnabled: boolean('two_factor_enabled').default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const authSession = pgTable('auth_session', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  expiresAt: timestamp('expires_at').notNull(),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  ipAddress: varchar('ip_address', { length: 255 }),
+  userAgent: varchar('user_agent'),
+  userId: varchar('user_id', { length: 36 })
+    .notNull()
+    .references(() => authUser.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const authAccount = pgTable('auth_account', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  accountId: varchar('account_id', { length: 255 }).notNull(),
+  providerId: varchar('provider_id', { length: 255 }).notNull(),
+  userId: varchar('user_id', { length: 36 })
+    .notNull()
+    .references(() => authUser.id, { onDelete: 'cascade' }),
+  accessToken: varchar('access_token'),
+  refreshToken: varchar('refresh_token'),
+  idToken: varchar('id_token'),
+  accessTokenExpiresAt: timestamp('access_token_expires_at'),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at'),
+  scope: varchar('scope', { length: 255 }),
+  password: varchar('password', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const authVerification = pgTable('auth_verification', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  identifier: varchar('identifier', { length: 255 }).notNull(),
+  value: varchar('value', { length: 255 }).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const authAuditLog = pgTable(
+  'auth_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    userId: varchar('user_id', { length: 36 }).references(() => authUser.id, {
+      onDelete: 'set null',
+    }),
+    event: varchar('event', { length: 100 }).notNull(),
+    ipAddress: varchar('ip_address', { length: 255 }),
+    userAgent: varchar('user_agent'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_audit_log_user').on(table.userId),
+    index('idx_audit_log_event').on(table.event),
+    index('idx_audit_log_created').on(table.createdAt),
+  ]
+);
+
+// ─── App Domain Tables ───────────────────────────────────────────────────────
+
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
+  authUserId: varchar('auth_user_id', { length: 36 }).references(() => authUser.id, {
+    onDelete: 'set null',
+  }),
   username: varchar('username', { length: 100 }).notNull().unique(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   firstName: varchar('first_name', { length: 100 }),

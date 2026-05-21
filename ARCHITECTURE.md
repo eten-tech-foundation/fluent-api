@@ -98,7 +98,7 @@ Services return `Result<T>` instead of throwing exceptions, forcing callers to h
 - **Database**: PostgreSQL
 - **Validation**: Zod
 - **Testing**: Vitest
-- **Authentication**: Auth0 (via middleware)
+- **Authentication**: BetterAuth (session-based middleware)
 
 ## Design Principles
 

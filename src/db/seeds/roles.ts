@@ -1,16 +1,21 @@
+import { fileURLToPath } from 'node:url';
+
 import { db } from '@/db';
 import { roles } from '@/db/schema';
 import { ROLES } from '@/lib/roles';
 
 const ROLE_DEFINITIONS = Object.values(ROLES).map((name) => ({ name }));
 
-async function seed() {
+export async function seedRoles() {
   await db.insert(roles).values(ROLE_DEFINITIONS).onConflictDoNothing({ target: roles.name });
-
-  process.exit(0);
+  console.log('Roles seeded.');
 }
 
-seed().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  seedRoles()
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
+}

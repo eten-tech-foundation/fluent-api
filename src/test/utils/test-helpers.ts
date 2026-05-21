@@ -45,6 +45,7 @@ export const sampleUsers = {
     createdBy: null,
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
+    authUserId: null,
     status: 'verified' as const,
   },
   user2: {
@@ -58,6 +59,7 @@ export const sampleUsers = {
     createdBy: null,
     createdAt: new Date('2024-01-02T00:00:00Z'),
     updatedAt: new Date('2024-01-02T00:00:00Z'),
+    authUserId: null,
     status: 'invited' as const,
   },
   newUser: {
