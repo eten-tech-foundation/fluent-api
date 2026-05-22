@@ -1,9 +1,12 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { eq } from 'drizzle-orm';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 
 import type { AppEnv } from '@/server/context.types';
 
+import { db } from '@/db';
+import * as schema from '@/db/schema';
 import env from '@/env';
 import { auth } from '@/lib/auth';
 import { logger } from '@/lib/logger';
@@ -44,12 +47,36 @@ export function createServer() {
   app.use(
     '*',
     cors({
-      origin: [env.FRONTEND_URL],
+      origin: (origin) => {
+        if (!origin) return null;
+        if (origin === env.FRONTEND_URL || origin.endsWith('.fluent.bible')) {
+          return origin;
+        }
+        return null;
+      },
       credentials: true,
     })
   );
 
-  // ─── Mount BetterAuth routes at /api/auth/* (criterion #4) ────
+  // Handle preflight OPTIONS for all /api/auth/* routes
+  app.options('/api/auth/*', (c) => {
+    const origin = c.req.header('Origin') ?? null;
+    const isAllowed =
+      origin &&
+      (origin === env.FRONTEND_URL.replace(/\/$/, '') || origin.endsWith('.fluent.bible'));
+    if (!isAllowed) return c.text('Forbidden', 403);
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-better-auth-*',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  });
+
   app.post('/api/auth/password/set', async (c) => {
     try {
       const body = await c.req.json();
@@ -61,6 +88,40 @@ export function createServer() {
     } catch (err) {
       console.error('Password set error:', err);
       return c.json({ error: { message: 'Unauthorized or invalid request' } }, 401);
+    }
+  });
+
+  app.get('/api/auth/validate-token', async (c) => {
+    const token = c.req.query('token');
+    if (!token) {
+      return c.json({ isValid: false, message: 'Token is required' }, 400);
+    }
+    try {
+      const [verification] = await db
+        .select()
+        .from(schema.authVerification)
+        .where(eq(schema.authVerification.identifier, `reset-password:${token}`))
+        .limit(1);
+
+      if (!verification) {
+        return c.json(
+          {
+            isValid: false,
+            message: 'This password reset link is invalid or has already been used.',
+          },
+          410
+        );
+      }
+
+      const isExpired = new Date(verification.expiresAt) < new Date();
+      if (isExpired) {
+        return c.json({ isValid: false, message: 'This password reset link has expired.' }, 410);
+      }
+
+      return c.json({ isValid: true });
+    } catch (err) {
+      logger.error('Failed to validate verification token', { error: err });
+      return c.json({ isValid: false, message: 'Failed to validate token' }, 500);
     }
   });
 

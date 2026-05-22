@@ -82,6 +82,7 @@ export const auth = betterAuth({
       '/api/auth/sign-in': { window: 60, max: 5 },
       '/api/auth/sign-up': { window: 60, max: 3 },
       '/api/auth/forget-password': { window: 60, max: 3 },
+      '/api/auth/validate-token': { window: 60, max: 10 },
     },
   },
 
