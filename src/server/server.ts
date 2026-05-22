@@ -104,15 +104,18 @@ export function createServer() {
         .limit(1);
 
       if (!verification) {
-        return c.json({
-          isValid: false,
-          message: 'This password reset link is invalid or has already been used.',
-        });
+        return c.json(
+          {
+            isValid: false,
+            message: 'This password reset link is invalid or has already been used.',
+          },
+          410
+        );
       }
 
       const isExpired = new Date(verification.expiresAt) < new Date();
       if (isExpired) {
-        return c.json({ isValid: false, message: 'This password reset link has expired.' });
+        return c.json({ isValid: false, message: 'This password reset link has expired.' }, 410);
       }
 
       return c.json({ isValid: true });
