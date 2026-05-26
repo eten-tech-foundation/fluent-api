@@ -3,7 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { ai_suggestion_jobs, ai_suggestions } from '@/db/schema';
+import { ai_suggestion_jobs, ai_suggestion_usage_log, ai_suggestions } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -86,9 +86,6 @@ export async function logAiSuggestionUsage(
 ): Promise<Result<void>> {
   const database = tx || db;
   try {
-    // Import ai_suggestion_usage_log inside to avoid circular deps if any,
-    // but better to import it at the top
-    const { ai_suggestion_usage_log } = await import('@/db/schema');
     await database
       .insert(ai_suggestion_usage_log)
       .values({
