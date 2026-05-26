@@ -85,6 +85,27 @@
       "when": 1779775000000,
       "tag": "0011_harden_ai_suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779775100000,
+      "tag": "0012_ai_usage_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779775200000,
+      "tag": "0013_project_unit_ai_enabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779775300000,
+      "tag": "0014_add_better_auth",
+      "breakpoints": true
     }
   ]
 }

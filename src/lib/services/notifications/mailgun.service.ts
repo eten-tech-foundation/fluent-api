@@ -88,3 +88,29 @@ export async function sendInvitationEmail({
     };
   }
 }
+
+// ─── Generic email sender (used by BetterAuth plugins) ────────────────────────
+
+export interface GenericEmailData {
+  to: string;
+  subject: string;
+  html: string;
+}
+
+export async function sendEmail({ to, subject, html }: GenericEmailData): Promise<void> {
+  if (!process.env.EMAIL_SERVICE_API_KEY || !process.env.EMAIL_SERVICE_DOMAIN) {
+    console.error('Email service not configured — skipping email send');
+    return;
+  }
+
+  try {
+    await mg.messages.create(process.env.EMAIL_SERVICE_DOMAIN!, {
+      from: process.env.EMAIL_SERVICE_SENDER!,
+      to,
+      subject,
+      html,
+    });
+  } catch (error) {
+    console.error('Failed to send email:', error);
+  }
+}

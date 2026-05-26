@@ -7,7 +7,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ROLES } from '@/lib/roles';
-import { createUserWithInvitation } from '@/lib/services/auth/auth0.service';
+import { createUserWithInvitation } from '@/lib/services/auth/auth.service';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -149,7 +149,7 @@ const createUserWithInvitationRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent(
-      z.object({ user: userResponseSchema, auth0_user_id: z.string(), ticket_url: z.string() }),
+      z.object({ user: userResponseSchema }),
       'User created and invitation sent'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
@@ -158,7 +158,7 @@ const createUserWithInvitationRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Validation error or Auth0 error'
+      'Validation error or auth error'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -181,8 +181,8 @@ const createUserWithInvitationRoute = createRoute({
       'The validation error'
     ),
   },
-  summary: 'Create user and send Auth0 invitation',
-  description: 'Creates a new user in database and sends Auth0 invitation email',
+  summary: 'Create user and send invitation',
+  description: 'Creates a new user in database and sends magic link invitation email',
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
@@ -194,7 +194,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
     organization: currentUser.organization,
   };
 
-  const result = await createUserWithInvitation(userData);
+  const result = await createUserWithInvitation(userData, c.req.raw.headers);
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.CREATED);
   }

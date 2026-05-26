@@ -48,13 +48,14 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
 
 ### Authentication & Security
 
-- **[Auth0](https://auth0.com/)** - Authentication and authorization platform
-- **[jose](https://github.com/panva/jose)** - JWT verification and JWKS support
+- **[Better Auth](https://www.better-auth.com/)** - Self-hosted authentication and authorization platform
 
 ## 📚 Documentation
 
 - **[Developer Documentation](./docs/README.md)** - Complete guides for API development
-- **[Auth0 Integration Guide](./docs/auth0-integration.md)** - How to create protected routes
+
+- **[Authentication Migration](./docs/authentication-migration.md)** - Guide for BetterAuth migration and admin tools
+
 - **[Quick Reference](./docs/quick-reference.md)** - Common patterns and examples
 
 ## Setup
@@ -85,8 +86,8 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
    PORT=9999
    LOG_LEVEL=info
    DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-   AUTH0_DOMAIN=your-tenant.auth0.com
-   AUTH0_AUDIENCE=http://localhost:9999
+   BETTER_AUTH_SECRET=generate-a-32-character-secret-key
+   BETTER_AUTH_URL=http://localhost:9999/api/auth
    ```
 
 4. **Set up a local database:**
@@ -203,7 +204,7 @@ The project includes a complete **Tasks** feature implementation demonstrating t
 | GET    | `/reference`  | Scalar API Documentation |
 | GET    | `/api/public` | Public data (no auth)    |
 
-### Protected Endpoints (Require Auth0 JWT)
+### Protected Endpoints (Require valid BetterAuth session)
 
 | Method | Path             | Description         |
 | ------ | ---------------- | ------------------- |

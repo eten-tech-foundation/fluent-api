@@ -97,38 +97,29 @@ src/
 
 The codebase includes a complete **Tasks** feature implementation that serves as the reference pattern. When adding new features, follow the same structure and patterns used in the tasks implementation.
 
-### Existing Tasks Implementation
+### Authentication Pattern
 
-The project includes a complete tasks feature with:
-
-**1. Database Schema** (`src/db/schema.ts`):
+The project uses **BetterAuth** for session-based authentication. Use the `authenticateUser` middleware to protect routes:
 
 ```typescript
-export const tasks = pgTable('tasks', {
-  id: serial('id').primaryKey(),
-  name: text('name').notNull(),
-  done: boolean('done').notNull().default(false),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 
-// Zod schemas for validation
-export const selectTasksSchema = createSelectSchema(tasks);
-export const insertTasksSchema = createInsertSchema(tasks, {
-  name: (str) => str.min(1).max(500),
-})
-  .required({
-    done: true,
-  })
-  .omit({
-    id: true,
-    createdAt: true,
-    updatedAt: true,
-  });
-export const patchTasksSchema = insertTasksSchema.partial();
+const protectedRoute = createRoute({
+  method: 'get',
+  path: '/protected',
+  middleware: [authenticateUser] as const,
+  // ...
+});
 ```
+
+### Reference Implementation
+
+The **Users** domain (`src/domains/users/`) serves as the canonical reference for:
+
+1. **Authentication** — Using `authenticateUser` and magic link invitations.
+2. **Authorization** — Using `requirePermission` and Policy-based access control.
+3. **Database** — Linking domain users to `auth_user` via `authUserId`.
+4. **Testing** — Mocking authentication in handler and route tests.
 
 **2. Handler Functions** (`src/handlers/task.handler.ts`):
 
@@ -218,14 +209,14 @@ export default server;
 
 ### Steps to Add a New Feature
 
-To add a new feature (e.g., "Users"), follow these steps using the tasks implementation as your guide:
+When adding a new feature (e.g., "Languages"), follow these steps using the **Users** domain as your guide:
 
-1. **Database Schema**: Add your table to `src/db/schema.ts` following the `tasks` table pattern
-2. **Database Migration**: Generate a named migration with `npm run db:generate <descriptive_name>` then apply it with `npm run db:migrate`
-3. **Handler Functions**: Create `src/handlers/[feature].handler.ts` following `task.handler.ts` patterns
-4. **Route Definitions**: Create `src/routes/[feature].route.ts` following `task.route.ts` patterns
-5. **Application Import**: Add your route import to `src/app.ts`
-6. **Tests**: Create test files following the existing `*.test.ts` patterns
+1. **Database Schema**: Add your table(s) to `src/db/schema.ts`.
+2. **Migration**: Run `npm run db:generate <name>` and then `npm run db:migrate`.
+3. **Domain Folder**: Create a new folder in `src/domains/{feature}/`.
+4. **Implementation**: Add `types.ts`, `repository.ts`, `service.ts`, and `route.ts`.
+5. **Registration**: Import your new route file in `src/app.ts`.
+6. **Tests**: Add unit tests for your service and integration tests for your routes.
 
 ### Route Definition Pattern
 

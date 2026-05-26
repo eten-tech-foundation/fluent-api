@@ -6,35 +6,6 @@ import type { PinoLogger } from 'hono-pino';
 
 import type * as schema from '@/db/schema';
 
-// Auth0 JWT Payload types
-export interface Auth0JWTPayload {
-  iss: string; // Issuer (Auth0 domain)
-  sub: string; // Subject (user ID)
-  aud: string | string[]; // Audience
-  iat: number; // Issued at
-  exp: number; // Expiration time
-  azp?: string; // Authorized party
-  scope?: string; // Scopes
-
-  // Auth0 user claims
-  email?: string;
-  email_verified?: boolean;
-  name?: string;
-  nickname?: string;
-  picture?: string;
-  updated_at?: string;
-
-  // Custom claims (namespace prefixed)
-  [key: string]: any;
-}
-
-// Returned by auth0.service.ts
-export interface UserInvitationResult {
-  user: User;
-  auth0UserId: string;
-  ticketUrl: string;
-}
-
 // ─── App user (session context) ───────────────────────────────────────────────
 
 export interface User {
@@ -52,10 +23,9 @@ export interface User {
 export interface AppBindings {
   Variables: {
     logger: PinoLogger;
-    jwtPayload?: Auth0JWTPayload;
     user?: User;
+    session?: any; // BetterAuth session
     requestId: string;
-    loggedInUserEmail?: string;
   };
 }
 
@@ -100,7 +70,7 @@ export const ErrorCode = {
   INVALID_REFERENCE: 'INVALID_REFERENCE',
   INVALID_BIBLE_BOOKS: 'INVALID_BIBLE_BOOKS',
   // External service errors
-  AUTH0_ERROR: 'AUTH0_ERROR',
+  AUTH_ERROR: 'AUTH_ERROR',
   EMAIL_SERVICE_ERROR: 'EMAIL_SERVICE_ERROR',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
@@ -137,7 +107,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   CHAPTER_LIMIT_EXCEEDED: 'Chapter assignment limit exceeded',
   INVALID_REFERENCE: 'Invalid reference',
   INVALID_BIBLE_BOOKS: 'One or more requested books do not belong to the specified Bible',
-  AUTH0_ERROR: 'Authentication service error',
+  AUTH_ERROR: 'Authentication service error',
   EMAIL_SERVICE_ERROR: 'Email service error',
   LANGUAGE_NOT_FOUND: 'Language not found',
 };
@@ -146,7 +116,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
 
 export const ErrorHttpStatus: Record<ErrorCode, number> = {
   INTERNAL_ERROR: 500,
-  AUTH0_ERROR: 500,
+  AUTH_ERROR: 500,
   EMAIL_SERVICE_ERROR: 500,
   LANGUAGE_NOT_FOUND: 404,
   UNAUTHORIZED: 401,

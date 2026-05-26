@@ -549,22 +549,22 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     ;;
 
   db:seed)
+    echo_running "Seeding organizations..."
+    exec_api npm run db:seed:org
     echo_running "Seeding roles..."
-    exec_api npx tsx src/db/seeds/roles.ts
+    exec_api npm run db:seed:roles
     echo_running "Seeding RBAC data..."
-    exec_api npx tsx src/db/seeds/rbac.ts
+    exec_api npm run db:seed:rbac
+    echo_running "Seeding dev users..."
+    exec_api npm run db:seed:dev-users
+    echo_success "All seeds complete."
     ;;
 
   db:init)
     echo_running "Full database initialization (migrations + seeds)..."
     read -rp "This will run all migrations and seeds. Continue? [y/N] " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-      echo_running "Running fluent-api migrations..."
-      exec_api npx drizzle-kit migrate
-      echo_running "Seeding roles..."
-      exec_api npx tsx src/db/seeds/roles.ts
-      echo_running "Seeding RBAC data..."
-      exec_api npx tsx src/db/seeds/rbac.ts
+      exec_api npm run db:setup
       echo_success "Database initialization complete."
     else
       echo "Aborted."
@@ -671,7 +671,7 @@ HEADER
     else
       echo ".env already exists, skipping."
     fi
-    echo "Remember to fill in credentials in .env (Auth0, etc.)"
+    echo "Remember to fill in DATABASE_URL and BETTER_AUTH_SECRET in .env before running db:init."
     ;;
 
   help|*)
@@ -704,8 +704,8 @@ Development (runs in API container):
 
 Database:
   db:migrate             Run Drizzle migrations
-  db:seed                Seed RBAC data
-  db:init                Run all migrations then all seeds
+  db:seed                Seed all data (org, roles, RBAC, dev users)
+  db:init                Run migrations + all seeds (delegates to npm run db:setup)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host
   db:psql                Open psql session

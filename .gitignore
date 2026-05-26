@@ -92,3 +92,6 @@ test.db
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .idea/
 bun.lock*
+
+# AI files
+docs/superpowers/

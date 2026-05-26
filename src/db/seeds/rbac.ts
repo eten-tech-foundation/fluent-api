@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { db } from '@/db';
 import { permissions, role_permissions, roles } from '@/db/schema';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -27,21 +29,19 @@ const ROLE_PERMISSION_MAP = [
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_CREATE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_UPDATE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_DELETE },
-
   { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.PROJECT_VIEW },
   { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.CONTENT_UPDATE },
   { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.USER_VIEW },
   { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.USER_UPDATE },
 ];
 
-async function seed() {
+export async function seedRbac() {
   await db
     .insert(permissions)
     .values(PERMISSION_DEFINITIONS)
     .onConflictDoNothing({ target: permissions.name });
 
   const allRoles = await db.select({ id: roles.id, name: roles.name }).from(roles);
-
   const allPermissions = await db
     .select({ id: permissions.id, name: permissions.name })
     .from(permissions);
@@ -53,22 +53,21 @@ async function seed() {
     const roleId = roleMap.get(roleName);
     const permissionId = permissionMap.get(permissionName);
 
-    if (!roleId) {
-      throw new Error(`Role not found in DB: ${roleName}`);
-    }
-    if (!permissionId) {
-      throw new Error(`Permission not found in DB: ${permissionName}`);
-    }
+    if (!roleId) throw new Error(`Role not found in DB: ${roleName}`);
+    if (!permissionId) throw new Error(`Permission not found in DB: ${permissionName}`);
 
     return { roleId, permissionId };
   });
 
   await db.insert(role_permissions).values(rolePermissionRows).onConflictDoNothing();
-
-  process.exit(0);
+  console.log('RBAC seeded.');
 }
 
-seed().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  seedRbac()
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
+}
