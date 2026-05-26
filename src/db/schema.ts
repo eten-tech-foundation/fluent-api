@@ -10,6 +10,7 @@ import {
   json,
   jsonb,
   pgEnum,
+  pgSchema,
   pgTable,
   primaryKey,
   serial,
@@ -157,6 +158,7 @@ export const project_units = pgTable('project_units', {
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   status: projectStatusEnum('status').notNull().default('not_started'),
+  isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -771,7 +773,9 @@ export const patchUsersClientSchema = patchUsersSchema.omit({
   organization: true,
 });
 
-export const ai_suggestion_jobs = pgTable(
+export const aiSchema = pgSchema('ai');
+
+export const ai_suggestion_jobs = aiSchema.table(
   'ai_suggestion_jobs',
   {
     id: serial('id').primaryKey(),
@@ -785,7 +789,7 @@ export const ai_suggestion_jobs = pgTable(
     chapterNumber: integer('chapter_number').notNull(),
     verseStart: integer('verse_start').notNull(),
     verseEnd: integer('verse_end').notNull(),
-    status: aiSuggestionJobStatusEnum('status').notNull().default('queued'),
+    status: varchar('status', { length: 20 }).notNull().default('queued'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -804,7 +808,7 @@ export const ai_suggestion_jobs = pgTable(
   ]
 );
 
-export const ai_suggestions = pgTable(
+export const ai_suggestions = aiSchema.table(
   'ai_suggestions',
   {
     id: serial('id').primaryKey(),
@@ -824,8 +828,32 @@ export const ai_suggestions = pgTable(
   ]
 );
 
+export const ai_suggestion_usage_log = aiSchema.table(
+  'ai_suggestion_usage_log',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    wasUsed: boolean('was_used').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_ai_usage_user').on(table.userId),
+    index('idx_ai_usage_project_unit').on(table.projectUnitId),
+    uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId),
+  ]
+);
+
 export const selectAiSuggestionJobsSchema = createSelectSchema(ai_suggestion_jobs);
 export const selectAiSuggestionsSchema = createSelectSchema(ai_suggestions);
+export const selectAiSuggestionUsageLogSchema = createSelectSchema(ai_suggestion_usage_log);
 
 export const insertAiSuggestionJobsSchema = createInsertSchema(ai_suggestion_jobs, {
   projectUnitId: (schema) => schema.int(),
@@ -853,5 +881,14 @@ export const insertAiSuggestionsSchema = createInsertSchema(ai_suggestions, {
   .required({ bibleTextId: true, projectUnitId: true, suggestedText: true })
   .omit({ id: true, createdAt: true });
 
+export const insertAiSuggestionUsageLogSchema = createInsertSchema(ai_suggestion_usage_log, {
+  userId: (schema) => schema.int(),
+  bibleTextId: (schema) => schema.int(),
+  projectUnitId: (schema) => schema.int(),
+})
+  .required({ userId: true, bibleTextId: true, projectUnitId: true, wasUsed: true })
+  .omit({ id: true, createdAt: true });
+
 export const patchAiSuggestionJobsSchema = insertAiSuggestionJobsSchema.partial();
 export const patchAiSuggestionsSchema = insertAiSuggestionsSchema.partial();
+export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.partial();

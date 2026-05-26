@@ -14,6 +14,7 @@ import {
   aiSuggestionsListResponseSchema,
   getAiSuggestionsQuerySchema,
   queueNextVersesRequestSchema,
+  trackUsageRequestSchema,
 } from './ai-suggestions.types';
 
 // ─── GET /ai-suggestions ──────────────────────────────────────────────
@@ -107,6 +108,55 @@ server.openapi(queueNextVersesRoute, async (c) => {
   );
   if (result.ok) {
     return c.json({ message: 'Queued' }, HttpStatusCodes.OK);
+  }
+
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── POST /ai-suggestions/usage ──────────────────────────────────────────────
+
+const trackUsageRoute = createRoute({
+  tags: ['AI Suggestions'],
+  method: 'post',
+  path: '/ai-suggestions/usage',
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  request: {
+    body: jsonContent(trackUsageRequestSchema, 'Usage data'),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(createMessageObjectSchema('Successfully logged'), 'Logged'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Validation error'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Permission denied'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'Track AI suggestion usage',
+  description: 'Logs whether an AI suggestion was viewed or used by the user.',
+});
+
+server.openapi(trackUsageRoute, async (c) => {
+  const body = c.req.valid('json');
+  const user = c.get('user');
+
+  if (!user?.id) {
+    return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
+  }
+
+  const result = await aiSuggestionsService.trackUsage(user.id, body);
+  if (result.ok) {
+    return c.json({ message: 'Logged' }, HttpStatusCodes.OK);
   }
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

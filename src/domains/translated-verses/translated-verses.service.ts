@@ -1,3 +1,5 @@
+import { handleVerseSaved } from '@/domains/ai-suggestions/ai-suggestions.service';
+import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
 import type {
@@ -33,6 +35,12 @@ export async function getTranslatedVerseById(id: number) {
 export async function createTranslatedVerse(input: CreateTranslatedVerseInput) {
   const result = await translatedVersesRepo.create(input);
   if (!result.ok) return result;
+
+  // Fire and forget threshold check
+  handleVerseSaved(input.projectUnitId).catch((err) =>
+    logger.error({ cause: err, message: 'Threshold check failed' })
+  );
+
   return ok(toTranslatedVerseResponse(result.data));
 }
 
@@ -45,6 +53,12 @@ export async function updateTranslatedVerse(id: number, input: UpdateTranslatedV
 export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
   const result = await translatedVersesRepo.upsert(input);
   if (!result.ok) return result;
+
+  // Fire and forget threshold check
+  handleVerseSaved(input.projectUnitId).catch((err) =>
+    logger.error({ cause: err, message: 'Threshold check failed' })
+  );
+
   return ok(toTranslatedVerseResponse(result.data));
 }
 

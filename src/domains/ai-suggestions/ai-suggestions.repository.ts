@@ -75,3 +75,39 @@ export async function getAiSuggestions(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
+
+export async function logAiSuggestionUsage(
+  userId: number,
+  bibleTextId: number,
+  projectUnitId: number,
+  wasUsed: boolean,
+  tx?: DbTransaction
+): Promise<Result<void>> {
+  const database = tx || db;
+  try {
+    // Import ai_suggestion_usage_log inside to avoid circular deps if any,
+    // but better to import it at the top
+    const { ai_suggestion_usage_log } = await import('@/db/schema');
+    await database
+      .insert(ai_suggestion_usage_log)
+      .values({
+        userId,
+        bibleTextId,
+        projectUnitId,
+        wasUsed,
+      })
+      .onConflictDoUpdate({
+        target: [ai_suggestion_usage_log.userId, ai_suggestion_usage_log.bibleTextId],
+        set: { wasUsed }, // Update if the user later accepts it
+      });
+
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to log AI suggestion usage',
+      context: { userId, bibleTextId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}

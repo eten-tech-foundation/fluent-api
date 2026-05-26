@@ -1,6 +1,7 @@
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { handleChapterAssigned } from '@/domains/ai-suggestions/ai-suggestions.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -78,6 +79,13 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           assignment.assignedUserId,
           'drafter',
           CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
+        );
+        // Fire and forget auto-queueing for drafting assignment
+        handleChapterAssigned(
+          assignment.projectUnitId,
+          assignment.bibleId,
+          assignment.bookId,
+          assignment.chapterNumber
         );
       }
       if (assignment.peerCheckerId) {
@@ -278,6 +286,13 @@ async function recordUserAssignmentChanges(
       updated.assignedUserId,
       'drafter',
       updated.status as ChapterAssignmentStatus
+    );
+    // Fire and forget auto-queueing for drafting assignment
+    handleChapterAssigned(
+      updated.projectUnitId,
+      updated.bibleId,
+      updated.bookId,
+      updated.chapterNumber
     );
   }
 
