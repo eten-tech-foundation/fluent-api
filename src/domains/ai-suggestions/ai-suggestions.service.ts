@@ -149,7 +149,7 @@ export async function queueNextVerses(
       return err(ErrorCode.FORBIDDEN);
     }
 
-    const normalizedBookCode = bookCode.toLowerCase();
+    const normalizedBookCode = bookCode.toUpperCase();
 
     if (
       !(await chapterBelongsToProjectUnit({
@@ -247,7 +247,7 @@ export async function handleChapterAssigned(
     await queueNextVersesForAssignment(
       projectUnitId,
       bibleId,
-      book[0].code.toLowerCase(),
+      book[0].code.toUpperCase(),
       chapterNumber,
       0,
       AI_SUGGESTIONS_CONSTANTS.INITIAL_QUEUE_COUNT
