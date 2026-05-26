@@ -52,8 +52,13 @@ const getAiSuggestionsRoute = createRoute({
 
 server.openapi(getAiSuggestionsRoute, async (c) => {
   const query = c.req.valid('query');
+  const user = c.get('user');
 
-  const result = await aiSuggestionsService.getAiSuggestions(query);
+  if (!user) {
+    return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
+  }
+
+  const result = await aiSuggestionsService.getAiSuggestions(user, query);
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.OK);
   }
@@ -97,8 +102,14 @@ const queueNextVersesRoute = createRoute({
 
 server.openapi(queueNextVersesRoute, async (c) => {
   const body = c.req.valid('json');
+  const user = c.get('user');
+
+  if (!user) {
+    return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
+  }
 
   const result = await aiSuggestionsService.queueNextVerses(
+    user,
     body.projectUnitId,
     body.bibleId,
     body.bookCode,
@@ -154,7 +165,7 @@ server.openapi(trackUsageRoute, async (c) => {
     return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
   }
 
-  const result = await aiSuggestionsService.trackUsage(user.id, body);
+  const result = await aiSuggestionsService.trackUsage(user, body);
   if (result.ok) {
     return c.json({ message: 'Logged' }, HttpStatusCodes.OK);
   }

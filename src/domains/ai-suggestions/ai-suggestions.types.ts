@@ -4,7 +4,10 @@ import { AI_SUGGESTIONS_CONSTANTS } from './ai-suggestions.constants';
 
 export const getAiSuggestionsQuerySchema = z.object({
   projectUnitId: z.coerce.number().int().positive(),
-  bibleTextIds: z.string().describe('Comma-separated list of bible text IDs'),
+  bibleTextIds: z
+    .string()
+    .regex(/^\d+(,\d+)*$/, 'Expected comma-separated numeric bible text IDs')
+    .describe('Comma-separated list of bible text IDs'),
 });
 
 export type GetAiSuggestionsQuery = z.infer<typeof getAiSuggestionsQuerySchema>;

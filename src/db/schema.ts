@@ -14,6 +14,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -790,6 +791,8 @@ export const ai_suggestion_jobs = aiSchema.table(
     verseStart: integer('verse_start').notNull(),
     verseEnd: integer('verse_end').notNull(),
     status: varchar('status', { length: 20 }).notNull().default('queued'),
+    retryCount: integer('retry_count').notNull().default(0),
+    errorMessage: text('error_message'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -800,6 +803,7 @@ export const ai_suggestion_jobs = aiSchema.table(
     index('idx_ai_jobs_status').on(table.status),
     uniqueIndex('uq_ai_jobs_range').on(
       table.projectUnitId,
+      table.bibleId,
       table.bookCode,
       table.chapterNumber,
       table.verseStart,
@@ -818,7 +822,7 @@ export const ai_suggestions = aiSchema.table(
     projectUnitId: integer('project_unit_id')
       .notNull()
       .references(() => project_units.id, { onDelete: 'cascade' }),
-    suggestedText: varchar('suggested_text').notNull(),
+    suggestedText: text('suggested_text').notNull(),
     modelInfo: varchar('model_info', { length: 100 }),
     createdAt: timestamp('created_at').defaultNow(),
   },
@@ -871,7 +875,14 @@ export const insertAiSuggestionJobsSchema = createInsertSchema(ai_suggestion_job
     verseStart: true,
     verseEnd: true,
   })
-  .omit({ id: true, status: true, createdAt: true, updatedAt: true });
+  .omit({
+    id: true,
+    status: true,
+    retryCount: true,
+    errorMessage: true,
+    createdAt: true,
+    updatedAt: true,
+  });
 
 export const insertAiSuggestionsSchema = createInsertSchema(ai_suggestions, {
   bibleTextId: (schema) => schema.int(),

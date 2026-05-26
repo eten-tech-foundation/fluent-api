@@ -28,6 +28,7 @@ export async function queueAiSuggestionJobs(
       .onConflictDoNothing({
         target: [
           ai_suggestion_jobs.projectUnitId,
+          ai_suggestion_jobs.bibleId,
           ai_suggestion_jobs.bookCode,
           ai_suggestion_jobs.chapterNumber,
           ai_suggestion_jobs.verseStart,
