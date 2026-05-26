@@ -1,7 +1,10 @@
+import { eq } from 'drizzle-orm';
+
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { handleChapterAssigned } from '@/domains/ai-suggestions/ai-suggestions.service';
+import { chapter_assignments } from '@/db/schema';
+import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -81,7 +84,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
         );
         // Fire and forget auto-queueing for drafting assignment
-        handleChapterAssigned(
+        aiSuggestionsService.handleChapterAssigned(
           assignment.projectUnitId,
           assignment.bibleId,
           assignment.bookId,
@@ -288,7 +291,7 @@ async function recordUserAssignmentChanges(
       updated.status as ChapterAssignmentStatus
     );
     // Fire and forget auto-queueing for drafting assignment
-    handleChapterAssigned(
+    aiSuggestionsService.handleChapterAssigned(
       updated.projectUnitId,
       updated.bibleId,
       updated.bookId,
@@ -308,5 +311,56 @@ async function recordUserAssignmentChanges(
       'peer_checker',
       updated.status as ChapterAssignmentStatus
     );
+  }
+}
+
+export async function toggleChapterAssignmentAiStatus(
+  assignmentId: number,
+  isAiEnabled: boolean
+): Promise<Result<void>> {
+  try {
+    const assignment = await db
+      .select({
+        isAiEnabled: chapter_assignments.isAiEnabled,
+        projectUnitId: chapter_assignments.projectUnitId,
+        bibleId: chapter_assignments.bibleId,
+        bookId: chapter_assignments.bookId,
+        chapterNumber: chapter_assignments.chapterNumber,
+      })
+      .from(chapter_assignments)
+      .where(eq(chapter_assignments.id, assignmentId))
+      .limit(1);
+
+    if (!assignment[0]) {
+      return err(ErrorCode.NOT_FOUND);
+    }
+
+    if (assignment[0].isAiEnabled === isAiEnabled) {
+      return ok(undefined);
+    }
+
+    await db
+      .update(chapter_assignments)
+      .set({ isAiEnabled })
+      .where(eq(chapter_assignments.id, assignmentId));
+
+    if (isAiEnabled) {
+      // Fire and forget initial queue
+      aiSuggestionsService.handleChapterAssigned(
+        assignment[0].projectUnitId,
+        assignment[0].bibleId,
+        assignment[0].bookId,
+        assignment[0].chapterNumber
+      );
+    }
+
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to toggle AI status for chapter assignment',
+      context: { assignmentId, isAiEnabled },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
   }
 }

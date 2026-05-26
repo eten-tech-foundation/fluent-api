@@ -185,6 +185,28 @@ export const ChapterAssignmentPolicy = {
   },
 
   /**
+   * Can this user toggle AI for this assignment?
+   */
+  toggleAi(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    if (user.organization !== assignment.organizationId) {
+      return false;
+    }
+
+    if (user.roleName === ROLES.PROJECT_MANAGER) {
+      return true;
+    }
+
+    if (user.roleName === ROLES.TRANSLATOR) {
+      // The assigned user can toggle AI only when they are the primary drafter
+      if (assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
+        return assignment.assignedUserId === user.id;
+      }
+    }
+
+    return false;
+  },
+
+  /**
    * Is this user a direct participant in this assignment?
    */
   isParticipant(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {

@@ -10,6 +10,7 @@ export const CHAPTER_ASSIGNMENT_ACTIONS = {
   SUBMIT: 'submit',
   DELETE: 'delete',
   IS_PARTICIPANT: 'isParticipant',
+  TOGGLE_AI: 'toggleAi',
 } as const;
 
 export type ChapterAssignmentAction =
@@ -79,6 +80,10 @@ export interface UpdateChapterAssignmentRequestData {
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
 }
+
+export const updateChapterAssignmentAiStatusSchema = z.object({
+  isAiEnabled: z.boolean(),
+});
 
 // ─── API response schema ──────────────────────────────────────────────────────
 

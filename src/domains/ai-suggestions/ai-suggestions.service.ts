@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 
 import type { Result, User } from '@/lib/types';
 
@@ -55,29 +55,6 @@ async function userCanAccessProjectUnit(user: User, projectUnitId: number): Prom
   }
 
   return false;
-}
-
-async function chapterBelongsToProjectUnit(input: {
-  projectUnitId: number;
-  bibleId: number;
-  bookCode: string;
-  chapterNumber: number;
-}): Promise<boolean> {
-  const [record] = await db
-    .select({ id: chapter_assignments.id })
-    .from(chapter_assignments)
-    .innerJoin(books, eq(chapter_assignments.bookId, books.id))
-    .where(
-      and(
-        eq(chapter_assignments.projectUnitId, input.projectUnitId),
-        eq(chapter_assignments.bibleId, input.bibleId),
-        eq(books.code, input.bookCode),
-        eq(chapter_assignments.chapterNumber, input.chapterNumber)
-      )
-    )
-    .limit(1);
-
-  return Boolean(record);
 }
 
 export async function trackUsage(user: User, data: TrackUsageRequest): Promise<Result<void>> {
@@ -151,15 +128,26 @@ export async function queueNextVerses(
 
     const normalizedBookCode = bookCode.toUpperCase();
 
-    if (
-      !(await chapterBelongsToProjectUnit({
-        projectUnitId,
-        bibleId,
-        bookCode: normalizedBookCode,
-        chapterNumber,
-      }))
-    ) {
+    const assignment = await db
+      .select({ isAiEnabled: chapter_assignments.isAiEnabled })
+      .from(chapter_assignments)
+      .innerJoin(books, eq(chapter_assignments.bookId, books.id))
+      .where(
+        and(
+          eq(chapter_assignments.projectUnitId, projectUnitId),
+          eq(chapter_assignments.bibleId, bibleId),
+          eq(books.code, normalizedBookCode),
+          eq(chapter_assignments.chapterNumber, chapterNumber)
+        )
+      )
+      .limit(1);
+
+    if (!assignment[0]) {
       return err(ErrorCode.INVALID_REFERENCE);
+    }
+
+    if (!assignment[0].isAiEnabled) {
+      return ok(undefined);
     }
 
     return await queueNextVersesForAssignment(
@@ -228,13 +216,20 @@ export async function handleChapterAssigned(
   chapterNumber: number
 ) {
   try {
-    const unit = await db
-      .select({ isAiEnabled: project_units.isAiEnabled })
-      .from(project_units)
-      .where(eq(project_units.id, projectUnitId))
+    const assignment = await db
+      .select({ isAiEnabled: chapter_assignments.isAiEnabled })
+      .from(chapter_assignments)
+      .where(
+        and(
+          eq(chapter_assignments.projectUnitId, projectUnitId),
+          eq(chapter_assignments.bibleId, bibleId),
+          eq(chapter_assignments.bookId, bookId),
+          eq(chapter_assignments.chapterNumber, chapterNumber)
+        )
+      )
       .limit(1);
 
-    if (!unit[0]?.isAiEnabled) return;
+    if (!assignment[0]?.isAiEnabled) return;
 
     const book = await db
       .select({ code: books.code })
@@ -257,85 +252,6 @@ export async function handleChapterAssigned(
       cause: error,
       message: 'Failed to trigger initial AI queue on chapter assignment',
       context: { projectUnitId, chapterNumber },
-    });
-  }
-}
-
-export async function handleVerseSaved(projectUnitId: number) {
-  try {
-    // 1. Check if AI is already enabled
-    const unit = await db
-      .select({ isAiEnabled: project_units.isAiEnabled })
-      .from(project_units)
-      .where(eq(project_units.id, projectUnitId))
-      .limit(1);
-
-    if (!unit[0] || unit[0].isAiEnabled) return;
-
-    // 2. Count translated verses for this unit
-    const result = await db
-      .select({ value: count() })
-      .from(translated_verses)
-      .where(eq(translated_verses.projectUnitId, projectUnitId));
-
-    const verseCount = result[0]?.value ?? 0;
-
-    if (verseCount >= AI_SUGGESTIONS_CONSTANTS.ACTIVATION_THRESHOLD_VERSES) {
-      // 3. Mark AI as enabled
-      await db
-        .update(project_units)
-        .set({ isAiEnabled: true })
-        .where(eq(project_units.id, projectUnitId));
-
-      // 4. Batch queue verses for all assigned chapters concurrently
-      const assignments = await db
-        .select({
-          bibleId: chapter_assignments.bibleId,
-          bookId: chapter_assignments.bookId,
-          chapterNumber: chapter_assignments.chapterNumber,
-          bookCode: books.code,
-        })
-        .from(chapter_assignments)
-        .innerJoin(books, eq(chapter_assignments.bookId, books.id))
-        .where(eq(chapter_assignments.projectUnitId, projectUnitId));
-
-      const queueResults = await Promise.all(
-        assignments.map(
-          (assignment: {
-            bibleId: number;
-            bookId: number;
-            chapterNumber: number;
-            bookCode: string;
-          }) =>
-            queueNextVersesForAssignment(
-              projectUnitId,
-              assignment.bibleId,
-              assignment.bookCode.toLowerCase(),
-              assignment.chapterNumber,
-              0,
-              AI_SUGGESTIONS_CONSTANTS.INITIAL_QUEUE_COUNT
-            )
-        )
-      );
-
-      // 5. If any queueing failed, revert the flag so we can try again later
-      if (queueResults.some((r: Result<void>) => !r.ok)) {
-        await db
-          .update(project_units)
-          .set({ isAiEnabled: false })
-          .where(eq(project_units.id, projectUnitId));
-        throw new Error(
-          'Failed to batch queue initial AI suggestions. Rolled back threshold state.'
-        );
-      }
-
-      logger.info({ projectUnitId }, 'AI Suggestions threshold reached and enabled.');
-    }
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Threshold check failed',
-      context: { projectUnitId },
     });
   }
 }
