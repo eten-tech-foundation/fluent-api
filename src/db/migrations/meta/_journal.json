@@ -75,36 +75,15 @@
     {
       "idx": 10,
       "version": "7",
-      "when": 1778478819437,
-      "tag": "0010_ai_suggestions",
+      "when": 1778225352600,
+      "tag": "0010_add_better_auth",
       "breakpoints": true
     },
     {
       "idx": 11,
       "version": "7",
-      "when": 1779775000000,
-      "tag": "0011_harden_ai_suggestions",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1779775100000,
-      "tag": "0012_ai_usage_tracking",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1779775200000,
-      "tag": "0013_project_unit_ai_enabled",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1779775300000,
-      "tag": "0014_add_better_auth",
+      "when": 1779805709340,
+      "tag": "0011_added_ai_usggestions",
       "breakpoints": true
     }
   ]

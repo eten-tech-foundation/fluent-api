@@ -237,7 +237,6 @@ export const project_units = pgTable('project_units', {
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   status: projectStatusEnum('status').notNull().default('not_started'),
-  isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -333,6 +332,7 @@ export const chapter_assignments = pgTable(
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
     status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
+    isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
     submittedTime: timestamp('submitted_time'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')

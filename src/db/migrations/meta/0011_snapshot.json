@@ -1,6 +1,6 @@
 {
-  "id": "215ac9fb-e170-4975-9f11-77b471673625",
-  "prevId": "0e1e1972-53ae-4b50-9df0-af09aa4190cc",
+  "id": "30a2d1df-803f-4c34-a8ae-8d01b8bc3cf8",
+  "prevId": "215ac9fb-e170-4975-9f11-77b471673625",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -57,8 +57,12 @@
           "name": "active_chapter_editors_chapter_assignment_id_chapter_assignments_id_fk",
           "tableFrom": "active_chapter_editors",
           "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "chapter_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -66,8 +70,12 @@
           "name": "active_chapter_editors_user_id_users_id_fk",
           "tableFrom": "active_chapter_editors",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -75,9 +83,461 @@
       "compositePrimaryKeys": {
         "active_chapter_editors_chapter_assignment_id_user_id_pk": {
           "name": "active_chapter_editors_chapter_assignment_id_user_id_pk",
-          "columns": ["chapter_assignment_id", "user_id"]
+          "columns": [
+            "chapter_assignment_id",
+            "user_id"
+          ]
         }
       },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ai.ai_suggestion_jobs": {
+      "name": "ai_suggestion_jobs",
+      "schema": "ai",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_unit_id": {
+          "name": "project_unit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bible_id": {
+          "name": "bible_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "book_code": {
+          "name": "book_code",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chapter_number": {
+          "name": "chapter_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verse_start": {
+          "name": "verse_start",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verse_end": {
+          "name": "verse_end",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "retry_count": {
+          "name": "retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_ai_jobs_project_unit": {
+          "name": "idx_ai_jobs_project_unit",
+          "columns": [
+            {
+              "expression": "project_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_ai_jobs_status": {
+          "name": "idx_ai_jobs_status",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_ai_jobs_range": {
+          "name": "uq_ai_jobs_range",
+          "columns": [
+            {
+              "expression": "project_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "bible_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chapter_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "verse_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "verse_end",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ai_suggestion_jobs_project_unit_id_project_units_id_fk": {
+          "name": "ai_suggestion_jobs_project_unit_id_project_units_id_fk",
+          "tableFrom": "ai_suggestion_jobs",
+          "tableTo": "project_units",
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_suggestion_jobs_bible_id_bibles_id_fk": {
+          "name": "ai_suggestion_jobs_bible_id_bibles_id_fk",
+          "tableFrom": "ai_suggestion_jobs",
+          "tableTo": "bibles",
+          "columnsFrom": [
+            "bible_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ai.ai_suggestion_usage_log": {
+      "name": "ai_suggestion_usage_log",
+      "schema": "ai",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bible_text_id": {
+          "name": "bible_text_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_unit_id": {
+          "name": "project_unit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "was_used": {
+          "name": "was_used",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_ai_usage_user": {
+          "name": "idx_ai_usage_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_ai_usage_project_unit": {
+          "name": "idx_ai_usage_project_unit",
+          "columns": [
+            {
+              "expression": "project_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_ai_usage_user_text": {
+          "name": "uq_ai_usage_user_text",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "bible_text_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ai_suggestion_usage_log_user_id_users_id_fk": {
+          "name": "ai_suggestion_usage_log_user_id_users_id_fk",
+          "tableFrom": "ai_suggestion_usage_log",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_suggestion_usage_log_bible_text_id_bible_texts_id_fk": {
+          "name": "ai_suggestion_usage_log_bible_text_id_bible_texts_id_fk",
+          "tableFrom": "ai_suggestion_usage_log",
+          "tableTo": "bible_texts",
+          "columnsFrom": [
+            "bible_text_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_suggestion_usage_log_project_unit_id_project_units_id_fk": {
+          "name": "ai_suggestion_usage_log_project_unit_id_project_units_id_fk",
+          "tableFrom": "ai_suggestion_usage_log",
+          "tableTo": "project_units",
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ai.ai_suggestions": {
+      "name": "ai_suggestions",
+      "schema": "ai",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bible_text_id": {
+          "name": "bible_text_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "project_unit_id": {
+          "name": "project_unit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "suggested_text": {
+          "name": "suggested_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model_info": {
+          "name": "model_info",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_ai_suggestions_bible_text": {
+          "name": "idx_ai_suggestions_bible_text",
+          "columns": [
+            {
+              "expression": "bible_text_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_ai_suggestions_per_text_unit": {
+          "name": "uq_ai_suggestions_per_text_unit",
+          "columns": [
+            {
+              "expression": "bible_text_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "project_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ai_suggestions_bible_text_id_bible_texts_id_fk": {
+          "name": "ai_suggestions_bible_text_id_bible_texts_id_fk",
+          "tableFrom": "ai_suggestions",
+          "tableTo": "bible_texts",
+          "columnsFrom": [
+            "bible_text_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_suggestions_project_unit_id_project_units_id_fk": {
+          "name": "ai_suggestions_project_unit_id_project_units_id_fk",
+          "tableFrom": "ai_suggestions",
+          "tableTo": "project_units",
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -174,8 +634,12 @@
           "name": "auth_account_user_id_auth_user_id_fk",
           "tableFrom": "auth_account",
           "tableTo": "auth_user",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -287,8 +751,12 @@
           "name": "auth_audit_log_user_id_auth_user_id_fk",
           "tableFrom": "auth_audit_log",
           "tableTo": "auth_user",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -360,8 +828,12 @@
           "name": "auth_session_user_id_auth_user_id_fk",
           "tableFrom": "auth_session",
           "tableTo": "auth_user",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -371,7 +843,9 @@
         "auth_session_token_unique": {
           "name": "auth_session_token_unique",
           "nullsNotDistinct": false,
-          "columns": ["token"]
+          "columns": [
+            "token"
+          ]
         }
       },
       "policies": {},
@@ -442,7 +916,9 @@
         "auth_user_email_unique": {
           "name": "auth_user_email_unique",
           "nullsNotDistinct": false,
-          "columns": ["email"]
+          "columns": [
+            "email"
+          ]
         }
       },
       "policies": {},
@@ -537,8 +1013,12 @@
           "name": "bible_books_bible_id_bibles_id_fk",
           "tableFrom": "bible_books",
           "tableTo": "bibles",
-          "columnsFrom": ["bible_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "bible_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -546,8 +1026,12 @@
           "name": "bible_books_book_id_books_id_fk",
           "tableFrom": "bible_books",
           "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "book_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -680,8 +1164,12 @@
           "name": "bible_texts_bible_id_bibles_id_fk",
           "tableFrom": "bible_texts",
           "tableTo": "bibles",
-          "columnsFrom": ["bible_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "bible_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -689,8 +1177,12 @@
           "name": "bible_texts_book_id_books_id_fk",
           "tableFrom": "bible_texts",
           "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "book_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -750,8 +1242,12 @@
           "name": "bibles_language_id_languages_id_fk",
           "tableFrom": "bibles",
           "tableTo": "languages",
-          "columnsFrom": ["language_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "language_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -761,12 +1257,16 @@
         "bibles_name_unique": {
           "name": "bibles_name_unique",
           "nullsNotDistinct": false,
-          "columns": ["name"]
+          "columns": [
+            "name"
+          ]
         },
         "bibles_abbreviation_unique": {
           "name": "bibles_abbreviation_unique",
           "nullsNotDistinct": false,
-          "columns": ["abbreviation"]
+          "columns": [
+            "abbreviation"
+          ]
         }
       },
       "policies": {},
@@ -885,8 +1385,12 @@
           "name": "chapter_assignment_assigned_user_history_chapter_assignment_id_chapter_assignments_id_fk",
           "tableFrom": "chapter_assignment_assigned_user_history",
           "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "chapter_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -894,8 +1398,12 @@
           "name": "chapter_assignment_assigned_user_history_assigned_user_id_users_id_fk",
           "tableFrom": "chapter_assignment_assigned_user_history",
           "tableTo": "users",
-          "columnsFrom": ["assigned_user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "assigned_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -986,8 +1494,12 @@
           "name": "chapter_assignment_snapshots_chapter_assignment_id_chapter_assignments_id_fk",
           "tableFrom": "chapter_assignment_snapshots",
           "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "chapter_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -995,8 +1507,12 @@
           "name": "chapter_assignment_snapshots_assigned_user_id_users_id_fk",
           "tableFrom": "chapter_assignment_snapshots",
           "tableTo": "users",
-          "columnsFrom": ["assigned_user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "assigned_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1060,8 +1576,12 @@
           "name": "chapter_assignment_status_history_chapter_assignment_id_chapter_assignments_id_fk",
           "tableFrom": "chapter_assignment_status_history",
           "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "chapter_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1125,6 +1645,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'not_started'"
+        },
+        "is_ai_enabled": {
+          "name": "is_ai_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "submitted_time": {
           "name": "submitted_time",
@@ -1238,8 +1765,12 @@
           "name": "chapter_assignments_project_unit_id_project_units_id_fk",
           "tableFrom": "chapter_assignments",
           "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         },
@@ -1247,8 +1778,12 @@
           "name": "chapter_assignments_bible_id_bibles_id_fk",
           "tableFrom": "chapter_assignments",
           "tableTo": "bibles",
-          "columnsFrom": ["bible_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "bible_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1256,8 +1791,12 @@
           "name": "chapter_assignments_book_id_books_id_fk",
           "tableFrom": "chapter_assignments",
           "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "book_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1265,8 +1804,12 @@
           "name": "chapter_assignments_assigned_user_id_users_id_fk",
           "tableFrom": "chapter_assignments",
           "tableTo": "users",
-          "columnsFrom": ["assigned_user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "assigned_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1274,8 +1817,12 @@
           "name": "chapter_assignments_peer_checker_id_users_id_fk",
           "tableFrom": "chapter_assignments",
           "tableTo": "users",
-          "columnsFrom": ["peer_checker_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "peer_checker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1383,7 +1930,9 @@
         "organizations_name_unique": {
           "name": "organizations_name_unique",
           "nullsNotDistinct": false,
-          "columns": ["name"]
+          "columns": [
+            "name"
+          ]
         }
       },
       "policies": {},
@@ -1434,7 +1983,9 @@
         "permissions_name_unique": {
           "name": "permissions_name_unique",
           "nullsNotDistinct": false,
-          "columns": ["name"]
+          "columns": [
+            "name"
+          ]
         }
       },
       "policies": {},
@@ -1484,8 +2035,12 @@
           "name": "project_unit_bible_books_project_unit_id_project_units_id_fk",
           "tableFrom": "project_unit_bible_books",
           "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         },
@@ -1493,8 +2048,12 @@
           "name": "project_unit_bible_books_bible_id_bibles_id_fk",
           "tableFrom": "project_unit_bible_books",
           "tableTo": "bibles",
-          "columnsFrom": ["bible_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "bible_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1502,8 +2061,12 @@
           "name": "project_unit_bible_books_book_id_books_id_fk",
           "tableFrom": "project_unit_bible_books",
           "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "book_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1559,8 +2122,12 @@
           "name": "project_units_project_id_projects_id_fk",
           "tableFrom": "project_units",
           "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         }
@@ -1632,8 +2199,12 @@
           "name": "project_users_project_id_projects_id_fk",
           "tableFrom": "project_users",
           "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         },
@@ -1641,8 +2212,12 @@
           "name": "project_users_user_id_users_id_fk",
           "tableFrom": "project_users",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         }
@@ -1650,7 +2225,10 @@
       "compositePrimaryKeys": {
         "project_users_project_id_user_id_pk": {
           "name": "project_users_project_id_user_id_pk",
-          "columns": ["project_id", "user_id"]
+          "columns": [
+            "project_id",
+            "user_id"
+          ]
         }
       },
       "uniqueConstraints": {},
@@ -1741,8 +2319,12 @@
           "name": "projects_source_language_languages_id_fk",
           "tableFrom": "projects",
           "tableTo": "languages",
-          "columnsFrom": ["source_language"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "source_language"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1750,8 +2332,12 @@
           "name": "projects_target_language_languages_id_fk",
           "tableFrom": "projects",
           "tableTo": "languages",
-          "columnsFrom": ["target_language"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "target_language"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1759,8 +2345,12 @@
           "name": "projects_organization_organizations_id_fk",
           "tableFrom": "projects",
           "tableTo": "organizations",
-          "columnsFrom": ["organization"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "organization"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1768,8 +2358,12 @@
           "name": "projects_created_by_users_id_fk",
           "tableFrom": "projects",
           "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1826,8 +2420,12 @@
           "name": "role_permissions_role_id_roles_id_fk",
           "tableFrom": "role_permissions",
           "tableTo": "roles",
-          "columnsFrom": ["role_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1835,8 +2433,12 @@
           "name": "role_permissions_permission_id_permissions_id_fk",
           "tableFrom": "role_permissions",
           "tableTo": "permissions",
-          "columnsFrom": ["permission_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "permission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1844,7 +2446,10 @@
       "compositePrimaryKeys": {
         "role_permissions_role_id_permission_id_pk": {
           "name": "role_permissions_role_id_permission_id_pk",
-          "columns": ["role_id", "permission_id"]
+          "columns": [
+            "role_id",
+            "permission_id"
+          ]
         }
       },
       "uniqueConstraints": {},
@@ -1890,7 +2495,9 @@
         "roles_name_unique": {
           "name": "roles_name_unique",
           "nullsNotDistinct": false,
-          "columns": ["name"]
+          "columns": [
+            "name"
+          ]
         }
       },
       "policies": {},
@@ -1974,8 +2581,12 @@
           "name": "translated_verses_project_unit_id_project_units_id_fk",
           "tableFrom": "translated_verses",
           "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "project_unit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "cascade"
         },
@@ -1983,8 +2594,12 @@
           "name": "translated_verses_bible_text_id_bible_texts_id_fk",
           "tableFrom": "translated_verses",
           "tableTo": "bible_texts",
-          "columnsFrom": ["bible_text_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "bible_text_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1992,8 +2607,12 @@
           "name": "translated_verses_assigned_user_id_users_id_fk",
           "tableFrom": "translated_verses",
           "tableTo": "users",
-          "columnsFrom": ["assigned_user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "assigned_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2069,8 +2688,12 @@
           "name": "user_chapter_assignment_editor_state_user_id_users_id_fk",
           "tableFrom": "user_chapter_assignment_editor_state",
           "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2078,8 +2701,12 @@
           "name": "user_chapter_assignment_editor_state_chapter_assignment_id_chapter_assignments_id_fk",
           "tableFrom": "user_chapter_assignment_editor_state",
           "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "chapter_assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2177,8 +2804,12 @@
           "name": "users_auth_user_id_auth_user_id_fk",
           "tableFrom": "users",
           "tableTo": "auth_user",
-          "columnsFrom": ["auth_user_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "auth_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2186,8 +2817,12 @@
           "name": "users_role_roles_id_fk",
           "tableFrom": "users",
           "tableTo": "roles",
-          "columnsFrom": ["role"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "role"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2195,8 +2830,12 @@
           "name": "users_organization_organizations_id_fk",
           "tableFrom": "users",
           "tableTo": "organizations",
-          "columnsFrom": ["organization"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "organization"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -2204,8 +2843,12 @@
           "name": "users_created_by_users_id_fk",
           "tableFrom": "users",
           "tableTo": "users",
-          "columnsFrom": ["created_by"],
-          "columnsTo": ["id"],
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -2215,12 +2858,16 @@
         "users_username_unique": {
           "name": "users_username_unique",
           "nullsNotDistinct": false,
-          "columns": ["username"]
+          "columns": [
+            "username"
+          ]
         },
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": ["email"]
+          "columns": [
+            "email"
+          ]
         }
       },
       "policies": {},
@@ -2229,10 +2876,23 @@
     }
   },
   "enums": {
+    "public.ai_suggestion_job_status": {
+      "name": "ai_suggestion_job_status",
+      "schema": "public",
+      "values": [
+        "queued",
+        "processing",
+        "completed",
+        "failed"
+      ]
+    },
     "public.assignment_role": {
       "name": "assignment_role",
       "schema": "public",
-      "values": ["drafter", "peer_checker"]
+      "values": [
+        "drafter",
+        "peer_checker"
+      ]
     },
     "public.chapter_status": {
       "name": "chapter_status",
@@ -2251,25 +2911,41 @@
     "public.project_assignment_status": {
       "name": "project_assignment_status",
       "schema": "public",
-      "values": ["active", "not_assigned"]
+      "values": [
+        "active",
+        "not_assigned"
+      ]
     },
     "public.project_status": {
       "name": "project_status",
       "schema": "public",
-      "values": ["not_started", "in_progress", "completed"]
+      "values": [
+        "not_started",
+        "in_progress",
+        "completed"
+      ]
     },
     "public.script_direction": {
       "name": "script_direction",
       "schema": "public",
-      "values": ["ltr", "rtl"]
+      "values": [
+        "ltr",
+        "rtl"
+      ]
     },
     "public.user_status": {
       "name": "user_status",
       "schema": "public",
-      "values": ["invited", "verified", "inactive"]
+      "values": [
+        "invited",
+        "verified",
+        "inactive"
+      ]
     }
   },
-  "schemas": {},
+  "schemas": {
+    "ai": "ai"
+  },
   "sequences": {},
   "roles": {},
   "policies": {},
