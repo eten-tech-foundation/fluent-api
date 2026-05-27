@@ -12,6 +12,7 @@ import {
   projects,
   translated_verses,
 } from '@/db/schema';
+import env from '@/env';
 import { logger } from '@/lib/logger';
 import { ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -22,7 +23,6 @@ import type {
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
-import { AI_SUGGESTIONS_CONSTANTS } from './ai-suggestions.constants';
 import {
   getAiSuggestions as getAiSuggestionsRepo,
   logAiSuggestionUsage,
@@ -76,7 +76,7 @@ export async function getAiSuggestions(
 
   if (
     ids.length === 0 ||
-    ids.length > AI_SUGGESTIONS_CONSTANTS.MAX_REQUESTED_BIBLE_TEXT_IDS ||
+    ids.length > env.AI_MAX_REQUESTED_BIBLE_TEXT_IDS ||
     ids.length !== new Set(ids).size
   ) {
     return err(ErrorCode.VALIDATION_ERROR);
@@ -119,7 +119,7 @@ export async function queueNextVerses(
   bookCode: string,
   chapterNumber: number,
   currentVerse: number,
-  lookahead: number = AI_SUGGESTIONS_CONSTANTS.DEFAULT_LOOKAHEAD
+  lookahead: number = env.AI_DEFAULT_LOOKAHEAD
 ): Promise<Result<void>> {
   try {
     if (!(await userCanAccessProjectUnit(user, projectUnitId))) {
@@ -245,7 +245,7 @@ export async function handleChapterAssigned(
       book[0].code.toUpperCase(),
       chapterNumber,
       0,
-      AI_SUGGESTIONS_CONSTANTS.INITIAL_QUEUE_COUNT
+      env.AI_INITIAL_QUEUE_COUNT
     );
   } catch (error) {
     logger.error({
