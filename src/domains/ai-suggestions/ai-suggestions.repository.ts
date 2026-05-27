@@ -3,7 +3,11 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { ai_suggestion_jobs, ai_suggestion_usage_log, ai_suggestions } from '@/db/external/ai-schema';
+import {
+  ai_suggestion_jobs,
+  ai_suggestion_usage_log,
+  ai_suggestions,
+} from '@/db/external/ai-schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 

@@ -27,13 +27,13 @@ Extract externally-owned schema stubs into a dedicated `src/db/external/` direct
 
 We evaluated several options:
 
-| Approach | Verdict |
-|---|---|
-| **HTTP API boundary** | Overkill for same-DB data. Adds network hops, serialization, auth, and latency to solve a type-definition problem. |
-| **Raw SQL + Zod** | Loses Drizzle joins and relational inference. More boilerplate, not less. |
-| **Shared npm package** | Impossible — `fluent-ai` is Python, not Node.js. |
-| **Views in `public`** | Breaks inserts/updates on `ai` tables that `fluent-api` legitimately writes to. |
-| **Co-located stubs (`src/db/external/`)** | Keeps Drizzle type safety with minimal complexity. Makes ownership explicit. No new infrastructure. |
+| Approach                                  | Verdict                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **HTTP API boundary**                     | Overkill for same-DB data. Adds network hops, serialization, auth, and latency to solve a type-definition problem. |
+| **Raw SQL + Zod**                         | Loses Drizzle joins and relational inference. More boilerplate, not less.                                          |
+| **Shared npm package**                    | Impossible — `fluent-ai` is Python, not Node.js.                                                                   |
+| **Views in `public`**                     | Breaks inserts/updates on `ai` tables that `fluent-api` legitimately writes to.                                    |
+| **Co-located stubs (`src/db/external/`)** | Keeps Drizzle type safety with minimal complexity. Makes ownership explicit. No new infrastructure.                |
 
 ### Trade-offs
 

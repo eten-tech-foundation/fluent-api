@@ -844,4 +844,3 @@ export const patchProjectsClientSchema = patchProjectsSchema.omit({
 export const patchUsersClientSchema = patchUsersSchema.omit({
   organization: true,
 });
-
