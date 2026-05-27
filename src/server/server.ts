@@ -55,6 +55,9 @@ export function createServer() {
         return null;
       },
       credentials: true,
+      // Expose set-auth-token so clients can read the Bearer token from the
+      // BetterAuth bearer() plugin response header after sign-in.
+      exposeHeaders: ['set-auth-token'],
     })
   );
 
@@ -71,7 +74,9 @@ export function createServer() {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-better-auth-*',
+        'Access-Control-Allow-Headers':
+          'Content-Type, Authorization, x-client-type, x-better-auth-*',
+        'Access-Control-Expose-Headers': 'set-auth-token',
         'Access-Control-Max-Age': '86400',
       },
     });
@@ -86,7 +91,7 @@ export function createServer() {
       });
       return c.json(result);
     } catch (err) {
-      console.error('Password set error:', err);
+      logger.error('Password set error', { error: err });
       return c.json({ error: { message: 'Unauthorized or invalid request' } }, 401);
     }
   });
@@ -123,6 +128,26 @@ export function createServer() {
       logger.error('Failed to validate verification token', { error: err });
       return c.json({ isValid: false, message: 'Failed to validate token' }, 500);
     }
+  });
+
+  // POST /api/auth/forget-password
+  app.post('/api/auth/forget-password', async (c) => {
+    try {
+      const body = await c.req.json();
+      const result = await auth.api.requestPasswordReset({
+        body,
+        headers: c.req.raw.headers,
+      });
+      return c.json(result);
+    } catch (err) {
+      logger.error('Forget password error', { error: err });
+      return c.json({ message: 'Failed to send password reset email' }, 400);
+    }
+  });
+
+  // POST /api/auth/sign-out
+  app.post('/api/auth/sign-out', (c) => {
+    return auth.handler(c.req.raw);
   });
 
   app.all('/api/auth/*', (c) => {

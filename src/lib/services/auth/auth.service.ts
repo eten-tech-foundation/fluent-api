@@ -63,7 +63,7 @@ export async function createUserWithInvitation(
   try {
     // 3. Send magic link invitation via BetterAuth
     // BetterAuth REQUIRES headers to be passed for security context
-    await auth.api.signInMagicLink({
+    await (auth.api as any).signInMagicLink({
       body: {
         email: normalizedInput.email,
         callbackURL: `${env.FRONTEND_URL}/accept-invitation`,

@@ -63,3 +63,56 @@ server.openapi(signInRoute, async (c) => {
   // in server.ts is registered first and will handle the request.
   return c.json({} as any, HttpStatusCodes.OK);
 });
+
+// ─── POST /api/auth/forget-password ──────────────────────────────────────────
+// Calls auth.api.requestPasswordReset internally (verified BetterAuth API name).
+const forgetPasswordRoute = createRoute({
+  tags: ['Authentication'],
+  method: 'post',
+  path: '/api/auth/forget-password',
+  request: {
+    body: jsonContent(
+      z.object({
+        email: z.string().email().openapi({ example: 'user@example.com' }),
+      }),
+      'Email address to send reset link to'
+    ),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      z.object({ message: z.string() }),
+      'Password reset email sent'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid email or request failed'
+    ),
+  },
+  summary: 'Request Password Reset',
+  description:
+    'Sends a password reset email to the provided address. Works with Bearer token authentication for mobile clients.',
+});
+
+server.openapi(forgetPasswordRoute, async (c) => {
+  return c.json({ message: 'Password reset email sent' }, HttpStatusCodes.OK);
+});
+
+// ─── POST /api/auth/sign-out ──────────────────────────────────────────────────
+const signOutRoute = createRoute({
+  tags: ['Authentication'],
+  method: 'post',
+  path: '/api/auth/sign-out',
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      z.object({ success: z.boolean() }),
+      'Successfully signed out'
+    ),
+  },
+  summary: 'Sign Out',
+  description:
+    'Invalidates the current session. Accepts both cookie-based sessions and Bearer token authentication for mobile clients.',
+});
+
+server.openapi(signOutRoute, async (c) => {
+  return c.json({ success: true }, HttpStatusCodes.OK);
+});
