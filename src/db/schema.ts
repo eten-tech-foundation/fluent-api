@@ -877,8 +877,13 @@ export const ai_suggestion_jobs = aiSchema.table(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    index('idx_ai_jobs_project_unit').on(table.projectUnitId),
-    index('idx_ai_jobs_status').on(table.status),
+    index('idx_ai_suggestion_jobs_dedup').on(
+      table.projectUnitId,
+      table.bibleId,
+      table.bookCode,
+      table.chapterNumber
+    ),
+    index('idx_ai_suggestion_jobs_status_created').on(table.status, table.createdAt),
     uniqueIndex('uq_ai_jobs_range').on(
       table.projectUnitId,
       table.bibleId,
@@ -905,7 +910,7 @@ export const ai_suggestions = aiSchema.table(
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [
-    index('idx_ai_suggestions_bible_text').on(table.bibleTextId),
+    index('idx_ai_suggestions_lookup').on(table.projectUnitId, table.bibleTextId),
     uniqueIndex('uq_ai_suggestions_per_text_unit').on(table.bibleTextId, table.projectUnitId),
   ]
 );
