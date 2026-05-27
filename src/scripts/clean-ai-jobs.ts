@@ -2,7 +2,7 @@ import { and, inArray, lt } from 'drizzle-orm';
 import process from 'node:process';
 
 import { db } from '@/db';
-import { ai_suggestion_jobs } from '@/db/schema';
+import { ai_suggestion_jobs } from '@/db/external/ai-schema';
 import { logger } from '@/lib/logger';
 
 async function main() {
