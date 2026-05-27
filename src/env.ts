@@ -27,6 +27,12 @@ const EnvSchema = z.object({
   EMAIL_SERVICE_DOMAIN: z.string(),
   EMAIL_SERVICE_SENDER: z.string(),
   FRONTEND_URL: z.string(),
+
+  // AI suggestion tunables
+  AI_ACTIVATION_THRESHOLD_VERSES: z.coerce.number().int().positive().default(500),
+  AI_INITIAL_QUEUE_COUNT: z.coerce.number().int().positive().default(3),
+  AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(1),
+  AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
 });
 
 export type env = z.infer<typeof EnvSchema>;

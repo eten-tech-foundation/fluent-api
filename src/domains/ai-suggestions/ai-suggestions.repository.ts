@@ -1,11 +1,94 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { ai_suggestion_jobs, ai_suggestion_usage_log, ai_suggestions } from '@/db/schema';
+import {
+  ai_suggestion_jobs,
+  ai_suggestion_usage_log,
+  ai_suggestions,
+} from '@/db/external/ai-schema';
+import {
+  bible_texts,
+  books,
+  chapter_assignments,
+  project_units,
+  project_users,
+  projects,
+  translated_verses,
+} from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
+
+import type { ProjectUnitAuthContext } from './ai-suggestions.policy';
+
+export async function findProjectUnitAuthContext(
+  projectUnitId: number
+): Promise<ProjectUnitAuthContext | null> {
+  const records = await db
+    .select({
+      organizationId: projects.organization,
+      memberUserId: project_users.userId,
+    })
+    .from(project_units)
+    .innerJoin(projects, eq(project_units.projectId, projects.id))
+    .leftJoin(project_users, eq(project_users.projectId, projects.id))
+    .where(eq(project_units.id, projectUnitId));
+
+  if (records.length === 0) return null;
+
+  return {
+    organizationId: records[0].organizationId,
+    memberUserIds: records.map((r) => r.memberUserId).filter((id): id is number => id !== null),
+  };
+}
+
+export async function checkBibleTextsExist(ids: number[]): Promise<boolean> {
+  if (ids.length === 0) return true;
+
+  const existingIds = await db
+    .select({ id: bible_texts.id })
+    .from(bible_texts)
+    .where(inArray(bible_texts.id, ids));
+
+  return existingIds.length === ids.length;
+}
+
+export async function getChapterAssignmentAiStatus(
+  projectUnitId: number,
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number
+): Promise<boolean | null> {
+  const normalizedBookCode = bookCode.toUpperCase();
+
+  const assignment = await db
+    .select({ isAiEnabled: chapter_assignments.isAiEnabled })
+    .from(chapter_assignments)
+    .innerJoin(books, eq(chapter_assignments.bookId, books.id))
+    .where(
+      and(
+        eq(chapter_assignments.projectUnitId, projectUnitId),
+        eq(chapter_assignments.bibleId, bibleId),
+        eq(books.code, normalizedBookCode),
+        eq(chapter_assignments.chapterNumber, chapterNumber)
+      )
+    )
+    .limit(1);
+
+  if (!assignment[0]) return null;
+  return assignment[0].isAiEnabled;
+}
+
+export async function getBookCodeById(bookId: number): Promise<string | null> {
+  const book = await db
+    .select({ code: books.code })
+    .from(books)
+    .where(eq(books.id, bookId))
+    .limit(1);
+
+  return book[0]?.code ?? null;
+}
 
 export async function queueAiSuggestionJobs(
   jobs: {
@@ -108,4 +191,38 @@ export async function logAiSuggestionUsage(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+export async function findNextUntranslatedVerses(
+  projectUnitId: number,
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number,
+  currentVerse: number,
+  lookahead: number
+): Promise<number[]> {
+  const nextVerses = await db
+    .select({ verseNumber: bible_texts.verseNumber })
+    .from(bible_texts)
+    .innerJoin(books, eq(bible_texts.bookId, books.id))
+    .leftJoin(
+      translated_verses,
+      and(
+        eq(translated_verses.bibleTextId, bible_texts.id),
+        eq(translated_verses.projectUnitId, projectUnitId)
+      )
+    )
+    .where(
+      and(
+        eq(bible_texts.bibleId, bibleId),
+        eq(books.code, bookCode),
+        eq(bible_texts.chapterNumber, chapterNumber),
+        gt(bible_texts.verseNumber, currentVerse),
+        isNull(translated_verses.projectUnitId)
+      )
+    )
+    .orderBy(asc(bible_texts.verseNumber))
+    .limit(lookahead);
+
+  return nextVerses.map((v) => v.verseNumber);
 }

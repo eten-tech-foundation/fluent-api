@@ -9,6 +9,7 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireProjectUnitAccess } from './ai-suggestions.auth.middleware';
 import * as aiSuggestionsService from './ai-suggestions.service';
 import {
   aiSuggestionsListResponseSchema,
@@ -23,7 +24,11 @@ const getAiSuggestionsRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'get',
   path: '/ai-suggestions',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess((c) => Number(c.req.query('projectUnitId'))),
+  ] as const,
   request: {
     query: getAiSuggestionsQuerySchema,
   },
@@ -72,7 +77,14 @@ const queueNextVersesRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/queue-next',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess(async (c) => {
+      const body = await c.req.json();
+      return body.projectUnitId;
+    }),
+  ] as const,
   request: {
     body: jsonContent(queueNextVersesRequestSchema, 'Verses context'),
   },
@@ -130,7 +142,14 @@ const trackUsageRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/usage',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess(async (c) => {
+      const body = await c.req.json();
+      return body.projectUnitId;
+    }),
+  ] as const,
   request: {
     body: jsonContent(trackUsageRequestSchema, 'Usage data'),
   },
