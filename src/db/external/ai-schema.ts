@@ -1,3 +1,4 @@
+import { z } from '@hono/zod-openapi';
 /**
  * EXTERNALLY OWNED — `ai` schema stubs for Drizzle type safety.
  *
@@ -24,10 +25,9 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
-import { z } from '@hono/zod-openapi';
 import { createSchemaFactory } from 'drizzle-zod';
 
-import { bibles, bible_texts, project_units, users } from '@/db/schema';
+import { bible_texts, bibles, project_units, users } from '@/db/schema';
 
 export const aiSchema = pgSchema('ai');
 
