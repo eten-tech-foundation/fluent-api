@@ -216,21 +216,6 @@ export async function handleChapterAssigned(
   chapterNumber: number
 ) {
   try {
-    const assignment = await db
-      .select({ isAiEnabled: chapter_assignments.isAiEnabled })
-      .from(chapter_assignments)
-      .where(
-        and(
-          eq(chapter_assignments.projectUnitId, projectUnitId),
-          eq(chapter_assignments.bibleId, bibleId),
-          eq(chapter_assignments.bookId, bookId),
-          eq(chapter_assignments.chapterNumber, chapterNumber)
-        )
-      )
-      .limit(1);
-
-    if (!assignment[0]?.isAiEnabled) return;
-
     const book = await db
       .select({ code: books.code })
       .from(books)

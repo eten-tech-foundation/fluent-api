@@ -6,7 +6,7 @@ export const AI_SUGGESTIONS_CONSTANTS = {
   INITIAL_QUEUE_COUNT: 3,
 
   // Default number of verses to pre-fetch ahead of the drafter's current verse
-  DEFAULT_LOOKAHEAD: 5,
+  DEFAULT_LOOKAHEAD: 1,
 
   // Guardrail for GET /ai-suggestions query fan-out
   MAX_REQUESTED_BIBLE_TEXT_IDS: 200,
