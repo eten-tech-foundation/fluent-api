@@ -82,8 +82,8 @@
     {
       "idx": 11,
       "version": "7",
-      "when": 1779805709340,
-      "tag": "0011_added_ai_usggestions",
+      "when": 1779897965802,
+      "tag": "0011_add_is_ai_enabled_to_chapter_assignments",
       "breakpoints": true
     }
   ]
