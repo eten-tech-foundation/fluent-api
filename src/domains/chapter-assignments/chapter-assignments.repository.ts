@@ -398,6 +398,7 @@ export async function findAssignmentsProgress(
         submittedTime: chapter_assignments.submittedTime,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
+        isAiEnabled: chapter_assignments.isAiEnabled,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

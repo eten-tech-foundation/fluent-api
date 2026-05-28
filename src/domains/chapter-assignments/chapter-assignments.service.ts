@@ -1,9 +1,6 @@
-import { eq } from 'drizzle-orm';
-
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { chapter_assignments } from '@/db/schema';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -319,38 +316,27 @@ export async function toggleChapterAssignmentAiStatus(
   isAiEnabled: boolean
 ): Promise<Result<void>> {
   try {
-    const assignment = await db
-      .select({
-        isAiEnabled: chapter_assignments.isAiEnabled,
-        projectUnitId: chapter_assignments.projectUnitId,
-        bibleId: chapter_assignments.bibleId,
-        bookId: chapter_assignments.bookId,
-        chapterNumber: chapter_assignments.chapterNumber,
-      })
-      .from(chapter_assignments)
-      .where(eq(chapter_assignments.id, assignmentId))
-      .limit(1);
+    const assignment = await repo.findById(assignmentId);
 
-    if (!assignment[0]) {
-      return err(ErrorCode.NOT_FOUND);
+    if (!assignment) {
+      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     }
 
-    if (assignment[0].isAiEnabled === isAiEnabled) {
+    if (assignment.isAiEnabled === isAiEnabled) {
       return ok(undefined);
     }
 
-    await db
-      .update(chapter_assignments)
-      .set({ isAiEnabled })
-      .where(eq(chapter_assignments.id, assignmentId));
+    await db.transaction(async (tx) => {
+      await repo.update(assignmentId, { isAiEnabled }, tx);
+    });
 
     if (isAiEnabled) {
       // Fire and forget initial queue
       aiSuggestionsService.handleChapterAssigned(
-        assignment[0].projectUnitId,
-        assignment[0].bibleId,
-        assignment[0].bookId,
-        assignment[0].chapterNumber
+        assignment.projectUnitId,
+        assignment.bibleId,
+        assignment.bookId,
+        assignment.chapterNumber
       );
     }
 

@@ -61,6 +61,7 @@ export interface ChapterAssignmentProgressInfo {
   submittedTime: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  isAiEnabled: boolean;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -79,6 +80,7 @@ export interface UpdateChapterAssignmentRequestData {
   peerCheckerId?: number | null;
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
+  isAiEnabled?: boolean;
 }
 
 export const updateChapterAssignmentAiStatusSchema = z.object({

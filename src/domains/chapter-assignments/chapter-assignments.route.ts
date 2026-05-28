@@ -301,12 +301,11 @@ server.openapi(deleteChapterAssignmentRoute, async (c) => {
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
-// ─── PATCH /projects/:id/units/:unitId/assignments/:chapterAssignmentId/ai-status ──────
-
+// ─── PATCH /chapter-assignments/:chapterAssignmentId/ai-status ────────────────
 const updateAiStatusRoute = createRoute({
   tags: ['Chapter Assignments'],
   method: 'patch',
-  path: '/projects/{id}/units/{unitId}/assignments/{chapterAssignmentId}/ai-status',
+  path: '/chapter-assignments/{chapterAssignmentId}/ai-status',
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.CONTENT_UPDATE),
@@ -316,13 +315,7 @@ const updateAiStatusRoute = createRoute({
   description:
     'Project Manager only. Enables or disables AI translation suggestions for a specific chapter assignment.',
   request: {
-    params: z.object({
-      id: z.coerce.number().openapi({ param: { name: 'id', in: 'path', required: true } }),
-      unitId: z.coerce.number().openapi({ param: { name: 'unitId', in: 'path', required: true } }),
-      chapterAssignmentId: z.coerce
-        .number()
-        .openapi({ param: { name: 'chapterAssignmentId', in: 'path', required: true } }),
-    }),
+    params: chapterAssignmentIdParam,
     body: jsonContentRequired(updateChapterAssignmentAiStatusSchema, 'AI Status update'),
   },
   responses: {

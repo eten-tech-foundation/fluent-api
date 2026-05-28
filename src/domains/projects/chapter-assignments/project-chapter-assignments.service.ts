@@ -52,6 +52,7 @@ export async function getChapterAssignmentProgressByProject(projectId: number) {
     createdAt: info.createdAt,
     updatedAt: info.updatedAt,
     submittedTime: info.submittedTime,
+    isAiEnabled: info.isAiEnabled,
   }));
   return ok(mapped);
 }
@@ -190,6 +191,7 @@ export async function assignSelectedChapters(
           createdAt: info.createdAt,
           updatedAt: info.updatedAt,
           submittedTime: info.submittedTime,
+          isAiEnabled: info.isAiEnabled,
         }));
 
       return ok(mapped);
