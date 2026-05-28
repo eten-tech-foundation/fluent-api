@@ -15,6 +15,7 @@ import {
   aiSuggestionsListResponseSchema,
   getAiSuggestionsQuerySchema,
   queueNextVersesRequestSchema,
+  queueNextVersesResponseSchema,
   trackUsageRequestSchema,
 } from './ai-suggestions.types';
 
@@ -57,13 +58,8 @@ const getAiSuggestionsRoute = createRoute({
 
 server.openapi(getAiSuggestionsRoute, async (c) => {
   const query = c.req.valid('query');
-  const user = c.get('user');
 
-  if (!user) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
-  }
-
-  const result = await aiSuggestionsService.getAiSuggestions(user, query);
+  const result = await aiSuggestionsService.getAiSuggestions(query);
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.OK);
   }
@@ -89,7 +85,10 @@ const queueNextVersesRoute = createRoute({
     body: jsonContent(queueNextVersesRequestSchema, 'Verses context'),
   },
   responses: {
-    [HttpStatusCodes.OK]: jsonContent(createMessageObjectSchema('Successfully queued'), 'Queued'),
+    [HttpStatusCodes.OK]: jsonContent(
+      queueNextVersesResponseSchema,
+      'Queueing status and threshold state'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
       'Validation error'
@@ -114,23 +113,16 @@ const queueNextVersesRoute = createRoute({
 
 server.openapi(queueNextVersesRoute, async (c) => {
   const body = c.req.valid('json');
-  const user = c.get('user');
-
-  if (!user) {
-    return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
-  }
 
   const result = await aiSuggestionsService.queueNextVerses(
-    user,
     body.projectUnitId,
     body.bibleId,
     body.bookCode,
     body.chapterNumber,
-    body.currentVerse,
-    body.lookahead
+    body.currentVerse
   );
   if (result.ok) {
-    return c.json({ message: 'Queued' }, HttpStatusCodes.OK);
+    return c.json(result.data, HttpStatusCodes.OK);
   }
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

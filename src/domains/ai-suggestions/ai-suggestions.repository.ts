@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -225,4 +225,42 @@ export async function findNextUntranslatedVerses(
     .limit(lookahead);
 
   return nextVerses.map((v) => v.verseNumber);
+}
+
+export async function hasReachedAiActivationThreshold(
+  projectUnitId: number,
+  threshold: number
+): Promise<boolean> {
+  const projectInfo = await db
+    .select({
+      sourceLanguage: projects.sourceLanguage,
+      targetLanguage: projects.targetLanguage,
+      organization: projects.organization,
+    })
+    .from(project_units)
+    .innerJoin(projects, eq(project_units.projectId, projects.id))
+    .where(eq(project_units.id, projectUnitId))
+    .limit(1);
+
+  if (!projectInfo[0]) return false;
+
+  const { sourceLanguage, targetLanguage, organization } = projectInfo[0];
+
+  const result = await db
+    .select({ id: translated_verses.id })
+    .from(translated_verses)
+    .innerJoin(project_units, eq(translated_verses.projectUnitId, project_units.id))
+    .innerJoin(projects, eq(project_units.projectId, projects.id))
+    .where(
+      and(
+        eq(projects.sourceLanguage, sourceLanguage),
+        eq(projects.targetLanguage, targetLanguage),
+        eq(projects.organization, organization),
+        sql`length(trim(${translated_verses.content})) > 0`
+      )
+    )
+    .limit(1)
+    .offset(threshold - 1);
+
+  return result.length > 0;
 }

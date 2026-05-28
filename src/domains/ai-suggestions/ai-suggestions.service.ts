@@ -7,6 +7,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type {
   AiSuggestionsListResponse,
   GetAiSuggestionsQuery,
+  QueueNextVersesResponse,
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
@@ -16,6 +17,7 @@ import {
   getAiSuggestions as getAiSuggestionsRepo,
   getBookCodeById,
   getChapterAssignmentAiStatus,
+  hasReachedAiActivationThreshold,
   logAiSuggestionUsage,
   queueAiSuggestionJobs,
 } from './ai-suggestions.repository';
@@ -25,7 +27,6 @@ export async function trackUsage(user: User, data: TrackUsageRequest): Promise<R
 }
 
 export async function getAiSuggestions(
-  user: User,
   query: GetAiSuggestionsQuery
 ): Promise<Result<AiSuggestionsListResponse>> {
   const ids = query.bibleTextIds;
@@ -59,38 +60,36 @@ export async function getAiSuggestions(
 }
 
 export async function queueNextVerses(
-  user: User,
   projectUnitId: number,
   bibleId: number,
   bookCode: string,
   chapterNumber: number,
-  currentVerse: number,
-  lookahead: number = env.AI_DEFAULT_LOOKAHEAD
-): Promise<Result<void>> {
+  currentVerse: number
+): Promise<Result<QueueNextVersesResponse>> {
   try {
-    const isAiEnabled = await getChapterAssignmentAiStatus(
-      projectUnitId,
-      bibleId,
-      bookCode,
-      chapterNumber
-    );
+    const [isThresholdMet, isAiEnabled] = await Promise.all([
+      hasReachedAiActivationThreshold(projectUnitId, env.AI_ACTIVATION_THRESHOLD_VERSES),
+      getChapterAssignmentAiStatus(projectUnitId, bibleId, bookCode, chapterNumber),
+    ]);
 
     if (isAiEnabled === null) {
       return err(ErrorCode.INVALID_REFERENCE);
     }
 
-    if (!isAiEnabled) {
-      return ok(undefined);
+    if (!isThresholdMet || !isAiEnabled) {
+      return ok({ queued: false, thresholdMet: isThresholdMet });
     }
 
-    return await queueNextVersesForAssignment(
+    await queueNextVersesForAssignment(
       projectUnitId,
       bibleId,
       bookCode.toUpperCase(),
       chapterNumber,
       currentVerse,
-      lookahead
+      env.AI_DEFAULT_LOOKAHEAD
     );
+
+    return ok({ queued: true, thresholdMet: true });
   } catch (error) {
     logger.error(error);
     return err(ErrorCode.INTERNAL_ERROR);
@@ -141,14 +140,21 @@ export async function handleChapterAssigned(
       return ok(undefined);
     }
 
-    await queueNextVersesForAssignment(
+    const isThresholdMet = await hasReachedAiActivationThreshold(
       projectUnitId,
-      bibleId,
-      bookCode.toUpperCase(),
-      chapterNumber,
-      0,
-      env.AI_INITIAL_QUEUE_COUNT
+      env.AI_ACTIVATION_THRESHOLD_VERSES
     );
+
+    if (isThresholdMet) {
+      await queueNextVersesForAssignment(
+        projectUnitId,
+        bibleId,
+        bookCode.toUpperCase(),
+        chapterNumber,
+        0,
+        env.AI_INITIAL_QUEUE_COUNT
+      );
+    }
 
     return ok(undefined);
   } catch (error) {

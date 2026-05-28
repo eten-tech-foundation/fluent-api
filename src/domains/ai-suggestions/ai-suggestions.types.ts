@@ -1,7 +1,5 @@
 import { z } from '@hono/zod-openapi';
 
-import env from '@/env';
-
 export const getAiSuggestionsQuerySchema = z.object({
   projectUnitId: z.coerce.number().int().positive(),
   bibleTextIds: z
@@ -28,13 +26,19 @@ export type AiSuggestionsListResponse = z.infer<typeof aiSuggestionsListResponse
 export const queueNextVersesRequestSchema = z.object({
   projectUnitId: z.number().int().positive(),
   bibleId: z.number().int().positive(),
-  bookCode: z.string().min(3).max(3),
+  bookCode: z.string(),
   chapterNumber: z.number().int().positive(),
   currentVerse: z.number().int().positive(),
-  lookahead: z.number().int().positive().max(20).default(env.AI_DEFAULT_LOOKAHEAD),
 });
 
 export type QueueNextVersesRequest = z.infer<typeof queueNextVersesRequestSchema>;
+
+export const queueNextVersesResponseSchema = z.object({
+  queued: z.boolean(),
+  thresholdMet: z.boolean(),
+});
+
+export type QueueNextVersesResponse = z.infer<typeof queueNextVersesResponseSchema>;
 
 export const trackUsageRequestSchema = z.object({
   bibleTextId: z.number().int().positive(),
