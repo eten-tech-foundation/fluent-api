@@ -145,22 +145,4 @@ describe('betterAuth configuration - hooks.after', () => {
     expect(actualTime).toBeGreaterThanOrEqual(expectedTime);
     expect(actualTime).toBeLessThanOrEqual(afterHookTime + 60 * 24 * 60 * 60 * 1000);
   });
-
-  it('should extend session to 60 days and set isMobile=true when UA contains fluentmobile', async () => {
-    const ctx: any = {
-      path: '/sign-in/email',
-      context: {
-        newSession: {
-          session: { id: 'session-123' },
-        },
-      },
-      headers: new Headers({ 'user-agent': 'some-app-fluentmobile-client/1.0' }),
-    };
-
-    await hook(ctx);
-
-    expect(mockDbUpdate).toHaveBeenCalled();
-    const setArgs = mockUpdateChain.set.mock.calls[0][0];
-    expect(setArgs.isMobile).toBe(true);
-  });
 });

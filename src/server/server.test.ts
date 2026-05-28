@@ -8,11 +8,9 @@ import { server } from './server';
 
 vi.mock('@/lib/auth', () => ({
   auth: {
+    // auth.api.getSession is used by the authenticate middleware — keep it available.
     api: {
-      requestPasswordReset: vi.fn(),
-      signOut: vi.fn(),
       getSession: vi.fn(),
-      setPassword: vi.fn(),
     },
     handler: vi.fn(),
   },
@@ -37,36 +35,43 @@ describe('server Route Handlers', () => {
     vi.clearAllMocks();
   });
 
-  describe('pOST /api/auth/forget-password', () => {
-    it('should call auth.api.requestPasswordReset with body and headers', async () => {
-      const mockResult = { success: true };
-      (auth.api.requestPasswordReset as any).mockResolvedValue(mockResult);
+  // ─── POST /api/auth/forget-password ──────────────────────────────────────
 
-      const requestBody = { email: 'test@example.com' };
+  describe('pOST /api/auth/forget-password', () => {
+    it('should proxy to auth.handler with path rewritten to /api/auth/request-password-reset', async () => {
+      const mockResult = { success: true };
+      (auth.handler as any).mockResolvedValue(
+        new Response(JSON.stringify(mockResult), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
       const res = await server.request('/api/auth/forget-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-client-type': 'mobile',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ email: 'test@example.com' }),
       });
 
       expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json).toEqual(mockResult);
+      expect(auth.handler).toHaveBeenCalledOnce();
 
-      expect(auth.api.requestPasswordReset).toHaveBeenCalledWith({
-        body: requestBody,
-        headers: expect.any(Headers),
-      });
+      // Verify the request was rewritten to the BetterAuth-native path so
+      // rate limiting and other middleware in auth.handler are applied.
+      const proxiedRequest: Request = (auth.handler as any).mock.calls[0][0];
+      expect(new URL(proxiedRequest.url).pathname).toBe('/api/auth/request-password-reset');
 
-      const passedHeaders = (auth.api.requestPasswordReset as any).mock.calls[0][0].headers;
-      expect(passedHeaders.get('x-client-type')).toBe('mobile');
+      // Original headers (including custom ones) must be forwarded.
+      expect(proxiedRequest.headers.get('x-client-type')).toBe('mobile');
     });
 
-    it('should return 400 if auth.api.requestPasswordReset throws', async () => {
-      (auth.api.requestPasswordReset as any).mockRejectedValue(new Error('BetterAuth Error'));
+    it('should propagate auth.handler error responses as-is', async () => {
+      (auth.handler as any).mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Rate limit exceeded' }), { status: 429 })
+      );
 
       const res = await server.request('/api/auth/forget-password', {
         method: 'POST',
@@ -74,11 +79,40 @@ describe('server Route Handlers', () => {
         body: JSON.stringify({ email: 'test@example.com' }),
       });
 
-      expect(res.status).toBe(400);
-      const json = await res.json();
-      expect(json).toEqual({ message: 'Failed to send password reset email' });
+      expect(res.status).toBe(429);
     });
   });
+
+  // ─── POST /api/auth/password/set ─────────────────────────────────────────
+
+  describe('pOST /api/auth/password/set', () => {
+    it('should proxy to auth.handler with path rewritten to /api/auth/set-password', async () => {
+      (auth.handler as any).mockResolvedValue(
+        new Response(JSON.stringify({ status: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const res = await server.request('/api/auth/password/set', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer test-token',
+        },
+        body: JSON.stringify({ newPassword: 'hunter2' }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(auth.handler).toHaveBeenCalledOnce();
+
+      const proxiedRequest: Request = (auth.handler as any).mock.calls[0][0];
+      expect(new URL(proxiedRequest.url).pathname).toBe('/api/auth/set-password');
+      expect(proxiedRequest.headers.get('Authorization')).toBe('Bearer test-token');
+    });
+  });
+
+  // ─── POST /api/auth/sign-out ──────────────────────────────────────────────
 
   describe('pOST /api/auth/sign-out', () => {
     it('should delegate to auth.handler so Set-Cookie headers are forwarded to the client', async () => {
@@ -97,7 +131,6 @@ describe('server Route Handlers', () => {
       // auth.handler must be called (not auth.api.signOut) so BetterAuth can
       // return the full response including the Set-Cookie header for web clients.
       expect(auth.handler).toHaveBeenCalled();
-      expect(auth.api.signOut).not.toHaveBeenCalled();
     });
   });
 });

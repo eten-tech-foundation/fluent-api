@@ -8,6 +8,8 @@ export type User = z.infer<typeof selectUsersSchema>;
 export type CreateUserInput = z.infer<typeof insertUsersSchema>;
 export type UpdateUserInput = z.infer<typeof patchUsersSchema>;
 
+export type CreateUserWithAuthInput = CreateUserInput & { authUserId: string };
+
 // Used by findByEmail — joined with roles table to support policy checks
 export type UserWithRole = User & { roleName: string };
 

@@ -19,8 +19,7 @@ function isMobileRequest(headers?: Headers | null): boolean {
   if (!headers || typeof headers.get !== 'function') return false;
   const clientType = headers.get('x-client-type');
   const ua = (headers.get('user-agent') ?? '').toLowerCase();
-  if (clientType === 'mobile' && ua === 'fluent-mobile') return true;
-  return ua.includes('fluentmobile');
+  return clientType === 'mobile' && ua === 'fluent-mobile';
 }
 
 function getWebOrigin(frontendUrl: string): string {

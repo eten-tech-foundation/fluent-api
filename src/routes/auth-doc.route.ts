@@ -65,7 +65,6 @@ server.openapi(signInRoute, async (c) => {
 });
 
 // ─── POST /api/auth/forget-password ──────────────────────────────────────────
-// Calls auth.api.requestPasswordReset internally (verified BetterAuth API name).
 const forgetPasswordRoute = createRoute({
   tags: ['Authentication'],
   method: 'post',

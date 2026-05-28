@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { cors } from 'hono/cors';
@@ -82,19 +84,17 @@ export function createServer() {
     });
   });
 
-  app.post('/api/auth/password/set', async (c) => {
-    try {
-      const body = await c.req.json();
-      const result = await auth.api.setPassword({
-        body,
-        headers: c.req.raw.headers,
-      });
-      return c.json(result);
-    } catch (err) {
-      logger.error('Password set error', { error: err });
-      return c.json({ error: { message: 'Unauthorized or invalid request' } }, 401);
-    }
-  });
+  // ─── BetterAuth proxy helper ─────────────────────────────────────
+  async function proxyToAuth(c: Context<AppEnv>, betterAuthPath: string): Promise<Response> {
+    const url = new URL(c.req.url);
+    url.pathname = betterAuthPath;
+    return auth.handler(new Request(url, c.req.raw));
+  }
+
+  app.post('/api/auth/password/set', (c) => proxyToAuth(c, '/api/auth/set-password'));
+
+  // POST /api/auth/forget-password
+  app.post('/api/auth/forget-password', (c) => proxyToAuth(c, '/api/auth/request-password-reset'));
 
   app.get('/api/auth/validate-token', async (c) => {
     const token = c.req.query('token');
@@ -127,21 +127,6 @@ export function createServer() {
     } catch (err) {
       logger.error('Failed to validate verification token', { error: err });
       return c.json({ isValid: false, message: 'Failed to validate token' }, 500);
-    }
-  });
-
-  // POST /api/auth/forget-password
-  app.post('/api/auth/forget-password', async (c) => {
-    try {
-      const body = await c.req.json();
-      const result = await auth.api.requestPasswordReset({
-        body,
-        headers: c.req.raw.headers,
-      });
-      return c.json(result);
-    } catch (err) {
-      logger.error('Forget password error', { error: err });
-      return c.json({ message: 'Failed to send password reset email' }, 400);
     }
   });
 
