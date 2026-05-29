@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { eq } from 'drizzle-orm';
 import { cors } from 'hono/cors';
@@ -55,6 +57,9 @@ export function createServer() {
         return null;
       },
       credentials: true,
+      // Expose set-auth-token so clients can read the Bearer token from the
+      // BetterAuth bearer() plugin response header after sign-in.
+      exposeHeaders: ['set-auth-token'],
     })
   );
 
@@ -71,25 +76,25 @@ export function createServer() {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-better-auth-*',
+        'Access-Control-Allow-Headers':
+          'Content-Type, Authorization, x-client-type, x-better-auth-*',
+        'Access-Control-Expose-Headers': 'set-auth-token',
         'Access-Control-Max-Age': '86400',
       },
     });
   });
 
-  app.post('/api/auth/password/set', async (c) => {
-    try {
-      const body = await c.req.json();
-      const result = await auth.api.setPassword({
-        body,
-        headers: c.req.raw.headers,
-      });
-      return c.json(result);
-    } catch (err) {
-      console.error('Password set error:', err);
-      return c.json({ error: { message: 'Unauthorized or invalid request' } }, 401);
-    }
-  });
+  // ─── BetterAuth proxy helper ─────────────────────────────────────
+  async function proxyToAuth(c: Context<AppEnv>, betterAuthPath: string): Promise<Response> {
+    const url = new URL(c.req.url);
+    url.pathname = betterAuthPath;
+    return auth.handler(new Request(url, c.req.raw));
+  }
+
+  app.post('/api/auth/password/set', (c) => proxyToAuth(c, '/api/auth/set-password'));
+
+  // POST /api/auth/forget-password
+  app.post('/api/auth/forget-password', (c) => proxyToAuth(c, '/api/auth/request-password-reset'));
 
   app.get('/api/auth/validate-token', async (c) => {
     const token = c.req.query('token');
@@ -123,6 +128,11 @@ export function createServer() {
       logger.error('Failed to validate verification token', { error: err });
       return c.json({ isValid: false, message: 'Failed to validate token' }, 500);
     }
+  });
+
+  // POST /api/auth/sign-out
+  app.post('/api/auth/sign-out', (c) => {
+    return auth.handler(c.req.raw);
   });
 
   app.all('/api/auth/*', (c) => {

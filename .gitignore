@@ -22,6 +22,7 @@ web_modules/
 .env.local
 *.env.*
 !.env.example
+!.env.test
 
 # logs
 logs/

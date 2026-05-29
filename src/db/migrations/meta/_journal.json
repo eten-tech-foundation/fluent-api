@@ -78,6 +78,13 @@
       "when": 1778225352600,
       "tag": "0010_add_better_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779441453059,
+      "tag": "0011_add_is_mobile_to_auth_session",
+      "breakpoints": true
     }
   ]
 }

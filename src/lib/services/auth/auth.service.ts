@@ -6,7 +6,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { createUser, deleteUser } from '@/domains/users/users.service';
+import { createUserWithAuth, deleteUser } from '@/domains/users/users.service';
 import env from '@/env';
 import { auth } from '@/lib/auth';
 import { ErrorCode } from '@/lib/types';
@@ -49,10 +49,10 @@ export async function createUserWithInvitation(
   }
 
   // 2. Create user in local database
-  const dbResult = await createUser({
+  const dbResult = await createUserWithAuth({
     ...normalizedInput,
     authUserId,
-  } as any);
+  });
 
   if (!dbResult.ok) {
     // Rollback BetterAuth identity if local DB creation fails
@@ -61,9 +61,9 @@ export async function createUserWithInvitation(
   }
 
   try {
-    // 3. Send magic link invitation via BetterAuth
-    // BetterAuth REQUIRES headers to be passed for security context
-    await auth.api.signInMagicLink({
+    // 3. Send magic link invitation via BetterAuth.
+    type AuthAPI = typeof auth;
+    await (auth as AuthAPI).api.signInMagicLink({
       body: {
         email: normalizedInput.email,
         callbackURL: `${env.FRONTEND_URL}/accept-invitation`,
