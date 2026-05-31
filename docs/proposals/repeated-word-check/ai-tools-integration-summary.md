@@ -4,7 +4,7 @@
 
 ## What's being proposed
 
-Expose fluent-ai's Greek-Room *Repeated Words* check through fluent-api as the first AI-tool endpoint, using a pattern designed to absorb every future AI tool (LLM drafting, embeddings, other Greek-Room checks) with a five-line per-tool wrapper.
+Expose fluent-ai's Greek-Room _Repeated Words_ check through fluent-api as the first AI-tool endpoint, using a pattern designed to absorb every future AI tool (LLM drafting, embeddings, other Greek-Room checks) with a five-line per-tool wrapper.
 
 ## Core architectural decisions for review
 

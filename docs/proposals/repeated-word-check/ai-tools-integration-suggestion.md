@@ -1,7 +1,7 @@
 # AI-Tools Integration on fluent-api — Proposal
 
 **Status:** Draft for review.
-**Scope:** Extend fluent-api to expose AI tools implemented by fluent-ai, starting with Greek-Room's *Repeated Words* check. The exposed pattern is meant to absorb every future AI tool (LLM drafting, embeddings, fine-tuning, other Greek-Room checks) without renegotiating the contract.
+**Scope:** Extend fluent-api to expose AI tools implemented by fluent-ai, starting with Greek-Room's _Repeated Words_ check. The exposed pattern is meant to absorb every future AI tool (LLM drafting, embeddings, fine-tuning, other Greek-Room checks) without renegotiating the contract.
 **Companion document:** [`fluent-api/proposals/ai-tools-integration-summary.md`](ai-tools-integration-summary.md) — short reviewer orientation.
 **Predecessors on the fluent-ai side:** [`fluent-ai/greek-room-integration-summary.md`](../../fluent-ai/greek-room-integration-summary.md), [`fluent-ai/greek-room-integration-suggestion.md`](../../fluent-ai/greek-room-integration-suggestion.md), [`fluent-ai/greek-room-integration-decisions.md`](../../fluent-ai/greek-room-integration-decisions.md).
 
@@ -9,7 +9,7 @@
 
 ## 1. Background
 
-fluent-ai is the Python/FastAPI backend dedicated to AI-tool integrations. It has merged its first such integration — Greek-Room's *Repeated Words* check — exposed at:
+fluent-ai is the Python/FastAPI backend dedicated to AI-tool integrations. It has merged its first such integration — Greek-Room's _Repeated Words_ check — exposed at:
 
 ```
 POST /api/v1/tools/greek-room/repeated-words
@@ -18,7 +18,7 @@ Header: X-API-Key: <key>
 
 with a `ToolJobResponse[RepeatedWordsResult]` envelope that already accommodates a future async-queue mode (`status: queued|running|completed|failed|cancelled`, `job_id`, `created_at`, `completed_at`). Today it always returns `status: "completed"` synchronously; the queue substrate is deferred until a slow tool needs it. See the predecessor documents linked above for the full architectural rationale.
 
-fluent-api is the Node/TypeScript backend that fronts the editor (fluent-web). It currently has no awareness of fluent-ai. This proposal describes how to put the *Repeated Words* check on the menu by routing it through fluent-api, while shaping the integration so the next AI tool drops in with minimum effort.
+fluent-api is the Node/TypeScript backend that fronts the editor (fluent-web). It currently has no awareness of fluent-ai. This proposal describes how to put the _Repeated Words_ check on the menu by routing it through fluent-api, while shaping the integration so the next AI tool drops in with minimum effort.
 
 The user-facing motivation is the editor: eventually each repeated word should get a corrective squiggle below it, similar to a spell-checker. That endgame is **out of scope for this PR**, but it sets the constraint that the surface fluent-api exposes must be cheap and re-callable per editor save, not stateful or session-coupled.
 
@@ -26,12 +26,12 @@ The user-facing motivation is the editor: eventually each repeated word should g
 
 All four sibling projects live under the same GitHub org (`eten-tech-foundation`). Per fluent-platform's setup convention they are cloned side-by-side in the same parent directory.
 
-| Repo | Remote | Role |
-|------|--------|------|
-| **fluent-api** | [github.com/eten-tech-foundation/fluent-api](https://github.com/eten-tech-foundation/fluent-api) | Node/TypeScript REST API (Hono + Drizzle + BetterAuth). The subject of this proposal. |
-| **fluent-ai** | [github.com/eten-tech-foundation/fluent-ai](https://github.com/eten-tech-foundation/fluent-ai) | Python/FastAPI service hosting AI-tool integrations (Greek-Room, future LLM tools). The upstream we are calling into. |
+| Repo                | Remote                                                                                                     | Role                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **fluent-api**      | [github.com/eten-tech-foundation/fluent-api](https://github.com/eten-tech-foundation/fluent-api)           | Node/TypeScript REST API (Hono + Drizzle + BetterAuth). The subject of this proposal.                                                          |
+| **fluent-ai**       | [github.com/eten-tech-foundation/fluent-ai](https://github.com/eten-tech-foundation/fluent-ai)             | Python/FastAPI service hosting AI-tool integrations (Greek-Room, future LLM tools). The upstream we are calling into.                          |
 | **fluent-platform** | [github.com/eten-tech-foundation/fluent-platform](https://github.com/eten-tech-foundation/fluent-platform) | Container-first orchestrator. Owns the shared PostgreSQL, the unified compose stack, and helper scripts. Touched by this proposal — see §12.4. |
-| **fluent-web** | [github.com/eten-tech-foundation/fluent-web](https://github.com/eten-tech-foundation/fluent-web) | React/Vite frontend (the editor). Not touched in this PR; the frontend hook is a follow-up. |
+| **fluent-web**      | [github.com/eten-tech-foundation/fluent-web](https://github.com/eten-tech-foundation/fluent-web)           | React/Vite frontend (the editor). Not touched in this PR; the frontend hook is a follow-up.                                                    |
 
 Relative paths in this document (e.g. `../../fluent-platform/...`) assume the standard side-by-side layout that fluent-platform's setup script produces.
 
@@ -40,6 +40,7 @@ Relative paths in this document (e.g. `../../fluent-platform/...`) assume the st
 ## 2. Scope of this PR
 
 **In scope (this PR):**
+
 1. A single new endpoint on fluent-api: `POST /ai/tools/greek-room/repeated-words`.
 2. A shared utility — `callFluentAi<TReq, TResult>(toolPath, body, schema)` — used by all per-tool routes to handle envelope unwrap, error translation, and (later) polling.
 3. A new domain folder, `src/domains/ai-tools/`, containing routes/services/types for tool endpoints.
@@ -48,6 +49,7 @@ Relative paths in this document (e.g. `../../fluent-platform/...`) assume the st
 6. Tests mirroring the existing fluent-api test patterns plus one smoke test runnable from the host.
 
 **Explicitly deferred (future PRs):**
+
 - Async job polling endpoint on fluent-api (`GET /ai/tools/jobs/{job_id}` or similar). Not built because fluent-ai also has not built the corresponding endpoint yet — both sides chose "lightweight now" per fluent-ai decision **D1**.
 - Frontend (fluent-web) hooks and squiggle UI. Frontend is a separate session/PR.
 - DB persistence of tool runs / findings. No `ai_tool_runs` or `check_results` table is introduced.
@@ -60,20 +62,20 @@ Relative paths in this document (e.g. `../../fluent-platform/...`) assume the st
 
 These are the decisions captured during the spec discussion. Each is restated here so reviewers can discuss the conclusion without reading the supporting analysis.
 
-| # | Decision | Short rationale |
-|---|----------|-----------------|
-| **D1** | PR scope is "minimum proxy" — no DB persistence, no job queue exercised in this PR. | Repeated-words is fast (<1s) and re-runnable; persistence is not motivated by this tool. Defer until a slow tool justifies a `ai_tool_runs` table. |
-| **D2** | URL is `POST /ai/tools/greek-room/repeated-words`. | Introduces `/ai/` as fluent-api's first top-level service-family namespace. Telegraphs "network-bound, potentially slow, possibly async" — characteristics that local CRUD endpoints don't share. Per-tool URL preserves OpenAPI type-safety. Alternatives: `/checks/repeated-words` (more in convention but hides the proxy nature), nested under `/chapter-assignments/{id}/` (requires server-side enrichment which we reject in D8). |
-| **D3** | Polling lives in the *browser* via TanStack Query's `refetchInterval`, not in fluent-api. fluent-api is a thin pass-through for both kickoff and (future) polling. | Decouples slow tools from fluent-api's request budget. Aligns with fluent-web's existing TanStack Query usage. The polling code path is not exercised today because fluent-ai always returns `status: "completed"` synchronously. |
-| **D4** | File layout: shared utility at [`fluent-api/src/lib/services/fluent-ai/fluent-ai.client.ts`](../src/lib/services/fluent-ai/fluent-ai.client.ts); per-tool routes/services in [`fluent-api/src/domains/ai-tools/`](../src/domains/ai-tools/). One route file for all tools; per-tool Zod schemas keep OpenAPI documentation fully typed. | Mirrors the existing [`fluent-api/src/lib/services/notifications/mailgun.service.ts`](../src/lib/services/notifications/mailgun.service.ts) pattern for "free functions wrapping a third-party API" and the existing [`fluent-api/src/lib/db-retry.ts`](../src/lib/db-retry.ts) pattern for "higher-order utility used by many call sites." Avoids a single one-size-fits-all dispatcher that would degrade OpenAPI schemas to `dict[str, Any]`. |
-| **D5** | Service discovery / docker networking is handled by the existing [`fluent-platform`](../../fluent-platform/README.md) orchestrator. This PR adds two env vars on the fluent-api side and one `environment:` override on the fluent-platform side (`FLUENT_AI_URL: http://ai:8200`). See §12. | fluent-platform already wires `db`, `api`, `worker`, `ai`, `web` together on a shared network; we plug in to that substrate rather than invent a new one. |
-| **D6** | A single shared `FLUENT_AI_KEY` is provisioned for the fluent-api → fluent-ai hop. If another consumer of fluent-ai appears later, it gets its own key. | Per-user keys give zero security benefit at this layer (everyone going through fluent-api is already authenticated to fluent-api). Single key minimizes IT complexity. |
-| **D7** | Error translation specifics deferred to implementation. If conformity between the two error systems is awkward, prefer harmonizing fluent-ai toward fluent-api's patterns rather than the other way. | At the spec level there are no hard constraints; the safe defaults (5xx from fluent-ai → 502 on fluent-api with `ErrorCode.AI_SERVICE_UNAVAILABLE`) are obvious. |
-| **D8** | No request enrichment. fluent-api forwards the request body to fluent-ai verbatim. fluent-web sends the full `RepeatedWordsRequest` shape including `lang_code`, `lang_name`, `project_id`, `project_name`, `verses[]`. | Maximum flexibility for the caller. Avoids coupling fluent-api to fluent-ai's request schema (today and tomorrow). |
-| **D9** | The full `ToolJobResponse` envelope is passed through to fluent-web unchanged. No unwrap to `result` for the synchronous case. | Forward-compatible with TanStack-based polling — the same hook code consumes the envelope today (`status: completed`) and tomorrow (`status: queued` → polled to `completed`). |
-| **D10** | Auth on the new endpoint: introduce `PERMISSIONS.AI_TOOLS_USE` as an *alias* with the same underlying value as `CONTENT_UPDATE`. | Cosmetically separates "can edit content" from "can invoke AI tools" without making a real distinction yet. Trivial to peel apart later. |
-| **D11** | A smoke test analogous to [`fluent-ai/scripts/smoke_repeated_words.py`](../../fluent-ai/scripts/smoke_repeated_words.py) is added, runnable from the host with both services up. | Lets devs verify the cross-service plumbing without running the full vitest suite. |
-| **D12** | This work ships as a **coordinated pair of PRs**: one against fluent-api (the bulk of the work) and one small PR against fluent-platform (compose env-var override + 1–2 README lines). Either order of merge is fine; both should be ready for review together. | The fluent-platform PR is small and contains no logic, so it can land first to unblock ecosystem-mode dev. Reviewers should be able to read both PRs side-by-side. |
+| #       | Decision                                                                                                                                                                                                                                                                                                                                | Short rationale                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **D1**  | PR scope is "minimum proxy" — no DB persistence, no job queue exercised in this PR.                                                                                                                                                                                                                                                     | Repeated-words is fast (<1s) and re-runnable; persistence is not motivated by this tool. Defer until a slow tool justifies a `ai_tool_runs` table.                                                                                                                                                                                                                                                                                               |
+| **D2**  | URL is `POST /ai/tools/greek-room/repeated-words`.                                                                                                                                                                                                                                                                                      | Introduces `/ai/` as fluent-api's first top-level service-family namespace. Telegraphs "network-bound, potentially slow, possibly async" — characteristics that local CRUD endpoints don't share. Per-tool URL preserves OpenAPI type-safety. Alternatives: `/checks/repeated-words` (more in convention but hides the proxy nature), nested under `/chapter-assignments/{id}/` (requires server-side enrichment which we reject in D8).         |
+| **D3**  | Polling lives in the _browser_ via TanStack Query's `refetchInterval`, not in fluent-api. fluent-api is a thin pass-through for both kickoff and (future) polling.                                                                                                                                                                      | Decouples slow tools from fluent-api's request budget. Aligns with fluent-web's existing TanStack Query usage. The polling code path is not exercised today because fluent-ai always returns `status: "completed"` synchronously.                                                                                                                                                                                                                |
+| **D4**  | File layout: shared utility at [`fluent-api/src/lib/services/fluent-ai/fluent-ai.client.ts`](../src/lib/services/fluent-ai/fluent-ai.client.ts); per-tool routes/services in [`fluent-api/src/domains/ai-tools/`](../src/domains/ai-tools/). One route file for all tools; per-tool Zod schemas keep OpenAPI documentation fully typed. | Mirrors the existing [`fluent-api/src/lib/services/notifications/mailgun.service.ts`](../src/lib/services/notifications/mailgun.service.ts) pattern for "free functions wrapping a third-party API" and the existing [`fluent-api/src/lib/db-retry.ts`](../src/lib/db-retry.ts) pattern for "higher-order utility used by many call sites." Avoids a single one-size-fits-all dispatcher that would degrade OpenAPI schemas to `dict[str, Any]`. |
+| **D5**  | Service discovery / docker networking is handled by the existing [`fluent-platform`](../../fluent-platform/README.md) orchestrator. This PR adds two env vars on the fluent-api side and one `environment:` override on the fluent-platform side (`FLUENT_AI_URL: http://ai:8200`). See §12.                                            | fluent-platform already wires `db`, `api`, `worker`, `ai`, `web` together on a shared network; we plug in to that substrate rather than invent a new one.                                                                                                                                                                                                                                                                                        |
+| **D6**  | A single shared `FLUENT_AI_KEY` is provisioned for the fluent-api → fluent-ai hop. If another consumer of fluent-ai appears later, it gets its own key.                                                                                                                                                                                 | Per-user keys give zero security benefit at this layer (everyone going through fluent-api is already authenticated to fluent-api). Single key minimizes IT complexity.                                                                                                                                                                                                                                                                           |
+| **D7**  | Error translation specifics deferred to implementation. If conformity between the two error systems is awkward, prefer harmonizing fluent-ai toward fluent-api's patterns rather than the other way.                                                                                                                                    | At the spec level there are no hard constraints; the safe defaults (5xx from fluent-ai → 502 on fluent-api with `ErrorCode.AI_SERVICE_UNAVAILABLE`) are obvious.                                                                                                                                                                                                                                                                                 |
+| **D8**  | No request enrichment. fluent-api forwards the request body to fluent-ai verbatim. fluent-web sends the full `RepeatedWordsRequest` shape including `lang_code`, `lang_name`, `project_id`, `project_name`, `verses[]`.                                                                                                                 | Maximum flexibility for the caller. Avoids coupling fluent-api to fluent-ai's request schema (today and tomorrow).                                                                                                                                                                                                                                                                                                                               |
+| **D9**  | The full `ToolJobResponse` envelope is passed through to fluent-web unchanged. No unwrap to `result` for the synchronous case.                                                                                                                                                                                                          | Forward-compatible with TanStack-based polling — the same hook code consumes the envelope today (`status: completed`) and tomorrow (`status: queued` → polled to `completed`).                                                                                                                                                                                                                                                                   |
+| **D10** | Auth on the new endpoint: introduce `PERMISSIONS.AI_TOOLS_USE` as an _alias_ with the same underlying value as `CONTENT_UPDATE`.                                                                                                                                                                                                        | Cosmetically separates "can edit content" from "can invoke AI tools" without making a real distinction yet. Trivial to peel apart later.                                                                                                                                                                                                                                                                                                         |
+| **D11** | A smoke test analogous to [`fluent-ai/scripts/smoke_repeated_words.py`](../../fluent-ai/scripts/smoke_repeated_words.py) is added, runnable from the host with both services up.                                                                                                                                                        | Lets devs verify the cross-service plumbing without running the full vitest suite.                                                                                                                                                                                                                                                                                                                                                               |
+| **D12** | This work ships as a **coordinated pair of PRs**: one against fluent-api (the bulk of the work) and one small PR against fluent-platform (compose env-var override + 1–2 README lines). Either order of merge is fine; both should be ready for review together.                                                                        | The fluent-platform PR is small and contains no logic, so it can land first to unblock ecosystem-mode dev. Reviewers should be able to read both PRs side-by-side.                                                                                                                                                                                                                                                                               |
 
 ---
 
@@ -130,7 +132,7 @@ The interesting property: **the request/response shapes are identical** between 
 POST /ai/tools/greek-room/repeated-words
 ```
 
-This introduces `/ai/` as fluent-api's first top-level service-family namespace. The full URL inventory survey conducted during the spec session is reproduced in [Appendix A](#appendix-a--fluent-api-url-inventory-at-time-of-writing). Today fluent-api's URLs are flat, plural-noun, unprefixed; nested URLs reflect ownership (`/projects/{id}/users`). There is no existing service-family namespace; `/usfm` *is not* a top-level prefix but a nested sub-resource under `/project-units/{id}`.
+This introduces `/ai/` as fluent-api's first top-level service-family namespace. The full URL inventory survey conducted during the spec session is reproduced in [Appendix A](#appendix-a--fluent-api-url-inventory-at-time-of-writing). Today fluent-api's URLs are flat, plural-noun, unprefixed; nested URLs reflect ownership (`/projects/{id}/users`). There is no existing service-family namespace; `/usfm` _is not_ a top-level prefix but a nested sub-resource under `/project-units/{id}`.
 
 #### Why `/ai/tools/greek-room/repeated-words` over the alternatives
 
@@ -202,13 +204,13 @@ A generic `POST /ai/dispatch` endpoint accepting `{tool: string, params: unknown
 
 ### 6.3 Why one route file for all tools instead of one per tool
 
-`ai-tools.route.ts` co-locates every tool endpoint so adding a new tool requires touching exactly two files (`ai-tools.service.ts` for the wrapper, `ai-tools.route.ts` for the route + schemas). When this file becomes uncomfortably large (~5+ tools), a split by tool *family* — `ai-tools.greek-room.route.ts`, `ai-tools.openai.route.ts`, etc. — is the natural next step. Not warranted at one tool.
+`ai-tools.route.ts` co-locates every tool endpoint so adding a new tool requires touching exactly two files (`ai-tools.service.ts` for the wrapper, `ai-tools.route.ts` for the route + schemas). When this file becomes uncomfortably large (~5+ tools), a split by tool _family_ — `ai-tools.greek-room.route.ts`, `ai-tools.openai.route.ts`, etc. — is the natural next step. Not warranted at one tool.
 
 ---
 
 ## 7. The shared utility: `callFluentAi`
 
-The single piece of *new mechanism* this PR introduces is the function in [`fluent-api/src/lib/services/fluent-ai/fluent-ai.client.ts`](../src/lib/services/fluent-ai/fluent-ai.client.ts).
+The single piece of _new mechanism_ this PR introduces is the function in [`fluent-api/src/lib/services/fluent-ai/fluent-ai.client.ts`](../src/lib/services/fluent-ai/fluent-ai.client.ts).
 
 ### 7.1 Signature
 
@@ -218,13 +220,13 @@ import type { Result } from '@/lib/types';
 import type { ToolJobResponse } from './fluent-ai.types';
 
 export async function callFluentAi<TReq, TResult>(
-  toolPath: string,                       // e.g. 'tools/greek-room/repeated-words' (no leading slash; no /api/v1)
+  toolPath: string, // e.g. 'tools/greek-room/repeated-words' (no leading slash; no /api/v1)
   body: TReq,
-  resultSchema: z.ZodType<TResult>,       // for runtime validation of the result field on success
+  resultSchema: z.ZodType<TResult>, // for runtime validation of the result field on success
   options?: {
-    signal?: AbortSignal;                 // honored if caller wants timeout / cancellation
-    timeoutMs?: number;                   // default 30_000
-  },
+    signal?: AbortSignal; // honored if caller wants timeout / cancellation
+    timeoutMs?: number; // default 30_000
+  }
 ): Promise<Result<ToolJobResponse<TResult>>>;
 ```
 
@@ -236,7 +238,7 @@ export async function callFluentAi<TReq, TResult>(
    - `X-API-Key: ${FLUENT_AI_KEY}`
    - body serialized as JSON
 3. Honors the caller's `AbortSignal` if provided; otherwise applies a default 30-second timeout via a derived signal. (Tunable per-call.)
-4. On HTTP-level success (2xx), parses the response body as `ToolJobResponse<TResult>` and validates the `result` field against `resultSchema` *if and only if* `status === "completed"`. (When status is `queued|running`, `result` is `null` and is not validated.)
+4. On HTTP-level success (2xx), parses the response body as `ToolJobResponse<TResult>` and validates the `result` field against `resultSchema` _if and only if_ `status === "completed"`. (When status is `queued|running`, `result` is `null` and is not validated.)
 5. Returns `{ ok: true, data: envelope }` — note this is the **full envelope**, not the unwrapped result. Callers that care only about the synchronous-completed case can `if (envelope.status === "completed") return envelope.result`. Callers that want to support the future polling case can inspect `envelope.status` and `envelope.job_id`.
 6. On HTTP error (4xx/5xx), network error, parse error, or schema-validation error, returns `{ ok: false, error: {...} }` using the error mapping in §9.
 
@@ -244,7 +246,7 @@ export async function callFluentAi<TReq, TResult>(
 
 - It does not poll. A `pollUntilComplete: true` option, or a sibling `pollToolJob(jobId, resultSchema)` function, can be added in the future PR that ships the first slow tool. Today the polling code path is not in scope because fluent-ai has not yet shipped the polling endpoint either.
 - It does not cache. Each call is independent. Per-tool caching (e.g. memoizing on `(toolPath, hash(body))`) is a future optimization for expensive idempotent tools.
-- It does not retry on transport failure. `withDatabaseRetry`-style retries are intentionally not applied because most AI tool failures are *semantic*, not *transport-flaky*. If a user-facing retry policy is wanted, it belongs at the route layer or in the frontend hook, not in this utility.
+- It does not retry on transport failure. `withDatabaseRetry`-style retries are intentionally not applied because most AI tool failures are _semantic_, not _transport-flaky_. If a user-facing retry policy is wanted, it belongs at the route layer or in the frontend hook, not in this utility.
 
 ### 7.4 Why this shape
 
@@ -270,13 +272,9 @@ import {
 } from './ai-tools.types';
 
 export async function callRepeatedWords(
-  req: RepeatedWordsRequest,
+  req: RepeatedWordsRequest
 ): Promise<Result<ToolJobResponse<RepeatedWordsResult>>> {
-  return callFluentAi(
-    'tools/greek-room/repeated-words',
-    req,
-    RepeatedWordsResultSchema,
-  );
+  return callFluentAi('tools/greek-room/repeated-words', req, RepeatedWordsResultSchema);
 }
 ```
 
@@ -284,13 +282,9 @@ Adding a future tool (say, `coherence-check`) is the same five-line pattern:
 
 ```ts
 export async function callCoherenceCheck(
-  req: CoherenceCheckRequest,
+  req: CoherenceCheckRequest
 ): Promise<Result<ToolJobResponse<CoherenceCheckResult>>> {
-  return callFluentAi(
-    'tools/some-family/coherence-check',
-    req,
-    CoherenceCheckResultSchema,
-  );
+  return callFluentAi('tools/some-family/coherence-check', req, CoherenceCheckResultSchema);
 }
 ```
 
@@ -324,6 +318,7 @@ export type RepeatedWordsRequest = z.infer<typeof RepeatedWordsRequestSchema>;
 ```
 
 Notes:
+
 - `project_id` is intentionally permissive (`string | number`) to match fluent-ai's Pydantic model, which accepts either. fluent-api's own `project.id` is an integer.
 - `verses` is required and non-empty (`.min(1)`) so we can fail fast at the route layer rather than incur a round-trip to fluent-ai for a trivially-invalid request.
 - The field naming uses fluent-ai's snake_case verbatim (`lang_code`, `snt_id`). This is a deliberate departure from fluent-api's camelCase elsewhere; the alternative (rename in fluent-api, re-rename in fluent-ai) buys nothing and risks drift. The OpenAPI docs make the snake_case visible to the frontend.
@@ -335,26 +330,21 @@ Per **D9** (envelope pass-through), the response body is fluent-ai's `ToolJobRes
 ```ts
 // fluent-api/src/lib/services/fluent-ai/fluent-ai.types.ts
 
-export type JobStatus =
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface ToolJobError {
-  type: string;          // e.g. 'TOOL_EXECUTION_ERROR'
+  type: string; // e.g. 'TOOL_EXECUTION_ERROR'
   message: string;
   details?: unknown;
 }
 
 export interface ToolJobResponse<TResult> {
-  job_id: string;        // UUID
-  tool: string;          // e.g. 'greek-room/repeated-words'
+  job_id: string; // UUID
+  tool: string; // e.g. 'greek-room/repeated-words'
   status: JobStatus;
   result: TResult | null;
   error: ToolJobError | null;
-  created_at: string;    // ISO-8601 timestamp
+  created_at: string; // ISO-8601 timestamp
   completed_at: string | null;
 }
 ```
@@ -405,17 +395,17 @@ The `RepeatedWordsResponseSchema` is what the Hono route declares as its 200 res
 
 ### 8.3 Status codes from fluent-api
 
-| Outcome | HTTP | Body |
-|---------|------|------|
-| Tool completed synchronously | `200 OK` | `ToolJobResponse` with `status: "completed"` |
-| Tool started asynchronously (future) | `202 Accepted` | `ToolJobResponse` with `status: "queued"` |
-| Caller not authenticated | `401 Unauthorized` | fluent-api's standard `Result` error |
-| Caller authenticated but lacks `AI_TOOLS_USE` | `403 Forbidden` | fluent-api's standard `Result` error |
-| Request body fails Zod validation | `400 Bad Request` | fluent-api's standard validation error |
-| fluent-ai returns 4xx (bad request, auth failure, etc.) | `502 Bad Gateway` | fluent-api error with `code: AI_SERVICE_UNAVAILABLE` and the upstream message in `details` |
-| fluent-ai returns 5xx | `502 Bad Gateway` | same as above |
-| Network timeout / connection refused | `502 Bad Gateway` | same as above |
-| Envelope `status === "failed"` from fluent-ai | `502 Bad Gateway` | fluent-api error with `code: AI_TOOL_EXECUTION_FAILED` and the envelope `error` propagated |
+| Outcome                                                 | HTTP               | Body                                                                                       |
+| ------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------ |
+| Tool completed synchronously                            | `200 OK`           | `ToolJobResponse` with `status: "completed"`                                               |
+| Tool started asynchronously (future)                    | `202 Accepted`     | `ToolJobResponse` with `status: "queued"`                                                  |
+| Caller not authenticated                                | `401 Unauthorized` | fluent-api's standard `Result` error                                                       |
+| Caller authenticated but lacks `AI_TOOLS_USE`           | `403 Forbidden`    | fluent-api's standard `Result` error                                                       |
+| Request body fails Zod validation                       | `400 Bad Request`  | fluent-api's standard validation error                                                     |
+| fluent-ai returns 4xx (bad request, auth failure, etc.) | `502 Bad Gateway`  | fluent-api error with `code: AI_SERVICE_UNAVAILABLE` and the upstream message in `details` |
+| fluent-ai returns 5xx                                   | `502 Bad Gateway`  | same as above                                                                              |
+| Network timeout / connection refused                    | `502 Bad Gateway`  | same as above                                                                              |
+| Envelope `status === "failed"` from fluent-ai           | `502 Bad Gateway`  | fluent-api error with `code: AI_TOOL_EXECUTION_FAILED` and the envelope `error` propagated |
 
 The 502 choice for upstream failures mirrors what fluent-ai itself does for its own upstream tool failures (`ToolExecutionException` → 502 per fluent-ai decision **D6**). It signals "this isn't a problem with the caller's request; the dependency is misbehaving."
 
@@ -425,10 +415,10 @@ The 502 choice for upstream failures mirrors what fluent-ai itself does for its 
 
 ### 9.1 Two distinct auth boundaries
 
-| Boundary | Mechanism | Established by | Established when |
-|----------|-----------|---------------|------------------|
-| fluent-web → fluent-api | BetterAuth session cookie | This codebase, existing | Pre-existing |
-| fluent-api → fluent-ai | Single shared `X-API-Key` | This PR, env-driven | This PR |
+| Boundary                | Mechanism                 | Established by          | Established when |
+| ----------------------- | ------------------------- | ----------------------- | ---------------- |
+| fluent-web → fluent-api | BetterAuth session cookie | This codebase, existing | Pre-existing     |
+| fluent-api → fluent-ai  | Single shared `X-API-Key` | This PR, env-driven     | This PR          |
 
 These boundaries do not bridge directly: there is no propagation of "user X is calling this tool" beyond fluent-api. Audit logs on the fluent-ai side will see the single shared identity. If per-user attribution is wanted later, the request envelope can carry an opaque `requested_by` claim — out of scope for this PR.
 
@@ -440,10 +430,7 @@ These boundaries do not bridge directly: there is no propagation of "user X is c
 const repeatedWordsRoute = createRoute({
   method: 'post',
   path: '/ai/tools/greek-room/repeated-words',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.AI_TOOLS_USE),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.AI_TOOLS_USE)] as const,
   request: {
     body: {
       content: {
@@ -470,7 +457,7 @@ const repeatedWordsRoute = createRoute({
 
 ### 9.3 `PERMISSIONS.AI_TOOLS_USE`
 
-Per **D10**, this is introduced as an *alias* of `CONTENT_UPDATE`:
+Per **D10**, this is introduced as an _alias_ of `CONTENT_UPDATE`:
 
 ```ts
 // fluent-api/src/lib/permissions.ts (excerpt)
@@ -478,7 +465,7 @@ Per **D10**, this is introduced as an *alias* of `CONTENT_UPDATE`:
 export const PERMISSIONS = {
   // ... existing permissions ...
   CONTENT_UPDATE: 'content:update',
-  AI_TOOLS_USE: 'content:update',     // intentional alias
+  AI_TOOLS_USE: 'content:update', // intentional alias
   // ...
 } as const;
 ```
@@ -489,13 +476,13 @@ If reviewers prefer a real new permission row from day one, that's a defensible 
 
 ### 9.4 The `X-API-Key` for fluent-ai
 
-Per **D6**, fluent-api carries a single `FLUENT_AI_KEY` for *all* fluent-ai calls. The key is read once at module scope in `callFluentAi`. Rotation is "set new env, restart fluent-api"; fluent-ai supports multiple active keys per its existing `ai_api_keys` table, so old key + new key can coexist briefly during a rolling restart.
+Per **D6**, fluent-api carries a single `FLUENT_AI_KEY` for _all_ fluent-ai calls. The key is read once at module scope in `callFluentAi`. Rotation is "set new env, restart fluent-api"; fluent-ai supports multiple active keys per its existing `ai_api_keys` table, so old key + new key can coexist briefly during a rolling restart.
 
 ---
 
 ## 10. Error translation
 
-Per **D7**, the exact mapping is settled at implementation time, and if conformity work surfaces we prefer to harmonize fluent-ai toward fluent-api's patterns. This section describes the *minimum viable* mapping that the implementation should ship with; reviewers should challenge anything they want changed before coding starts.
+Per **D7**, the exact mapping is settled at implementation time, and if conformity work surfaces we prefer to harmonize fluent-ai toward fluent-api's patterns. This section describes the _minimum viable_ mapping that the implementation should ship with; reviewers should challenge anything they want changed before coding starts.
 
 ### 10.1 New `ErrorCode` entries on fluent-api
 
@@ -519,21 +506,21 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
 };
 ```
 
-`AI_SERVICE_UNAVAILABLE` covers transport-level / availability problems (network errors, 5xx from fluent-ai, schema parse errors, timeouts). `AI_TOOL_EXECUTION_FAILED` covers the case where fluent-ai successfully returned an envelope with `status: "failed"` — the dependency is *up* but the tool itself rejected the work.
+`AI_SERVICE_UNAVAILABLE` covers transport-level / availability problems (network errors, 5xx from fluent-ai, schema parse errors, timeouts). `AI_TOOL_EXECUTION_FAILED` covers the case where fluent-ai successfully returned an envelope with `status: "failed"` — the dependency is _up_ but the tool itself rejected the work.
 
 ### 10.2 Mapping table
 
-| Source | Translates to |
-|--------|---------------|
-| `fetch` throws (network down, DNS, connection refused) | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'fluent-ai unreachable', details: { cause: error.message } })` |
-| `fetch` times out (default 30s) | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'fluent-ai request timed out', details: { timeoutMs } })` |
-| fluent-ai returns 5xx | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: '<upstream>', details: { status, body } })` |
-| fluent-ai returns 4xx | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: '<upstream>', details: { status, body } })` — yes, also 502 on our side; 4xx from fluent-ai represents a misconfiguration or a contract drift, neither of which is the *caller's* fault, so we shield them with 502 rather than relay a 4xx that they cannot act on |
-| Response body fails JSON parse or envelope schema validation | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'malformed response from fluent-ai', details: { cause } })` |
-| Envelope `status === "failed"` (fluent-ai reachable; tool refused) | `Result.err({ code: AI_TOOL_EXECUTION_FAILED, message: envelope.error?.message ?? 'tool execution failed', details: { type: envelope.error?.type, ... } })` |
-| Envelope `status === "cancelled"` | Same as `failed` — propagate `AI_TOOL_EXECUTION_FAILED` |
-| Envelope `status === "completed"` | `Result.ok(envelope)` |
-| Envelope `status === "queued"` or `"running"` | `Result.ok(envelope)` — the route layer decides whether to return 200 or 202 based on `status` |
+| Source                                                             | Translates to                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fetch` throws (network down, DNS, connection refused)             | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'fluent-ai unreachable', details: { cause: error.message } })`                                                                                                                                                                                                      |
+| `fetch` times out (default 30s)                                    | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'fluent-ai request timed out', details: { timeoutMs } })`                                                                                                                                                                                                           |
+| fluent-ai returns 5xx                                              | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: '<upstream>', details: { status, body } })`                                                                                                                                                                                                                         |
+| fluent-ai returns 4xx                                              | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: '<upstream>', details: { status, body } })` — yes, also 502 on our side; 4xx from fluent-ai represents a misconfiguration or a contract drift, neither of which is the _caller's_ fault, so we shield them with 502 rather than relay a 4xx that they cannot act on |
+| Response body fails JSON parse or envelope schema validation       | `Result.err({ code: AI_SERVICE_UNAVAILABLE, message: 'malformed response from fluent-ai', details: { cause } })`                                                                                                                                                                                                         |
+| Envelope `status === "failed"` (fluent-ai reachable; tool refused) | `Result.err({ code: AI_TOOL_EXECUTION_FAILED, message: envelope.error?.message ?? 'tool execution failed', details: { type: envelope.error?.type, ... } })`                                                                                                                                                              |
+| Envelope `status === "cancelled"`                                  | Same as `failed` — propagate `AI_TOOL_EXECUTION_FAILED`                                                                                                                                                                                                                                                                  |
+| Envelope `status === "completed"`                                  | `Result.ok(envelope)`                                                                                                                                                                                                                                                                                                    |
+| Envelope `status === "queued"` or `"running"`                      | `Result.ok(envelope)` — the route layer decides whether to return 200 or 202 based on `status`                                                                                                                                                                                                                           |
 
 ### 10.3 Route-level translation
 
@@ -549,19 +536,22 @@ aiToolsRouter.openapi(repeatedWordsRoute, async (c) => {
   if (!result.ok) {
     return c.json(
       { error: result.error.message, code: result.error.code, details: result.error.details },
-      getHttpStatus(result.error),
+      getHttpStatus(result.error)
     );
   }
 
   const envelope = result.data;
-  const status = envelope.status === 'completed' || envelope.status === 'failed' || envelope.status === 'cancelled'
-    ? 200
-    : 202;
+  const status =
+    envelope.status === 'completed' ||
+    envelope.status === 'failed' ||
+    envelope.status === 'cancelled'
+      ? 200
+      : 202;
   return c.json(envelope, status);
 });
 ```
 
-### 10.4 What's intentionally *not* in here
+### 10.4 What's intentionally _not_ in here
 
 - **No automatic retries** on transport failure. The caller (or the frontend hook) decides.
 - **No structured "user-facing-vs-internal" error categorization** beyond the `code + message + details` shape that fluent-api already uses everywhere. fluent-web is expected to display `error.message` directly and surface `error.details` only to logged-in admins.
@@ -588,7 +578,7 @@ GET /api/v1/tools/jobs/{job_id}
 → ToolJobResponse<TResult> with current status and (if completed) result
 ```
 
-Returns 200 in all states (queued/running/completed/failed/cancelled). The HTTP status is *not* used to communicate terminal vs. non-terminal — only the envelope's `status` field is.
+Returns 200 in all states (queued/running/completed/failed/cancelled). The HTTP status is _not_ used to communicate terminal vs. non-terminal — only the envelope's `status` field is.
 
 ### 11.2 fluent-api's pass-through polling endpoint (future)
 
@@ -605,7 +595,7 @@ Implementation will be a second helper alongside `callFluentAi`:
 // future, not in this PR
 export async function pollToolJob<TResult>(
   jobId: string,
-  resultSchema: z.ZodType<TResult>,
+  resultSchema: z.ZodType<TResult>
 ): Promise<Result<ToolJobResponse<TResult>>>;
 ```
 
@@ -620,7 +610,7 @@ Per **D3**. The detailed reasoning, repeated for completeness:
 
 ### 11.4 What the frontend hook will look like (out of scope, sketched)
 
-This is *not* part of this PR, but is sketched here so reviewers can see that the backend contract is consumable.
+This is _not_ part of this PR, but is sketched here so reviewers can see that the backend contract is consumable.
 
 ```ts
 // fluent-web/src/lib/api/useToolJob.ts (future)
@@ -628,18 +618,25 @@ This is *not* part of this PR, but is sketched here so reviewers can see that th
 import { useQuery } from '@tanstack/react-query';
 import type { ToolJobResponse } from './tool-job-types';
 
-const TERMINAL: Set<ToolJobResponse<unknown>['status']> = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL: Set<ToolJobResponse<unknown>['status']> = new Set([
+  'completed',
+  'failed',
+  'cancelled',
+]);
 
 export function useToolJob<TResult>(
   jobId: string | null,
-  opts?: { pollIntervalMs?: number; enabled?: boolean },
+  opts?: { pollIntervalMs?: number; enabled?: boolean }
 ) {
   return useQuery<ToolJobResponse<TResult>>({
     queryKey: ['ai-tools', 'jobs', jobId],
     queryFn: () =>
-      fetch(`${config.api.url}/ai/tools/jobs/${jobId}`, { credentials: 'include' }).then(r => r.json()),
+      fetch(`${config.api.url}/ai/tools/jobs/${jobId}`, { credentials: 'include' }).then((r) =>
+        r.json()
+      ),
     enabled: !!jobId && (opts?.enabled ?? true),
-    refetchInterval: (q) => (q.state.data && TERMINAL.has(q.state.data.status)) ? false : (opts?.pollIntervalMs ?? 1500),
+    refetchInterval: (q) =>
+      q.state.data && TERMINAL.has(q.state.data.status) ? false : (opts?.pollIntervalMs ?? 1500),
   });
 }
 ```
@@ -657,7 +654,7 @@ export function useRepeatedWords() {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
-      }).then(r => r.json() as Promise<ToolJobResponse<RepeatedWordsResult>>),
+      }).then((r) => r.json() as Promise<ToolJobResponse<RepeatedWordsResult>>),
     onSuccess: (envelope) => {
       if (envelope.status === 'queued' || envelope.status === 'running') {
         setPendingJobId(envelope.job_id);
@@ -689,7 +686,7 @@ The cross-repo orchestration substrate already exists as [`fluent-platform`](../
 Per [`fluent-platform/README.md`](../../fluent-platform/README.md), fluent-api runs in one of two modes:
 
 - **Ecosystem mode** — started via `./fluent.sh up` from `fluent-platform/`. fluent-ai is also up, reachable at `http://ai:8200` on the internal network (service name `ai` from [`fluent-platform/compose.yaml`](../../fluent-platform/compose.yaml) line 82).
-- **Standalone mode** — started via `./fapi.sh up` from `fluent-api/`. fluent-ai is *not* running unless the dev started it separately. fluent-api needs to gracefully report unavailability rather than crash.
+- **Standalone mode** — started via `./fapi.sh up` from `fluent-api/`. fluent-ai is _not_ running unless the dev started it separately. fluent-api needs to gracefully report unavailability rather than crash.
 
 Both modes are first-class. The integration must work in both.
 
@@ -700,8 +697,8 @@ Two new entries in [`fluent-api/src/env.ts`](../src/env.ts):
 ```ts
 const envSchema = z.object({
   // ... existing ...
-  FLUENT_AI_URL: z.string().url(),     // ecosystem mode: http://ai:8200 — standalone: http://localhost:8200
-  FLUENT_AI_KEY: z.string().min(1),    // dev value: fai_dev_admin
+  FLUENT_AI_URL: z.string().url(), // ecosystem mode: http://ai:8200 — standalone: http://localhost:8200
+  FLUENT_AI_KEY: z.string().min(1), // dev value: fai_dev_admin
 });
 ```
 
@@ -728,19 +725,19 @@ The `.env.example` documents the standalone-mode default because that's the path
 [`fluent-platform/compose.yaml`](../../fluent-platform/compose.yaml) currently passes fluent-api's `.env` verbatim via `env_file: ${API_CONTEXT:-../fluent-api}/.env`. To make ecosystem mode work regardless of what the dev wrote in `fluent-api/.env`, the platform compose should explicitly override the URL for the `api` service:
 
 ```yaml
-  api:
-    # ... existing ...
-    env_file: ${API_CONTEXT:-../fluent-api}/.env
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
-      EXPORTS_DIR: /app/exports
-      # New entries:
-      FLUENT_AI_URL: http://ai:8200
-      # FLUENT_AI_KEY intentionally NOT overridden here — sourced from fluent-api/.env,
-      # which must match fluent-ai's ai_api_keys seed (dev value: fai_dev_admin)
+api:
+  # ... existing ...
+  env_file: ${API_CONTEXT:-../fluent-api}/.env
+  environment:
+    DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
+    EXPORTS_DIR: /app/exports
+    # New entries:
+    FLUENT_AI_URL: http://ai:8200
+    # FLUENT_AI_KEY intentionally NOT overridden here — sourced from fluent-api/.env,
+    # which must match fluent-ai's ai_api_keys seed (dev value: fai_dev_admin)
 ```
 
-`FLUENT_AI_URL` is overridden because it's deployment-topology-dependent. `FLUENT_AI_KEY` is *not* overridden because it's a shared secret — the same value belongs in `fluent-api/.env` (for the caller) and in fluent-ai's `ai_api_keys` table (which the dev seed already populates). Overriding only on one side would invite drift.
+`FLUENT_AI_URL` is overridden because it's deployment-topology-dependent. `FLUENT_AI_KEY` is _not_ overridden because it's a shared secret — the same value belongs in `fluent-api/.env` (for the caller) and in fluent-ai's `ai_api_keys` table (which the dev seed already populates). Overriding only on one side would invite drift.
 
 This is a small fluent-platform PR that should land alongside the fluent-api PR. Both repos ship together; the spec calls this out as a release-coordination item in §15.
 
@@ -764,7 +761,7 @@ When a dev runs only `./fapi.sh up` without fluent-ai, the `/ai/tools/...` endpo
 - **fluent-api's README** gains a short subsection under "Running locally" pointing to fluent-platform for ecosystem mode and explaining the standalone-mode caveat.
 - **fluent-platform's README** has a Services table at line 61–68 listing `api`, `ai`, `web`, `worker`, `db`. The proposed compose change in §12.4 doesn't add new services so this table is unaffected, but the Environment Configuration section (line 166+) should mention that `FLUENT_AI_KEY` must be set in `fluent-api/.env` to enable the AI tools endpoints.
 
-### 12.8 What `callFluentAi` does *not* assume about networking
+### 12.8 What `callFluentAi` does _not_ assume about networking
 
 The client is unaware of whether fluent-ai is at `localhost:8200`, `ai:8200`, `https://fluent-ai.internal.example.com`, or anywhere else. It reads `FLUENT_AI_URL` verbatim, appends `/api/v1/${toolPath}`, and POSTs. This means:
 
@@ -827,7 +824,7 @@ A standalone script mirroring [`fluent-ai/scripts/smoke_repeated_words.py`](../.
 
 Invoked via an npm script: `npm run smoke:repeated-words`. Not part of `npm test` (it requires a live stack). Documented in fluent-api's README alongside the existing dev workflow.
 
-### 13.4 What is *not* covered
+### 13.4 What is _not_ covered
 
 - **No end-to-end fluent-web → fluent-api → fluent-ai test.** That's a frontend concern that will land with the frontend PR.
 - **No load tests** for the polling endpoint (which doesn't exist yet on either side).
@@ -905,6 +902,7 @@ These are the items the spec discussion landed on but where reviewer pushback wo
 **Recommended:** Yes — see **D2** and §5.
 
 **Alternatives:**
+
 - `POST /checks/repeated-words` — closer to the verbiage we use elsewhere ("checks" rather than "tools"). Downside: hides the network-bound, possibly-async nature of these endpoints.
 - `POST /chapter-assignments/{id}/checks/repeated-words` — nests the check under the resource it operates on. Rejected because it requires fluent-api to enrich the request body from `chapter_assignment_id` → verses + language metadata, which couples fluent-api to fluent-ai's input schema (rejected by **D8**).
 - `POST /tools/dispatch` with `{tool: "...", params: {...}}` — collapses the type system at the wire boundary. Same reason fluent-ai rejected this (see [`fluent-ai/greek-room-integration-summary.md`](../../fluent-ai/greek-room-integration-summary.md) §1).
@@ -916,6 +914,7 @@ These are the items the spec discussion landed on but where reviewer pushback wo
 **Recommended:** Yes, alias — see **D10** and §9.3.
 
 **Alternatives:**
+
 - Introduce a real new permission row in the `permissions` table with its own role mappings. Requires a migration and seed update. Gives nothing user-visible today but is the "cleaner" RBAC story.
 - Reuse `PERMISSIONS.CONTENT_UPDATE` directly at the call site (no alias). Loses the documentary value of seeing "AI_TOOLS_USE" at the route.
 
@@ -926,6 +925,7 @@ These are the items the spec discussion landed on but where reviewer pushback wo
 **Recommended:** Pass through the full `ToolJobResponse` — see **D9** and §8.2.
 
 **Alternatives:**
+
 - For the synchronous case only, return just the `result` field (i.e. `{findings, summary}`) and 200, reserving the envelope for when fluent-ai goes async. Simpler today; mildly more breaking when polling lands.
 - Pass through always but add a thin `result_only` query parameter for callers that want the unwrapped shape. Adds API surface for negligible benefit.
 
@@ -936,8 +936,9 @@ These are the items the spec discussion landed on but where reviewer pushback wo
 **Recommended:** No enrichment — see **D8** and §8.1.
 
 **Alternatives:**
+
 - fluent-api looks up `chapter_assignment_id` (or `project_id`) and adds verses + language metadata server-side. Caller sends a thin reference, fluent-api fattens it before forwarding. Trades client flexibility for harder-to-spoof inputs.
-- Hybrid: caller sends the full body, fluent-api *validates* certain fields against its own data (e.g. confirms the caller has access to that `project_id`). Lighter than full enrichment.
+- Hybrid: caller sends the full body, fluent-api _validates_ certain fields against its own data (e.g. confirms the caller has access to that `project_id`). Lighter than full enrichment.
 
 **Decision needed from reviewer:** confirm no enrichment, or push back for either alternative.
 
@@ -946,5 +947,3 @@ These are the items the spec discussion landed on but where reviewer pushback wo
 If reviewers identify a concern not captured above, please raise it as a comment on the PR. The relevant pre-decisions are summarized in §3 and the rationale is in the predecessor docs ([`fluent-ai/greek-room-integration-summary.md`](../../fluent-ai/greek-room-integration-summary.md), [`fluent-ai/greek-room-integration-suggestion.md`](../../fluent-ai/greek-room-integration-suggestion.md), [`fluent-ai/greek-room-integration-decisions.md`](../../fluent-ai/greek-room-integration-decisions.md)).
 
 ---
-
-
