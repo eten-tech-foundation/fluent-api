@@ -92,3 +92,188 @@ BetterAuth uses a specific salted hashing format. Standard `bcrypt` hashes gener
 ### Invitations
 
 The system supports magic links for invitations. This can be triggered via the `magicLink` plugin in the backend `src/lib/auth.ts`.
+
+---
+
+## Mobile Client Integration
+
+This section is for developers building the Fluent mobile app (React Native / Axios). It documents the exact contract between the mobile client and the server's authentication layer.
+
+### Mobile Identity Headers (Sign-In Only)
+
+Mobile clients must send the following two headers **only on the sign-in request**:
+
+| Header          | Required value  | Notes                        |
+| --------------- | --------------- | ---------------------------- |
+| `x-client-type` | `mobile`        | Exact string, case-sensitive |
+| `user-agent`    | `fluent-mobile` | Case-insensitive             |
+
+These headers are checked **once** at sign-in. The server uses them to stamp the session as `isMobile = true` in the database. All subsequent API calls do not need these headers — the server identifies the session as mobile from the database flag, not from request headers.
+
+> **Legacy fallback**: Older builds that only send a `user-agent` containing the substring `fluentmobile` (no hyphen, case-insensitive) will also be recognised. This means `FluentMobile` (as referenced in the mobile issue) also works — `FluentMobile` → lowercase → `fluentmobile` → matched by the fallback. New builds should always use the strict two-header approach above.
+
+### Sign-In Flow
+
+**Endpoint**: `POST /api/auth/sign-in/email`
+
+**Request**:
+
+```http
+POST /api/auth/sign-in/email
+Content-Type: application/json
+x-client-type: mobile
+User-Agent: fluent-mobile
+
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+**Response** (200):
+
+The server returns the session token in two places:
+
+1. **`set-auth-token` response header** (recommended — this is what the issue uses):
+
+   ```
+   set-auth-token: <url-encoded-session-token>
+   ```
+
+   > **Important**: The token in this header is URL-encoded by BetterAuth. Always call `decodeURIComponent()` on it before storing or using it.
+
+2. **JSON body `token` field** (alternative):
+   ```json
+   {
+     "token": "<session-token>",
+     "session": "<session-object>",
+     "user": "<user-object>"
+   }
+   ```
+
+**Recommended extraction** (React Native / Axios):
+
+```ts
+const response = await axios.post('/api/auth/sign-in/email', body, { headers });
+// From response header (URL-encoded — must decode):
+const encoded = response.headers['set-auth-token'];
+const token = encoded ? decodeURIComponent(encoded) : response.data.token;
+await Keychain.setGenericPassword('session', token, { service: 'fluent_session' });
+```
+
+### Authenticating Subsequent Requests
+
+Pass the stored token in the `Authorization` header on every API call. **No mobile-specific headers are needed here** — the server identifies the session as mobile from the database:
+
+```http
+GET /api/languages
+Authorization: Bearer <session-token>
+```
+
+> The server uses the Bearer token to validate the session. Cookies are **not** used for mobile — do not send or store cookies.
+
+### Session Lifecycle
+
+| Property                 | Value                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| Initial session lifetime | 60 days from sign-in                                                                          |
+| Rolling window           | If fewer than 30 days remain, the server automatically extends the session by another 60 days |
+| Rolling check frequency  | At most once every 24 hours per session (server-side, transparent to the client)              |
+| Inactivity expiry        | A session that goes untouched for 60 days will expire                                         |
+
+The rolling extension is entirely server-side and transparent — the client does not need to do anything. As long as the user opens the app at least once every 30 days, they will stay logged in indefinitely.
+
+### Error Handling
+
+When a Bearer token is present but the session is invalid, the server returns a structured 401 with a specific message. The mobile app should act on the message to show the right UI:
+
+| HTTP Status | `message` field                      | Meaning                                      | Recommended action                       |
+| ----------- | ------------------------------------ | -------------------------------------------- | ---------------------------------------- |
+| `401`       | `"Session token has expired"`        | Token existed but its expiry date has passed | Show re-login screen                     |
+| `401`       | `"Invalid or revoked session token"` | Token not found or explicitly revoked        | Clear stored token, show re-login screen |
+
+**Example error response**:
+
+```json
+{
+  "message": "Session token has expired"
+}
+```
+
+### Sign-Out
+
+**Endpoint**: `POST /api/auth/sign-out`
+
+```http
+POST /api/auth/sign-out
+Authorization: Bearer <session-token>
+x-client-type: mobile
+User-Agent: fluent-mobile
+```
+
+On success (200), delete the stored token from local storage.
+
+### Password Reset (Forgot Password)
+
+**Endpoint**: `POST /api/auth/forget-password`
+
+```http
+POST /api/auth/forget-password
+Content-Type: application/json
+x-client-type: mobile
+User-Agent: fluent-mobile
+
+{
+  "email": "user@example.com"
+}
+```
+
+The server will send a password reset email. No Bearer token is required for this endpoint.
+
+### Axios Interceptor Example
+
+Configure a base Axios instance that attaches the Bearer token on every call, and handles 401s globally. The mobile identity headers (`x-client-type`, `User-Agent`) only need to be sent on the sign-in request itself:
+
+```ts
+import axios from 'axios';
+
+// Base client for all API calls — only needs the Bearer token
+export const apiClient = axios.create({
+  baseURL: 'https://api.yourdomain.com',
+});
+
+// Attach token from storage before each request
+apiClient.interceptors.request.use((config) => {
+  const token = getStoredToken(); // your local storage helper
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401s globally
+apiClient.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (error.response?.status === 401) {
+      clearStoredToken();
+      navigateToLogin();
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Sign-in call — mobile identity headers required here only
+export function signIn(email: string, password: string) {
+  return apiClient.post(
+    '/api/auth/sign-in/email',
+    { email, password },
+    {
+      headers: {
+        'x-client-type': 'mobile',
+        'User-Agent': 'fluent-mobile',
+      },
+    }
+  );
+}
+```

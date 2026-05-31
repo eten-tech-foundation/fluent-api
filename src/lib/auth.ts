@@ -1,14 +1,34 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { passkey } from '@better-auth/passkey';
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { bearer, magicLink, twoFactor } from 'better-auth/plugins';
 import { admin } from 'better-auth/plugins/admin';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import env from '@/env';
 import { logger } from '@/lib/logger';
 import { sendEmail } from '@/lib/services/notifications/mailgun.service';
+
+const MOBILE_SESSION_DAYS = 60;
+const MOBILE_SESSION_MS = MOBILE_SESSION_DAYS * 24 * 60 * 60 * 1000;
+
+function isMobileRequest(headers?: Headers | null): boolean {
+  if (!headers || typeof headers.get !== 'function') return false;
+  const clientType = headers.get('x-client-type');
+  const ua = (headers.get('user-agent') ?? '').toLowerCase();
+  return clientType === 'mobile' && ua === 'fluent-mobile';
+}
+
+function getWebOrigin(frontendUrl: string): string {
+  try {
+    return new URL(frontendUrl).origin;
+  } catch {
+    return frontendUrl.replace(/\/$/, '');
+  }
+}
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -23,7 +43,15 @@ export const auth = betterAuth({
   }),
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: [env.FRONTEND_URL],
+
+  trustedOrigins: (_request?: Request) => {
+    const webOrigin = getWebOrigin(env.FRONTEND_URL);
+    const origins = [webOrigin];
+    if (env.NODE_ENV === 'production') {
+      origins.push('https://*.fluent.bible');
+    }
+    return origins;
+  },
 
   // ─── Email/Password ─────────────────────────────────────────────
   emailAndPassword: {
@@ -142,6 +170,35 @@ export const auth = betterAuth({
     // Bearer tokens (for mobile clients)
     bearer(),
   ],
+
+  // ─── Hooks ───────────────────────────────────────────────────────
+  // After a successful email sign-in, extend the session to 60 days
+  // and stamp isMobile=true for Fluent mobile clients.
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      if (!ctx.path.startsWith('/sign-in')) return;
+
+      const newSession = ctx.context.newSession;
+      if (!newSession) return;
+
+      if (!isMobileRequest(ctx.headers as Headers)) return;
+
+      const expiresAt = new Date(Date.now() + MOBILE_SESSION_MS);
+
+      try {
+        await db
+          .update(schema.authSession)
+          .set({ expiresAt, isMobile: true })
+          .where(eq(schema.authSession.id, newSession.session.id));
+
+        logger.info('Mobile session created: lifetime extended to 60 days', {
+          sessionId: newSession.session.id,
+        });
+      } catch (error) {
+        logger.error('Failed to extend mobile session lifetime', { error });
+      }
+    }),
+  },
 
   // ─── Audit Logging via databaseHooks ─────────────────────────────
   databaseHooks: {

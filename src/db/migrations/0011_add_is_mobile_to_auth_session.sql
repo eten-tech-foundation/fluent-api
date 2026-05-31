@@ -1,0 +1,1 @@
+ALTER TABLE "auth_session" ADD COLUMN "is_mobile" boolean DEFAULT false NOT NULL;
