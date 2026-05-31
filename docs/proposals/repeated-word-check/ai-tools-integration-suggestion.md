@@ -216,7 +216,9 @@ The single piece of _new mechanism_ this PR introduces is the function in [`flue
 
 ```ts
 import { z } from '@hono/zod-openapi';
+
 import type { Result } from '@/lib/types';
+
 import type { ToolJobResponse } from './fluent-ai.types';
 
 export async function callFluentAi<TReq, TResult>(
@@ -262,14 +264,14 @@ The point of `callFluentAi` is **not** to be the only function callers ever touc
 ```ts
 // fluent-api/src/domains/ai-tools/ai-tools.service.ts
 
-import { callFluentAi } from '@/lib/services/fluent-ai/fluent-ai.client';
-import type { Result } from '@/lib/types';
 import type { ToolJobResponse } from '@/lib/services/fluent-ai/fluent-ai.types';
-import {
-  type RepeatedWordsRequest,
-  type RepeatedWordsResult,
-  RepeatedWordsResultSchema,
-} from './ai-tools.types';
+import type { Result } from '@/lib/types';
+
+import { callFluentAi } from '@/lib/services/fluent-ai/fluent-ai.client';
+
+import type { RepeatedWordsRequest, RepeatedWordsResult } from './ai-tools.types';
+
+import { RepeatedWordsResultSchema } from './ai-tools.types';
 
 export async function callRepeatedWords(
   req: RepeatedWordsRequest
@@ -616,6 +618,7 @@ This is _not_ part of this PR, but is sketched here so reviewers can see that th
 // fluent-web/src/lib/api/useToolJob.ts (future)
 
 import { useQuery } from '@tanstack/react-query';
+
 import type { ToolJobResponse } from './tool-job-types';
 
 const TERMINAL: Set<ToolJobResponse<unknown>['status']> = new Set([
