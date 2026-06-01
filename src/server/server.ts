@@ -131,8 +131,37 @@ export function createServer() {
   });
 
   // POST /api/auth/sign-out
-  app.post('/api/auth/sign-out', (c) => {
-    return auth.handler(c.req.raw);
+  app.post('/api/auth/sign-out', async (c) => {
+    const authHeader = c.req.header('Authorization');
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+
+      const [session] = await db
+        .select({ id: schema.authSession.id, userId: schema.authSession.userId })
+        .from(schema.authSession)
+        .where(eq(schema.authSession.token, token))
+        .limit(1);
+
+      if (session) {
+        await db.delete(schema.authSession).where(eq(schema.authSession.id, session.id));
+        try {
+          await db.insert(schema.authAuditLog).values({
+            userId: session.userId,
+            event: 'session.deleted',
+            ipAddress: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null,
+            userAgent: c.req.header('user-agent') ?? null,
+            metadata: { sessionId: session.id, via: 'mobile-bearer' },
+          });
+        } catch (auditErr) {
+          logger.error('Failed to log audit event: session.deleted (mobile)', { error: auditErr });
+        }
+      }
+
+      return c.json({ success: true });
+    }
+
+    // Cookie-based sign-out — delegate to BetterAuth
+    return proxyToAuth(c, '/api/auth/sign-out');
   });
 
   app.all('/api/auth/*', (c) => {
