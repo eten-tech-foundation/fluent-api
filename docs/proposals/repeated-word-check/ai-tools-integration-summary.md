@@ -28,3 +28,12 @@ Polling endpoint on either side, DB persistence of tool runs, frontend hooks and
 2. **Permission alias** — `PERMISSIONS.AI_TOOLS_USE` as a string-value alias of `CONTENT_UPDATE`, vs. a real new permission row with migration + seeding?
 3. **Envelope pass-through** — return the full `ToolJobResponse` today, vs. unwrap `result` for the sync case and reshape later when polling lands?
 4. **No request enrichment** — forward verbatim, vs. server-side lookup of `chapter_assignment_id` → verses, vs. a validation-only hybrid?
+
+## Reviewer outcome
+
+Reviewed and **approved** by kaseywright on 2026-06-02 ([PR #173](https://github.com/eten-tech-foundation/fluent-api/pull/173)). All four questions above were confirmed as proposed; the supporting detail and the two "please document" follow-ups now live in the long-form proposal:
+
+1. **URL layout** — confirmed ("this URL layout works well"). [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343625894)
+2. **Permission alias** — confirmed; decision documented for future reference in [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) §9.3 / **D10**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343633722)
+3. **Envelope pass-through** — confirmed, conditioned on the web-client response following fluent-api's standard response format; see §8.2 / **D9**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343642943)
+4. **No request enrichment** — forwarding verbatim confirmed; the intentional snake_case naming divergence is documented (with an in-code-comment guardrail) in §8.1 / **D8**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343677813)
