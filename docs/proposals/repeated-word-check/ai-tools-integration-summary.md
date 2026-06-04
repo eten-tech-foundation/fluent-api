@@ -1,6 +1,6 @@
 # AI-Tools Integration on fluent-api — Architecture Review Summary
 
-**Purpose:** Reviewer orientation for the proposed AI-tools integration. Long-form proposal lives in the sibling [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) if more detail is wanted; this summary is intended to stand on its own. Ships as a coordinated pair of PRs — fluent-api (the bulk) plus a small fluent-platform PR adding one compose env-var override (per **D12**).
+**Purpose:** Reviewer orientation for the proposed AI-tools integration. This summary is intended to stand on its own; if more detail is wanted, the long-form proposal is split across two sibling files — [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) (**Part 1**: contract & design, §1–§10) and [`ai-tools-integration-operations.md`](ai-tools-integration-operations.md) (**Part 2**: operations, forward compatibility, testing, §11–§15). A file-by-file account of what is already implemented in the tree versus what remains lives in [`ai-tools-integration-status.md`](ai-tools-integration-status.md). Ships as a coordinated pair of PRs — fluent-api (the bulk) plus a small fluent-platform PR adding one compose env-var override (per **D12**).
 
 ## What's being proposed
 
