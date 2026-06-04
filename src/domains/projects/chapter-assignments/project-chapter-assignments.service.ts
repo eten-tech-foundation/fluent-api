@@ -70,10 +70,11 @@ export async function assignAllProjectChapterAssignmentsToUser(
         (id): id is number => id !== undefined
       );
 
-      const usersResult = await usersService.getUsersByIds(userIds);
-      if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+      const orgUsersResult = await usersService.getUsersByOrganization(projectOrgId);
+      if (!orgUsersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
 
-      const invalidUsers = usersResult.data.some((u) => u.organization !== projectOrgId);
+      const orgUserIds = new Set(orgUsersResult.data.map((u) => u.id));
+      const invalidUsers = userIds.some((id) => !orgUserIds.has(id));
       if (invalidUsers) return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
     }
 
@@ -129,12 +130,10 @@ export async function assignSelectedChapters(
         if (!projectResult.ok) return err(ErrorCode.PROJECT_NOT_FOUND);
         const projectOrgId = projectResult.data.organization;
 
-        const usersResult = await usersService.getUsersByIds(allUserIds);
-        if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+        const orgUsersResult = await usersService.getUsersByOrganization(projectOrgId);
+        if (!orgUsersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
 
-        const validUserIds = new Set(
-          usersResult.data.filter((u) => u.organization === projectOrgId).map((u) => u.id)
-        );
+        const validUserIds = new Set(orgUsersResult.data.map((u) => u.id));
 
         const invalidUserIds = allUserIds.filter((id) => !validUserIds.has(id));
 

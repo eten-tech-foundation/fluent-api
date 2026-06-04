@@ -1,5 +1,6 @@
-import type { Result } from '@/lib/types';
+import type { AppPolicyUser, Result } from '@/lib/types';
 
+import { PERMISSIONS } from '@/lib/permissions';
 import { ok } from '@/lib/types';
 
 import type {
@@ -21,9 +22,7 @@ export function toUserResponse(user: User): UserResponse {
     username: user.username,
     firstName: user.firstName,
     lastName: user.lastName,
-    role: user.role,
     createdBy: user.createdBy,
-    organization: user.organization,
     status: user.status,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -46,6 +45,26 @@ export async function getUsersByOrganization(
   return ok(result.data.map(toUserResponse));
 }
 
+export async function getUsersForUser(user: AppPolicyUser): Promise<Result<UserResponse[]>> {
+  // Global view grant (SuperAdmin) fetches all users
+  const hasGlobalView = user.grants.some(
+    (g) => g.orgId === null && g.projectId === null && g.permissions.has(PERMISSIONS.USER_VIEW)
+  );
+  if (hasGlobalView) {
+    return getAllUsers();
+  }
+
+  const orgIds = new Set<number>();
+  for (const g of user.grants) {
+    if (g.permissions.has(PERMISSIONS.USER_VIEW) && g.orgId !== null) {
+      orgIds.add(g.orgId);
+    }
+  }
+  const result = await repo.findByOrganizations([...orgIds]);
+  if (!result.ok) return result;
+  return ok(result.data.map(toUserResponse));
+}
+
 export async function getUserById(id: number): Promise<Result<UserResponse>> {
   const result = await repo.findById(id);
   if (!result.ok) return result;
@@ -58,12 +77,10 @@ export async function getUsersByIds(ids: number[]): Promise<Result<UserResponse[
   return ok(result.data.map(toUserResponse));
 }
 
-export async function getUserByEmail(
-  email: string
-): Promise<Result<UserResponse & { roleName: string }>> {
+export async function getUserByEmail(email: string): Promise<Result<UserResponse>> {
   const result = await repo.findByEmail(email);
   if (!result.ok) return result;
-  return ok({ ...toUserResponse(result.data), roleName: result.data.roleName });
+  return ok(toUserResponse(result.data));
 }
 
 export async function getUserByUsername(username: string): Promise<Result<UserResponse>> {

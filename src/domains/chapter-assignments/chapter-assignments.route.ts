@@ -75,7 +75,7 @@ const createChapterAssignmentRoute = createRoute({
 server.openapi(createChapterAssignmentRoute, async (c) => {
   const requestData = c.req.valid('json');
   const user = c.get('user')!;
-  const policyUser = { id: user.id, roleName: user.roleName, organization: user.organization };
+  const policyUser = { id: user.id, grants: user.grants };
 
   const unitResult = await projectHandler.getProjectIdByUnitId(requestData.projectUnitId);
   if (!unitResult.ok) {
@@ -87,7 +87,13 @@ server.openapi(createChapterAssignmentRoute, async (c) => {
     return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
   }
 
-  if (!ChapterAssignmentPolicy.create(policyUser, projectResult.data.organization)) {
+  if (
+    !ChapterAssignmentPolicy.create(
+      policyUser,
+      projectResult.data.organization,
+      projectResult.data.id
+    )
+  ) {
     return c.json(
       { message: 'Forbidden: You do not have permission to create assignments.' },
       HttpStatusCodes.FORBIDDEN

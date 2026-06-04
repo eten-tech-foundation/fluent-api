@@ -3,7 +3,7 @@ import { eq, inArray, or } from 'drizzle-orm';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { roles, users } from '@/db/schema';
+import { user_roles, users } from '@/db/schema';
 import { handleConstraintError } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -21,12 +21,36 @@ export async function findAll(): Promise<Result<User[]>> {
 
 export async function findByOrganization(organization: number): Promise<Result<User[]>> {
   try {
-    return ok(await db.select().from(users).where(eq(users.organization, organization)));
+    const rows = await db
+      .selectDistinct({ user: users })
+      .from(users)
+      .innerJoin(user_roles, eq(users.id, user_roles.userId))
+      .where(eq(user_roles.orgId, organization));
+    return ok(rows.map((r) => r.user));
   } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to find users by organization',
       context: { organization },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function findByOrganizations(orgIds: number[]): Promise<Result<User[]>> {
+  if (orgIds.length === 0) return ok([]);
+  try {
+    const rows = await db
+      .selectDistinct({ user: users })
+      .from(users)
+      .innerJoin(user_roles, eq(users.id, user_roles.userId))
+      .where(inArray(user_roles.orgId, orgIds));
+    return ok(rows.map((r) => r.user));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to find users by organizations',
+      context: { orgIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -54,17 +78,16 @@ export async function findByIds(ids: number[]): Promise<Result<User[]>> {
   }
 }
 
-export async function findByEmail(email: string): Promise<Result<User & { roleName: string }>> {
+export async function findByEmail(email: string): Promise<Result<User>> {
   try {
     const [result] = await db
-      .select({ user: users, roleName: roles.name })
+      .select()
       .from(users)
-      .innerJoin(roles, eq(users.role, roles.id))
       .where(eq(users.email, email.toLowerCase()))
       .limit(1);
 
     if (!result) return err(ErrorCode.USER_NOT_FOUND);
-    return ok({ ...result.user, roleName: result.roleName });
+    return ok(result);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to find user by email', context: { email } });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -108,9 +131,18 @@ export async function findByEmailOrUsername(identifier: string): Promise<Result<
 
 export async function insert(input: CreateUserInput): Promise<Result<User>> {
   try {
+    // Strip grant-specific fields and legacy fields that don't belong on the users table
+    const {
+      orgId: _orgId,
+      projectId: _projectId,
+      roleName: _roleName,
+      role: _role,
+      organization: _org,
+      ...userData
+    } = input as any;
     const [user] = await db
       .insert(users)
-      .values({ ...input, email: input.email.toLowerCase() })
+      .values({ ...userData, email: input.email.toLowerCase() })
       .returning();
     if (!user) return err(ErrorCode.INTERNAL_ERROR);
     return ok(user);
@@ -121,7 +153,11 @@ export async function insert(input: CreateUserInput): Promise<Result<User>> {
 
 export async function update(id: number, input: UpdateUserInput): Promise<Result<User>> {
   try {
-    const updateInput = input.email ? { ...input, email: input.email.toLowerCase() } : input;
+    // Strip legacy fields that don't belong on the users table
+    const { role: _role, organization: _org, ...cleanInput } = input as any;
+    const updateInput = cleanInput.email
+      ? { ...cleanInput, email: cleanInput.email.toLowerCase() }
+      : cleanInput;
     const [updated] = await db.update(users).set(updateInput).where(eq(users.id, id)).returning();
     if (!updated) return err(ErrorCode.USER_NOT_FOUND);
     return ok(updated);

@@ -1,9 +1,11 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { chapter_assignments, project_units, project_users, users } from '@/db/schema';
+import { chapter_assignments, project_units, projects, user_roles, users } from '@/db/schema';
+import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
+import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { handleConstraintError } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { ROLES } from '@/lib/roles';
@@ -15,20 +17,46 @@ import type { ProjectUserRecord } from './project-users.types';
 
 export async function getProjectUsers(projectId: number): Promise<Result<ProjectUserRecord[]>> {
   try {
+    const [project] = await db
+      .select({ organization: projects.organization })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+
     const rows = await db
       .select({
-        projectId: project_users.projectId,
-        userId: project_users.userId,
+        projectId: user_roles.projectId,
+        userId: user_roles.userId,
         displayName: users.username,
-        roleID: users.role,
-        createdAt: project_users.createdAt,
+        roleID: user_roles.roleId,
+        createdAt: user_roles.createdAt,
       })
-      .from(project_users)
-      .innerJoin(users, eq(project_users.userId, users.id))
-      .where(eq(project_users.projectId, projectId))
+      .from(user_roles)
+      .innerJoin(users, eq(user_roles.userId, users.id))
+      .where(
+        or(
+          eq(user_roles.projectId, projectId),
+          and(eq(user_roles.orgId, project.organization), isNull(user_roles.projectId))
+        )
+      )
       .orderBy(users.username);
 
-    return ok(rows);
+    // Deduplicate by userId, keeping the grant with the highest privilege (lowest roleID)
+    const uniqueUsers = new Map<number, (typeof rows)[number]>();
+    for (const r of rows) {
+      const existing = uniqueUsers.get(r.userId);
+      if (!existing || r.roleID < existing.roleID) {
+        uniqueUsers.set(r.userId, r);
+      }
+    }
+
+    // Map `projectId: null` to `projectId` for the UI.
+    const projectUsers = Array.from(uniqueUsers.values()).map((r) => ({
+      ...r,
+      projectId: r.projectId ?? projectId,
+    }));
+    return ok(projectUsers as any);
   } catch (error) {
     logger.error({
       cause: error,
@@ -42,20 +70,46 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
 export async function addProjectUsers(
   projectId: number,
   userIds: number[]
-): Promise<Result<{ projectId: number; userId: number; createdAt: Date | null }[]>> {
+): Promise<
+  Result<{ projectId: number; userId: number; roleId: number; createdAt: Date | null }[]>
+> {
   if (userIds.length === 0) return ok([]);
   try {
+    const [project] = await db
+      .select({ organization: projects.organization })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+
+    // Verify all userIds belong to the project's organization to prevent cross-tenant membership leaks
+    const memberIds = await findUserIdsInOrg(project.organization, userIds);
+    const nonMember = userIds.find((id) => !memberIds.has(id));
+    if (nonMember) {
+      return err(ErrorCode.USER_NOT_FOUND);
+    }
+
+    const ptId = await getRoleId(ROLES.PROJECT_TRANSLATOR);
+
     const inserted = await db
-      .insert(project_users)
-      .values(userIds.map((userId) => ({ projectId, userId })))
+      .insert(user_roles)
+      .values(
+        userIds.map((userId) => ({
+          projectId,
+          userId,
+          orgId: project.organization,
+          roleId: ptId,
+        }))
+      )
       .onConflictDoNothing()
       .returning({
-        projectId: project_users.projectId,
-        userId: project_users.userId,
-        createdAt: project_users.createdAt,
+        projectId: user_roles.projectId,
+        userId: user_roles.userId,
+        roleId: user_roles.roleId,
+        createdAt: user_roles.createdAt,
       });
 
-    return ok(inserted);
+    return ok(inserted as any);
   } catch (error) {
     const constraintResult = handleConstraintError(error);
     if (!constraintResult.ok && constraintResult.error.code === ErrorCode.DUPLICATE) {
@@ -90,9 +144,9 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
     if (assignedContent) return err(ErrorCode.USER_HAS_ASSIGNED_CONTENT);
 
     const deleted = await db
-      .delete(project_users)
-      .where(and(eq(project_users.projectId, projectId), eq(project_users.userId, userId)))
-      .returning({ userId: project_users.userId });
+      .delete(user_roles)
+      .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+      .returning({ userId: user_roles.userId });
 
     if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
 
@@ -107,18 +161,25 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
   }
 }
 
-export async function resolveIsProjectMember(
-  projectId: number,
-  userId: number,
-  roleName: string
-): Promise<boolean> {
-  if (roleName !== ROLES.TRANSLATOR) return false;
-
-  const [member] = await db
-    .select({ projectId: project_users.projectId })
-    .from(project_users)
-    .where(and(eq(project_users.projectId, projectId), eq(project_users.userId, userId)))
+export async function resolveIsProjectMember(projectId: number, userId: number): Promise<boolean> {
+  const [pinned] = await db
+    .select({ id: user_roles.id })
+    .from(user_roles)
+    .where(and(eq(user_roles.userId, userId), eq(user_roles.projectId, projectId)))
     .limit(1);
+  if (pinned) return true;
 
-  return member !== undefined;
+  const rows = await db
+    .select({ id: user_roles.id })
+    .from(user_roles)
+    .innerJoin(projects, eq(projects.id, projectId))
+    .where(
+      and(
+        eq(user_roles.userId, userId),
+        eq(user_roles.orgId, projects.organization),
+        isNull(user_roles.projectId)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
 }

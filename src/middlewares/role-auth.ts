@@ -4,9 +4,9 @@ import { HTTPException } from 'hono/http-exception';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { Permission } from '@/lib/permissions';
-import type { AppBindings } from '@/lib/types';
+import type { AppBindings, AuthScope } from '@/lib/types';
 
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
+import { authorize } from '@/lib/services/permissions/authorize';
 
 /**
  * 1. Authentication Middleware
@@ -36,7 +36,10 @@ export async function authenticateUser(c: Context<AppBindings>, next: Next) {
  * 2. Authorization Middleware
  * Relies on authenticateUser running first. Checks if the user's role has the permission.
  */
-export function requirePermission(permission: Permission) {
+/** Extracts the scope an action is evaluated against from the request context. */
+export type ScopeResolver = (c: Context<AppBindings>) => AuthScope | Promise<AuthScope>;
+
+export function requirePermission(permission: Permission, resolveScope?: ScopeResolver) {
   return async (c: Context<AppBindings>, next: Next) => {
     const user = c.get('user');
 
@@ -46,9 +49,14 @@ export function requirePermission(permission: Permission) {
       });
     }
 
-    const granted = await roleHasPermission(user.role, permission);
+    const scope: AuthScope = resolveScope ? await resolveScope(c) : {};
+    const policyUser = { id: user.id, grants: user.grants };
 
-    if (!granted) {
+    const isAuthorized = resolveScope
+      ? authorize(policyUser, permission, scope)
+      : user.grants.some((g) => g.permissions.has(permission));
+
+    if (!isAuthorized) {
       throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
         message: 'Insufficient permissions',
       });
@@ -57,6 +65,13 @@ export function requirePermission(permission: Permission) {
     await next();
   };
 }
+
+/** Scope from a numeric `orgId` or `organization` field in the JSON body. */
+export const orgFromBody: ScopeResolver = async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const orgId = Number(body?.orgId ?? body?.organization);
+  return Number.isFinite(orgId) ? { orgId } : {};
+};
 
 /**
  * 3. Self-Access Middleware
@@ -84,4 +99,28 @@ export function requireSelf() {
 
     await next();
   };
+}
+
+/**
+ * 4. SuperAdmin-Only Middleware
+ * Relies on authenticateUser running first. Checks if the user is a global SuperAdmin.
+ */
+export async function requireSuperAdmin(c: any, next: any) {
+  const user = c.get('user');
+
+  if (!user) {
+    throw new HTTPException(HttpStatusCodes.UNAUTHORIZED, {
+      message: 'User not authenticated',
+    });
+  }
+
+  const isSuperAdmin = user.grants.some((g: any) => g.orgId === null && g.projectId === null);
+
+  if (!isSuperAdmin) {
+    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
+      message: 'SuperAdmin access required',
+    });
+  }
+
+  await next();
 }

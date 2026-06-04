@@ -7,196 +7,99 @@
 
 import type { AppPolicyUser } from '@/lib/types';
 
-import { ROLES } from '@/lib/roles';
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export interface PolicyChapterAssignment {
   organizationId: number;
+  projectId: number;
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: string | null;
 }
 
 export const ChapterAssignmentPolicy = {
-  /**
-   * Can this user edit the content of this chapter assignment?
-   */
   edit(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    isProjectMember: boolean
+    _isProjectMember: boolean
   ): boolean {
-    if (user.organization !== assignment.organizationId) {
-      return false;
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+
+    // Managers (content:assign) may edit only at/after community review.
+    if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) {
+      return [
+        CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK,
+        CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK,
+        CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK,
+      ].includes(assignment.status as any);
     }
 
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return (
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
-      );
-    }
-
-    // future roles can be prevented access using this
-    if (user.roleName !== ROLES.TRANSLATOR) {
-      return false;
-    }
+    // Content editors (translators) — assignment-position rules.
+    if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) return false;
 
     switch (assignment.status) {
       case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
         return assignment.assignedUserId === user.id;
-
       case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
         return assignment.peerCheckerId === user.id;
-
-      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
-      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
-      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
-      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
-        return isProjectMember;
-
       default:
+        // By spec, translators can't edit past PEER_CHECK, only managers can.
         return false;
     }
   },
 
-  /**
-   * Can this user view a list of all chapter assignments in this org?
-   */
-  viewAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
-    return user.organization === targetOrganizationId;
+  create(user: AppPolicyUser, targetOrganizationId: number, targetProjectId: number): boolean {
+    const scope = { orgId: targetOrganizationId, projectId: targetProjectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
   },
 
-  /**
-   * Can this user view this specific chapter assignment?
-   */
-  view(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return user.organization === assignment.organizationId;
+  deleteAll(user: AppPolicyUser, targetOrganizationId: number, targetProjectId: number): boolean {
+    const scope = { orgId: targetOrganizationId, projectId: targetProjectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
   },
 
-  /**
-   * Can this user create a chapter assignment?
-   */
-  create(user: AppPolicyUser, targetOrganizationId: number): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
+  assignAll(user: AppPolicyUser, targetOrganizationId: number, targetProjectId: number): boolean {
+    const scope = { orgId: targetOrganizationId, projectId: targetProjectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
   },
 
-  /**
-   * Can this user update this chapter assignment (e.g., metadata, non-content)?
-   */
-  update(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return (
-      user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
-    );
-  },
-
-  /**
-   * Can this user delete this chapter assignment?
-   */
-  delete(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return (
-      user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
-    );
-  },
-
-  /**
-   * Can this user delete all chapter assignments for a project/org?
-   */
-  deleteAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
-  },
-
-  /**
-   * Can this user assign all chapter assignments for a project/org?
-   */
-  assignAll(user: AppPolicyUser, targetOrganizationId: number): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER && user.organization === targetOrganizationId;
-  },
-
-  /**
-   * Base assignment logic (Internal abstraction)
-   */
-  _assign(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return (
-      user.roleName === ROLES.PROJECT_MANAGER && user.organization === assignment.organizationId
-    );
-  },
-
-  /**
-   * Can this user assign a drafter to this assignment?
-   */
-  assignDrafter(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return this._assign(user, assignment);
-  },
-
-  /**
-   * Can this user assign a peer checker to this assignment?
-   */
-  assignPeerChecker(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return this._assign(user, assignment);
-  },
-
-  /**
-   * Can this user submit (advance the status of) this assignment?
-   */
-  submit(
+  view(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
     isProjectMember: boolean
   ): boolean {
-    // 1. Strict Organization Boundary Check
-    if (user.organization !== assignment.organizationId) {
-      return false;
-    }
-
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return (
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
-      );
-    }
-
-    if (user.roleName !== ROLES.TRANSLATOR) {
-      return false;
-    }
-
-    // Refactored to use switch statement for expressive intent and consistency
-    switch (assignment.status) {
-      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
-        return assignment.assignedUserId === user.id;
-
-      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
-        return assignment.peerCheckerId === user.id;
-
-      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
-      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
-      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
-      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
-        return isProjectMember;
-
-      default:
-        return false;
-    }
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    return authorize(user, PERMISSIONS.CONTENT_VIEW, scope) || isProjectMember;
   },
 
-  /**
-   * Is this user a direct participant in this assignment?
-   */
+  update(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
+  },
+
+  delete(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
+  },
+
+  assign(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
+  },
+
+  submit(
+    user: AppPolicyUser,
+    assignment: PolicyChapterAssignment,
+    _isProjectMember: boolean
+  ): boolean {
+    return this.edit(user, assignment, _isProjectMember);
+  },
+
   isParticipant(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    // 1. Strict Organization Boundary Check
-    if (user.organization !== assignment.organizationId) {
-      return false;
-    }
-
-    if (user.roleName !== ROLES.TRANSLATOR) {
-      return false;
-    }
-
     return assignment.assignedUserId === user.id || assignment.peerCheckerId === user.id;
   },
 };

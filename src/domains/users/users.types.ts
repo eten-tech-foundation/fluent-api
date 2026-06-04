@@ -10,8 +10,8 @@ export type UpdateUserInput = z.infer<typeof patchUsersSchema>;
 
 export type CreateUserWithAuthInput = CreateUserInput & { authUserId: string };
 
-// Used by findByEmail — joined with roles table to support policy checks
-export type UserWithRole = User & { roleName: string };
+// Used by findByEmail — dropped roleName
+export type UserWithRole = User;
 
 // ─── API response schema ──────────────────────────────────────────────────────
 
@@ -21,8 +21,7 @@ export const userResponseSchema = z.object({
   username: z.string(),
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
-  role: z.number().int(),
-  organization: z.number().int(),
+
   createdBy: z.number().int().nullable(),
   status: z.enum(['invited', 'verified', 'inactive']),
   createdAt: z.date().nullable(),
@@ -36,10 +35,11 @@ export const createUserRequestSchema = z.object({
   email: z.string().email().max(255),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
-  role: z.number().int(),
-  // Note: 'organization' is intentionally omitted here so clients cannot spoof it.
-  // It will be injected by the route handler.
   status: z.enum(['invited', 'verified', 'inactive']).default('invited'),
+  // Grant fields — where and what role to assign the new user
+  orgId: z.number().int(),
+  projectId: z.number().int().optional().nullable(),
+  roleName: z.string().optional(),
 });
 
 export const updateUserRequestSchema = z.object({
@@ -47,7 +47,7 @@ export const updateUserRequestSchema = z.object({
   email: z.string().email().max(255).optional(),
   firstName: z.string().max(100).optional().nullable(),
   lastName: z.string().max(100).optional().nullable(),
-  role: z.number().int().optional(),
+
   status: z.enum(['invited', 'verified', 'inactive']).optional(),
   // 'organization' is omitted to prevent cross-tenant transfers.
 });

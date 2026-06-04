@@ -1,16 +1,49 @@
 import { createRoute, z } from '@hono/zod-openapi';
+import { createMiddleware } from 'hono/factory';
 import { stream } from 'hono/streaming';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
 
 import type { USFMExportJob } from '@/lib/queue';
+import type { AppEnv } from '@/server/context.types';
 
+import { ProjectPolicy } from '@/domains/projects/project.policy';
+import * as projectService from '@/domains/projects/projects.service';
+import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { fileExists, getExportFile } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as usfmService from './usfm.service';
+
+const requireProjectUnitAccess = createMiddleware<AppEnv>(async (c, next) => {
+  const user = c.get('user')!;
+  const projectUnitId = Number(c.req.param('projectUnitId'));
+  if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
+  }
+
+  const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+  if (!unitResult.ok) {
+    return c.json({ message: 'Project unit not found' }, HttpStatusCodes.NOT_FOUND);
+  }
+
+  const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+  if (!projectResult.ok) {
+    return c.json({ message: 'Project unit not found' }, HttpStatusCodes.NOT_FOUND);
+  }
+
+  const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+  const policyUser = { id: user.id, grants: user.grants };
+
+  if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+    return c.json({ message: 'Project unit not found' }, HttpStatusCodes.NOT_FOUND);
+  }
+
+  return next();
+});
 
 interface ErrorResponse {
   error: string;
@@ -68,6 +101,7 @@ const getExportableBooksRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/project-units/{projectUnitId}/usfm/books',
+  middleware: [authenticateUser, requireProjectUnitAccess] as const,
   request: {
     params: projectUnitIdParam,
   },
@@ -81,6 +115,7 @@ const exportProjectUSFMRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm',
+  middleware: [authenticateUser, requireProjectUnitAccess] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -104,6 +139,7 @@ const exportProjectUSFMAsyncRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm/async',
+  middleware: [authenticateUser, requireProjectUnitAccess] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -119,6 +155,7 @@ const getJobStatusRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/jobs/{jobId}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
       jobId: z.string(),
@@ -135,6 +172,7 @@ const downloadExportRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/downloads/{filename}',
+  middleware: [authenticateUser] as const,
   request: {
     params: filenameParam,
   },
@@ -375,6 +413,27 @@ server.openapi(getJobStatusRoute, async (c) => {
         },
         HttpStatusCodes.NOT_FOUND
       );
+    }
+
+    const user = c.get('user')!;
+    const projectUnitId = (job.data as Record<string, any>)?.projectUnitId;
+    if (projectUnitId) {
+      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+      if (!unitResult.ok) {
+        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+      if (!projectResult.ok) {
+        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+      const policyUser = { id: user.id, grants: user.grants };
+
+      if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+      }
     }
 
     return c.json(

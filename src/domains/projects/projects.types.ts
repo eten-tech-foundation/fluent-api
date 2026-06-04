@@ -47,7 +47,7 @@ export const createProjectWithUnitsSchema = insertProjectsSchema
     projectUnitStatus: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
     // Made optional for frontend backwards compatibility.
     // The route will overwrite these with secure auth context anyway.
-    organization: z.number().int().optional(),
+    organization: z.number().int(),
     createdBy: z.number().int().optional(),
   });
 

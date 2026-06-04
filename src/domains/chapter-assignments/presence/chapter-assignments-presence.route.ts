@@ -4,6 +4,8 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { requireChapterAssignmentAccess } from '@/domains/chapter-assignments/chapter-assignment-auth.middleware';
+import { CHAPTER_ASSIGNMENT_ACTIONS } from '@/domains/chapter-assignments/chapter-assignments.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -28,7 +30,11 @@ const registerPresenceRoute = createRoute({
   tags: ['Chapter Assignments - Presence'],
   method: 'post',
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
+  ] as const,
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(presenceResponseSchema, 'Presence registered successfully'),
@@ -50,7 +56,11 @@ const removePresenceRoute = createRoute({
   tags: ['Chapter Assignments - Presence'],
   method: 'delete',
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_UPDATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
+  ] as const,
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Presence removed successfully' },

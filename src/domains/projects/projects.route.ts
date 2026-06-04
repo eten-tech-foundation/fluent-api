@@ -4,10 +4,12 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { getRoleId, grantRole } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
+import { ROLES } from '@/lib/roles';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireProjectAccess } from './project-auth.middleware';
@@ -57,7 +59,10 @@ const listProjectsRoute = createRoute({
 server.openapi(listProjectsRoute, async (c) => {
   const currentUser = c.get('user')!;
 
-  const result = await projectService.getProjectsByOrganization(currentUser.organization);
+  const result = await projectService.getProjectsForUser({
+    id: currentUser.id,
+    grants: currentUser.grants,
+  });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
@@ -68,7 +73,10 @@ const createProjectRoute = createRoute({
   tags: ['Projects'],
   method: 'post',
   path: '/projects',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_CREATE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_CREATE, orgFromBody),
+  ] as const,
   summary: 'Create a new project',
   description: 'Project Manager only.',
   request: { body: jsonContentRequired(createProjectWithUnitsSchema, 'Project to create') },
@@ -100,10 +108,19 @@ server.openapi(createProjectRoute, async (c) => {
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
-    organization: currentUser.organization,
+    organization: projectData.organization,
   });
 
-  if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
+  if (result.ok) {
+    await grantRole({
+      userId: currentUser.id,
+      orgId: projectData.organization,
+      projectId: result.data.id,
+      roleId: await getRoleId(ROLES.PROJECT_MANAGER),
+      createdBy: currentUser.id,
+    });
+    return c.json(result.data, HttpStatusCodes.CREATED);
+  }
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 

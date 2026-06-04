@@ -15,13 +15,12 @@ import {
   chapter_assignments,
   languages,
   project_units,
-  project_users,
   projects,
   translated_verses,
   users,
 } from '@/db/schema';
+import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { logger } from '@/lib/logger';
-import { ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
 
@@ -89,8 +88,7 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
 
 export async function findByIdWithAuthContext(
   id: number,
-  userId: number,
-  roleName: string
+  userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
   try {
     const [assignment] = await db
@@ -111,25 +109,18 @@ export async function findByIdWithAuthContext(
         projectId: projects.id,
         organizationId: projects.organization,
         // Project membership (LEFT JOIN to handle non-members)
-        isProjectMember: sql<boolean>`CASE WHEN ${project_users.userId} IS NOT NULL THEN true ELSE false END`,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
       .innerJoin(projects, eq(project_units.projectId, projects.id))
-      .leftJoin(
-        project_users,
-        and(
-          eq(project_users.projectId, projects.id),
-          eq(project_users.userId, userId),
-          // Only check membership for translators (per resolveIsProjectMember logic)
-          roleName === ROLES.TRANSLATOR ? sql`1=1` : sql`1=0`
-        )
-      )
       .where(eq(chapter_assignments.id, id))
       .limit(1);
 
     if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-    return ok(assignment);
+
+    const isProjectMember = await resolveIsProjectMember(assignment.projectId, userId);
+
+    return ok({ ...assignment, isProjectMember });
   } catch (error) {
     logger.error({
       cause: error,
@@ -159,6 +150,7 @@ export async function findForVerse(
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         organizationId: projects.organization,
+        projectId: projects.id,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

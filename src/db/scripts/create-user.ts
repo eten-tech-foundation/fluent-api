@@ -70,15 +70,26 @@ async function createNewUser() {
         updatedAt: new Date(),
       });
 
-      await tx.insert(schema.users).values({
-        username,
-        email,
-        firstName: username,
-        lastName: '(QA)',
-        role: roleId,
-        organization: organizationId,
-        status: 'verified',
-        authUserId,
+      const [newUser] = await tx
+        .insert(schema.users)
+        .values({
+          username,
+          email,
+          firstName: username,
+          lastName: '(QA)',
+          status: 'verified',
+          authUserId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning({ id: schema.users.id });
+
+      await tx.insert(schema.user_roles).values({
+        userId: newUser.id,
+        orgId: roleId === 1 ? null : organizationId,
+        projectId: null,
+        roleId,
+        createdBy: newUser.id,
         createdAt: new Date(),
         updatedAt: new Date(),
       });

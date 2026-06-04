@@ -1,8 +1,9 @@
-import type { Result } from '@/lib/types';
+import type { AppPolicyUser, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
+import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
@@ -11,6 +12,25 @@ import * as repo from './projects.repository';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
+}
+
+export function getProjectsForUser(user: AppPolicyUser) {
+  // Global view grant (SuperAdmin) fetches all projects
+  const hasGlobalView = user.grants.some(
+    (g) => g.orgId === null && g.projectId === null && g.permissions.has(PERMISSIONS.PROJECT_VIEW)
+  );
+  if (hasGlobalView) {
+    return repo.getAllProjects();
+  }
+
+  const orgIds = new Set<number>();
+  const projectIds = new Set<number>();
+  for (const g of user.grants) {
+    if (!g.permissions.has(PERMISSIONS.PROJECT_VIEW)) continue;
+    if (g.projectId !== null) projectIds.add(g.projectId);
+    else if (g.orgId !== null) orgIds.add(g.orgId);
+  }
+  return repo.findByOrgIdsOrProjectIds([...orgIds], [...projectIds]);
 }
 
 export function getProjectsByUserId(userId: number) {

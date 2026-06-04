@@ -4,12 +4,12 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ROLES } from '@/lib/roles';
 import { createUserWithInvitation } from '@/lib/services/auth/auth.service';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireUserAccess } from './user-auth.middleware';
@@ -58,7 +58,10 @@ const listUsersRoute = createRoute({
 server.openapi(listUsersRoute, async (c) => {
   const currentUser = c.get('user')!;
 
-  const result = await userService.getUsersByOrganization(currentUser.organization);
+  const result = await userService.getUsersForUser({
+    id: currentUser.id,
+    grants: currentUser.grants,
+  });
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.OK);
   }
@@ -74,7 +77,7 @@ const createUserRoute = createRoute({
   path: '/users',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.USER_CREATE),
+    requirePermission(PERMISSIONS.USER_CREATE, orgFromBody),
     requireUserAccess(USER_ACTIONS.CREATE),
   ] as const,
   request: {
@@ -110,6 +113,10 @@ const createUserRoute = createRoute({
       }),
       'The validation error'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema('Internal Server Error'),
+      'Internal server error'
+    ),
   },
   summary: 'Create a new user',
   description: 'Creates a new user with the provided data. Project Manager only.',
@@ -119,18 +126,36 @@ server.openapi(createUserRoute, async (c) => {
   const requestData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  // Safely map the API request schema into the DB-bound input type
-  const userData = {
-    ...requestData,
-    organization: currentUser.organization,
-  };
-
-  const result = await userService.createUser(userData);
-  if (result.ok) {
-    return c.json(result.data, HttpStatusCodes.CREATED);
+  const result = await userService.createUser(requestData);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  // Grant the new user their initial role via user_roles
+  if (requestData.orgId) {
+    try {
+      const { grantRole, getRoleId } = await import('@/domains/user-roles/user-roles.service');
+      const { ROLES } = await import('@/lib/roles');
+      const roleName = requestData.roleName || ROLES.PROJECT_TRANSLATOR;
+      const roleId = await getRoleId(roleName);
+      await grantRole({
+        userId: result.data.id,
+        orgId: requestData.orgId,
+        projectId: requestData.projectId ?? null,
+        roleId,
+        createdBy: currentUser.id,
+      });
+    } catch (error) {
+      await userService.deleteUser(result.data.id);
+      const errorMessage = error instanceof Error ? error.message : 'Grant failed';
+      return c.json(
+        { message: `Failed to create initial role grant: ${errorMessage}` },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  return c.json(result.data, HttpStatusCodes.CREATED);
 });
 
 // ─── POST /users/invite ───────────────────────────────────────────────────────
@@ -141,7 +166,7 @@ const createUserWithInvitationRoute = createRoute({
   path: '/users/invite',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.USER_CREATE),
+    requirePermission(PERMISSIONS.USER_CREATE, orgFromBody),
     requireUserAccess(USER_ACTIONS.CREATE),
   ] as const,
   request: {
@@ -187,14 +212,8 @@ const createUserWithInvitationRoute = createRoute({
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
   const requestData = c.req.valid('json');
-  const currentUser = c.get('user')!;
 
-  const userData = {
-    ...requestData,
-    organization: currentUser.organization,
-  };
-
-  const result = await createUserWithInvitation(userData, c.req.raw.headers);
+  const result = await createUserWithInvitation(requestData, c.req.raw.headers);
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.CREATED);
   }
@@ -245,8 +264,7 @@ server.openapi(getUserByEmailRoute, async (c) => {
   const currentUser = c.get('user')!;
   const policyUser = {
     id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
+    grants: currentUser.grants,
   };
 
   const result = await userService.getUserByEmail(email.toLowerCase());
@@ -255,10 +273,11 @@ server.openapi(getUserByEmailRoute, async (c) => {
     return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
-  const { roleName: _roleName, ...targetUser } = result.data;
+  const targetUser = result.data;
+  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
 
   // Returning 404 instead of 403 to prevent email enumeration across orgs
-  if (!UserPolicy.view(policyUser, targetUser)) {
+  if (!UserPolicy.view(policyUser, { id: targetUser.id, orgIds: targetOrgIds })) {
     return c.json({ message: ErrorMessages[ErrorCode.USER_NOT_FOUND] }, HttpStatusCodes.NOT_FOUND);
   }
 
@@ -371,6 +390,7 @@ server.openapi(updateUserRoute, async (c) => {
   const { id } = c.req.valid('param');
   const updates = c.req.valid('json');
   const currentUser = c.get('user')!;
+  const targetUser = c.get('targetUser')!;
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -391,7 +411,15 @@ server.openapi(updateUserRoute, async (c) => {
     );
   }
 
-  if (currentUser.roleName === ROLES.TRANSLATOR) {
+  // Strip role update if user lacks MEMBERSHIP_REVOKE
+  // Check if they are trying to update another user or just lacking permission
+  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
+  if (
+    !UserPolicy.update(
+      { id: currentUser.id, grants: currentUser.grants },
+      { id: targetUser.id, orgIds: targetOrgIds }
+    )
+  ) {
     delete (updates as Record<string, unknown>).role;
   }
 

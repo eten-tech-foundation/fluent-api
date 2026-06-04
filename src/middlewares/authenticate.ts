@@ -7,6 +7,7 @@ import type { AppBindings } from '@/lib/types';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { logger } from '@/lib/logger';
@@ -119,10 +120,14 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
     }
     // ───────────────────────────────────────────────────────────────────────
 
-    // Look up the application user
+    // Look up the application user and load their grants
     const userResult = await getUserByEmail(session.user.email);
     if (userResult.ok) {
-      c.set('user', userResult.data);
+      const grantsResult = await findGrantsByUserId(userResult.data.id);
+      c.set('user', {
+        ...userResult.data,
+        grants: grantsResult.ok ? grantsResult.data : [],
+      });
     } else {
       logger.debug('Authenticated auth_user has no linked application user', {
         email: session.user.email,

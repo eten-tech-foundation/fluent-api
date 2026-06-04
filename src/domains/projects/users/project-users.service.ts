@@ -24,7 +24,7 @@ export async function addProjectUsers(projectId: number, userIds: number[]) {
     insertResult.data.map((row) => ({
       ...row,
       displayName: userMap.get(row.userId)!.username,
-      roleID: userMap.get(row.userId)!.role,
+      roleID: row.roleId,
     }))
   );
 }
@@ -33,6 +33,6 @@ export function removeProjectUser(projectId: number, userId: number) {
   return repo.removeProjectUser(projectId, userId);
 }
 
-export function resolveIsProjectMember(projectId: number, userId: number, roleName: string) {
-  return repo.resolveIsProjectMember(projectId, userId, roleName);
+export function resolveIsProjectMember(projectId: number, userId: number) {
+  return repo.resolveIsProjectMember(projectId, userId);
 }

@@ -21,8 +21,14 @@ export const PERMISSIONS = {
   PROJECT_DELETE: 'project:delete',
 
   // ── Content ─────────────────────────────────────────────────────────
+  CONTENT_VIEW: 'content:view',
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
+
+  // ── Membership / role assignment ────────────────────────────────────
+  MEMBERSHIP_REVOKE: 'membership:revoke',
+  ROLE_ASSIGN_PROJECT: 'role:assign:project',
+  ROLE_ASSIGN_ORG_MANAGER: 'role:assign:org_manager',
 
   // ── Users ───────────────────────────────────────────────────────────
   USER_VIEW: 'user:view',

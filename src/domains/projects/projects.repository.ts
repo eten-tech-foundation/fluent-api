@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -9,8 +9,8 @@ import {
   chapterStatusEnum,
   project_unit_bible_books,
   project_units,
-  project_users,
   projects,
+  user_roles,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -72,11 +72,45 @@ export async function getByOrganization(
   }
 }
 
+export async function getAllProjects(): Promise<Result<ProjectWithLanguageNames[]>> {
+  try {
+    const rawProjects = await baseJoinQuery();
+    return ok(rawProjects.map(mapToProjectWithLanguages));
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get all projects' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function findByOrgIdsOrProjectIds(
+  orgIds: number[],
+  projectIds: number[]
+): Promise<Result<ProjectWithLanguageNames[]>> {
+  if (orgIds.length === 0 && projectIds.length === 0) return ok([]);
+  try {
+    const conditions = [];
+    if (orgIds.length) conditions.push(inArray(projects.organization, orgIds));
+    if (projectIds.length) conditions.push(inArray(projects.id, projectIds));
+    const rows = await baseJoinQuery().where(or(...conditions));
+    return ok(rows.map(mapToProjectWithLanguages));
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to find projects for user' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 export async function getByUserId(userId: number): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
-    const rawProjects = await baseJoinQuery()
-      .innerJoin(project_users, eq(project_users.projectId, projects.id))
-      .where(eq(project_users.userId, userId));
+    const rawProjects = await baseJoinQuery().innerJoin(
+      user_roles,
+      and(
+        eq(user_roles.userId, userId),
+        or(
+          eq(user_roles.projectId, projects.id),
+          and(eq(user_roles.orgId, projects.organization), isNull(user_roles.projectId))
+        )
+      )
+    );
     return ok(rawProjects.map(mapToProjectWithLanguages));
   } catch (error) {
     logger.error({
