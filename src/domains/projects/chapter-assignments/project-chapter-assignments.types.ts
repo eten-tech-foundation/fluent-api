@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
+
 import { chapterAssignmentResponseSchema as sharedAssignmentSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── Shared response schemas ──────────────────────────────────────────────────
@@ -30,6 +32,27 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   updatedAt: z.date().nullable(),
 });
 
+export const memberChapterAssignmentResponseSchema = z.object({
+  chapterAssignmentId: z.number().int(),
+  projectId: z.number().int(),
+  projectUnitId: z.number().int(),
+  bibleId: z.number().int(),
+  bookId: z.number().int(),
+  chapterNumber: z.number().int(),
+  assignedUserId: z.number().int().nullable(),
+  peerCheckerId: z.number().int().nullable(),
+  status: z.string(),
+  submittedTime: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+
+export const memberChapterAssignmentsResponseSchema = z.object({
+  syncedAt: z.string(),
+  data: memberChapterAssignmentResponseSchema.array(),
+});
+
+export type MemberChapterAssignmentResponse = z.infer<typeof memberChapterAssignmentResponseSchema>;
 // ─── Assign-all input ─────────────────────────────────────────────────────────
 
 export const assignUserInputSchema = z
@@ -84,3 +107,4 @@ export type ChapterAssignmentProgress = z.infer<typeof chapterAssignmentProgress
 export type AssignUserInput = z.infer<typeof assignUserInputSchema>;
 export type AssignSelectedItem = z.infer<typeof assignSelectedItemSchema>;
 export type AssignSelectedRequest = z.infer<typeof assignSelectedRequestSchema>;
+export type ChapterAssignmentWithProjectId = ChapterAssignmentRecord & { projectId: number };

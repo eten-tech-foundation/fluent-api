@@ -12,8 +12,8 @@ import type { BulkBibleTextsRequest } from './bible-texts.types';
 import * as bibleTextsService from './bible-texts.service';
 import {
   bibleTextResponseSchema,
+  bulkBibleTextsResponseSchema,
   bulkChapterRequestSchema,
-  bulkChapterTextResponseSchema,
 } from './bible-texts.types';
 
 const chapterParams = z.object({
@@ -101,13 +101,13 @@ const getBulkBibleTextsRoute = createRoute({
         }),
     }),
     body: jsonContentRequired(
-      bulkChapterRequestSchema,
+      bulkChapterRequestSchema.openapi('BulkBibleTextsRequest'),
       'List of (bookId, chapterNumber) pairs to fetch in one request'
     ),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
-      bulkChapterTextResponseSchema.array().openapi('BulkBibleTexts'),
+      bulkBibleTextsResponseSchema.openapi('BulkBibleTexts'),
       'Bible texts grouped by book and chapter'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
@@ -121,7 +121,7 @@ const getBulkBibleTextsRoute = createRoute({
   },
   summary: 'Get bible texts for multiple chapters (bulk)',
   description:
-    'Returns bible texts grouped by chapter for up to 200 (bookId, chapterNumber) pairs in a single request. ' +
+    'Returns bible texts grouped by chapter for up to 1200 (bookId, chapterNumber) pairs in a single request. ' +
     'Designed for mobile clients to pre-cache all assigned chapter texts in one round-trip. No authentication required.',
 });
 

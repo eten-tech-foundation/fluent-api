@@ -20,7 +20,8 @@ export const bulkChapterRequestSchema = z.object({
       })
     )
     .min(1, 'At least one chapter is required')
-    .max(200, 'Maximum 200 chapters per request'),
+    .max(1200, 'Maximum 1200 chapters per request'),
+  updatedAfter: z.string().datetime().optional(),
 });
 
 export const bulkChapterTextResponseSchema = z.object({
@@ -29,6 +30,12 @@ export const bulkChapterTextResponseSchema = z.object({
   verses: bibleTextResponseSchema.array(),
 });
 
+export const bulkBibleTextsResponseSchema = z.object({
+  syncedAt: z.string(),
+  data: bulkChapterTextResponseSchema.array(),
+});
+
+export type BulkBibleTextsResponse = z.infer<typeof bulkBibleTextsResponseSchema>;
 export type BulkChapterRequest = z.infer<typeof bulkChapterRequestSchema>;
 export type BulkChapterTextResponse = z.infer<typeof bulkChapterTextResponseSchema>;
 
