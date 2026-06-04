@@ -44,12 +44,21 @@ export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   secret: env.BETTER_AUTH_SECRET,
 
-  trustedOrigins: (_request?: Request) => {
+  trustedOrigins: (request?: Request) => {
     const webOrigin = getWebOrigin(env.FRONTEND_URL);
     const origins = [webOrigin];
+
     if (env.NODE_ENV === 'production') {
       origins.push('https://*.fluent.bible');
     }
+
+    if (request && isMobileRequest(request.headers as Headers)) {
+      const mobileOrigin = request.headers.get('origin');
+      if (mobileOrigin) {
+        origins.push(mobileOrigin);
+      }
+    }
+
     return origins;
   },
 
