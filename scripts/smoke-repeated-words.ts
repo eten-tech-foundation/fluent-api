@@ -214,7 +214,7 @@ function printOriginMismatchHint(origin: string): void {
   console.error('────────────────────────────────────────────────────────────────────');
   console.error(`The sign-in Origin "${origin}" was rejected by BetterAuth.`);
   console.error('');
-  console.error("fluent-api only trusts the origin derived from its FRONTEND_URL");
+  console.error('fluent-api only trusts the origin derived from its FRONTEND_URL');
   console.error('(see src/lib/auth.ts → trustedOrigins). In the default dev stack');
   console.error('that is the web app at http://localhost:5173.');
   console.error('');
