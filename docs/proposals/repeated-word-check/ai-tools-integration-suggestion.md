@@ -244,11 +244,21 @@ export async function callFluentAi<TReq, TResult>(
 
 ### 7.2 What it does
 
-1. Reads `env.FLUENT_AI_URL` and `env.FLUENT_AI_KEY` (validated at boot in [`fluent-api/src/env.ts`](../../../src/env.ts)).
-2. POSTs to `${FLUENT_AI_URL}/api/v1/${toolPath}` with:
+1. Reads `env.FLUENT_AI_URL`, `env.FLUENT_AI_KEY`, and `env.FLUENT_AI_API_PREFIX` (validated at boot in [`fluent-api/src/env.ts`](../../../src/env.ts)).
+2. POSTs to `${FLUENT_AI_URL}/${FLUENT_AI_API_PREFIX}/${toolPath}` (slashes normalized) with:
    - `Content-Type: application/json`
    - `X-API-Key: ${FLUENT_AI_KEY}`
    - body serialized as JSON
+
+   > **Implementation update (2026-06-04).** The prefix between `FLUENT_AI_URL` and
+   > `toolPath` is **configurable** via `FLUENT_AI_API_PREFIX` and defaults to **empty**.
+   > The original spec assumed `/api/v1`, but the live fluent-ai build serves its routers
+   > at the root (`POST /tools/greek-room/repeated-words`), so the hardcoded `/api/v1/`
+   > produced a 404 → `502 AI_SERVICE_UNAVAILABLE`. With the empty default the URL is
+   > `${FLUENT_AI_URL}/${toolPath}`; setting `FLUENT_AI_API_PREFIX=/api/v1` restores the
+   > versioned form for a future deployment — a pure env flip, no code change. See
+   > [`ai-tools-integration-status.md`](ai-tools-integration-status.md) §3.1.
+
 3. Honors the caller's `AbortSignal` if provided; otherwise applies a default 30-second timeout via a derived signal. (Tunable per-call.)
 4. On HTTP-level success (2xx), parses the response body as `ToolJobResponse<TResult>` and validates the `result` field against `resultSchema` _if and only if_ `status === "completed"`. (When status is `queued|running`, `result` is `null` and is not validated.)
 5. Returns `{ ok: true, data: envelope }` — note this is the **full envelope**, not the unwrapped result. Callers that care only about the synchronous-completed case can `if (envelope.status === "completed") return envelope.result`. Callers that want to support the future polling case can inspect `envelope.status` and `envelope.job_id`.

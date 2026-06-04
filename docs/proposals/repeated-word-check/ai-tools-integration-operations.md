@@ -218,7 +218,7 @@ When a dev runs only `./fapi.sh up` without fluent-ai, the `/ai/tools/...` endpo
 
 ### 12.8 What `callFluentAi` does _not_ assume about networking
 
-The client is unaware of whether fluent-ai is at `localhost:8200`, `ai:8200`, `https://fluent-ai.internal.example.com`, or anywhere else. It reads `FLUENT_AI_URL` verbatim, appends `/api/v1/${toolPath}`, and POSTs. This means:
+The client is unaware of whether fluent-ai is at `localhost:8200`, `ai:8200`, `https://fluent-ai.internal.example.com`, or anywhere else. It reads `FLUENT_AI_URL` verbatim, joins the optional `FLUENT_AI_API_PREFIX` (default empty — see the implementation update in §7.2) and `toolPath`, and POSTs. With the default empty prefix it POSTs to `${FLUENT_AI_URL}/${toolPath}` (matching the live fluent-ai build); `FLUENT_AI_API_PREFIX=/api/v1` makes it `${FLUENT_AI_URL}/api/v1/${toolPath}`. This means:
 
 - Switching from standalone to ecosystem mode is a single env var change (handled automatically by the platform compose override).
 - Switching to a staging or production deployment is a single env var change.
@@ -231,6 +231,25 @@ Per [`fluent-platform/README.md`](../../../../fluent-platform/README.md) §"Depl
 ### 12.10 Wiring up a running ecosystem (post-PR checklist)
 
 The fluent-api code in this PR is complete, but **exercising it end-to-end against a live fluent-ai requires a small amount of local wiring that is intentionally _not_ part of this PR's committed changes** (the env values are machine-specific, and the compose override belongs to the paired fluent-platform PR per §12.4 / **D12**). This subsection is the runbook for an agent or developer who wants to take the merged code and watch a real request flow fluent-web → fluent-api → fluent-ai. It is deliberately step-by-step so it can be followed without prior context.
+
+> **Update (2026-06-04) — this runbook has now been executed against a from-scratch
+> stack and the steps below have been simplified by the smoke script.** Two practical
+> notes that supersede the hand-rolled `curl` instructions in Steps 5–6:
+>
+> - **Steps 5–6 are now one command.** `npm run smoke:repeated-words` performs the
+>   BetterAuth sign-in itself (default dev user `t@fluent.local`, overridable via
+>   `--signin-email` / `--signin-password`), captures the `set-auth-token` bearer, sends
+>   a trusted `Origin` header (default `http://localhost:5173`, overridable via `--origin`
+>   / `FLUENT_API_ORIGIN` / `FRONTEND_URL`), runs the check, and prints a PASS/FAIL banner.
+>   The manual `curl` token capture below still works if you prefer it.
+> - **Seed the org + dev user first.** The fluent-api entrypoint auto-runs
+>   migrate/roles/rbac but **not** account provisioning, so on a clean stack run
+>   `docker compose exec api npx tsx src/db/seeds/organizations.ts` then
+>   `… src/db/seeds/dev-users.ts` (org before users) so a sign-in account exists. The
+>   smoke script prints these exact commands if the dev user is missing.
+> - **The fluent-ai path prefix is now configurable** (`FLUENT_AI_API_PREFIX`, default
+>   empty — see §7.2 / §12.8). The live build serves at the root, so the default works
+>   out of the box; no `/api/v1` is needed.
 
 > **Prerequisites.** All four repos cloned side-by-side (the layout fluent-platform's setup produces). Docker/Podman available. fluent-ai's dev seed has run at least once so its `ai_api_keys` table contains the dev key `fai_dev_admin`. You are on branch `jel-word-check` in fluent-api.
 
@@ -317,7 +336,7 @@ Test surface, all with `global.fetch` stubbed via `vi.spyOn(global, 'fetch')`:
 - Response envelope passes parsing but `result` field fails the result schema → `Result.err({ code: AI_SERVICE_UNAVAILABLE, ... })`.
 - Default 30s timeout fires via fake timers → `Result.err({ code: AI_SERVICE_UNAVAILABLE, ... })`.
 - Caller-supplied `AbortSignal` triggers → `Result.err({ code: AI_SERVICE_UNAVAILABLE, ... })`.
-- Request shape: `X-API-Key` header is present, equals `env.FLUENT_AI_KEY`, `Content-Type` is `application/json`, URL is `${FLUENT_AI_URL}/api/v1/${toolPath}`.
+- Request shape: `X-API-Key` header is present, equals `env.FLUENT_AI_KEY`, `Content-Type` is `application/json`, and the URL is built from `FLUENT_AI_URL` + the optional `FLUENT_AI_API_PREFIX` + `toolPath`. Two cases are covered: the default empty prefix → `${FLUENT_AI_URL}/${toolPath}`, and a configured prefix (`/api/v1`, `api/v1`, `/api/v1/`) → `${FLUENT_AI_URL}/api/v1/${toolPath}` (slashes normalized).
 
 ### 13.2 Domain tests — `ai-tools.route.ts`
 

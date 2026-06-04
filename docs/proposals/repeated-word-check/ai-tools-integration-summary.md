@@ -1,5 +1,18 @@
 # AI-Tools Integration on fluent-api — Architecture Review Summary
 
+> **Status update (2026-06-04) — implemented and verified live end-to-end.** This
+> summary captures the pre-merge review framing; the integration has since been built on
+> branch `jel-word-check` and exercised against a from-scratch fluent-platform stack
+> (fluent-web → fluent-api → fluent-ai), with the smoke check passing host- and
+> in-container. The file-by-file record and the verified-live notes live in
+> [`ai-tools-integration-status.md`](ai-tools-integration-status.md). One implementation
+> detail postdates this summary: the fluent-ai path prefix is configurable via
+> `FLUENT_AI_API_PREFIX` (default empty, matching the live build that serves at the root)
+> — see [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) §7.2.
+> The paired fluent-platform compose change is broader than the single env override noted
+> below (it also pins `MIGRATIONS_DATABASE_URL`, sets `UV_CACHE_DIR`, and mounts the
+> smoke script) — see status doc §3.2.
+
 **Purpose:** Reviewer orientation for the proposed AI-tools integration. This summary is intended to stand on its own; if more detail is wanted, the long-form proposal is split across two sibling files — [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) (**Part 1**: contract & design, §1–§10) and [`ai-tools-integration-operations.md`](ai-tools-integration-operations.md) (**Part 2**: operations, forward compatibility, testing, §11–§15). A file-by-file account of what is already implemented in the tree versus what remains lives in [`ai-tools-integration-status.md`](ai-tools-integration-status.md). Ships as a coordinated pair of PRs — fluent-api (the bulk) plus a small fluent-platform PR adding one compose env-var override (per **D12**).
 
 ## What's being proposed

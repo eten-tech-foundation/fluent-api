@@ -230,7 +230,7 @@ describe('callFluentAi', () => {
 
   // ─── Request shape ─────────────────────────────────────────────────────────
 
-  it('sends the correct URL, headers, and JSON body', async () => {
+  it('sends the correct URL, headers, and JSON body (default empty prefix)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(buildEnvelope()));
 
     const body = { lang_code: 'eng', verses: [{ snt_id: 'GEN 1:1', text: 'In in' }] };
@@ -239,12 +239,43 @@ describe('callFluentAi', () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
 
-    expect(url).toBe(`${env.FLUENT_AI_URL}/api/v1/${TOOL_PATH}`);
+    // The live fluent-ai build mounts routers at the root, so with the default
+    // empty FLUENT_AI_API_PREFIX the URL carries no version segment.
+    expect(url).toBe(`${env.FLUENT_AI_URL}/${TOOL_PATH}`);
     expect(init.method).toBe('POST');
 
     const headers = init.headers as Record<string, string>;
     expect(headers['Content-Type']).toBe('application/json');
     expect(headers['X-API-Key']).toBe(env.FLUENT_AI_KEY);
     expect(JSON.parse(init.body as string)).toEqual(body);
+  });
+
+  it('inserts a configured FLUENT_AI_API_PREFIX between base URL and tool path', async () => {
+    // env is read at call time, so we can flip the prefix for this one case and
+    // restore it afterward. Covers the forward-compat path (fluent-ai adopting
+    // a versioned mount such as /api/v1) without a code change.
+    const original = env.FLUENT_AI_API_PREFIX;
+    const cases: { prefix: string; expected: string }[] = [
+      { prefix: '/api/v1', expected: `${env.FLUENT_AI_URL}/api/v1/${TOOL_PATH}` },
+      { prefix: 'api/v1', expected: `${env.FLUENT_AI_URL}/api/v1/${TOOL_PATH}` },
+      { prefix: '/api/v1/', expected: `${env.FLUENT_AI_URL}/api/v1/${TOOL_PATH}` },
+    ];
+
+    try {
+      for (const { prefix, expected } of cases) {
+        env.FLUENT_AI_API_PREFIX = prefix;
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse(buildEnvelope()));
+
+        await callFluentAi(TOOL_PATH, {}, resultSchema);
+
+        const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(expected);
+        vi.restoreAllMocks();
+      }
+    } finally {
+      env.FLUENT_AI_API_PREFIX = original;
+    }
   });
 });

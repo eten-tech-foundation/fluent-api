@@ -64,10 +64,27 @@ function aiError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok:
 }
 
 /**
+ * Assemble the absolute fluent-ai request URL from the base URL, the optional
+ * configurable API prefix, and the per-tool path.
+ *
+ * The prefix (`env.FLUENT_AI_API_PREFIX`) lets fluent-api track wherever
+ * fluent-ai mounts its routers WITHOUT a code change: the live build serves at
+ * the root (prefix ''), but a future versioned build (e.g. '/api/v1') is a pure
+ * env flip. Leading/trailing slashes on any segment are normalized so the
+ * resulting URL never contains an empty (`//`) segment.
+ */
+function buildToolUrl(toolPath: string): string {
+  const base = env.FLUENT_AI_URL.replace(/\/+$/, '');
+  const prefix = env.FLUENT_AI_API_PREFIX.replace(/^\/+|\/+$/g, '');
+  const tool = toolPath.replace(/^\/+/, '');
+  return prefix ? `${base}/${prefix}/${tool}` : `${base}/${tool}`;
+}
+
+/**
  * Shared client for calling a fluent-ai tool endpoint.
  *
  * Behavior (see §7):
- *  - POSTs to `${FLUENT_AI_URL}/api/v1/${toolPath}` with `X-API-Key` and a JSON body.
+ *  - POSTs to `${FLUENT_AI_URL}${FLUENT_AI_API_PREFIX}/${toolPath}` with `X-API-Key` and a JSON body.
  *  - Honors a caller-supplied `AbortSignal`, otherwise applies a default 30s timeout.
  *  - On 2xx, parses the body as a `ToolJobResponse` and (only when
  *    `status === 'completed'`) validates `result` against `resultSchema`.
@@ -82,7 +99,7 @@ export async function callFluentAi<TReq, TResult>(
   resultSchema: z.ZodType<TResult>,
   options?: CallFluentAiOptions
 ): Promise<Result<ToolJobResponse<TResult>>> {
-  const url = `${env.FLUENT_AI_URL}/api/v1/${toolPath}`;
+  const url = buildToolUrl(toolPath);
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   // Use the caller's signal if provided; otherwise derive a timeout signal.
