@@ -112,7 +112,7 @@ const getBulkBibleTextsRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Invalid request body (chapters array empty or exceeds 200)'
+      'Invalid request body (chapters array empty or exceeds 1200)'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),

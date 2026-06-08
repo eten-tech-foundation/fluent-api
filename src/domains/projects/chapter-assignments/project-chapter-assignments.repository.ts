@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm/sql';
+
 import { and, eq, gt, inArray, or } from 'drizzle-orm';
 
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
@@ -138,25 +140,7 @@ export async function getByProjects(
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-      .where(
-        excludeProjectIds.length === 0 && updatedAfter
-          ? and(
-              inArray(project_units.projectId, projectIds),
-              gt(chapter_assignments.updatedAt, updatedAfter)
-            )
-          : or(
-              inArray(
-                project_units.projectId,
-                projectIds.filter((id) => !excludeProjectIds.includes(id))
-              ),
-              excludeProjectIds.length > 0 && updatedAfter
-                ? and(
-                    inArray(project_units.projectId, excludeProjectIds),
-                    gt(chapter_assignments.updatedAt, updatedAfter)
-                  )
-                : undefined
-            )
-      );
+      .where(buildAssignmentFilter(projectIds, excludeProjectIds, updatedAfter));
 
     return ok(assignments);
   } catch (error) {
@@ -167,4 +151,30 @@ export async function getByProjects(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+function buildAssignmentFilter(
+  projectIds: number[],
+  excludeProjectIds: number[],
+  updatedAfter: Date | undefined
+) {
+  const conditions: SQL[] = [];
+
+  if (excludeProjectIds.length > 0) {
+    const newIds = projectIds.filter((id) => !excludeProjectIds.includes(id));
+    if (newIds.length > 0) {
+      conditions.push(inArray(project_units.projectId, newIds));
+    }
+  }
+  if (updatedAfter) {
+    const syncedIds = excludeProjectIds.length > 0 ? excludeProjectIds : projectIds;
+    const incrementalCondition = and(
+      inArray(project_units.projectId, syncedIds),
+      gt(chapter_assignments.updatedAt, updatedAfter)
+    );
+    if (incrementalCondition) conditions.push(incrementalCondition);
+  }
+  if (conditions.length === 0) return inArray(project_units.projectId, projectIds);
+
+  return conditions.length === 1 ? conditions[0] : or(...conditions);
 }
