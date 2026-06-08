@@ -27,6 +27,20 @@ const EnvSchema = z.object({
   EMAIL_SERVICE_DOMAIN: z.string(),
   EMAIL_SERVICE_SENDER: z.string(),
   FRONTEND_URL: z.string(),
+
+  // ── Fluent-AI integration ──────────────────────────────────────────
+  // Base URL of the fluent-ai service (no trailing slash, no path suffix).
+  // Ecosystem mode (via fluent-platform): http://ai:8200 — standalone: http://localhost:8200
+  FLUENT_AI_URL: z.string().url(),
+  // Shared API key for calling fluent-ai (matches a row in fluent-ai's ai_api_keys table).
+  FLUENT_AI_KEY: z.string().min(1),
+  // Path prefix that fluent-ai mounts its routers under, BETWEEN the base URL and
+  // the per-tool path. The live fluent-ai build currently mounts routers at the
+  // root (e.g. POST /tools/greek-room/repeated-words), so the default is empty.
+  // When fluent-ai eventually adopts versioned routing it can be flipped to
+  // '/api/v1' via env with no code change. Leading slash optional; trailing
+  // slashes are trimmed when the request URL is assembled.
+  FLUENT_AI_API_PREFIX: z.string().default(''),
 });
 
 export type env = z.infer<typeof EnvSchema>;
