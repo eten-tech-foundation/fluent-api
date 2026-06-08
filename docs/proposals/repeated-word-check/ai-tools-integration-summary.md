@@ -1,6 +1,19 @@
 # AI-Tools Integration on fluent-api — Architecture Review Summary
 
-**Purpose:** Reviewer orientation for the proposed AI-tools integration. Long-form proposal lives in the sibling [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) if more detail is wanted; this summary is intended to stand on its own. Ships as a coordinated pair of PRs — fluent-api (the bulk) plus a small fluent-platform PR adding one compose env-var override (per **D12**).
+> **Status update (2026-06-04) — implemented and verified live end-to-end.** This
+> summary captures the pre-merge review framing; the integration has since been built on
+> branch `jel-word-check` and exercised against a from-scratch fluent-platform stack
+> (fluent-web → fluent-api → fluent-ai), with the smoke check passing host- and
+> in-container. The file-by-file record and the verified-live notes live in
+> [`ai-tools-integration-status.md`](ai-tools-integration-status.md). One implementation
+> detail postdates this summary: the fluent-ai path prefix is configurable via
+> `FLUENT_AI_API_PREFIX` (default empty, matching the live build that serves at the root)
+> — see [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) §7.2.
+> The paired fluent-platform compose change is broader than the single env override noted
+> below (it also pins `MIGRATIONS_DATABASE_URL`, sets `UV_CACHE_DIR`, and mounts the
+> smoke script) — see status doc §3.2.
+
+**Purpose:** Reviewer orientation for the proposed AI-tools integration. This summary is intended to stand on its own; if more detail is wanted, the long-form proposal is split across two sibling files — [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) (**Part 1**: contract & design, §1–§10) and [`ai-tools-integration-operations.md`](ai-tools-integration-operations.md) (**Part 2**: operations, forward compatibility, testing, §11–§15). A file-by-file account of what is already implemented in the tree versus what remains lives in [`ai-tools-integration-status.md`](ai-tools-integration-status.md). Ships as a coordinated pair of PRs — fluent-api (the bulk) plus a small fluent-platform PR adding one compose env-var override (per **D12**).
 
 ## What's being proposed
 
@@ -28,3 +41,12 @@ Polling endpoint on either side, DB persistence of tool runs, frontend hooks and
 2. **Permission alias** — `PERMISSIONS.AI_TOOLS_USE` as a string-value alias of `CONTENT_UPDATE`, vs. a real new permission row with migration + seeding?
 3. **Envelope pass-through** — return the full `ToolJobResponse` today, vs. unwrap `result` for the sync case and reshape later when polling lands?
 4. **No request enrichment** — forward verbatim, vs. server-side lookup of `chapter_assignment_id` → verses, vs. a validation-only hybrid?
+
+## Reviewer outcome
+
+Reviewed and **approved** by kaseywright on 2026-06-02 ([PR #173](https://github.com/eten-tech-foundation/fluent-api/pull/173)). All four questions above were confirmed as proposed; the supporting detail and the two "please document" follow-ups now live in the long-form proposal:
+
+1. **URL layout** — confirmed ("this URL layout works well"). [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343625894)
+2. **Permission alias** — confirmed; decision documented for future reference in [`ai-tools-integration-suggestion.md`](ai-tools-integration-suggestion.md) §9.3 / **D10**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343633722)
+3. **Envelope pass-through** — confirmed, conditioned on the web-client response following fluent-api's standard response format; see §8.2 / **D9**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343642943)
+4. **No request enrichment** — forwarding verbatim confirmed; the intentional snake_case naming divergence is documented (with an in-code-comment guardrail) in §8.1 / **D8**. [Comment.](https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343677813)
