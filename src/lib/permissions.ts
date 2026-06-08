@@ -24,6 +24,16 @@ export const PERMISSIONS = {
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
 
+  // ── AI tools ────────────────────────────────────────────────────────
+  // Intentional alias of CONTENT_UPDATE (same string value) so "can invoke
+  // AI tools" is documented separately at call sites without yet being a
+  // distinct RBAC row. Promoting it to a real permission later means adding a
+  // `permissions` row, mapping it to roles in seed data, and changing only the
+  // string value here — no call site that imports AI_TOOLS_USE needs to change.
+  // Decision D10 / §9.3. Approved in review:
+  // https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343633722
+  AI_TOOLS_USE: 'content:update',
+
   // ── Users ───────────────────────────────────────────────────────────
   USER_VIEW: 'user:view',
   USER_CREATE: 'user:create',

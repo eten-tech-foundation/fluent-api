@@ -22,6 +22,7 @@
     "format:check": "prettier --check .",
     "prepare": "husky",
     "precheck": "npm run lint && npm run format:check && npm run typecheck && npm run test",
+    "smoke:repeated-words": "tsx scripts/smoke-repeated-words.ts",
     "db:seed:rbac": "npx tsx src/db/seeds/rbac.ts",
     "db:seed:roles": "npx tsx src/db/seeds/roles.ts",
     "db:seed:org": "npx tsx src/db/seeds/organizations.ts",
