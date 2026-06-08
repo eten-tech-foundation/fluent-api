@@ -1,4 +1,4 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, gt, or } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -53,7 +53,8 @@ interface ChapterKey {
 
 export async function getByChapters(
   bibleId: number,
-  chapters: ChapterKey[]
+  chapters: ChapterKey[],
+  updatedAfter?: Date
 ): Promise<Result<BulkVerseRow[]>> {
   try {
     const conditions = chapters.map((ch) =>
@@ -69,11 +70,16 @@ export async function getByChapters(
         text: bible_texts.text,
       })
       .from(bible_texts)
-      .where(and(eq(bible_texts.bibleId, bibleId), or(...conditions)))
+      .where(
+        and(
+          eq(bible_texts.bibleId, bibleId),
+          or(...conditions),
+          updatedAfter ? gt(bible_texts.updatedAt, updatedAfter) : undefined
+        )
+      )
       .orderBy(bible_texts.bookId, bible_texts.chapterNumber, bible_texts.verseNumber);
 
     if (rows.length === 0) return err(ErrorCode.NOT_FOUND);
-
     return ok(rows);
   } catch (error) {
     logger.error({
