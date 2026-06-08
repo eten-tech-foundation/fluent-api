@@ -56,3 +56,23 @@ export type UserChapterAssignmentResponse = z.infer<typeof userChapterAssignment
 export type UserChapterAssignmentsByUserResponse = z.infer<
   typeof userChapterAssignmentsByUserResponseSchema
 >;
+
+export const memberChapterAssignmentResponseSchema = z.object({
+  chapterAssignmentId: z.number().int(),
+  projectId: z.number().int(),
+  projectUnitId: z.number().int(),
+  bibleId: z.number().int(),
+  bookId: z.number().int(),
+  chapterNumber: z.number().int(),
+  assignedUserId: z.number().int().nullable(),
+  peerCheckerId: z.number().int().nullable(),
+  status: z.string(),
+  submittedTime: z.date().nullable(),
+  createdAt: z.date().nullable(),
+  updatedAt: z.date().nullable(),
+});
+
+export const memberChapterAssignmentsResponseSchema = z.object({
+  syncedAt: z.date(),
+  data: memberChapterAssignmentResponseSchema.array(),
+});
