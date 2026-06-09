@@ -1,0 +1,40 @@
+name: Create dev user
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        required: true
+        type: string
+      password:
+        required: true
+        type: string
+      username:
+        required: true
+        type: string
+      roleId:
+        description: '1=Manager, 2=Translator'
+        default: '2'
+        type: string
+
+jobs:
+  create-user:
+    runs-on: ubuntu-latest
+    environment: Development
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.0
+          cache: npm
+      - run: npm install --legacy-peer-deps
+        env:
+          CXXFLAGS: '-std=c++20'
+      - name: Create user in dev DB
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: |
+          npm run db:create-user \
+            "${{ inputs.email }}" \
+            "${{ inputs.password }}" \
+            "${{ inputs.username }}" \
+            "${{ inputs.roleId }}"
