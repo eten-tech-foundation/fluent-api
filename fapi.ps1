@@ -117,7 +117,6 @@ function Start-DbContainer {
         --name fluent-api-db --pod $PodName `
         -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=fluent `
         -v fluent-api-pgdata:/var/lib/postgresql/data `
-        -v "${ScriptDir}/db/init:/docker-entrypoint-initdb.d:ro" `
         --health-cmd "pg_isready -U postgres -d fluent" `
         --health-interval 5s --health-timeout 5s --health-retries 5 `
         docker.io/postgres:16-alpine
@@ -128,7 +127,9 @@ function Start-DbContainer {
 function Get-EnvFlags {
     $flags = @(
         "-e", "NODE_ENV=development",
-        "-e", "DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent",
+        "-e", "BOOTSTRAP_DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent",
+        "-e", "MIGRATIONS_DATABASE_URL=postgres://api_migrator:password@localhost:5432/fluent",
+        "-e", "DATABASE_URL=postgres://api_user:password@localhost:5432/fluent",
         "-e", "EXPORTS_DIR=/app/exports"
     )
     if (Test-Path "$ScriptDir/.env") { $flags += @("--env-file", "$ScriptDir/.env") }
@@ -340,34 +341,6 @@ switch ($Command) {
     else { Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent") }
   }
 
-  "db:dump-schema" {
-    $output = $svc
-    if (-not $output) {
-      $aiInitDir = Join-Path $ScriptDir "../fluent-ai/db/init"
-      if (Test-Path $aiInitDir) { $output = Join-Path $aiInitDir "02-fluent-api-schema.sql" }
-      else { $output = Join-Path $ScriptDir "fluent-api-schema-dump.sql" }
-    }
-    Write-Running "Dumping fluent-api public schema to $output..."
-    $header = @"
--- Schema-only dump of fluent-api's public tables.
--- Used for standalone fluent-ai development so cross-schema reads work.
---
--- This file is auto-generated. DO NOT EDIT MANUALLY.
--- Regenerate with: ./fapi.ps1 db:dump-schema [output-path]
--- Then commit to fluent-ai/db/init/ to update the standalone DB snapshot.
-"@
-    if ($RuntimeMode -eq "podman-pod") {
-      $dump = & podman exec fluent-api-db pg_dump -U postgres --schema-only --schema=public fluent
-      if ($LASTEXITCODE -ne 0) { Write-Err "pg_dump failed"; exit 1 }
-    } else {
-      $dump = Invoke-Compose @("exec", "-T", "db", "pg_dump", "-U", "postgres", "--schema-only", "--schema=public", "fluent")
-      if ($LASTEXITCODE -ne 0) { Write-Err "pg_dump failed"; exit 1 }
-    }
-    "$header`n$dump" | Set-Content $output -Encoding UTF8
-    Write-Success "Schema dumped to $output"
-    Write-Host "Next: commit this file to fluent-ai/db/init/ and run './fai.sh clean && ./fai.sh up' to sync."
-  }
-
   "clean" {
     Write-Running "This will stop and remove containers and volumes."
     $confirm = Read-Host "Continue? [y/N]"
@@ -430,7 +403,7 @@ switch ($Command) {
         Write-Host "Created empty .env file"
       }
     } else { Write-Host ".env already exists, skipping." }
-    Write-Host "Remember to fill in DATABASE_URL and BETTER_AUTH_SECRET in .env before running db:init."
+    Write-Host "Remember to fill in the DB URLs (BOOTSTRAP/MIGRATIONS/DATABASE) and BETTER_AUTH_SECRET in .env before running db:init."
   }
 
   default {
@@ -464,17 +437,23 @@ Development (runs in API container):
 Database:
   db:migrate             Run Drizzle migrations
   db:seed                Seed all data (org, roles, RBAC, dev users)
-  db:init                Run migrations + all seeds (delegates to npm run db:setup)
+  db:init                Run migrations + all seeds (interactive confirmation)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host
   db:psql                Open psql session
-  db:dump-schema [path]  Dump public schema for fluent-ai standalone sync
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)
   fresh                  Nuke everything: containers, volumes, and images
   build [service]        Rebuild images without cache
   setup                  Create .env from .env.example if missing
+
+Environment variables:
+  DB_PORT                Standalone DB host port (default: 5432)
+  API_PORT               API service host port (default: 9999)
+  BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
+  MIGRATIONS_DATABASE_URL  api_migrator URL for Drizzle migrations (DDL)
+  DATABASE_URL           api_user runtime URL (least-privilege; set in .env to use platform DB)
 "@
   }
 }

@@ -9,7 +9,6 @@ services:
       - '${DB_PORT:-5432}:5432'
     volumes:
       - fluent-pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [CMD-SHELL, pg_isready -U postgres -d fluent]
       interval: 5s
@@ -30,7 +29,9 @@ services:
       - fluent-api-node-modules:/app/node_modules
     env_file: .env
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
+      BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
+      MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
+      DATABASE_URL: postgres://api_user:password@db:5432/fluent
       EXPORTS_DIR: /app/exports
     user: '1001:1001'
     read_only: true
@@ -62,7 +63,9 @@ services:
       - fluent-worker-node-modules:/app/node_modules
     env_file: .env
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
+      BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
+      MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
+      DATABASE_URL: postgres://api_user:password@db:5432/fluent
       EXPORTS_DIR: /app/exports
     command: [dumb-init, --, npx, tsx, watch, src/workers/standalone-worker.ts]
     user: '1001:1001'
