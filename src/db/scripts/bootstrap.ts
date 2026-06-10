@@ -29,7 +29,9 @@ const runtimeUrl = process.env.DATABASE_URL;
 const migrationsUrl = process.env.MIGRATIONS_DATABASE_URL;
 
 if (!bootstrapUrl || !runtimeUrl || !migrationsUrl) {
-  throw new Error('bootstrap requires BOOTSTRAP_DATABASE_URL, DATABASE_URL, MIGRATIONS_DATABASE_URL');
+  throw new Error(
+    'bootstrap requires BOOTSTRAP_DATABASE_URL, DATABASE_URL, MIGRATIONS_DATABASE_URL'
+  );
 }
 
 const runtime = parseConn(runtimeUrl);
@@ -44,7 +46,7 @@ if (runtime.database !== database || migrator.database !== database) {
 }
 
 async function main() {
-  const sql = postgres(bootstrapUrl, { max: 1 });
+  const sql = postgres(bootstrapUrl!, { max: 1 });
   try {
     // Ask Postgres to produce safe identifier / literal text so special
     // characters in role names, the db name, or passwords cannot break the DDL.
@@ -61,7 +63,8 @@ async function main() {
     for (const role of [migrator, runtime]) {
       const roleIdent = await ident(role.user);
       const pwLiteral = await literal(role.password);
-      const [row] = await sql`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${role.user}) AS exists`;
+      const [row] =
+        await sql`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${role.user}) AS exists`;
       const verb = row.exists ? 'ALTER' : 'CREATE';
       await sql.unsafe(`${verb} ROLE ${roleIdent} LOGIN PASSWORD ${pwLiteral}`);
     }
@@ -88,7 +91,9 @@ async function main() {
         `GRANT USAGE, SELECT ON SEQUENCES TO ${runtimeIdent}`
     );
     // Cover any tables already present from a prior migrate in this volume.
-    await sql.unsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${runtimeIdent}`);
+    await sql.unsafe(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${runtimeIdent}`
+    );
     await sql.unsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${runtimeIdent}`);
 
     console.log('API bootstrap complete: roles, schemas, grants ensured.');
