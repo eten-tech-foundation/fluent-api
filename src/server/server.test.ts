@@ -4,44 +4,62 @@ import { auth } from '@/lib/auth';
 
 import { server } from './server';
 
-// ─── Module Mocks ────────────────────────────────────────────────────────────
+// ─── Hoisted mocks (evaluated before vi.mock factories) ───────────────────────
+// vi.mock() calls are hoisted to the top of the file by Vitest, so any
+// variables they reference must also be hoisted via vi.hoisted().
+
+const { mockDb, mockDbQueryBuilder } = vi.hoisted(() => {
+  const mockDbQueryBuilder = (returnValue: unknown[]) => {
+    const builder: Record<string, ReturnType<typeof vi.fn>> = {};
+    builder.from = vi.fn(() => builder);
+    builder.where = vi.fn(() => builder);
+    builder.limit = vi.fn(() => Promise.resolve(returnValue));
+    builder.values = vi.fn(() => Promise.resolve());
+    return builder;
+  };
+
+  const mockDb = {
+    select: vi.fn(),
+    delete: vi.fn(),
+    insert: vi.fn(),
+  };
+
+  return { mockDb, mockDbQueryBuilder };
+});
+
+// ─── Module Mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/auth', () => ({
   auth: {
-    // auth.api.getSession is used by the authenticate middleware — keep it available.
-    api: {
-      getSession: vi.fn(),
-    },
+    api: { getSession: vi.fn() },
     handler: vi.fn(),
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: {
-    select: vi.fn(),
-    insert: vi.fn(),
-  },
+vi.mock('@/db', () => ({ db: mockDb }));
+
+vi.mock('@/db/schema', () => ({
+  authSession: { token: 'token', id: 'id', userId: 'userId' },
+  authAuditLog: {},
 }));
 
 vi.mock('@/lib/logger', () => ({
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-  },
+  logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('server Route Handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // ─── POST /api/auth/forget-password ──────────────────────────────────────
+  // ─── POST /api/auth/forget-password ────────────────────────────────────────
 
   describe('pOST /api/auth/forget-password', () => {
     it('should proxy to auth.handler with path rewritten to /api/auth/request-password-reset', async () => {
-      const mockResult = { success: true };
       (auth.handler as any).mockResolvedValue(
-        new Response(JSON.stringify(mockResult), {
+        new Response(JSON.stringify({ success: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -49,22 +67,15 @@ describe('server Route Handlers', () => {
 
       const res = await server.request('/api/auth/forget-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-client-type': 'mobile',
-        },
+        headers: { 'Content-Type': 'application/json', 'x-client-type': 'mobile' },
         body: JSON.stringify({ email: 'test@example.com' }),
       });
 
       expect(res.status).toBe(200);
       expect(auth.handler).toHaveBeenCalledOnce();
 
-      // Verify the request was rewritten to the BetterAuth-native path so
-      // rate limiting and other middleware in auth.handler are applied.
       const proxiedRequest: Request = (auth.handler as any).mock.calls[0][0];
       expect(new URL(proxiedRequest.url).pathname).toBe('/api/auth/request-password-reset');
-
-      // Original headers (including custom ones) must be forwarded.
       expect(proxiedRequest.headers.get('x-client-type')).toBe('mobile');
     });
 
@@ -83,7 +94,7 @@ describe('server Route Handlers', () => {
     });
   });
 
-  // ─── POST /api/auth/password/set ─────────────────────────────────────────
+  // ─── POST /api/auth/password/set ───────────────────────────────────────────
 
   describe('pOST /api/auth/password/set', () => {
     it('should proxy to auth.handler with path rewritten to /api/auth/set-password', async () => {
@@ -96,10 +107,7 @@ describe('server Route Handlers', () => {
 
       const res = await server.request('/api/auth/password/set', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer test-token',
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
         body: JSON.stringify({ newPassword: 'hunter2' }),
       });
 
@@ -112,25 +120,61 @@ describe('server Route Handlers', () => {
     });
   });
 
-  // ─── POST /api/auth/sign-out ──────────────────────────────────────────────
+  // ─── POST /api/auth/sign-out ────────────────────────────────────────────────
 
   describe('pOST /api/auth/sign-out', () => {
-    it('should delegate to auth.handler so Set-Cookie headers are forwarded to the client', async () => {
-      (auth.handler as any).mockResolvedValue(
-        new Response(JSON.stringify({ success: true }), { status: 200 })
-      );
+    it('bearer sign-out: deletes session from DB and returns { success: true } without calling auth.handler', async () => {
+      const sessionRow = { id: 'sess-abc', userId: 'user-123' };
+      mockDb.select.mockReturnValue(mockDbQueryBuilder([sessionRow]));
+      mockDb.delete.mockReturnValue(mockDbQueryBuilder([]));
+      mockDb.insert.mockReturnValue(mockDbQueryBuilder([]));
 
       const res = await server.request('/api/auth/sign-out', {
         method: 'POST',
-        headers: {
-          Authorization: 'Bearer token-123',
-        },
+        headers: { Authorization: 'Bearer valid-token-123' },
       });
 
       expect(res.status).toBe(200);
-      // auth.handler must be called (not auth.api.signOut) so BetterAuth can
-      // return the full response including the Set-Cookie header for web clients.
-      expect(auth.handler).toHaveBeenCalled();
+      expect(await res.json()).toEqual({ success: true });
+
+      // Must NOT fall through to BetterAuth's cookie-based handler
+      expect(auth.handler).not.toHaveBeenCalled();
+      // DB lookup and delete must have been initiated
+      expect(mockDb.select).toHaveBeenCalled();
+      expect(mockDb.delete).toHaveBeenCalled();
+    });
+
+    it('bearer sign-out: returns { success: true } even when token is not in DB (idempotent)', async () => {
+      // Token not found — empty result set
+      mockDb.select.mockReturnValue(mockDbQueryBuilder([]));
+
+      const res = await server.request('/api/auth/sign-out', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer already-expired-token' },
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true });
+
+      // No session found → delete must not have been called
+      expect(mockDb.delete).not.toHaveBeenCalled();
+      expect(auth.handler).not.toHaveBeenCalled();
+    });
+
+    it('cookie sign-out: delegates to auth.handler so Set-Cookie headers are forwarded to the client', async () => {
+      (auth.handler as any).mockResolvedValue(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Set-Cookie': 'session=; Max-Age=0; Path=/' },
+        })
+      );
+
+      // No Authorization header → cookie-based path
+      const res = await server.request('/api/auth/sign-out', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      // Must delegate to BetterAuth so it can clear the session cookie
+      expect(auth.handler).toHaveBeenCalledOnce();
     });
   });
 });

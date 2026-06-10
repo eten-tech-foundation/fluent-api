@@ -5,6 +5,7 @@ import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter
 import { toChapterAssignmentResponse } from '@/domains/chapter-assignments/chapter-assignments.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
+import * as userProjectsService from '@/domains/users/projects/user-projects.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -12,6 +13,7 @@ import type {
   AssignSelectedItem,
   AssignUserInput,
   ChapterAssignmentProgress,
+  ChapterAssignmentWithProjectId,
 } from './project-chapter-assignments.types';
 
 import * as projectRepo from '../projects.repository';
@@ -195,4 +197,41 @@ export async function assignSelectedChapters(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+function toMemberChapterAssignmentResponse(record: ChapterAssignmentWithProjectId) {
+  return {
+    chapterAssignmentId: record.id,
+    projectId: record.projectId,
+    projectUnitId: record.projectUnitId,
+    bibleId: record.bibleId,
+    bookId: record.bookId,
+    chapterNumber: record.chapterNumber,
+    assignedUserId: record.assignedUserId,
+    peerCheckerId: record.peerCheckerId,
+    status: record.status,
+    submittedTime: record.submittedTime,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+export async function getChapterAssignmentsByUserId(
+  userId: number,
+  excludeProjectIds: number[] = [],
+  updatedAfter?: Date
+) {
+  const projectsResult = await userProjectsService.getProjectsByUserId(userId);
+  if (!projectsResult.ok) return projectsResult;
+
+  const projectIds = projectsResult.data
+    .map((p) => p.id)
+    .filter((id) => !excludeProjectIds.includes(id));
+
+  if (projectIds.length === 0) return ok([]);
+
+  const result = await repo.getByProjects(projectIds, excludeProjectIds, updatedAfter);
+  if (!result.ok) return result;
+
+  return ok(result.data.map(toMemberChapterAssignmentResponse));
 }

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -99,24 +99,29 @@ export async function findByOrgIdsOrProjectIds(
   }
 }
 
-export async function getByUserId(userId: number): Promise<Result<ProjectWithLanguageNames[]>> {
+export async function getByUserId(
+  userId: number,
+  updatedAfter?: Date
+): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
-    const rawProjects = await baseJoinQuery().innerJoin(
-      user_roles,
-      and(
-        eq(user_roles.userId, userId),
-        or(
-          eq(user_roles.projectId, projects.id),
-          and(eq(user_roles.orgId, projects.organization), isNull(user_roles.projectId))
+    const rawProjects = await baseJoinQuery()
+      .innerJoin(
+        user_roles,
+        and(
+          eq(user_roles.userId, userId),
+          or(
+            eq(user_roles.projectId, projects.id),
+            and(eq(user_roles.orgId, projects.organization), isNull(user_roles.projectId))
+          )
         )
       )
-    );
+      .where(updatedAfter ? gt(projects.updatedAt, updatedAfter) : undefined);
     return ok(rawProjects.map(mapToProjectWithLanguages));
   } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to get projects by user ID',
-      context: { userId },
+      context: { userId, updatedAfter },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

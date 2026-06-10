@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
+
 import { chapterAssignmentResponseSchema as sharedAssignmentSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── Shared response schemas ──────────────────────────────────────────────────
@@ -84,3 +86,4 @@ export type ChapterAssignmentProgress = z.infer<typeof chapterAssignmentProgress
 export type AssignUserInput = z.infer<typeof assignUserInputSchema>;
 export type AssignSelectedItem = z.infer<typeof assignSelectedItemSchema>;
 export type AssignSelectedRequest = z.infer<typeof assignSelectedRequestSchema>;
+export type ChapterAssignmentWithProjectId = ChapterAssignmentRecord & { projectId: number };
