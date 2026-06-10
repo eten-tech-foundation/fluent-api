@@ -4,7 +4,7 @@ import { db } from '@/db';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { toChapterAssignmentResponse } from '@/domains/chapter-assignments/chapter-assignments.service';
 import * as projectsService from '@/domains/projects/projects.service';
-import * as usersService from '@/domains/users/users.service';
+import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -70,11 +70,8 @@ export async function assignAllProjectChapterAssignmentsToUser(
         (id): id is number => id !== undefined
       );
 
-      const orgUsersResult = await usersService.getUsersByOrganization(projectOrgId);
-      if (!orgUsersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
-
-      const orgUserIds = new Set(orgUsersResult.data.map((u) => u.id));
-      const invalidUsers = userIds.some((id) => !orgUserIds.has(id));
+      const validUserIds = await findUserIdsInOrg(projectOrgId, userIds);
+      const invalidUsers = userIds.some((id) => !validUserIds.has(id));
       if (invalidUsers) return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
     }
 
@@ -130,10 +127,7 @@ export async function assignSelectedChapters(
         if (!projectResult.ok) return err(ErrorCode.PROJECT_NOT_FOUND);
         const projectOrgId = projectResult.data.organization;
 
-        const orgUsersResult = await usersService.getUsersByOrganization(projectOrgId);
-        if (!orgUsersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
-
-        const validUserIds = new Set(orgUsersResult.data.map((u) => u.id));
+        const validUserIds = await findUserIdsInOrg(projectOrgId, allUserIds);
 
         const invalidUserIds = allUserIds.filter((id) => !validUserIds.has(id));
 

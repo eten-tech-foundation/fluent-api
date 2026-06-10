@@ -19,24 +19,6 @@ export async function findAll(): Promise<Result<User[]>> {
   }
 }
 
-export async function findByOrganization(organization: number): Promise<Result<User[]>> {
-  try {
-    const rows = await db
-      .selectDistinct({ user: users })
-      .from(users)
-      .innerJoin(user_roles, eq(users.id, user_roles.userId))
-      .where(eq(user_roles.orgId, organization));
-    return ok(rows.map((r) => r.user));
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to find users by organization',
-      context: { organization },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
-
 export async function findByOrganizations(orgIds: number[]): Promise<Result<User[]>> {
   if (orgIds.length === 0) return ok([]);
   try {
@@ -138,6 +120,7 @@ export async function insert(input: CreateUserInput): Promise<Result<User>> {
       roleName: _roleName,
       role: _role,
       organization: _org,
+      grants: _grants,
       ...userData
     } = input as any;
     const [user] = await db

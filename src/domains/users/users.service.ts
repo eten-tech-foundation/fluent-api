@@ -1,5 +1,6 @@
 import type { AppPolicyUser, Result } from '@/lib/types';
 
+import { findRoleGrantsByUserIds } from '@/domains/user-roles/user-roles.repository';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ok } from '@/lib/types';
 
@@ -37,32 +38,43 @@ export async function getAllUsers(): Promise<Result<UserResponse[]>> {
   return ok(result.data.map(toUserResponse));
 }
 
-export async function getUsersByOrganization(
-  organization: number
-): Promise<Result<UserResponse[]>> {
-  const result = await repo.findByOrganization(organization);
-  if (!result.ok) return result;
-  return ok(result.data.map(toUserResponse));
-}
-
 export async function getUsersForUser(user: AppPolicyUser): Promise<Result<UserResponse[]>> {
   // Global view grant (SuperAdmin) fetches all users
   const hasGlobalView = user.grants.some(
     (g) => g.orgId === null && g.projectId === null && g.permissions.has(PERMISSIONS.USER_VIEW)
   );
+
+  let orgIdsArray: number[] = [];
+  let userRows: User[] = [];
+
   if (hasGlobalView) {
-    return getAllUsers();
+    const result = await repo.findAll();
+    if (!result.ok) return result;
+    userRows = result.data;
+  } else {
+    const orgIds = new Set<number>();
+    for (const g of user.grants) {
+      if (g.permissions.has(PERMISSIONS.USER_VIEW) && g.orgId !== null) {
+        orgIds.add(g.orgId);
+      }
+    }
+    orgIdsArray = [...orgIds];
+    const result = await repo.findByOrganizations(orgIdsArray);
+    if (!result.ok) return result;
+    userRows = result.data;
   }
 
-  const orgIds = new Set<number>();
-  for (const g of user.grants) {
-    if (g.permissions.has(PERMISSIONS.USER_VIEW) && g.orgId !== null) {
-      orgIds.add(g.orgId);
-    }
-  }
-  const result = await repo.findByOrganizations([...orgIds]);
-  if (!result.ok) return result;
-  return ok(result.data.map(toUserResponse));
+  const userIds = userRows.map((u) => u.id);
+  const filter = hasGlobalView ? 'ALL' : orgIdsArray;
+  const grantsMap = await findRoleGrantsByUserIds(userIds, filter);
+
+  return ok(
+    userRows.map((u) => {
+      const response = toUserResponse(u);
+      response.orgGrants = grantsMap.get(u.id) ?? [];
+      return response;
+    })
+  );
 }
 
 export async function getUserById(id: number): Promise<Result<UserResponse>> {

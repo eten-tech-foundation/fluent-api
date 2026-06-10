@@ -26,6 +26,15 @@ export const userResponseSchema = z.object({
   status: z.enum(['invited', 'verified', 'inactive']),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  orgGrants: z
+    .array(
+      z.object({
+        roleName: z.string(),
+        orgId: z.number().int().nullable(),
+        projectId: z.number().int().nullable(),
+      })
+    )
+    .optional(),
 });
 
 export type UserResponse = z.infer<typeof userResponseSchema>;

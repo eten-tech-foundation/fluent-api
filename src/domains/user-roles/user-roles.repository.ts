@@ -4,7 +4,7 @@ import type { Permission } from '@/lib/permissions';
 import type { Grant, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { permissions, role_permissions, user_roles } from '@/db/schema';
+import { permissions, role_permissions, roles, user_roles } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -69,4 +69,41 @@ export async function findUserIdsInOrg(orgId: number, userIds: number[]): Promis
     .from(user_roles)
     .where(and(eq(user_roles.orgId, orgId), inArray(user_roles.userId, userIds)));
   return new Set(rows.map((r) => r.userId));
+}
+
+export async function findRoleGrantsByUserIds(
+  userIds: number[],
+  filterOrgIds: number[] | 'ALL'
+): Promise<
+  Map<number, Array<{ roleName: string; orgId: number | null; projectId: number | null }>>
+> {
+  if (userIds.length === 0) return new Map();
+
+  const conditions = [inArray(user_roles.userId, userIds)];
+  if (filterOrgIds !== 'ALL') {
+    if (filterOrgIds.length === 0) return new Map();
+    conditions.push(inArray(user_roles.orgId, filterOrgIds));
+  }
+
+  const rows = await db
+    .select({
+      userId: user_roles.userId,
+      orgId: user_roles.orgId,
+      projectId: user_roles.projectId,
+      roleName: roles.name,
+    })
+    .from(user_roles)
+    .innerJoin(roles, eq(roles.id, user_roles.roleId))
+    .where(and(...conditions));
+
+  const map = new Map<number, any[]>();
+  for (const row of rows) {
+    if (!map.has(row.userId)) map.set(row.userId, []);
+    map.get(row.userId)!.push({
+      roleName: row.roleName,
+      orgId: row.orgId,
+      projectId: row.projectId,
+    });
+  }
+  return map;
 }

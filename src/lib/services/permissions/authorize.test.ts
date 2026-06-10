@@ -71,4 +71,30 @@ describe('authorize', () => {
     expect(perms.has(PERMISSIONS.CONTENT_UPDATE)).toBe(true);
     expect(perms.has(PERMISSIONS.PROJECT_DELETE)).toBe(false);
   });
+
+  it('multi-org user grants do not cross-pollinate', () => {
+    const user = {
+      id: 1,
+      grants: [
+        grant(ORG, null, [PERMISSIONS.PROJECT_CREATE]), // Manager in ORG
+        grant(OTHER_ORG, OTHER_PROJ, [PERMISSIONS.CONTENT_UPDATE]), // Translator in OTHER_ORG
+      ],
+    };
+
+    // User can create projects in ORG
+    expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: ORG })).toBe(true);
+
+    // User cannot create projects in OTHER_ORG
+    expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: OTHER_ORG })).toBe(false);
+
+    // User can update content in OTHER_ORG's PROJ
+    expect(
+      authorize(user, PERMISSIONS.CONTENT_UPDATE, { orgId: OTHER_ORG, projectId: OTHER_PROJ })
+    ).toBe(true);
+
+    // User cannot update content in ORG's project
+    expect(authorize(user, PERMISSIONS.CONTENT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(
+      false
+    );
+  });
 });

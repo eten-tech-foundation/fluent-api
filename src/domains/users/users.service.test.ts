@@ -12,7 +12,6 @@ import {
   getUserByEmailOrUsername,
   getUserById,
   getUserByUsername,
-  getUsersByOrganization,
   toUserResponse,
   updateUser,
 } from './users.service';
@@ -61,40 +60,6 @@ describe('user Service Functions', () => {
       });
 
       const result = await getAllUsers();
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.message).toBe(ErrorMessages.INTERNAL_ERROR);
-      }
-    });
-  });
-
-  describe('getUsersByOrganization', () => {
-    it('should return users by organization mapped to response shape', async () => {
-      const mockUsers = [mockUser];
-      (db.selectDistinct as any).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          innerJoin: vi.fn().mockReturnValue({
-            where: vi.fn().mockResolvedValue([{ user: mockUser }]),
-          }),
-        }),
-      });
-
-      const result = await getUsersByOrganization(1);
-
-      expect(result).toEqual({ ok: true, data: mockUsers.map(toUserResponse) });
-    });
-
-    it('should return an error result if db call throws', async () => {
-      (db.selectDistinct as any).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          innerJoin: vi.fn().mockReturnValue({
-            where: vi.fn().mockRejectedValue(new Error('DB error')),
-          }),
-        }),
-      });
-
-      const result = await getUsersByOrganization(999);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
