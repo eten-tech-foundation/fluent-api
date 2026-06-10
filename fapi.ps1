@@ -437,7 +437,7 @@ Development (runs in API container):
 Database:
   db:migrate             Run Drizzle migrations
   db:seed                Seed all data (org, roles, RBAC, dev users)
-  db:init                Run migrations + all seeds (delegates to npm run db:setup)
+  db:init                Run migrations + all seeds (interactive confirmation)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host
   db:psql                Open psql session
