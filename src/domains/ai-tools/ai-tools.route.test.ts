@@ -87,7 +87,9 @@ function asAuthenticatedUser(granted: boolean) {
   (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
   (findGrantsByUserId as any).mockResolvedValue({
     ok: true,
-    data: granted ? [{ orgId: null, projectId: null, permissions: new Set([PERMISSIONS.AI_TOOLS_USE]) }] : [],
+    data: granted
+      ? [{ orgId: null, projectId: null, permissions: new Set([PERMISSIONS.AI_TOOLS_USE]) }]
+      : [],
   });
 }
 
