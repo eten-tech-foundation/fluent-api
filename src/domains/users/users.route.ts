@@ -138,13 +138,20 @@ server.openapi(createUserRoute, async (c) => {
       const { ROLES } = await import('@/lib/roles');
       const roleName = requestData.roleName || ROLES.PROJECT_TRANSLATOR;
       const roleId = await getRoleId(roleName);
-      await grantRole({
+      const grantResult = await grantRole({
         userId: result.data.id,
         orgId: requestData.orgId,
         projectId: requestData.projectId ?? null,
         roleId,
         createdBy: currentUser.id,
       });
+      if (!grantResult.ok) {
+        await userService.deleteUser(result.data.id);
+        return c.json(
+          { message: `Failed to create initial role grant: ${grantResult.error.message}` },
+          HttpStatusCodes.INTERNAL_SERVER_ERROR
+        );
+      }
     } catch (error) {
       await userService.deleteUser(result.data.id);
       const errorMessage = error instanceof Error ? error.message : 'Grant failed';

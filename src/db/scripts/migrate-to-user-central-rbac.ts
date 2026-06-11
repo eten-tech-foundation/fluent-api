@@ -1,3 +1,13 @@
+/**
+ * RBAC Data Migration Script — Run BETWEEN migration phases.
+ *
+ * Deployment order for each environment (dev → staging → prod):
+ *   1. npm run db:migrate          → applies 0012 (creates user_roles table)
+ *   2. npm run db:migrate-rbac     → THIS SCRIPT (ports data from legacy columns)
+ *   3. npm run db:migrate          → applies 0013 (drops legacy columns + project_users)
+ *
+ * DO NOT run step 3 before step 2, or you will permanently lose role/org data.
+ */
 import { eq, sql } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
 

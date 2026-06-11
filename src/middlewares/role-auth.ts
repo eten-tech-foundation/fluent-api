@@ -114,7 +114,13 @@ export async function requireSuperAdmin(c: any, next: any) {
     });
   }
 
-  const isSuperAdmin = user.grants.some((g: any) => g.orgId === null && g.projectId === null);
+  // A SuperAdmin must have a global grant (orgId=null, projectId=null)
+  // AND hold a SuperAdmin-exclusive permission (role:assign:org_manager).
+  // Checking scope alone would let any future global read-only role pass.
+  const isSuperAdmin = user.grants.some(
+    (g: any) =>
+      g.orgId === null && g.projectId === null && g.permissions.has('role:assign:org_manager')
+  );
 
   if (!isSuperAdmin) {
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {

@@ -96,7 +96,10 @@ export async function findRoleGrantsByUserIds(
     .innerJoin(roles, eq(roles.id, user_roles.roleId))
     .where(and(...conditions));
 
-  const map = new Map<number, any[]>();
+  const map = new Map<
+    number,
+    Array<{ roleName: string; orgId: number | null; projectId: number | null }>
+  >();
   for (const row of rows) {
     if (!map.has(row.userId)) map.set(row.userId, []);
     map.get(row.userId)!.push({

@@ -112,13 +112,20 @@ server.openapi(createProjectRoute, async (c) => {
   });
 
   if (result.ok) {
-    await grantRole({
+    const grantResult = await grantRole({
       userId: currentUser.id,
       orgId: projectData.organization,
       projectId: result.data.id,
       roleId: await getRoleId(ROLES.PROJECT_MANAGER),
       createdBy: currentUser.id,
     });
+    if (!grantResult.ok) {
+      await projectService.deleteProject(result.data.id);
+      return c.json(
+        { message: 'Project created but failed to assign creator role. Rolled back.' },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+      );
+    }
     return c.json(result.data, HttpStatusCodes.CREATED);
   }
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

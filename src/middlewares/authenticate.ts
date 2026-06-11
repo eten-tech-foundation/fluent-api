@@ -131,6 +131,12 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
     const userResult = await getUserByEmail(session.user.email);
     if (userResult.ok) {
       const grantsResult = await findGrantsByUserId(userResult.data.id);
+      if (!grantsResult.ok) {
+        logger.warn('Failed to load grants for user, defaulting to empty', {
+          userId: userResult.data.id,
+          error: grantsResult.error,
+        });
+      }
       c.set('user', {
         ...userResult.data,
         grants: grantsResult.ok ? grantsResult.data : [],

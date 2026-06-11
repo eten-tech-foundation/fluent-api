@@ -116,7 +116,13 @@ export async function getByUserId(
         )
       )
       .where(updatedAfter ? gt(projects.updatedAt, updatedAfter) : undefined);
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+
+    // Deduplicate: a user with both org-wide + project-pinned grants gets the same project twice
+    const seen = new Map<number, (typeof rawProjects)[number]>();
+    for (const row of rawProjects) {
+      if (!seen.has(row.id)) seen.set(row.id, row);
+    }
+    return ok([...seen.values()].map(mapToProjectWithLanguages));
   } catch (error) {
     logger.error({
       cause: error,

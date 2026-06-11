@@ -18,6 +18,26 @@ export interface GrantInput {
 
 export async function grantRole(input: GrantInput): Promise<Result<void>> {
   try {
+    // PostgreSQL unique indexes don't treat NULL = NULL, so onConflictDoNothing
+    // won't catch duplicate org-wide grants (where projectId is NULL).
+    // Check explicitly before inserting.
+    const [existing] = await db
+      .select({ id: user_roles.id })
+      .from(user_roles)
+      .where(
+        and(
+          eq(user_roles.userId, input.userId),
+          input.orgId === null ? isNull(user_roles.orgId) : eq(user_roles.orgId, input.orgId),
+          input.projectId === null
+            ? isNull(user_roles.projectId)
+            : eq(user_roles.projectId, input.projectId),
+          eq(user_roles.roleId, input.roleId)
+        )
+      )
+      .limit(1);
+
+    if (existing) return ok(undefined); // Already granted, nothing to do
+
     await db.insert(user_roles).values(input).onConflictDoNothing();
     return ok(undefined);
   } catch (error) {

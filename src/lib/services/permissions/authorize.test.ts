@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { Grant } from '@/lib/types';
 
 import { PERMISSIONS } from '@/lib/permissions';
+import { ROLES } from '@/lib/roles';
 
-import { authorize, collectPermissions } from './authorize';
+import { authorize, canAssignRole, collectPermissions } from './authorize';
 
 const grant = (orgId: number | null, projectId: number | null, perms: string[]): Grant => ({
   orgId,
@@ -96,5 +97,65 @@ describe('authorize', () => {
     expect(authorize(user, PERMISSIONS.CONTENT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(
       false
     );
+  });
+});
+
+describe('canAssignRole', () => {
+  const ORG = 1;
+  const PROJ = 10;
+
+  // Helper: a global SuperAdmin with all relevant permissions
+  const superAdmin = {
+    id: 1,
+    grants: [
+      grant(null, null, [PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, PERMISSIONS.ROLE_ASSIGN_PROJECT]),
+    ],
+  };
+
+  // Helper: an org-level PM with project-assign permissions
+  const orgPM = {
+    id: 2,
+    grants: [grant(ORG, null, [PERMISSIONS.ROLE_ASSIGN_PROJECT])],
+  };
+
+  // Helper: a project-pinned translator with no assign permissions
+  const translator = {
+    id: 3,
+    grants: [grant(ORG, PROJ, [PERMISSIONS.CONTENT_UPDATE])],
+  };
+
+  it('only a global SuperAdmin can assign SuperAdmin role', () => {
+    expect(canAssignRole(superAdmin, ROLES.SUPER_ADMIN, ORG, null)).toBe(true);
+    expect(canAssignRole(orgPM, ROLES.SUPER_ADMIN, ORG, null)).toBe(false);
+  });
+
+  it('superAdmin can assign Org Owner', () => {
+    expect(canAssignRole(superAdmin, ROLES.ORG_OWNER, ORG, null)).toBe(true);
+  });
+
+  it('org PM without ROLE_ASSIGN_ORG_MANAGER cannot assign Org Owner', () => {
+    expect(canAssignRole(orgPM, ROLES.ORG_OWNER, ORG, null)).toBe(false);
+  });
+
+  it('superAdmin can assign Org Manager', () => {
+    expect(canAssignRole(superAdmin, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+  });
+
+  it('org PM with ROLE_ASSIGN_PROJECT can assign Project Manager', () => {
+    expect(canAssignRole(orgPM, ROLES.PROJECT_MANAGER, ORG, PROJ)).toBe(true);
+  });
+
+  it('org PM with ROLE_ASSIGN_PROJECT can assign Project Translator', () => {
+    expect(canAssignRole(orgPM, ROLES.PROJECT_TRANSLATOR, ORG, PROJ)).toBe(true);
+  });
+
+  it('translator without assign permissions cannot assign any role', () => {
+    expect(canAssignRole(translator, ROLES.PROJECT_MANAGER, ORG, PROJ)).toBe(false);
+    expect(canAssignRole(translator, ROLES.PROJECT_TRANSLATOR, ORG, PROJ)).toBe(false);
+    expect(canAssignRole(translator, ROLES.ORG_MANAGER, ORG, null)).toBe(false);
+  });
+
+  it('unknown role name is always denied', () => {
+    expect(canAssignRole(superAdmin, 'NonExistentRole', ORG, null)).toBe(false);
   });
 });
