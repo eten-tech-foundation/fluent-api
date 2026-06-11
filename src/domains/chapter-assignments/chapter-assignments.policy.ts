@@ -20,22 +20,24 @@ export interface PolicyChapterAssignment {
   status?: string | null;
 }
 
+const POST_PEER_STATUSES = new Set<string>([
+  CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+  CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK,
+  CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK,
+  CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK,
+]);
+
 export const ChapterAssignmentPolicy = {
   edit(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    _isProjectMember: boolean
+    isProjectMember: boolean
   ): boolean {
     const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
 
     // Managers (content:assign) may edit only at/after community review.
     if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) {
-      return [
-        CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
-        CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK,
-        CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK,
-        CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK,
-      ].includes(assignment.status as any);
+      return POST_PEER_STATUSES.has(assignment.status as any);
     }
 
     // Content editors (translators) — assignment-position rules.
@@ -47,8 +49,7 @@ export const ChapterAssignmentPolicy = {
       case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
         return assignment.peerCheckerId === user.id;
       default:
-        // By spec, translators can't edit past PEER_CHECK, only managers can.
-        return false;
+        return POST_PEER_STATUSES.has(assignment.status as any) && isProjectMember;
     }
   },
 
@@ -94,12 +95,17 @@ export const ChapterAssignmentPolicy = {
   submit(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    _isProjectMember: boolean
+    isProjectMember: boolean
   ): boolean {
-    return this.edit(user, assignment, _isProjectMember);
+    return this.edit(user, assignment, isProjectMember);
   },
 
-  isParticipant(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
-    return assignment.assignedUserId === user.id || assignment.peerCheckerId === user.id;
+  isParticipant(
+    user: AppPolicyUser,
+    assignment: PolicyChapterAssignment,
+    isProjectMember: boolean = false
+  ): boolean {
+    // A participant in the editor is exactly anyone who currently has edit rights.
+    return this.edit(user, assignment, isProjectMember);
   },
 };

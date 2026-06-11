@@ -6,9 +6,8 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { requireChapterAssignmentAccess } from '@/domains/chapter-assignments/chapter-assignment-auth.middleware';
 import { CHAPTER_ASSIGNMENT_ACTIONS } from '@/domains/chapter-assignments/chapter-assignments.types';
-import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as presenceService from './chapter-assignments-presence.service';
@@ -32,7 +31,6 @@ const registerPresenceRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: { params: chapterAssignmentIdParam },
@@ -58,7 +56,6 @@ const removePresenceRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: { params: chapterAssignmentIdParam },

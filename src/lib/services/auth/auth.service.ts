@@ -72,6 +72,22 @@ export async function createUserWithInvitation(
   // 3. Grant the new user their initial role via user_roles
   try {
     const roleName = normalizedInput.roleName || ROLES.PROJECT_TRANSLATOR;
+
+    if (
+      !normalizedInput.projectId &&
+      [ROLES.PROJECT_TRANSLATOR, ROLES.PROJECT_OBSERVER].includes(roleName as any)
+    ) {
+      await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
+      await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
+      return {
+        ok: false,
+        error: {
+          code: ErrorCode.VALIDATION_ERROR,
+          message: `${roleName} role requires a specific projectId.`,
+        },
+      };
+    }
+
     const roleId = await getRoleId(roleName);
     await grantRole({
       userId: dbResult.data.id,

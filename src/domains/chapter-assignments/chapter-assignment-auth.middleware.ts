@@ -65,7 +65,11 @@ export function requireChapterAssignmentAccess(
         break;
 
       case CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT:
-        allowed = ChapterAssignmentPolicy.isParticipant(policyUser, policyAssignment);
+        allowed = ChapterAssignmentPolicy.isParticipant(
+          policyUser,
+          policyAssignment,
+          ctx.isProjectMember
+        );
         break;
     }
 

@@ -172,7 +172,6 @@ const submitChapterAssignmentRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/submit',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.SUBMIT),
   ] as const,
   request: { params: chapterAssignmentIdParam },
@@ -228,7 +227,6 @@ const getChapterAssignmentRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_VIEW),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.READ),
   ] as const,
   request: { params: chapterAssignmentIdParam },
