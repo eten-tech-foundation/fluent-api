@@ -138,6 +138,20 @@ server.openapi(createUserRoute, async (c) => {
       const { grantRole, getRoleId } = await import('@/domains/user-roles/user-roles.service');
       const { ROLES } = await import('@/lib/roles');
       const roleName = requestData.roleName || ROLES.PROJECT_TRANSLATOR;
+
+      const isProjectRole =
+        roleName === ROLES.PROJECT_MANAGER ||
+        roleName === ROLES.PROJECT_TRANSLATOR ||
+        roleName === ROLES.PROJECT_OBSERVER;
+
+      if (isProjectRole && !requestData.projectId) {
+        await userService.deleteUser(result.data.id);
+        return c.json(
+          { message: `${roleName} role requires a specific projectId.` },
+          HttpStatusCodes.BAD_REQUEST
+        );
+      }
+
       const roleId = await getRoleId(roleName);
       const grantResult = await grantRole({
         userId: result.data.id,
@@ -266,10 +280,6 @@ const getUserByEmailRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
-    ),
   },
   summary: 'Get a user by email',
   description: 'Managers: any user in their org. Translators: themselves only.',
@@ -325,10 +335,6 @@ const getUserRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
-    ),
   },
   summary: 'Get a user by ID',
   description: 'Managers: any user in their org. Translators: themselves only.',
@@ -372,10 +378,6 @@ const updateUserRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
-    ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
     ),
     [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
       z.object({

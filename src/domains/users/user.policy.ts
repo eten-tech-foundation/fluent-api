@@ -19,11 +19,13 @@ export const UserPolicy = {
 
   view(user: AppPolicyUser, target: PolicyTargetUser): boolean {
     if (user.id === target.id) return true;
+    if (authorize(user, PERMISSIONS.USER_VIEW, { orgId: null })) return true;
     return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_VIEW, { orgId }));
   },
 
   update(user: AppPolicyUser, target: PolicyTargetUser): boolean {
     if (user.id === target.id) return true;
+    if (authorize(user, PERMISSIONS.USER_UPDATE, { orgId: null })) return true;
     return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_UPDATE, { orgId }));
   },
 

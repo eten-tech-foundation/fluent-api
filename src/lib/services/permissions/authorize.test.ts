@@ -41,9 +41,9 @@ describe('authorize', () => {
     );
   });
 
-  it('project-pinned PM grant counts for an org-scoped action (create project)', () => {
+  it('project-pinned PM grant DOES NOT count for an org-scoped action (create project)', () => {
     const user = { id: 1, grants: [grant(ORG, PROJ, [PERMISSIONS.PROJECT_CREATE])] };
-    expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: ORG })).toBe(true);
+    expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: ORG })).toBe(false);
   });
 
   it('translator grant lacking project:create is denied an org-scoped create', () => {

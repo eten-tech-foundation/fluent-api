@@ -22,7 +22,7 @@ function isGrantApplicable(grant: Grant, orgId: number | null, projectId: number
   }
 
   if (orgId !== null) {
-    return grant.orgId === orgId;
+    return grant.orgId === orgId && grant.projectId === null;
   }
 
   return false;

@@ -94,13 +94,26 @@ export async function createUserWithInvitation(
     const scopedProjectId =
       roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
 
-    await grantRole({
+    const grantResult = await grantRole({
       userId: dbResult.data.id,
       orgId: scopedOrgId,
       projectId: scopedProjectId,
       roleId,
       createdBy: dbResult.data.createdBy ?? null,
     });
+
+    if (!grantResult.ok) {
+      // Rollback both local user and auth identity
+      await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
+      await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
+      return {
+        ok: false,
+        error: {
+          code: ErrorCode.INTERNAL_ERROR,
+          message: `Failed to create initial role grant: ${grantResult.error.message}`,
+        },
+      };
+    }
   } catch (error) {
     // Rollback both local user and auth identity
     await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
