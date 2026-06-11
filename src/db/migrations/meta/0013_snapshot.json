@@ -1,6 +1,6 @@
 {
-  "id": "6b0d53f7-ca5f-474e-8baa-fbe81fc236ad",
-  "prevId": "f6a47766-9387-4565-93c4-9237d431a0e4",
+  "id": "e216b6df-3a3c-4ff6-8393-55453bb4ea94",
+  "prevId": "6b0d53f7-ca5f-474e-8baa-fbe81fc236ad",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1578,93 +1578,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.project_users": {
-      "name": "project_users",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_project_users_project": {
-          "name": "idx_project_users_project",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_project_users_user": {
-          "name": "idx_project_users_user",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_users_project_id_projects_id_fk": {
-          "name": "project_users_project_id_projects_id_fk",
-          "tableFrom": "project_users",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "project_users_user_id_users_id_fk": {
-          "name": "project_users_user_id_users_id_fk",
-          "tableFrom": "project_users",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {
-        "project_users_project_id_user_id_pk": {
-          "name": "project_users_project_id_user_id_pk",
-          "columns": ["project_id", "user_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.projects": {
       "name": "projects",
       "schema": "",
@@ -1811,23 +1724,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "idx_role_permissions_role": {
-          "name": "idx_role_permissions_role",
-          "columns": [
-            {
-              "expression": "role_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "role_permissions_role_id_roles_id_fk": {
           "name": "role_permissions_role_id_roles_id_fk",
@@ -2333,18 +2230,6 @@
           "notNull": true,
           "default": "'invited'"
         },
-        "role": {
-          "name": "role",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organization": {
-          "name": "organization",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
         "created_by": {
           "name": "created_by",
           "type": "integer",
@@ -2375,24 +2260,6 @@
           "columnsFrom": ["auth_user_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "users_role_roles_id_fk": {
-          "name": "users_role_roles_id_fk",
-          "tableFrom": "users",
-          "tableTo": "roles",
-          "columnsFrom": ["role"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "users_organization_organizations_id_fk": {
-          "name": "users_organization_organizations_id_fk",
-          "tableFrom": "users",
-          "tableTo": "organizations",
-          "columnsFrom": ["organization"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "users_created_by_users_id_fk": {

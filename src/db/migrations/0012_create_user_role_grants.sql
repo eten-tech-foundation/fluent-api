@@ -9,13 +9,6 @@ CREATE TABLE "user_roles" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-ALTER TABLE "project_users" DISABLE ROW LEVEL SECURITY;--> statement-breakpoint
-DROP TABLE "project_users" CASCADE;--> statement-breakpoint
-ALTER TABLE "users" DROP CONSTRAINT "users_role_roles_id_fk";
---> statement-breakpoint
-ALTER TABLE "users" DROP CONSTRAINT "users_organization_organizations_id_fk";
---> statement-breakpoint
-DROP INDEX "idx_role_permissions_role";--> statement-breakpoint
 ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -24,6 +17,4 @@ ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_created_by_users_id_fk" FORE
 CREATE UNIQUE INDEX "uq_user_role_grant" ON "user_roles" USING btree ("user_id","org_id","project_id","role_id");--> statement-breakpoint
 CREATE INDEX "idx_user_roles_user" ON "user_roles" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_user_roles_org" ON "user_roles" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "idx_user_roles_project" ON "user_roles" USING btree ("project_id");--> statement-breakpoint
-ALTER TABLE "users" DROP COLUMN "role";--> statement-breakpoint
-ALTER TABLE "users" DROP COLUMN "organization";
+CREATE INDEX "idx_user_roles_project" ON "user_roles" USING btree ("project_id");

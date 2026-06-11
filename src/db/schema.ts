@@ -829,7 +829,6 @@ export const patchChapterAssignmentStatusHistorySchema =
   insertChapterAssignmentStatusHistorySchema.partial();
 export const patchUserChapterAssignmentEditorStateSchema =
   insertUserChapterAssignmentEditorStateSchema.partial();
-
 export const patchPermissionsSchema = insertPermissionsSchema.partial();
 export const patchRolePermissionsSchema = insertRolePermissionsSchema.partial();
 export const patchUserRolesSchema = insertUserRolesSchema.partial();
