@@ -18,9 +18,7 @@ export interface GrantInput {
 
 export async function grantRole(input: GrantInput): Promise<Result<void>> {
   try {
-    // PostgreSQL unique indexes don't treat NULL = NULL, so onConflictDoNothing
-    // won't catch duplicate org-wide grants (where projectId is NULL).
-    // Check explicitly before inserting.
+    // Pre-check existence to avoid bumping the ID sequence unnecessarily on duplicates.
     const [existing] = await db
       .select({ id: user_roles.id })
       .from(user_roles)

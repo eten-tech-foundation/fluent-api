@@ -3,6 +3,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Json } from 'drizzle-zod';
 
 import { z } from '@hono/zod-openapi';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -471,7 +472,12 @@ export const user_roles = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex('uq_user_role_grant').on(table.userId, table.orgId, table.projectId, table.roleId),
+    uniqueIndex('uq_user_role_grant').on(
+      table.userId,
+      sql`COALESCE(${table.orgId}, -1)`,
+      sql`COALESCE(${table.projectId}, -1)`,
+      table.roleId
+    ),
     index('idx_user_roles_user').on(table.userId),
     index('idx_user_roles_org').on(table.orgId),
     index('idx_user_roles_project').on(table.projectId),

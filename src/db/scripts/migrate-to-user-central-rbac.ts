@@ -8,7 +8,7 @@
  *
  * DO NOT run step 3 before step 2, or you will permanently lose role/org data.
  */
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
@@ -76,26 +76,48 @@ export async function migrateToUserCentralRbac(): Promise<void> {
     }
 
     // 3. Verify: no user who had active assignments or is a Manager is left without grants.
-    const granted = await tx.selectDistinct({ userId: user_roles.userId }).from(user_roles);
-    const grantedIds = new Set(granted.map((g) => g.userId));
     const trueOrphans = [];
 
     for (const u of allUsers) {
-      if (grantedIds.has(u.id)) continue;
-
       if (u.role === pmId) {
-        trueOrphans.push(u.id);
-        continue;
-      }
-
-      if (u.role === ptId) {
-        const [hasMembership] = await tx
+        const [hasExpected] = await tx
+          .select({ id: user_roles.id })
+          .from(user_roles)
+          .where(
+            and(
+              eq(user_roles.userId, u.id),
+              eq(user_roles.roleId, pmId),
+              eq(user_roles.orgId, u.organization),
+              isNull(user_roles.projectId)
+            )
+          )
+          .limit(1);
+        if (!hasExpected) {
+          trueOrphans.push(u.id);
+        }
+      } else if (u.role === ptId) {
+        const memberships = await tx
           .select({ projectId: sql<number>`project_id` })
           .from(sql`project_users`)
-          .where(eq(sql`user_id`, u.id))
-          .limit(1);
-        if (hasMembership) {
-          trueOrphans.push(u.id);
+          .where(eq(sql`user_id`, u.id));
+
+        for (const m of memberships) {
+          const [hasExpected] = await tx
+            .select({ id: user_roles.id })
+            .from(user_roles)
+            .where(
+              and(
+                eq(user_roles.userId, u.id),
+                eq(user_roles.roleId, ptId),
+                eq(user_roles.orgId, u.organization),
+                eq(user_roles.projectId, m.projectId)
+              )
+            )
+            .limit(1);
+          if (!hasExpected) {
+            trueOrphans.push(u.id);
+            break;
+          }
         }
       }
     }

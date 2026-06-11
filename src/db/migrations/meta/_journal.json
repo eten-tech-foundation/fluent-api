@@ -99,6 +99,13 @@
       "when": 1781162563413,
       "tag": "0013_drop_legacy_rbac_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781182166615,
+      "tag": "0014_add_user_roles_unique_index",
+      "breakpoints": true
     }
   ]
 }

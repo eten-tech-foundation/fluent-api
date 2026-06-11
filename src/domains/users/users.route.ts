@@ -8,6 +8,7 @@ import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createUserWithInvitation } from '@/lib/services/auth/auth.service';
+import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -146,17 +147,25 @@ server.openapi(createUserRoute, async (c) => {
         createdBy: currentUser.id,
       });
       if (!grantResult.ok) {
-        await userService.deleteUser(result.data.id);
+        const deleteResult = await userService.deleteUser(result.data.id);
+        const rollbackMsg = !deleteResult.ok
+          ? ` (Rollback failed: ${deleteResult.error.message})`
+          : '';
         return c.json(
-          { message: `Failed to create initial role grant: ${grantResult.error.message}` },
+          {
+            message: `Failed to create initial role grant: ${grantResult.error.message}${rollbackMsg}`,
+          },
           HttpStatusCodes.INTERNAL_SERVER_ERROR
         );
       }
     } catch (error) {
-      await userService.deleteUser(result.data.id);
+      const deleteResult = await userService.deleteUser(result.data.id);
+      const rollbackMsg = !deleteResult.ok
+        ? ` (Rollback failed: ${deleteResult.error.message})`
+        : '';
       const errorMessage = error instanceof Error ? error.message : 'Grant failed';
       return c.json(
-        { message: `Failed to create initial role grant: ${errorMessage}` },
+        { message: `Failed to create initial role grant: ${errorMessage}${rollbackMsg}` },
         HttpStatusCodes.INTERNAL_SERVER_ERROR
       );
     }
@@ -235,7 +244,7 @@ const getUserByEmailRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users/email/{email}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_VIEW)] as const,
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
       email: z
@@ -297,11 +306,7 @@ const getUserRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users/{id}',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.USER_VIEW),
-    requireUserAccess(USER_ACTIONS.VIEW),
-  ] as const,
+  middleware: [authenticateUser, requireUserAccess(USER_ACTIONS.VIEW)] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -340,11 +345,7 @@ const updateUserRoute = createRoute({
   tags: ['Users'],
   method: 'patch',
   path: '/users/{id}',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.USER_UPDATE),
-    requireUserAccess(USER_ACTIONS.UPDATE),
-  ] as const,
+  middleware: [authenticateUser, requireUserAccess(USER_ACTIONS.UPDATE)] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -419,14 +420,14 @@ server.openapi(updateUserRoute, async (c) => {
   }
 
   // Strip role update if user lacks MEMBERSHIP_REVOKE
-  // Check if they are trying to update another user or just lacking permission
   const targetOrgIds = await findOrgIdsForUser(targetUser.id);
-  if (
-    !UserPolicy.update(
-      { id: currentUser.id, grants: currentUser.grants },
-      { id: targetUser.id, orgIds: targetOrgIds }
-    )
-  ) {
+  const hasGrantManagement = targetOrgIds.some((orgId) =>
+    authorize({ id: currentUser.id, grants: currentUser.grants }, PERMISSIONS.MEMBERSHIP_REVOKE, {
+      orgId,
+    })
+  );
+
+  if (!hasGrantManagement) {
     delete (updates as Record<string, unknown>).role;
   }
 

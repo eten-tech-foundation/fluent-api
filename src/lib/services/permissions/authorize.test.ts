@@ -158,4 +158,20 @@ describe('canAssignRole', () => {
   it('unknown role name is always denied', () => {
     expect(canAssignRole(superAdmin, 'NonExistentRole', ORG, null)).toBe(false);
   });
+
+  it('assigning a project-scoped role without providing a projectId is denied', () => {
+    expect(canAssignRole(superAdmin, ROLES.PROJECT_MANAGER, ORG, null)).toBe(false);
+    expect(canAssignRole(orgPM, ROLES.PROJECT_MANAGER, ORG, null)).toBe(false);
+  });
+
+  it('a project-pinned assign grant cannot assign into a different project or different org', () => {
+    const PROJ2 = 20;
+    const ORG2 = 2;
+    const projectPM = {
+      id: 4,
+      grants: [grant(ORG, PROJ, [PERMISSIONS.ROLE_ASSIGN_PROJECT])],
+    };
+    expect(canAssignRole(projectPM, ROLES.PROJECT_MANAGER, ORG, PROJ2)).toBe(false);
+    expect(canAssignRole(projectPM, ROLES.PROJECT_MANAGER, ORG2, PROJ)).toBe(false);
+  });
 });

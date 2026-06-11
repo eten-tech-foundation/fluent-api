@@ -132,14 +132,17 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
     if (userResult.ok) {
       const grantsResult = await findGrantsByUserId(userResult.data.id);
       if (!grantsResult.ok) {
-        logger.warn('Failed to load grants for user, defaulting to empty', {
+        logger.error('Database failure: unable to load grants for user', {
           userId: userResult.data.id,
           error: grantsResult.error,
+        });
+        throw new HTTPException(500, {
+          message: 'Internal Server Error: Failed to load user grants',
         });
       }
       c.set('user', {
         ...userResult.data,
-        grants: grantsResult.ok ? grantsResult.data : [],
+        grants: grantsResult.data,
       });
     } else {
       logger.debug('Authenticated auth_user has no linked application user', {

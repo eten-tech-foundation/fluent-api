@@ -16,7 +16,7 @@ function isGrantApplicable(grant: Grant, orgId: number | null, projectId: number
   if (grant.orgId === null && grant.projectId === null) return true;
 
   if (projectId !== null) {
-    if (grant.projectId === projectId) return true;
+    if (grant.projectId === projectId && grant.orgId === orgId) return true;
     if (grant.projectId === null && grant.orgId === orgId) return true;
     return false;
   }
@@ -85,6 +85,7 @@ export function canAssignRole(
     targetRoleName === ROLES.PROJECT_TRANSLATOR ||
     targetRoleName === ROLES.PROJECT_OBSERVER
   ) {
+    if (projectId === null) return false;
     return authorize(caller, PERMISSIONS.ROLE_ASSIGN_PROJECT, scope);
   }
 

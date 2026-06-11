@@ -10,9 +10,11 @@ async function createNewUser() {
   const args = process.argv.slice(2);
 
   if (args.length < 3) {
-    console.error('Usage: npm run db:create-user <email> <password> <username> [roleName]');
     console.error(
-      'Example: npm run db:create-user john.doe@example.com Test@1234 johndoe "Project Manager"'
+      'Usage: npm run db:create-user <email> <password> <username> [roleName] [orgId] [projectId]'
+    );
+    console.error(
+      'Example: npm run db:create-user john.doe@example.com Test@1234 johndoe "Project Manager" 1 10'
     );
     process.exit(1);
   }
@@ -20,8 +22,9 @@ async function createNewUser() {
   const email = args[0].toLowerCase();
   const rawPassword = args[1];
   const username = args[2];
-  const roleNameStr = args.length > 3 ? args.slice(3).join(' ') : ROLES.PROJECT_TRANSLATOR;
-  const organizationId = 1;
+  const roleNameStr = args[3] || ROLES.PROJECT_TRANSLATOR;
+  const orgIdArg = args[4] ? Number.parseInt(args[4], 10) : undefined;
+  const projectIdArg = args[5] ? Number.parseInt(args[5], 10) : undefined;
 
   try {
     const [existingAuthUser] = await db
@@ -98,15 +101,25 @@ async function createNewUser() {
         })
         .returning({ id: schema.users.id });
 
-      let grantOrgId: number | null = organizationId;
+      let grantOrgId: number | null = null;
       let grantProjectId: number | null = null;
 
-      if (role.name === ROLES.SUPER_ADMIN) {
-        grantOrgId = null;
-        grantProjectId = null;
-      } else if (role.name === ROLES.PROJECT_TRANSLATOR || role.name === ROLES.PROJECT_OBSERVER) {
-        // Translators and Observers require a project ID. For this dev script, default to project 1.
-        grantProjectId = 1;
+      if (role.name !== ROLES.SUPER_ADMIN) {
+        if (orgIdArg === undefined || Number.isNaN(orgIdArg)) {
+          throw new Error(`Role '${role.name}' requires a valid orgId argument.`);
+        }
+        grantOrgId = orgIdArg;
+
+        if (
+          role.name === ROLES.PROJECT_TRANSLATOR ||
+          role.name === ROLES.PROJECT_OBSERVER ||
+          role.name === ROLES.PROJECT_MANAGER
+        ) {
+          if (projectIdArg === undefined || Number.isNaN(projectIdArg)) {
+            throw new Error(`Role '${role.name}' requires a valid projectId argument.`);
+          }
+          grantProjectId = projectIdArg;
+        }
       }
 
       await tx.insert(schema.user_roles).values({

@@ -89,10 +89,15 @@ export async function createUserWithInvitation(
     }
 
     const roleId = await getRoleId(roleName);
+
+    const scopedOrgId = roleName === ROLES.SUPER_ADMIN ? null : normalizedInput.orgId;
+    const scopedProjectId =
+      roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
+
     await grantRole({
       userId: dbResult.data.id,
-      orgId: normalizedInput.orgId,
-      projectId: normalizedInput.projectId ?? null,
+      orgId: scopedOrgId,
+      projectId: scopedProjectId,
       roleId,
       createdBy: dbResult.data.createdBy ?? null,
     });

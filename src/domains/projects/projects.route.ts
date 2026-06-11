@@ -4,10 +4,8 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { getRoleId, grantRole } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ROLES } from '@/lib/roles';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -105,6 +103,19 @@ server.openapi(createProjectRoute, async (c) => {
   const projectData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
+  const { getRoleId, grantRole } = await import('@/domains/user-roles/user-roles.service');
+  const { ROLES } = await import('@/lib/roles');
+
+  let pmRoleId: number;
+  try {
+    pmRoleId = await getRoleId(ROLES.PROJECT_MANAGER);
+  } catch {
+    return c.json(
+      { message: 'Internal Server Error: Missing PM role definition' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+    );
+  }
+
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
@@ -116,13 +127,18 @@ server.openapi(createProjectRoute, async (c) => {
       userId: currentUser.id,
       orgId: projectData.organization,
       projectId: result.data.id,
-      roleId: await getRoleId(ROLES.PROJECT_MANAGER),
+      roleId: pmRoleId,
       createdBy: currentUser.id,
     });
     if (!grantResult.ok) {
-      await projectService.deleteProject(result.data.id);
+      const deleteResult = await projectService.deleteProject(result.data.id);
+      const rollbackMsg = !deleteResult.ok
+        ? ` (Rollback failed: ${deleteResult.error.message})`
+        : '';
       return c.json(
-        { message: 'Project created but failed to assign creator role. Rolled back.' },
+        {
+          message: `Project created but failed to assign creator role. Rolled back.${rollbackMsg}`,
+        },
         HttpStatusCodes.INTERNAL_SERVER_ERROR as never
       );
     }
