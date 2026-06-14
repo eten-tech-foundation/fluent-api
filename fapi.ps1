@@ -197,10 +197,21 @@ function Invoke-Compose {
     else { & docker-compose @CmdArgs }
 }
 
+function Test-ContainerRunning {
+    param([string]$Name)
+    $runtime = if ($RuntimeMode -eq "podman-pod") { "podman" } else { "docker" }
+    $names = & $runtime ps --format "{{.Names}}" 2>$null
+    return $names -contains $Name
+}
+
 function Invoke-ExecApi {
     param([string[]]$CmdArgs)
+    if (-not (Test-ContainerRunning "fluent-api-api")) {
+        Write-Err "API container (fluent-api-api) is not running. Run '.\fapi.ps1 up' first."
+        exit 1
+    }
     if ($RuntimeMode -eq "podman-pod") { & podman exec fluent-api-api @CmdArgs }
-    else { Invoke-Compose (@("exec", "api") + $CmdArgs) }
+    else { & docker exec fluent-api-api @CmdArgs }
 }
 
 # ── Runtime mode display ──────────────────────────────────────────────────────
@@ -290,8 +301,8 @@ switch ($Command) {
       if ($target -eq "db") { & podman exec -it fluent-api-db psql -U postgres -d fluent }
       else { & podman exec -it "fluent-api-$target" sh }
     } else {
-      if ($target -eq "db") { Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent") }
-      else { Invoke-Compose @("exec", $target, "sh") }
+      if ($target -eq "db") { & docker exec -it fluent-api-db psql -U postgres -d fluent }
+      else { & docker exec -it "fluent-api-$target" sh }
     }
   }
 
@@ -338,7 +349,7 @@ switch ($Command) {
 
   "db:psql" {
     if ($RuntimeMode -eq "podman-pod") { & podman exec -it fluent-api-db psql -U postgres -d fluent }
-    else { Invoke-Compose @("exec", "db", "psql", "-U", "postgres", "-d", "fluent") }
+    else { & docker exec -it fluent-api-db psql -U postgres -d fluent }
   }
 
   "clean" {
