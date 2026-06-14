@@ -401,14 +401,18 @@ compose_status() {
 compose_shell() {
   local service="${1:-api}"
   if [ "$service" = "db" ]; then
-    $COMPOSE_CMD exec db psql -U postgres -d fluent
+    docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
   else
-    $COMPOSE_CMD exec "$service" sh
+    docker exec -it "${CONTAINER_PREFIX}$service" sh
   fi
 }
 
 compose_exec_api() {
-  $COMPOSE_CMD exec api "$@"
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$API_CONTAINER"; then
+    echo_error "API container ($API_CONTAINER) is not running. Run './fapi.sh up' first."
+    exit 1
+  fi
+  docker exec "$API_CONTAINER" "$@"
 }
 
 compose_clean() {
@@ -437,7 +441,7 @@ compose_build() {
 }
 
 compose_db_psql() {
-  $COMPOSE_CMD exec db psql -U postgres -d fluent
+  docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
 }
 
 # ── Runtime dispatch helpers ───────────────────────────────────────────────────
