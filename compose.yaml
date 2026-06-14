@@ -1,5 +1,6 @@
 services:
   db:
+    container_name: fluent-api-db
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
@@ -16,6 +17,7 @@ services:
       retries: 5
 
   api:
+    container_name: fluent-api-api
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -54,6 +56,7 @@ services:
       start_period: 15s
 
   worker:
+    container_name: fluent-api-worker
     build:
       context: .
       dockerfile: Dockerfile.dev
