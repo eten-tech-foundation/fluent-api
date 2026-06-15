@@ -557,6 +557,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_api npm run db:seed:rbac
     echo_running "Seeding dev users..."
     exec_api npm run db:seed:dev-users
+    echo_running "Seeding languages..."
+    exec_api npm run db:seed:languages
+    echo_running "Seeding books..."
+    exec_api npm run db:seed:books
+    echo_running "Seeding bibles..."
+    exec_api npm run db:seed:bibles
+    echo_running "Seeding bible texts..."
+    exec_api npm run db:seed:bible-texts
     echo_success "All seeds complete."
     ;;
 
@@ -704,7 +712,7 @@ Development (runs in API container):
 
 Database:
   db:migrate             Run Drizzle migrations
-  db:seed                Seed all data (org, roles, RBAC, dev users)
+  db:seed                Seed all data (org, roles, RBAC, dev users, languages, books, bibles, bible texts)
   db:init                Run migrations + all seeds (delegates to npm run db:setup)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host

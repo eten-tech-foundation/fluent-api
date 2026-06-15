@@ -10,5 +10,17 @@ npx tsx src/db/seeds/roles.ts || { echo "ERROR: roles seed failed"; exit 1; }
 echo "Seeding RBAC data..."
 npx tsx src/db/seeds/rbac.ts || { echo "ERROR: RBAC seed failed"; exit 1; }
 
+echo "Seeding languages..."
+npx tsx src/db/seeds/languages.ts || { echo "ERROR: languages seed failed"; exit 1; }
+
+echo "Seeding books..."
+npx tsx src/db/seeds/books.ts || { echo "ERROR: books seed failed"; exit 1; }
+
+echo "Seeding bibles..."
+npx tsx src/db/seeds/bibles.ts || { echo "ERROR: bibles seed failed"; exit 1; }
+
+echo "Seeding bible texts..."
+npx tsx src/db/seeds/bible-texts.ts || { echo "ERROR: bible texts seed failed"; exit 1; }
+
 echo "Starting dev server..."
 exec npx tsx watch src/index.ts
