@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+echo "Bootstrapping database roles/schemas..."
+npx tsx src/db/scripts/bootstrap.ts || { echo "ERROR: db bootstrap failed"; exit 1; }
+
 echo "Running database migrations..."
 npx drizzle-kit migrate || { echo "ERROR: database migrations failed"; exit 1; }
 

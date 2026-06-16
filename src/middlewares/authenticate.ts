@@ -43,8 +43,15 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
   const hasBearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ');
 
   try {
+    let sessionHeaders = c.req.raw.headers;
+    if (hasBearerToken) {
+      const stripped = new Headers(c.req.raw.headers);
+      stripped.delete('cookie');
+      sessionHeaders = stripped;
+    }
+
     const session = await auth.api.getSession({
-      headers: c.req.raw.headers,
+      headers: sessionHeaders,
     });
 
     if (!session) {

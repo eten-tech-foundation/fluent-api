@@ -36,10 +36,18 @@ export function getBibleTextsByChapter(bibleId: number, bookId: number, chapterN
 }
 
 export async function getBulkBibleTexts(bibleId: number, body: BulkChapterRequest) {
-  if (body.chapters.length === 0) return ok([]);
+  if (body.chapters.length === 0) return ok({ syncedAt: new Date().toISOString(), data: [] });
+  const updatedAfter = body.updatedAfter ? new Date(body.updatedAfter) : undefined;
 
-  const result = await repo.getByChapters(bibleId, body.chapters);
-  if (!result.ok) return result;
+  const result = await repo.getByChapters(bibleId, body.chapters, updatedAfter);
 
-  return ok(toBulkChapterTextResponses(result.data));
+  if (!result.ok) {
+    if (updatedAfter) return ok({ syncedAt: new Date().toISOString(), data: [] });
+    return result;
+  }
+
+  return ok({
+    syncedAt: new Date().toISOString(),
+    data: toBulkChapterTextResponses(result.data),
+  });
 }

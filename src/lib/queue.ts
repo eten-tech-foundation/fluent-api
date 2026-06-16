@@ -28,6 +28,9 @@ export async function initializeQueue(): Promise<PgBoss> {
   boss = new PgBoss({
     connectionString,
     schema: 'pgboss',
+    // Bootstrap creates the pgboss schema; skip the CREATE SCHEMA DDL so
+    // api_user (runtime role) doesn't need CREATE privilege on the database.
+    createSchema: false,
     max: 10,
     application_name: 'fluent-server-queue',
     superviseIntervalSeconds: 60,
