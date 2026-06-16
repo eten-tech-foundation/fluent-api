@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -44,25 +44,28 @@ export async function seedBibleTexts() {
     throw new Error(`Bible "${IRV_ABBREVIATION}" not found. Run seedBibles first.`);
   }
 
-  // 2. Bulk idempotency guard: skip if this bible already has texts.
-  const [existing] = await db
-    .select({ id: bible_texts.id })
-    .from(bible_texts)
-    .where(eq(bible_texts.bibleId, bible.id))
-    .limit(1);
+  // 2. Load the expected corpus up front so the idempotency guard can compare counts.
+  const records = loadBibleTexts();
 
-  if (existing) {
+  // 3. Idempotency guard: skip only when the full corpus is already present.
+  // A bare "any rows exist" check would lock in a partial corpus left by a run
+  // that failed mid-insert (step 6), so compare against the expected count.
+  const [{ count: existingCount }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(bible_texts)
+    .where(eq(bible_texts.bibleId, bible.id));
+
+  if (Number(existingCount) === records.length) {
     console.log('Bible texts already seeded for IRV — skipping.');
     return;
   }
 
-  // 3. Build PROD book_id -> local book id.
+  // 4. Build PROD book_id -> local book id.
   const codeByProdBookId = loadBookCodeByProdId();
   const bookRows = await db.select({ id: books.id, code: books.code }).from(books);
   const localIdByCode = new Map(bookRows.map((b) => [b.code, b.id]));
 
-  // 4. Remap rows to local ids.
-  const records = loadBibleTexts();
+  // 5. Remap rows to local ids.
   const rows = records.map((r) => {
     const code = codeByProdBookId.get(r.book_id);
     const localBookId = code ? localIdByCode.get(code) : undefined;
@@ -80,10 +83,17 @@ export async function seedBibleTexts() {
     };
   });
 
-  // 5. Bulk insert in chunks (stays well under Postgres parameter limits).
-  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-    await db.insert(bible_texts).values(rows.slice(i, i + CHUNK_SIZE));
-  }
+  // 6. Atomically reset and bulk insert in chunks (stays well under Postgres
+  // parameter limits). Clearing any partial rows inside the transaction keeps
+  // reruns self-healing: each run lands the complete corpus or rolls back.
+  await db.transaction(async (tx) => {
+    if (Number(existingCount) > 0) {
+      await tx.delete(bible_texts).where(eq(bible_texts.bibleId, bible.id));
+    }
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      await tx.insert(bible_texts).values(rows.slice(i, i + CHUNK_SIZE));
+    }
+  });
 
   console.log(`Bible texts seeded. (${rows.length} verses for IRV id=${bible.id})`);
 }

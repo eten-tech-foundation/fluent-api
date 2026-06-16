@@ -50,9 +50,9 @@ export async function seedBibles() {
     .from(books)
     .where(inArray(books.code, [...IRV_BOOK_CODES]));
 
-  if (bookRows.length !== IRV_BOOK_CODES.length) {
-    const found = new Set(bookRows.map((b) => b.code));
-    const missing = IRV_BOOK_CODES.filter((c) => !found.has(c));
+  const foundCodes = new Set(bookRows.map((b) => b.code));
+  const missing = IRV_BOOK_CODES.filter((c) => !foundCodes.has(c));
+  if (missing.length > 0) {
     throw new Error(`Book(s) not found: ${missing.join(', ')}. Run seedBooks first.`);
   }
 
