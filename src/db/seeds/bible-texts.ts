@@ -61,9 +61,26 @@ export async function seedBibleTexts() {
   }
 
   // 4. Build PROD book_id -> local book id.
+  // books.code is not unique at the schema level, so a naive Map would silently
+  // keep the last id for any duplicated code and misattribute verses. Fail fast
+  // on duplicates instead of corrupting the corpus.
   const codeByProdBookId = loadBookCodeByProdId();
   const bookRows = await db.select({ id: books.id, code: books.code }).from(books);
-  const localIdByCode = new Map(bookRows.map((b) => [b.code, b.id]));
+  const localIdByCode = new Map<string, number>();
+  const duplicateCodes = new Set<string>();
+  for (const row of bookRows) {
+    if (localIdByCode.has(row.code)) {
+      duplicateCodes.add(row.code);
+      continue;
+    }
+    localIdByCode.set(row.code, row.id);
+  }
+  if (duplicateCodes.size > 0) {
+    throw new Error(
+      `Duplicate books.code detected: ${[...duplicateCodes].join(', ')}. ` +
+        'Deduplicate books before running seedBibleTexts.'
+    );
+  }
 
   // 5. Remap rows to local ids.
   const rows = records.map((r) => {
