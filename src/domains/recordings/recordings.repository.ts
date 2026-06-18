@@ -26,7 +26,7 @@ export async function upsertRecording(
       target: schema.recordings.relativePath,
       set: {
         metadata: sql`excluded.metadata`,
-        createdAt: sql`now()`,
+        recordedByUserId: sql`excluded.recorded_by_user_id`,
       },
     });
 

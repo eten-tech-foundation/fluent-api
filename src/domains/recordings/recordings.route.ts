@@ -35,6 +35,10 @@ const syncRecordingRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'User account is inactive.'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project unit not found.'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'R2 upload or database error.'
@@ -126,7 +130,7 @@ server.openapi(syncRecordingRoute, async (c) => {
     );
   } catch (error: any) {
     if (error?.code === 'NOT_FOUND') {
-      return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST);
+      return c.json({ message: error.message }, HttpStatusCodes.NOT_FOUND);
     }
     if (error?.code === 'INVALID_PATH') {
       return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST);
@@ -140,7 +144,7 @@ server.openapi(syncRecordingRoute, async (c) => {
       error: error instanceof Error ? error.message : String(error),
     });
     return c.json(
-      { message: error?.message ?? 'An unexpected error occurred.' },
+      { message: 'An unexpected error occurred.' },
       HttpStatusCodes.INTERNAL_SERVER_ERROR
     );
   }

@@ -166,6 +166,9 @@ export async function uploadToR2(
     bucket,
   });
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -177,12 +180,15 @@ export async function uploadToR2(
         Authorization: authorization,
       },
       body: buffer,
+      signal: controller.signal,
     });
   } catch (networkError) {
     logger.error('R2 network request failed', { r2Key, error: networkError });
     throw new Error(
       `R2 network error: ${networkError instanceof Error ? networkError.message : String(networkError)}`
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {

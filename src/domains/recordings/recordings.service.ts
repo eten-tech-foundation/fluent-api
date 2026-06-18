@@ -39,6 +39,7 @@ export function buildR2Key(relativePath: string, projectUnitId: number): string 
 
   const projectName = cleanPath.substring(0, firstSlashIdx);
   const rest = cleanPath.substring(firstSlashIdx + 1);
+  if (!rest.trim()) return null;
   return `${projectUnitId}-${projectName}/${rest}`;
 }
 
@@ -60,6 +61,9 @@ export function buildMetadata(fileSizeRaw: unknown, recordedAtRaw: unknown): Rec
 /**
  * Verifies that the given projectUnitId exists in the database.
  * Returns true if found, false otherwise.
+ *
+ * TODO: The userId parameter is currently unused in the lookup, but will be
+ * utilized once assignment validation checks are uncommented and enforced.
  */
 export async function verifyProjectUnitExists(
   projectUnitId: number,
