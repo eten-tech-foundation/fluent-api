@@ -110,7 +110,7 @@ server.openapi(syncRecordingRoute, async (c) => {
 
   // ── 3. Delegate to service ─────────────────────────────────────────────────
   try {
-    const { transformedRelativePath } = await service.syncRecording({
+    await service.syncRecording({
       projectUnitId,
       bibleTextId,
       relativePath,
@@ -124,7 +124,7 @@ server.openapi(syncRecordingRoute, async (c) => {
       {
         success: true as const,
         message: 'Audio recording synchronized and saved cleanly.',
-        data: { relative_path: transformedRelativePath },
+        data: { relative_path: relativePath },
       },
       HttpStatusCodes.OK
     );
