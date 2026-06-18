@@ -565,10 +565,14 @@ export const insertRecordingsSchema = createInsertSchema(recordings, {
   bibleTextId: (schema) => schema.int().positive(),
   relativePath: (schema) => schema.min(1),
   recordedByUserId: (schema) => schema.int().positive(),
-  metadata: () => z.object({
-    size: z.number().nullable(),
-    recorded_at: z.string(),
-  }).nullable().optional(),
+  metadata: () =>
+    z
+      .object({
+        size: z.number().nullable(),
+        recorded_at: z.string(),
+      })
+      .nullable()
+      .optional(),
 }).omit({
   id: true,
   createdAt: true,
