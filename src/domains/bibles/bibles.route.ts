@@ -6,6 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertBiblesSchema, patchBiblesSchema } from '@/db/schema';
 import { getHttpStatus } from '@/lib/types';
+import { authenticateUser, denyUntilAdminRole } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as bibleService from './bibles.service';
@@ -19,6 +20,7 @@ const listBiblesRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles',
+  middleware: [authenticateUser] as const,
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       bibleResponseSchema.array().openapi('Bibles'),
@@ -49,6 +51,7 @@ const getBibleByIdRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles/{id}',
+  middleware: [authenticateUser] as const,
   request: { params: idParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(bibleResponseSchema.openapi('Bible'), 'The requested bible'),
@@ -82,6 +85,7 @@ const getBiblesByLanguageIdRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles/language/{languageId}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({ languageId: z.coerce.number().int().positive() }),
   },
@@ -116,6 +120,7 @@ const createBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'post',
   path: '/bibles',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: {
     body: jsonContentRequired(insertBiblesSchema, 'The bible to create'),
   },
@@ -153,6 +158,7 @@ const updateBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'patch',
   path: '/bibles/{id}',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: {
     params: idParam,
     body: jsonContentRequired(patchBiblesSchema, 'The bible data to update'),
@@ -193,6 +199,7 @@ const deleteBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'delete',
   path: '/bibles/{id}',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: { params: idParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Bible deleted successfully' },

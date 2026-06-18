@@ -8,6 +8,7 @@ import type { USFMExportJob } from '@/lib/queue';
 import { fileExists, getExportFile } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as usfmService from './usfm.service';
@@ -68,6 +69,7 @@ const getExportableBooksRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/project-units/{projectUnitId}/usfm/books',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
   },
@@ -81,6 +83,7 @@ const exportProjectUSFMRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -104,6 +107,7 @@ const exportProjectUSFMAsyncRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm/async',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -119,6 +123,7 @@ const getJobStatusRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/jobs/{jobId}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
       jobId: z.string(),
@@ -135,6 +140,7 @@ const downloadExportRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/downloads/{filename}',
+  middleware: [authenticateUser] as const,
   request: {
     params: filenameParam,
   },
