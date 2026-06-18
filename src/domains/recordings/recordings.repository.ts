@@ -4,15 +4,9 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { logger } from '@/lib/logger';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import type { UpsertRecordingData } from './recordings.types';
 
-export interface UpsertRecordingData {
-  projectUnitId: number;
-  bibleTextId: number;
-  relativePath: string;
-  recordedByUserId: number;
-  metadata?: { size: number | null; recorded_at: string };
-}
+// ─── Queries ──────────────────────────────────────────────────────────────────
 
 export async function upsertRecording(
   data: UpsertRecordingData
