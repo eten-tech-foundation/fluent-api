@@ -50,8 +50,26 @@ export async function seedBibles() {
     .from(books)
     .where(inArray(books.code, [...IRV_BOOK_CODES]));
 
-  const foundCodes = new Set(bookRows.map((b) => b.code));
-  const missing = IRV_BOOK_CODES.filter((c) => !foundCodes.has(c));
+  // books.code is not unique at the schema level, so inArray can return more than
+  // one row per code. Dedupe by code (failing fast on duplicates) so a duplicated
+  // book never produces two bible_books links for the same logical book.
+  const idByCode = new Map<string, number>();
+  const duplicateCodes = new Set<string>();
+  for (const row of bookRows) {
+    if (idByCode.has(row.code)) {
+      duplicateCodes.add(row.code);
+      continue;
+    }
+    idByCode.set(row.code, row.id);
+  }
+  if (duplicateCodes.size > 0) {
+    throw new Error(
+      `Duplicate books.code detected: ${[...duplicateCodes].join(', ')}. ` +
+        'Deduplicate books before running seedBibles.'
+    );
+  }
+
+  const missing = IRV_BOOK_CODES.filter((c) => !idByCode.has(c));
   if (missing.length > 0) {
     throw new Error(`Book(s) not found: ${missing.join(', ')}. Run seedBooks first.`);
   }
@@ -63,9 +81,9 @@ export async function seedBibles() {
     .where(eq(bible_books.bibleId, bible.id));
   const linkedBookIds = new Set(existingLinks.map((l) => l.bookId));
 
-  const linksToInsert = bookRows
-    .filter((b) => !linkedBookIds.has(b.id))
-    .map((b) => ({ bibleId: bible.id, bookId: b.id }));
+  const linksToInsert = IRV_BOOK_CODES.map((code) => idByCode.get(code) as number)
+    .filter((bookId) => !linkedBookIds.has(bookId))
+    .map((bookId) => ({ bibleId: bible.id, bookId }));
 
   if (linksToInsert.length > 0) {
     await db.insert(bible_books).values(linksToInsert);

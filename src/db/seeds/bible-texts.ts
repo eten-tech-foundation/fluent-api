@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
-import { bible_texts, bibles, books } from '@/db/schema';
+import { bible_texts, bibles, books, translated_verses } from '@/db/schema';
 
 const IRV_ABBREVIATION = 'IRV';
 const CHUNK_SIZE = 1000;
@@ -105,6 +105,24 @@ export async function seedBibleTexts() {
   // reruns self-healing: each run lands the complete corpus or rolls back.
   await db.transaction(async (tx) => {
     if (Number(existingCount) > 0) {
+      // translated_verses.bible_text_id references bible_texts.id with no
+      // ON DELETE CASCADE, so the reset below would hit an FK violation if any
+      // translation work references these texts. Fail fast with a clear message
+      // instead — deleting would silently destroy that work.
+      const [{ count: dependentCount }] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(translated_verses)
+        .innerJoin(bible_texts, eq(translated_verses.bibleTextId, bible_texts.id))
+        .where(eq(bible_texts.bibleId, bible.id));
+
+      if (Number(dependentCount) > 0) {
+        throw new Error(
+          `Cannot reset IRV bible texts: ${dependentCount} translated_verses row(s) ` +
+            'reference them. Re-run on a fresh database (e.g. `fapi.sh fresh`) or ' +
+            'remove the dependent translations first.'
+        );
+      }
+
       await tx.delete(bible_texts).where(eq(bible_texts.bibleId, bible.id));
     }
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
