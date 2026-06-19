@@ -50,11 +50,15 @@ Verified: `typecheck`, `lint`, and the 78-test suite all pass.
    `ProjectPolicy.read`, mirroring `translated-verse-auth.middleware.ts`. Apply
    to the three `/project-units/{projectUnitId}/usfm*` routes. (`/jobs` and
    `/downloads` are async-only — bind them to an owner in ticket 3.)
-2. **bible-texts / books / bible-books reads — confirm intent.** Left unchanged
-   pending a decision: is anonymous read intended (e.g. mobile pre-cache)? If
-   not, add `authenticateUser` consistent with bibles reads. The bulk
-   `POST /bibles/{bibleId}/bulk-texts` is an efficient scraping primitive, so at
-   minimum it should be rate-limited if it stays public.
+2. **bible-texts / books / bible-books reads — UNRESOLVED, pending reviewer.**
+   Left unchanged pending a decision: is anonymous read intended (e.g. mobile
+   pre-cache)? This is an open decision, not a settled outcome. The default
+   expectation is to add `authenticateUser` consistent with bibles reads. The
+   bulk `POST /bibles/{bibleId}/bulk-texts` is an efficient scraping primitive;
+   rate-limiting is only a **fallback if** anonymous access is confirmed
+   intentional (e.g. mobile pre-cache) and is **not** a substitute for
+   `authenticateUser`. If anonymous access is not confirmed, this endpoint moves
+   behind `authenticateUser` like the rest.
 
 ## Release coupling
 

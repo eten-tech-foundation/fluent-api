@@ -25,10 +25,13 @@ banner in `features/header/components/index.tsx`; backed by
    near-simultaneous registrations can disagree on who is "first." If QA shows
    flakiness, run the transaction at a stronger isolation level or
    `SELECT … FOR UPDATE` the chapter's editor rows before deciding.
-3. **Presence authorization (optional).** The presence routes use
+3. **Presence authorization (recommended).** The presence routes use
    `authenticateUser + requirePermission(CONTENT_UPDATE)` but skip
    `requireChapterAssignmentAccess`, so any translator can probe presence for any
-   `chapterAssignmentId`. Minor; align with the editor-state routes if desired.
+   `chapterAssignmentId` — this leaks editor identity across assignments. Align
+   with the editor-state routes by adding
+   `requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT)` to
+   the `POST/DELETE /chapter-assignments/{chapterAssignmentId}/presence` routes.
 
 ## Acceptance criteria
 

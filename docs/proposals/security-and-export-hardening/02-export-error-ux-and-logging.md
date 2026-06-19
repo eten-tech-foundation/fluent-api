@@ -27,6 +27,12 @@ Two gaps on the _synchronous_ export path the editor actually uses
   return `{ error, details }` with `error.message` — align with the rest of the
   API's `{ message }` envelope).
 
+> **Consumer compatibility (breaking change).** Aligning the USFM error envelope
+> (`{ error, details }` → `{ message }`) breaks any client reading the old
+> shape. `fluent-web`'s export error handling must be updated in lockstep, and
+> any USFM route tests asserting the old `{ error, details }` shape updated, so
+> the envelope change lands together with the `fluent-web` update.
+
 ## Acceptance criteria
 
 - Triggering an export failure shows the user a clear, retryable error.

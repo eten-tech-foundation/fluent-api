@@ -19,9 +19,10 @@ client then polls `GET /jobs/{id}` and downloads `GET /downloads/{filename}`. No
    fires. Fix: `batchSize: 1` and throw on failure, or re-throw if any settled
    result is `rejected`. Ensure terminal failures log to App Insights.
 2. **Cross-process file storage.** API and worker run as separate processes
-   (compose mounts a _separate_ `/app/exports` tmpfs per container; the API
-   entrypoint `src/index.ts` only creates the queue, it does not register the
-   worker). A worker-written file is invisible to the API serving `/downloads`
+   (compose mounts a _separate_ `/app/exports` tmpfs per container, confirmed
+   against `compose.yaml`; the API entrypoint `src/index.ts` only creates the
+   queue, it does not register the worker). A worker-written file is invisible to
+   the API serving `/downloads`
    → 404. Fix: shared object storage (S3 / Azure Blob) + signed URL, or a shared
    persistent volume mounted in both.
 3. **Whole ZIP buffered in memory.** The worker drains the archive stream into a
