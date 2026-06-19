@@ -108,6 +108,11 @@ export function createServer() {
           .update(schema.users)
           .set({ status: 'verified', updatedAt: new Date() })
           .where(eq(schema.users.email, session.user.email));
+        logger.info(`User status updated to verified for email: ${session.user.email}`);
+      } else {
+        logger.warn(
+          'Password set succeeded, but session or user email is missing. Skipped updating user status to verified.'
+        );
       }
 
       return c.json({ success: true });
