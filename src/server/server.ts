@@ -92,8 +92,8 @@ export function createServer() {
   }
 
   app.post('/api/auth/password/set', async (c) => {
-    const { newPassword } = await c.req.json();
     try {
+      const { newPassword } = await c.req.json();
       await auth.api.setPassword({
         body: { newPassword },
         headers: c.req.raw.headers,

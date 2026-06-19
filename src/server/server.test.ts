@@ -132,6 +132,32 @@ describe('server Route Handlers', () => {
         expect.objectContaining({ status: 'verified' })
       );
     });
+
+    it('should return 400 when JSON body is malformed', async () => {
+      const res = await server.request('/api/auth/password/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
+        body: 'invalid-json-body',
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toBeDefined();
+    });
+
+    it('should return 400 when auth.api.setPassword throws an error', async () => {
+      (auth.api.setPassword as any).mockRejectedValue(new Error('Invalid password strength'));
+
+      const res = await server.request('/api/auth/password/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
+        body: JSON.stringify({ newPassword: '123' }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.message).toBe('Invalid password strength');
+    });
   });
 
   // ─── POST /api/auth/sign-out ────────────────────────────────────────────────
