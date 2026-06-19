@@ -15,6 +15,7 @@ const { mockDb, mockDbQueryBuilder } = vi.hoisted(() => {
     builder.where = vi.fn(() => builder);
     builder.limit = vi.fn(() => Promise.resolve(returnValue));
     builder.values = vi.fn(() => Promise.resolve());
+    builder.set = vi.fn(() => builder);
     return builder;
   };
 
@@ -22,6 +23,7 @@ const { mockDb, mockDbQueryBuilder } = vi.hoisted(() => {
     select: vi.fn(),
     delete: vi.fn(),
     insert: vi.fn(),
+    update: vi.fn(),
   };
 
   return { mockDb, mockDbQueryBuilder };
@@ -31,7 +33,10 @@ const { mockDb, mockDbQueryBuilder } = vi.hoisted(() => {
 
 vi.mock('@/lib/auth', () => ({
   auth: {
-    api: { getSession: vi.fn() },
+    api: {
+      getSession: vi.fn(),
+      setPassword: vi.fn(),
+    },
     handler: vi.fn(),
   },
 }));
@@ -41,6 +46,7 @@ vi.mock('@/db', () => ({ db: mockDb }));
 vi.mock('@/db/schema', () => ({
   authSession: { token: 'token', id: 'id', userId: 'userId' },
   authAuditLog: {},
+  users: { email: 'email' },
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -97,13 +103,14 @@ describe('server Route Handlers', () => {
   // ─── POST /api/auth/password/set ───────────────────────────────────────────
 
   describe('pOST /api/auth/password/set', () => {
-    it('should proxy to auth.handler with path rewritten to /api/auth/set-password', async () => {
-      (auth.handler as any).mockResolvedValue(
-        new Response(JSON.stringify({ status: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
+    it('should call auth.api.setPassword, fetch session, and update user status to verified', async () => {
+      (auth.api.setPassword as any).mockResolvedValue(undefined);
+      (auth.api.getSession as any).mockResolvedValue({
+        user: { email: 'test@example.com' },
+      });
+
+      const mockUpdateBuilder = mockDbQueryBuilder([]);
+      mockDb.update.mockReturnValue(mockUpdateBuilder);
 
       const res = await server.request('/api/auth/password/set', {
         method: 'POST',
@@ -112,11 +119,18 @@ describe('server Route Handlers', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(auth.handler).toHaveBeenCalledOnce();
-
-      const proxiedRequest: Request = (auth.handler as any).mock.calls[0][0];
-      expect(new URL(proxiedRequest.url).pathname).toBe('/api/auth/set-password');
-      expect(proxiedRequest.headers.get('Authorization')).toBe('Bearer test-token');
+      expect(await res.json()).toEqual({ success: true });
+      expect(auth.api.setPassword).toHaveBeenCalledWith({
+        body: { newPassword: 'hunter2' },
+        headers: expect.any(Headers),
+      });
+      expect(auth.api.getSession).toHaveBeenCalledWith({
+        headers: expect.any(Headers),
+      });
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(mockUpdateBuilder.set).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'verified' })
+      );
     });
   });
 
