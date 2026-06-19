@@ -97,7 +97,15 @@ export function requireSelf() {
  * is introduced by the upcoming user-management changes.
  */
 export function denyUntilAdminRole() {
-  return async (_c: Context<AppBindings>, _next: Next) => {
+  return async (c: Context<AppBindings>, _next: Next) => {
+    const user = c.get('user');
+
+    if (!user) {
+      throw new HTTPException(HttpStatusCodes.UNAUTHORIZED, {
+        message: 'User not authenticated',
+      });
+    }
+
     throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
       message: 'This action is restricted to administrators',
     });
