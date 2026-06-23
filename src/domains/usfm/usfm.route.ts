@@ -14,11 +14,6 @@ import { server } from '@/server/server';
 
 import * as usfmService from './usfm.service';
 
-interface ErrorResponse {
-  error: string;
-  details?: string;
-}
-
 const projectUnitIdParam = z.object({
   projectUnitId: z.coerce.number().int().positive(),
 });
@@ -229,12 +224,11 @@ server.openapi(getExportableBooksRoute, async (c) => {
       projectUnitId: c.req.param('projectUnitId'),
     });
 
-    const errorResponse: ErrorResponse = {
-      error: 'Failed to get exportable books',
-      details: errorMessage,
-    };
-
-    return c.json(errorResponse, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+    // Detail is logged above; do not leak the raw error message to the client.
+    return c.json(
+      { error: 'Failed to get exportable books' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    );
   }
 });
 
@@ -328,13 +322,8 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('USFM export error', { error: errorMessage, projectUnitId, bookIds });
 
-    return c.json(
-      {
-        error: 'Failed to export USFM',
-        details: errorMessage,
-      },
-      HttpStatusCodes.INTERNAL_SERVER_ERROR
-    );
+    // Detail is logged above; do not leak the raw error message to the client.
+    return c.json({ error: 'Failed to export USFM' }, HttpStatusCodes.INTERNAL_SERVER_ERROR);
   }
 });
 
