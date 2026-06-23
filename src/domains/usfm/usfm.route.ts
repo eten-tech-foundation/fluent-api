@@ -2,6 +2,7 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { stream } from 'hono/streaming';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
+import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import type { USFMExportJob } from '@/lib/queue';
 
@@ -75,8 +76,14 @@ const getExportableBooksRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(errorSchema, 'Authentication required'),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(errorSchema, 'User account is inactive'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -101,8 +108,14 @@ const exportProjectUSFMRoute = createRoute({
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Project not found'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(errorSchema, 'Authentication required'),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(errorSchema, 'User account is inactive'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -119,8 +132,14 @@ const exportProjectUSFMAsyncRoute = createRoute({
   responses: {
     [HttpStatusCodes.ACCEPTED]: jsonContent(exportAsyncResponseSchema, 'Export job queued'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(errorSchema, 'Authentication required'),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(errorSchema, 'User account is inactive'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -138,8 +157,14 @@ const getJobStatusRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(jobStatusResponseSchema, 'Job status'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Job not found'),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(errorSchema, 'Authentication required'),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(errorSchema, 'User account is inactive'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -163,8 +188,14 @@ const downloadExportRoute = createRoute({
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'File not found or expired'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Invalid filename'),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(errorSchema, 'Authentication required'),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(errorSchema, 'User account is inactive'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
   },
 });
 
