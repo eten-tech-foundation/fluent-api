@@ -9,7 +9,10 @@ export interface UserChapterAssignment {
   bibleId: number;
   bibleName: string;
   chapterStatus: string;
+  /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string;
+  /** ISO 639-3 target language CODE, e.g. "eng" (the check's lang_code). */
+  targetLanguageCode: string;
   sourceLangCode: string;
   bookCode: string;
   bookId: number;
@@ -33,6 +36,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   bibleName: z.string(),
   chapterStatus: z.string(),
   targetLanguage: z.string(),
+  targetLanguageCode: z.string(),
   sourceLangCode: z.string(),
   bookCode: z.string(),
   bookId: z.number().int(),
