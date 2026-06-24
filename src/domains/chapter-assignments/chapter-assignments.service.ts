@@ -50,6 +50,7 @@ export function getChapterAssignmentWithAuthContext(
 export function getAssignmentsProgress(
   filters: {
     projectId?: number;
+    orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
     status?: ChapterAssignmentStatus;

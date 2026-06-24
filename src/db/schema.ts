@@ -87,6 +87,7 @@ export const authSession = pgTable('auth_session', {
   // Durably flags mobile sessions at sign-in time.
   // Avoids per-request UA re-parsing for rolling logic.
   isMobile: boolean('is_mobile').notNull().default(false),
+  activeOrgId: integer('active_org_id').references(() => organizations.id),
 });
 
 export const authAccount = pgTable('auth_account', {
@@ -149,6 +150,7 @@ export const users = pgTable('users', {
   lastName: varchar('last_name', { length: 100 }),
 
   status: userStatusEnum('status').notNull().default('invited'),
+  lastActiveOrgId: integer('last_active_org_id').references(() => organizations.id),
   createdBy: integer('created_by').references((): AnyPgColumn => users.id),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')

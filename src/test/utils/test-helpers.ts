@@ -46,6 +46,7 @@ export const sampleUsers = {
     updatedAt: new Date('2024-01-01T00:00:00Z'),
     authUserId: null,
     status: 'verified' as const,
+    lastActiveOrgId: null,
   },
   user2: {
     id: 2,
@@ -59,6 +60,7 @@ export const sampleUsers = {
     updatedAt: new Date('2024-01-02T00:00:00Z'),
     authUserId: null,
     status: 'invited' as const,
+    lastActiveOrgId: null,
   },
   newUser: {
     username: 'newuser',
@@ -68,6 +70,7 @@ export const sampleUsers = {
     grants: [],
     createdBy: null,
     status: 'invited' as const,
+    lastActiveOrgId: null,
   },
   updateUser: {
     firstName: 'Jane',

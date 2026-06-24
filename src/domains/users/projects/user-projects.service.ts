@@ -9,8 +9,8 @@ export function toUserProjectResponse(project: ProjectWithLanguageNames): UserPr
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
-export async function getProjectsByUserId(userId: number) {
-  const result = await projectsService.getProjectsByUserId(userId);
+export async function getProjectsByUserId(userId: number, orgId?: number) {
+  const result = await projectsService.getProjectsByUserId(userId, orgId);
   if (!result.ok) return result;
   return ok(result.data.map(toUserProjectResponse));
 }

@@ -56,10 +56,16 @@ const listProjectsRoute = createRoute({
 
 server.openapi(listProjectsRoute, async (c) => {
   const currentUser = c.get('user')!;
+  const activeOrgId = c.get('activeOrgId');
+
+  const grants =
+    activeOrgId !== null && activeOrgId !== undefined
+      ? currentUser.grants.filter((g) => g.orgId === activeOrgId || g.orgId === null)
+      : currentUser.grants;
 
   const result = await projectService.getProjectsForUser({
     id: currentUser.id,
-    grants: currentUser.grants,
+    grants,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

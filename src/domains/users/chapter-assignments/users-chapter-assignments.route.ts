@@ -60,8 +60,12 @@ const getChapterAssignmentsByUserIdRoute = createRoute({
 
 server.openapi(getChapterAssignmentsByUserIdRoute, async (c) => {
   const { userId } = c.req.valid('param');
+  const activeOrgId = c.get('activeOrgId');
 
-  const result = await usersChapterAssignmentsService.getAllChapterAssignmentsByUserId(userId);
+  const result = await usersChapterAssignmentsService.getAllChapterAssignmentsByUserId(
+    userId,
+    activeOrgId ?? undefined
+  );
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
@@ -134,11 +138,13 @@ const getUserChapterAssignmentsRoute = createRoute({
 server.openapi(getUserChapterAssignmentsRoute, async (c) => {
   const { userId } = c.req.valid('param');
   const { excludeProjectIds, updatedAfter } = c.req.valid('query');
+  const activeOrgId = c.get('activeOrgId');
 
   const result = await service.getChapterAssignmentsByUserId(
     userId,
     excludeProjectIds,
-    updatedAfter
+    updatedAfter,
+    activeOrgId ?? undefined
   );
   if (result.ok)
     return c.json(

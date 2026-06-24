@@ -127,9 +127,29 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
     }
     // ───────────────────────────────────────────────────────────────────────
 
-    // Look up the application user and load their grants
-    const userResult = await getUserByEmail(session.user.email);
+    // Look up the application user and load their grants, concurrently with auth_session activeOrgId
+    const [userResult, sessionRecords] = await Promise.all([
+      getUserByEmail(session.user.email),
+      db
+        .select({ activeOrgId: schema.authSession.activeOrgId })
+        .from(schema.authSession)
+        .where(eq(schema.authSession.id, session.session.id))
+        .limit(1),
+    ]);
+
     if (userResult.ok) {
+      let activeOrgId = sessionRecords[0]?.activeOrgId ?? null;
+
+      if (activeOrgId == null && userResult.data.lastActiveOrgId != null) {
+        activeOrgId = userResult.data.lastActiveOrgId;
+        await db
+          .update(schema.authSession)
+          .set({ activeOrgId })
+          .where(eq(schema.authSession.id, session.session.id));
+      }
+
+      c.set('activeOrgId', activeOrgId);
+
       const grantsResult = await findGrantsByUserId(userResult.data.id);
       if (!grantsResult.ok) {
         logger.error('Database failure: unable to load grants for user', {
@@ -140,6 +160,15 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
           message: 'Internal Server Error: Failed to load user grants',
         });
       }
+      logger.info(
+        {
+          userId: userResult.data.id,
+          grantsCount: grantsResult.data.length,
+          grants: grantsResult.data,
+        },
+        'Populated session user with grants in authenticate'
+      );
+
       c.set('user', {
         ...userResult.data,
         grants: grantsResult.data,

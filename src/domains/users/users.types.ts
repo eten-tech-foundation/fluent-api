@@ -29,12 +29,15 @@ export const userResponseSchema = z.object({
   orgGrants: z
     .array(
       z.object({
+        roleId: z.number().int(),
         roleName: z.string(),
         orgId: z.number().int().nullable(),
         projectId: z.number().int().nullable(),
+        orgName: z.string().nullable().optional(),
       })
     )
     .optional(),
+  lastActiveOrgId: z.number().int().nullable().optional(),
 });
 
 export type UserResponse = z.infer<typeof userResponseSchema>;
@@ -58,7 +61,12 @@ export const updateUserRequestSchema = z.object({
   lastName: z.string().max(100).optional().nullable(),
 
   status: z.enum(['invited', 'verified', 'inactive']).optional(),
+  lastActiveOrgId: z.number().int().nullable().optional(),
   // 'organization' is omitted to prevent cross-tenant transfers.
+});
+
+export const updateActiveOrgRequestSchema = z.object({
+  orgId: z.number().int(),
 });
 
 // Const enumerations

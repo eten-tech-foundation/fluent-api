@@ -35,6 +35,10 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findRoleGrantsByUserIds: vi.fn().mockResolvedValue(new Map()),
+}));
+
 describe('user Service Functions', () => {
   const mockUser = sampleUsers.user1;
   const mockUserInput = sampleUsers.newUser;
@@ -78,7 +82,7 @@ describe('user Service Functions', () => {
 
       const result = await getUserById(mockUser.id);
 
-      expect(result).toEqual({ ok: true, data: toUserResponse(mockUser) });
+      expect(result).toEqual({ ok: true, data: { ...toUserResponse(mockUser), orgGrants: [] } });
     });
 
     it('should return an error result when user not found', async () => {
@@ -111,7 +115,7 @@ describe('user Service Functions', () => {
 
       expect(result).toEqual({
         ok: true,
-        data: toUserResponse(mockUser),
+        data: { ...toUserResponse(mockUser), orgGrants: [] },
       });
     });
 
@@ -155,7 +159,7 @@ describe('user Service Functions', () => {
 
       const result = await getUserByUsername(mockUser.username);
 
-      expect(result).toEqual({ ok: true, data: toUserResponse(mockUser) });
+      expect(result).toEqual({ ok: true, data: { ...toUserResponse(mockUser), orgGrants: [] } });
     });
 
     it('should return an error result when user not found', async () => {
@@ -184,7 +188,7 @@ describe('user Service Functions', () => {
 
       const result = await getUserByEmailOrUsername(mockUser.email);
 
-      expect(result).toEqual({ ok: true, data: toUserResponse(mockUser) });
+      expect(result).toEqual({ ok: true, data: { ...toUserResponse(mockUser), orgGrants: [] } });
     });
 
     it('should convert identifier to lowercase for email lookups', async () => {
@@ -248,6 +252,7 @@ describe('user Service Functions', () => {
         lastName: 'Doe',
         createdBy: null,
         status: 'invited',
+        lastActiveOrgId: null,
       });
     });
 

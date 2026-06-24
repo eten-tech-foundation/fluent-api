@@ -53,8 +53,9 @@ const getUserProjectsRoute = createRoute({
 
 server.openapi(getUserProjectsRoute, async (c) => {
   const { userId } = c.req.valid('param');
+  const activeOrgId = c.get('activeOrgId');
 
-  const result = await userProjectsService.getProjectsByUserId(userId);
+  const result = await userProjectsService.getProjectsByUserId(userId, activeOrgId ?? undefined);
 
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

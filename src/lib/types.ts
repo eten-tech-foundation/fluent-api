@@ -25,6 +25,7 @@ export interface AppBindings {
     user?: User;
     session?: any; // BetterAuth session
     requestId: string;
+    activeOrgId?: number | null;
   };
 }
 

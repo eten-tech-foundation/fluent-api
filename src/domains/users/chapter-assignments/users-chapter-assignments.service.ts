@@ -37,31 +37,38 @@ export function toResponse(
 }
 
 export async function getAssignedChaptersByUserId(
-  userId: number
+  userId: number,
+  orgId?: number
 ): Promise<Result<UserChapterAssignmentResponse[]>> {
-  const result = await chapterAssignmentService.getAssignmentsProgress({ assignedUserId: userId });
+  const result = await chapterAssignmentService.getAssignmentsProgress({
+    assignedUserId: userId,
+    orgId,
+  });
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }
 
 export async function getPeerCheckChaptersByUserId(
-  userId: number
+  userId: number,
+  orgId?: number
 ): Promise<Result<UserChapterAssignmentResponse[]>> {
   const result = await chapterAssignmentService.getAssignmentsProgress({
     peerCheckerId: userId,
     status: 'peer_check',
+    orgId,
   });
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }
 
 export async function getAllChapterAssignmentsByUserId(
-  userId: number
+  userId: number,
+  orgId?: number
 ): Promise<Result<UserChapterAssignmentsByUserResponse>> {
   try {
     const [assignedResult, peerCheckResult] = await Promise.all([
-      getAssignedChaptersByUserId(userId),
-      getPeerCheckChaptersByUserId(userId),
+      getAssignedChaptersByUserId(userId, orgId),
+      getPeerCheckChaptersByUserId(userId, orgId),
     ]);
 
     if (!assignedResult.ok) return assignedResult;

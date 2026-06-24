@@ -219,9 +219,10 @@ function toMemberChapterAssignmentResponse(record: ChapterAssignmentWithProjectI
 export async function getChapterAssignmentsByUserId(
   userId: number,
   excludeProjectIds: number[] = [],
-  updatedAfter?: Date
+  updatedAfter?: Date,
+  orgId?: number
 ) {
-  const projectsResult = await userProjectsService.getProjectsByUserId(userId);
+  const projectsResult = await userProjectsService.getProjectsByUserId(userId, orgId);
   if (!projectsResult.ok) return projectsResult;
 
   const projectIds = projectsResult.data

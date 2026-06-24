@@ -4,7 +4,7 @@ import type { Permission } from '@/lib/permissions';
 import type { Grant, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { permissions, role_permissions, roles, user_roles } from '@/db/schema';
+import { organizations, permissions, role_permissions, roles, user_roles } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -47,6 +47,8 @@ export async function findGrantsByUserId(userId: number): Promise<Result<Grant[]
       .innerJoin(role_permissions, eq(role_permissions.roleId, user_roles.roleId))
       .innerJoin(permissions, eq(permissions.id, role_permissions.permissionId))
       .where(eq(user_roles.userId, userId));
+
+    logger.info({ userId, rowsCount: rows.length, rows }, 'DB rows for findGrantsByUserId');
     return ok(groupGrantRows(rows));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to load grants', context: { userId } });
@@ -75,7 +77,16 @@ export async function findRoleGrantsByUserIds(
   userIds: number[],
   filterOrgIds: number[] | 'ALL'
 ): Promise<
-  Map<number, Array<{ roleName: string; orgId: number | null; projectId: number | null }>>
+  Map<
+    number,
+    Array<{
+      roleId: number;
+      roleName: string;
+      orgId: number | null;
+      projectId: number | null;
+      orgName: string | null;
+    }>
+  >
 > {
   if (userIds.length === 0) return new Map();
 
@@ -90,23 +101,44 @@ export async function findRoleGrantsByUserIds(
       userId: user_roles.userId,
       orgId: user_roles.orgId,
       projectId: user_roles.projectId,
+      roleId: roles.id,
       roleName: roles.name,
+      orgName: organizations.name,
     })
     .from(user_roles)
     .innerJoin(roles, eq(roles.id, user_roles.roleId))
+    .leftJoin(organizations, eq(organizations.id, user_roles.orgId))
     .where(and(...conditions));
 
   const map = new Map<
     number,
-    Array<{ roleName: string; orgId: number | null; projectId: number | null }>
+    Array<{
+      roleId: number;
+      roleName: string;
+      orgId: number | null;
+      projectId: number | null;
+      orgName: string | null;
+    }>
   >();
   for (const row of rows) {
     if (!map.has(row.userId)) map.set(row.userId, []);
     map.get(row.userId)!.push({
+      roleId: row.roleId,
       roleName: row.roleName,
       orgId: row.orgId,
       projectId: row.projectId,
+      orgName: row.orgName,
     });
   }
+
+  logger.info(
+    {
+      userIds,
+      filterOrgIds,
+      result: Array.from(map.entries()),
+    },
+    'findRoleGrantsByUserIds returning map'
+  );
+
   return map;
 }

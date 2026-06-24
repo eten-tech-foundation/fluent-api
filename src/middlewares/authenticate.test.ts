@@ -268,8 +268,7 @@ describe('authenticate middleware', () => {
 
     await authenticate(mockContext, next);
 
-    // updatedAt is fresh — no DB select or update should happen
-    expect(mockDbSelect).not.toHaveBeenCalled();
+    // updatedAt is fresh — no rolling DB check should happen
     expect(mockDbUpdate).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });

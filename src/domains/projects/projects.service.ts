@@ -33,8 +33,8 @@ export function getProjectsForUser(user: AppPolicyUser) {
   return repo.findByOrgIdsOrProjectIds([...orgIds], [...projectIds]);
 }
 
-export async function getProjectsByUserId(userId: number, updatedAfter?: Date) {
-  return repo.getByUserId(userId, updatedAfter);
+export async function getProjectsByUserId(userId: number, orgId?: number, updatedAfter?: Date) {
+  return repo.getByUserId(userId, orgId, updatedAfter);
 }
 
 export function getProjectById(id: number) {

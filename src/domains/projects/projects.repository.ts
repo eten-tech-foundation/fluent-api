@@ -101,10 +101,11 @@ export async function findByOrgIdsOrProjectIds(
 
 export async function getByUserId(
   userId: number,
+  orgId?: number,
   updatedAfter?: Date
 ): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
-    const rawProjects = await baseJoinQuery()
+    let query = baseJoinQuery()
       .innerJoin(
         user_roles,
         and(
@@ -115,7 +116,17 @@ export async function getByUserId(
           )
         )
       )
-      .where(updatedAfter ? gt(projects.updatedAt, updatedAfter) : undefined);
+      .$dynamic();
+
+    const conditions = [];
+    if (orgId !== undefined) conditions.push(eq(projects.organization, orgId));
+    if (updatedAfter) conditions.push(gt(projects.updatedAt, updatedAfter));
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+
+    const rawProjects = await query;
 
     // Deduplicate: a user with both org-wide + project-pinned grants gets the same project twice
     const seen = new Map<number, (typeof rawProjects)[number]>();
