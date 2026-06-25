@@ -34,12 +34,7 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
       })
       .from(user_roles)
       .innerJoin(users, eq(user_roles.userId, users.id))
-      .where(
-        or(
-          eq(user_roles.projectId, projectId),
-          and(eq(user_roles.orgId, project.organization), isNull(user_roles.projectId))
-        )
-      )
+      .where(eq(user_roles.projectId, projectId))
       .orderBy(users.username);
 
     // Deduplicate by userId, keeping the grant with the highest privilege (lowest roleID)
