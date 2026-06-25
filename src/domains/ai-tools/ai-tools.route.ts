@@ -3,6 +3,7 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -65,7 +66,55 @@ const repeatedWordsRoute = createRoute({
 
 server.openapi(repeatedWordsRoute, async (c) => {
   const body = c.req.valid('json');
+
+  // TEMP DIAGNOSTIC (BUG: legitimate not working) — remove before PR.
+  // Logs the lang_code/lang_name the web client sent so we can confirm
+  // greek-room is keyed on the ISO code ("eng") and not a display name/blank.
+  // NOTE: dev logger is plain pino — signature is (mergeObject, message), so
+  // the object MUST come first or it is silently dropped.
+  logger.info(
+    {
+      lang_code: (body as { lang_code?: unknown }).lang_code,
+      lang_name: (body as { lang_name?: unknown }).lang_name,
+      project_id: (body as { project_id?: unknown }).project_id,
+      verseCount: Array.isArray((body as { verses?: unknown[] }).verses)
+        ? (body as { verses: unknown[] }).verses.length
+        : 0,
+    },
+    '[RW-DIAG] inbound repeated-words request'
+  );
+
   const result = await callRepeatedWords(body);
+
+  // TEMP DIAGNOSTIC (BUG: legitimate not working) — remove before PR.
+  // Logs each finding's repeated_word + legitimate flag returned by fluent-ai,
+  // so we can see whether greek-room itself marked it legitimate.
+  if (result.ok) {
+    const resultData = (
+      result.data as {
+        result?: { lang_code?: unknown; findings?: Array<Record<string, unknown>> };
+      }
+    ).result;
+    const findings = resultData?.findings ?? [];
+    logger.info(
+      {
+        status: (result.data as { status?: unknown }).status,
+        // lang_code echoed back by greek-room — compare against the inbound one.
+        echoed_lang_code: resultData?.lang_code,
+        findings: findings.map((f) => ({
+          repeated_word: f.repeated_word,
+          legitimate: f.legitimate,
+          snt_id: f.snt_id,
+        })),
+      },
+      '[RW-DIAG] fluent-ai response'
+    );
+  } else {
+    logger.warn(
+      { code: result.error.code, message: result.error.message },
+      '[RW-DIAG] fluent-ai error'
+    );
+  }
 
   if (!result.ok) {
     return c.json(

@@ -43,6 +43,7 @@ export async function getChapterAssignmentProgressByProject(projectId: number) {
     bookId: info.bookId,
     bookCode: info.bookCode,
     sourceLangCode: info.sourceLangCode ?? '',
+    targetLanguageCode: info.targetLangCode ?? '',
     assignedUser: info.assignedUserId
       ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
       : null,
@@ -181,6 +182,7 @@ export async function assignSelectedChapters(
           bookId: info.bookId,
           bookCode: info.bookCode,
           sourceLangCode: info.sourceLangCode ?? '',
+          targetLanguageCode: info.targetLangCode ?? '',
           assignedUser: info.assignedUserId
             ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
             : null,
