@@ -29,6 +29,10 @@ const getSelfSettingsRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.FORBIDDEN),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'
@@ -67,6 +71,10 @@ const saveSelfSettingsRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.FORBIDDEN),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),

@@ -1,6 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
-import type { userSettingsSchema } from '@/db/schema';
+import { userSettingsSchema } from '@/db/schema';
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
@@ -27,10 +27,15 @@ export type SaveUserSettingsRequest = z.infer<typeof saveUserSettingsRequestSche
 
 // ─── API response schema ──────────────────────────────────────────────────────
 
-// `settings: null` for a user with no row yet (mirrors editor-state — not a 404).
+// `settings` advertises the real `userSettingsSchema` shape (the allowed keys and
+// their enum values) rather than a generic object: the service's `toResponse`
+// already normalizes every stored blob through `userSettingsSchema` on read, so
+// the response body provably conforms to it — the spec should say so. Nullable for
+// a user with no row yet (mirrors editor-state — not a 404). (We intentionally do
+// NOT tighten the *request* schema; see the boundary-vs-service note above.)
 export const userSettingsResponseSchema = z
   .object({
-    settings: z.record(z.string(), z.unknown()).nullable(),
+    settings: userSettingsSchema.nullable(),
     updatedAt: z.string().nullable(),
   })
   .openapi('UserSettingsResponse');
