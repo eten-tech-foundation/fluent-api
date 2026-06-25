@@ -35,7 +35,9 @@ vi.mock('@/lib/services/permissions/permissions.service', () => ({
 }));
 
 // In-memory repository so the service logic (full-replace, `.catch({})`
-// normalization, toResponse, user isolation) is genuinely exercised.
+// normalization, toResponse, user isolation) is genuinely exercised. Tests can
+// also seed `store` directly to simulate a malformed/legacy stored blob that
+// never went through the write validator (see the read-path normalization test).
 const store = new Map<number, UserSettingsRow>();
 
 vi.mock('./self-settings.repository', () => ({
@@ -106,6 +108,14 @@ describe('gET /self/settings', () => {
     expect(res.status).toBe(401);
   });
 
+  it('returns 403 when the user account is inactive', async () => {
+    authenticateAs({ ...USER_A, status: 'inactive' as never });
+
+    const res = await getSettings();
+
+    expect(res.status).toBe(403);
+  });
+
   it('returns 200 with settings: null for a user with no row yet (not 404)', async () => {
     authenticateAs(USER_A);
 
@@ -139,6 +149,41 @@ describe('gET /self/settings', () => {
     const json = await res.json();
     expect(json.settings).toBeNull();
   });
+
+  it('normalizes a malformed/legacy stored blob to {} on read (.catch({}) tolerance)', async () => {
+    // Seed the store directly to simulate a row that never went through the write
+    // validator (e.g. written by an older app version or a manual edit). The whole
+    // blob is the wrong shape, so the tolerant read schema must degrade it to `{}`
+    // rather than leaking the unnormalized value through GET.
+    store.set(USER_A.id, {
+      settings: { legacyKey: 'whatever', checkIgnoredWordPairs: 'not-an-object' } as never,
+      updatedAt: new Date('2026-06-18T00:00:00.000Z'),
+    });
+    authenticateAs(USER_A);
+
+    const res = await getSettings();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.settings).toEqual({});
+  });
+
+  it('preserves a genuine null settings row (does not coerce null to {})', async () => {
+    // A nullable column with no settings yet must stay `null` — parsing `null`
+    // through `.catch({})` would yield `{}` and break the "settings: null when no
+    // row" contract, so the read path guards null before parsing.
+    store.set(USER_A.id, {
+      settings: null,
+      updatedAt: new Date('2026-06-18T00:00:00.000Z'),
+    });
+    authenticateAs(USER_A);
+
+    const res = await getSettings();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.settings).toBeNull();
+  });
 });
 
 describe('pUT /self/settings', () => {
@@ -153,6 +198,14 @@ describe('pUT /self/settings', () => {
     const res = await putSettings({ settings: {} });
 
     expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when the user account is inactive', async () => {
+    authenticateAs({ ...USER_A, status: 'inactive' as never });
+
+    const res = await putSettings({ settings: {} });
+
+    expect(res.status).toBe(403);
   });
 
   it('creates then full-replaces (keys omitted on the second PUT are gone)', async () => {

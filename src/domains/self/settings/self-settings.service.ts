@@ -1,4 +1,4 @@
-import { userSettingsWriteSchema } from '@/db/schema';
+import { userSettingsSchema, userSettingsWriteSchema } from '@/db/schema';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { UserSettings, UserSettingsResponse } from './self-settings.types';
@@ -8,7 +8,14 @@ import * as repo from './self-settings.repository';
 function toResponse(row: repo.UserSettingsRow | null): UserSettingsResponse {
   if (!row) return { settings: null, updatedAt: null };
   return {
-    settings: row.settings ?? null,
+    // Normalize the stored JSONB blob through the tolerant read schema
+    // (`userSettingsSchema = userSettingsObjectSchema.catch({})`). The `jsonb`
+    // column accepts any JSON and Drizzle's `.$type<>()` is compile-time only, so
+    // a malformed/legacy stored blob must be re-validated on read — `.catch({})`
+    // degrades an unparseable shape to `{}` instead of leaking it (W8). A genuine
+    // `null` (no settings yet) is preserved: parsing `null` would yield `{}`,
+    // which would break the "settings: null when no row" contract.
+    settings: row.settings == null ? null : userSettingsSchema.parse(row.settings),
     updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
   };
 }
