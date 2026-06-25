@@ -1,4 +1,4 @@
-import { and, asc, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, lt, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -16,6 +16,12 @@ export async function upsertAndQueryFirstEditor(
 ): Promise<Result<PresenceResponse>> {
   try {
     return await db.transaction(async (tx) => {
+      // Serialize concurrent presence registrations for the same chapter so the
+      // first-editor check can't race: a near-simultaneous second registration
+      // must observe the first's committed row instead of both deciding they are
+      // first. The advisory lock is transaction-scoped and auto-released on commit.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${chapterAssignmentId}::bigint)`);
+
       const now = new Date();
       const staleTime = new Date(now.getTime() - STALE_THRESHOLD_MINUTES * 60 * 1000);
 
