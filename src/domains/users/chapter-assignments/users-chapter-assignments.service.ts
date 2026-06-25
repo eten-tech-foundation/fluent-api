@@ -13,20 +13,6 @@ import type {
 export function toResponse(
   assignment: ChapterAssignmentProgressInfo
 ): UserChapterAssignmentResponse {
-  // TEMP DIAGNOSTIC (BUG: legitimate not working) — remove before PR.
-  // Proves concretely what ISO code the API emits per assignment. If this logs
-  // '' (empty) the project's target_language FK doesn't resolve to a lang row
-  // with a non-null lang_code_iso_639_3; if it logs 'eng' the break is web-side.
-  logger.info(
-    {
-      assignmentId: assignment.assignmentId,
-      projectId: assignment.projectId,
-      targetLanguage: assignment.targetLanguage,
-      targetLangCode: assignment.targetLangCode,
-    },
-    '[RW-DIAG] toResponse targetLangCode'
-  );
-
   return {
     chapterAssignmentId: assignment.assignmentId,
     projectId: assignment.projectId,
