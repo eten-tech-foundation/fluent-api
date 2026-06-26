@@ -54,7 +54,7 @@ export async function upsertAndQueryFirstEditor(
         .from(active_chapter_editors)
         .innerJoin(users, eq(active_chapter_editors.userId, users.id))
         .where(eq(active_chapter_editors.chapterAssignmentId, chapterAssignmentId))
-        .orderBy(asc(active_chapter_editors.startedAt))
+        .orderBy(asc(active_chapter_editors.startedAt), asc(active_chapter_editors.userId))
         .limit(1);
 
       if (!firstEditor) {

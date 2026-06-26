@@ -38,6 +38,10 @@ const registerPresenceRoute = createRoute({
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(presenceResponseSchema, 'Presence registered successfully'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid chapter assignment ID'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -72,6 +76,10 @@ const removePresenceRoute = createRoute({
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Presence removed successfully' },
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid chapter assignment ID'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
