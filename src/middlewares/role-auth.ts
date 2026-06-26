@@ -85,3 +85,29 @@ export function requireSelf() {
     await next();
   };
 }
+
+/**
+ * 4. Admin-Only Placeholder Middleware
+ * Hard-denies actions that are intended to be administrator-only. No admin role
+ * exists yet, so these actions are denied for every authenticated user.
+ * Relies on authenticateUser running first, so unauthenticated callers get 401
+ * (not 403).
+ *
+ * TODO: replace with requirePermission(<admin permission>) once the admin role
+ * is introduced by the upcoming user-management changes.
+ */
+export function denyUntilAdminRole() {
+  return async (c: Context<AppBindings>, _next: Next) => {
+    const user = c.get('user');
+
+    if (!user) {
+      throw new HTTPException(HttpStatusCodes.UNAUTHORIZED, {
+        message: 'User not authenticated',
+      });
+    }
+
+    throw new HTTPException(HttpStatusCodes.FORBIDDEN, {
+      message: 'This action is restricted to administrators',
+    });
+  };
+}

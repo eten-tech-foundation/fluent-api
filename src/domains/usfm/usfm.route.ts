@@ -2,12 +2,14 @@ import { createRoute, z } from '@hono/zod-openapi';
 import { stream } from 'hono/streaming';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
+import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import type { USFMExportJob } from '@/lib/queue';
 
 import { fileExists, getExportFile } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as usfmService from './usfm.service';
@@ -63,11 +65,20 @@ const getExportableBooksRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/project-units/{projectUnitId}/usfm/books',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -76,6 +87,7 @@ const exportProjectUSFMRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -91,6 +103,14 @@ const exportProjectUSFMRoute = createRoute({
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Project not found'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -99,6 +119,7 @@ const exportProjectUSFMAsyncRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm/async',
+  middleware: [authenticateUser] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -106,6 +127,14 @@ const exportProjectUSFMAsyncRoute = createRoute({
   responses: {
     [HttpStatusCodes.ACCEPTED]: jsonContent(exportAsyncResponseSchema, 'Export job queued'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -114,6 +143,7 @@ const getJobStatusRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/jobs/{jobId}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
       jobId: z.string(),
@@ -122,6 +152,14 @@ const getJobStatusRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(jobStatusResponseSchema, 'Job status'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Job not found'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -130,6 +168,7 @@ const downloadExportRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/downloads/{filename}',
+  middleware: [authenticateUser] as const,
   request: {
     params: filenameParam,
   },
@@ -144,6 +183,14 @@ const downloadExportRoute = createRoute({
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'File not found or expired'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Invalid filename'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
   },
 });
 
