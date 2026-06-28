@@ -469,6 +469,25 @@ export const editorStateResourcesSchema = z
 // ─── User-global settings (Fluent preference store; W2/W7) ───────────────────
 // One row per user, a single Zod-typed JSONB blob. `.catch({})` so unknown/old
 // shapes parse as empty rather than throwing (W8). Surfaced via GET/PUT /self/settings.
+//
+// ⚠️ IMPLEMENTATION NOTE — full-replace today; ADD MERGE BEFORE A SECOND KEY ⚠️
+// `PUT /self/settings` is a deliberate **full-replace** of the whole blob
+// (last-writer-wins; no PATCH/ETags — §8.1/§8.3). That is safe ONLY while there
+// is exactly ONE key (`checkIgnoredWordPairs`): the client just GETs, edits the
+// one key, and PUTs the whole blob back. There is no server-side merge.
+//
+// Because this is a plain `z.object`, the write schema **strips any unknown
+// key**, so a sibling setting cannot even reach the store today — which means
+// this object is the *only* gate: you literally cannot introduce a second
+// setting without editing THIS schema. So, before adding any second key here,
+// you MUST also make the write path merge instead of replace, or the
+// full-replace PUT will silently drop whichever key the caller didn't send.
+// Recommended at that point (in `self-settings.service.upsertSettings`):
+//   1. GET the existing stored blob for the user.
+//   2. Shallow-merge the incoming keys over it (set provided keys; treat an
+//      explicit `null` value as "delete this key"; leave absent keys untouched).
+//   3. Persist the merged blob.
+// Until then, keep the single-key full-replace contract.
 const userSettingsObjectSchema = z.object({
   // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
   // pair string (e.g. "the the"); applies across all of the user's projects.
