@@ -35,6 +35,17 @@ export async function upsertSettings(userId: number, rawSettings: unknown) {
   if (!parsed.success) return err(ErrorCode.INVALID_REFERENCE);
 
   const settings: UserSettings = parsed.data;
+
+  // ⚠️ FULL-REPLACE — intentional WHILE there is a single settings key ⚠️
+  // `repo.upsert` overwrites the whole `settings` JSONB blob (no server-side
+  // merge). The client GETs, edits its one key, and PUTs the whole blob back
+  // (last-writer-wins; §8.1/§8.3). This is safe ONLY because `userSettings*`
+  // currently has exactly one key (`checkIgnoredWordPairs`) — see the gate note
+  // on `userSettingsObjectSchema` in `db/schema.ts`. BEFORE a second key is
+  // added there, this function MUST read-merge-write instead: load the existing
+  // blob, shallow-merge the incoming keys over it (an explicit `null` value
+  // deletes that key; absent keys stay untouched), then persist — otherwise this
+  // full-replace silently drops whatever key the caller didn't send.
   const result = await repo.upsert({ userId, settings });
   if (!result.ok) return result;
   return ok(toResponse(result.data));
