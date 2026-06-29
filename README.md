@@ -72,6 +72,18 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
    npm install
    ```
 
+   > **Note (Node 24+):** A transitive dependency (`tree-sitter`, pulled in by
+   > `@antfu/eslint-config`'s markdown formatter) compiles a native addon
+   > against Node's V8 headers, which require C++20. If `npm install` fails
+   > with a `node-gyp` build error such as `error: "C++20 or later required."`,
+   > run the install with the C++20 standard enabled (this is what CI does):
+   >
+   > ```bash
+   > CXXFLAGS="-std=c++20" npm install
+   > ```
+   >
+   > This requires a C++ toolchain (e.g. `build-essential` on Debian/Ubuntu).
+
 3. **Set up environment variables:**
 
    ```bash

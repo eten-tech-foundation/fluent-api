@@ -82,15 +82,15 @@
     {
       "idx": 11,
       "version": "7",
-      "when": 1779911602173,
-      "tag": "0011_add_is_ai_enabled_to_chapter_assignments",
+      "when": 1779441453059,
+      "tag": "0011_add_is_mobile_to_auth_session",
       "breakpoints": true
     },
     {
       "idx": 12,
       "version": "7",
-      "when": 1782736413279,
-      "tag": "0012_add_ai_tables",
+      "when": 1782738358988,
+      "tag": "0012_add_ai_features",
       "breakpoints": true
     }
   ]

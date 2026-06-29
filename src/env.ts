@@ -34,9 +34,17 @@ const EnvSchema = z.object({
   AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(1),
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
 
-  // AI HTTP Integration
-  AI_SERVICE_BASE_URL: z.string().url(),
-  AI_SERVICE_API_KEY: z.string().min(1),
+  // ── Fluent-AI integration ──────────────────────────────────────────
+  // Base URL of the fluent-ai service (no trailing slash, no path suffix).
+  // Ecosystem mode (via fluent-platform): http://ai:8200 — standalone: http://localhost:8200
+  FLUENT_AI_URL: z.string().url(),
+  // Shared API key for calling fluent-ai (matches a row in fluent-ai's ai_api_keys table).
+  FLUENT_AI_KEY: z.string().min(1),
+  // Path prefix that fluent-ai mounts its routers under, BETWEEN the base URL and
+  // the per-tool path.
+  FLUENT_AI_API_PREFIX: z.string().default(''),
+
+  // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 });
 

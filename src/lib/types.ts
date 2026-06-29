@@ -72,6 +72,9 @@ export const ErrorCode = {
   // External service errors
   AUTH_ERROR: 'AUTH_ERROR',
   EMAIL_SERVICE_ERROR: 'EMAIL_SERVICE_ERROR',
+  // AI-tools (fluent-ai) integration errors — both map to HTTP 502 (see §10.1)
+  AI_SERVICE_UNAVAILABLE: 'AI_SERVICE_UNAVAILABLE',
+  AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
 } as const;
@@ -109,6 +112,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   INVALID_BIBLE_BOOKS: 'One or more requested books do not belong to the specified Bible',
   AUTH_ERROR: 'Authentication service error',
   EMAIL_SERVICE_ERROR: 'Email service error',
+  AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
+  AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
   LANGUAGE_NOT_FOUND: 'Language not found',
 };
 
@@ -118,6 +123,9 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   INTERNAL_ERROR: 500,
   AUTH_ERROR: 500,
   EMAIL_SERVICE_ERROR: 500,
+  // AI-tools upstream failures surface as 502 Bad Gateway (see §10.1)
+  AI_SERVICE_UNAVAILABLE: 502,
+  AI_TOOL_EXECUTION_FAILED: 502,
   LANGUAGE_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,

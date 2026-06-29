@@ -1,0 +1,267 @@
+{
+"books": [
+	{
+		"code" : "GEN",
+		"eng_display_name" : "Genesis"
+	},
+	{
+		"code" : "EXO",
+		"eng_display_name" : "Exodus"
+	},
+	{
+		"code" : "LEV",
+		"eng_display_name" : "Leviticus"
+	},
+	{
+		"code" : "NUM",
+		"eng_display_name" : "Numbers"
+	},
+	{
+		"code" : "DEU",
+		"eng_display_name" : "Deuteronomy"
+	},
+	{
+		"code" : "JOS",
+		"eng_display_name" : "Joshua"
+	},
+	{
+		"code" : "JDG",
+		"eng_display_name" : "Judges"
+	},
+	{
+		"code" : "RUT",
+		"eng_display_name" : "Ruth"
+	},
+	{
+		"code" : "1SA",
+		"eng_display_name" : "1 Samuel"
+	},
+	{
+		"code" : "2SA",
+		"eng_display_name" : "2 Samuel"
+	},
+	{
+		"code" : "1KI",
+		"eng_display_name" : "1 Kings"
+	},
+	{
+		"code" : "2KI",
+		"eng_display_name" : "2 Kings"
+	},
+	{
+		"code" : "1CH",
+		"eng_display_name" : "1 Chronicles"
+	},
+	{
+		"code" : "2CH",
+		"eng_display_name" : "2 Chronicles"
+	},
+	{
+		"code" : "EZR",
+		"eng_display_name" : "Ezra"
+	},
+	{
+		"code" : "NEH",
+		"eng_display_name" : "Nehemiah"
+	},
+	{
+		"code" : "EST",
+		"eng_display_name" : "Esther"
+	},
+	{
+		"code" : "JOB",
+		"eng_display_name" : "Job"
+	},
+	{
+		"code" : "PSA",
+		"eng_display_name" : "Psalms"
+	},
+	{
+		"code" : "PRO",
+		"eng_display_name" : "Proverbs"
+	},
+	{
+		"code" : "ECC",
+		"eng_display_name" : "Ecclesiastes"
+	},
+	{
+		"code" : "SNG",
+		"eng_display_name" : "Song of Solomon"
+	},
+	{
+		"code" : "ISA",
+		"eng_display_name" : "Isaiah"
+	},
+	{
+		"code" : "JER",
+		"eng_display_name" : "Jeremiah"
+	},
+	{
+		"code" : "LAM",
+		"eng_display_name" : "Lamentations"
+	},
+	{
+		"code" : "EZK",
+		"eng_display_name" : "Ezekiel"
+	},
+	{
+		"code" : "DAN",
+		"eng_display_name" : "Daniel"
+	},
+	{
+		"code" : "HOS",
+		"eng_display_name" : "Hosea"
+	},
+	{
+		"code" : "JOL",
+		"eng_display_name" : "Joel"
+	},
+	{
+		"code" : "AMO",
+		"eng_display_name" : "Amos"
+	},
+	{
+		"code" : "OBA",
+		"eng_display_name" : "Obadiah"
+	},
+	{
+		"code" : "JON",
+		"eng_display_name" : "Jonah"
+	},
+	{
+		"code" : "MIC",
+		"eng_display_name" : "Micah"
+	},
+	{
+		"code" : "NAM",
+		"eng_display_name" : "Nahum"
+	},
+	{
+		"code" : "HAB",
+		"eng_display_name" : "Habakkuk"
+	},
+	{
+		"code" : "ZEP",
+		"eng_display_name" : "Zephaniah"
+	},
+	{
+		"code" : "HAG",
+		"eng_display_name" : "Haggai"
+	},
+	{
+		"code" : "ZEC",
+		"eng_display_name" : "Zechariah"
+	},
+	{
+		"code" : "MAL",
+		"eng_display_name" : "Malachi"
+	},
+	{
+		"code" : "MAT",
+		"eng_display_name" : "Matthew"
+	},
+	{
+		"code" : "MRK",
+		"eng_display_name" : "Mark"
+	},
+	{
+		"code" : "LUK",
+		"eng_display_name" : "Luke"
+	},
+	{
+		"code" : "JHN",
+		"eng_display_name" : "John"
+	},
+	{
+		"code" : "ACT",
+		"eng_display_name" : "Acts"
+	},
+	{
+		"code" : "ROM",
+		"eng_display_name" : "Romans"
+	},
+	{
+		"code" : "1CO",
+		"eng_display_name" : "1 Corinthians"
+	},
+	{
+		"code" : "2CO",
+		"eng_display_name" : "2 Corinthians"
+	},
+	{
+		"code" : "GAL",
+		"eng_display_name" : "Galatians"
+	},
+	{
+		"code" : "EPH",
+		"eng_display_name" : "Ephesians"
+	},
+	{
+		"code" : "PHP",
+		"eng_display_name" : "Philippians"
+	},
+	{
+		"code" : "COL",
+		"eng_display_name" : "Colossians"
+	},
+	{
+		"code" : "1TH",
+		"eng_display_name" : "1 Thessalonians"
+	},
+	{
+		"code" : "2TH",
+		"eng_display_name" : "2 Thessalonians"
+	},
+	{
+		"code" : "1TI",
+		"eng_display_name" : "1 Timothy"
+	},
+	{
+		"code" : "2TI",
+		"eng_display_name" : "2 Timothy"
+	},
+	{
+		"code" : "TIT",
+		"eng_display_name" : "Titus"
+	},
+	{
+		"code" : "PHM",
+		"eng_display_name" : "Philemon"
+	},
+	{
+		"code" : "HEB",
+		"eng_display_name" : "Hebrews"
+	},
+	{
+		"code" : "JAS",
+		"eng_display_name" : "James"
+	},
+	{
+		"code" : "1PE",
+		"eng_display_name" : "1 Peter"
+	},
+	{
+		"code" : "2PE",
+		"eng_display_name" : "2 Peter"
+	},
+	{
+		"code" : "1JN",
+		"eng_display_name" : "1 John"
+	},
+	{
+		"code" : "2JN",
+		"eng_display_name" : "2 John"
+	},
+	{
+		"code" : "3JN",
+		"eng_display_name" : "3 John"
+	},
+	{
+		"code" : "JUD",
+		"eng_display_name" : "Jude"
+	},
+	{
+		"code" : "REV",
+		"eng_display_name" : "Revelation"
+	}
+]}

@@ -1,5 +1,5 @@
 {
-  "id": "d0d20803-a8ad-41e1-98d8-eed5fcf618a5",
+  "id": "f6a47766-9387-4565-93c4-9237d431a0e4",
   "prevId": "215ac9fb-e170-4975-9f11-77b471673625",
   "version": "7",
   "dialect": "postgresql",
@@ -352,6 +352,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "is_mobile": {
+          "name": "is_mobile",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {},
@@ -1125,13 +1132,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'not_started'"
-        },
-        "is_ai_enabled": {
-          "name": "is_ai_enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "submitted_time": {
           "name": "submitted_time",

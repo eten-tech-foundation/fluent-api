@@ -1,0 +1,27 @@
+{
+"languages": [
+	{
+		"lang_name" : "Varli Davri",
+		"lang_name_localized" : "વારલી દવરી",
+		"lang_code_iso_639_3" : "vav",
+		"script_direction" : "ltr"
+	},
+	{
+		"lang_name" : "Kachi Koli",
+		"lang_name_localized" : "કાચી કોલી",
+		"lang_code_iso_639_3" : "gjk",
+		"script_direction" : "ltr"
+	},
+	{
+		"lang_name" : "Gujarati",
+		"lang_name_localized" : "ગુજરાતી",
+		"lang_code_iso_639_3" : "guj",
+		"script_direction" : "ltr"
+	},
+	{
+		"lang_name" : "Kukna",
+		"lang_name_localized" : "कुक्णा‎",
+		"lang_code_iso_639_3" : "kex",
+		"script_direction" : "ltr"
+	}
+]}

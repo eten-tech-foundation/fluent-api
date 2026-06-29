@@ -11,14 +11,14 @@ interface AiSuggestionTriggerRequest {
 }
 
 export async function triggerAiSuggestions(jobs: AiSuggestionTriggerRequest[]): Promise<void> {
-  const url = `${env.AI_SERVICE_BASE_URL}/suggestions`;
+  const url = `${env.FLUENT_AI_URL}${env.FLUENT_AI_API_PREFIX}/suggestions`;
 
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': env.AI_SERVICE_API_KEY,
+        'X-API-Key': env.FLUENT_AI_KEY,
       },
       body: JSON.stringify(jobs),
     });

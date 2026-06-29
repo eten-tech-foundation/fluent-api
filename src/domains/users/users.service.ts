@@ -2,7 +2,13 @@ import type { Result } from '@/lib/types';
 
 import { ok } from '@/lib/types';
 
-import type { CreateUserInput, UpdateUserInput, User, UserResponse } from './users.types';
+import type {
+  CreateUserInput,
+  CreateUserWithAuthInput,
+  UpdateUserInput,
+  User,
+  UserResponse,
+} from './users.types';
 
 import * as repo from './users.repository';
 
@@ -75,6 +81,14 @@ export async function getUserByEmailOrUsername(identifier: string): Promise<Resu
 // ─── Writes ───────────────────────────────────────────────────────────────────
 
 export async function createUser(input: CreateUserInput): Promise<Result<UserResponse>> {
+  const result = await repo.insert(input);
+  if (!result.ok) return result;
+  return ok(toUserResponse(result.data));
+}
+
+export async function createUserWithAuth(
+  input: CreateUserWithAuthInput
+): Promise<Result<UserResponse>> {
   const result = await repo.insert(input);
   if (!result.ok) return result;
   return ok(toUserResponse(result.data));

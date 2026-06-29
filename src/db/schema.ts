@@ -83,6 +83,9 @@ export const authSession = pgTable('auth_session', {
     .references(() => authUser.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  // Durably flags mobile sessions at sign-in time.
+  // Avoids per-request UA re-parsing for rolling logic.
+  isMobile: boolean('is_mobile').notNull().default(false),
 });
 
 export const authAccount = pgTable('auth_account', {

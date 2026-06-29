@@ -1,1 +1,0 @@
-ALTER TABLE "chapter_assignments" ADD COLUMN "is_ai_enabled" boolean DEFAULT false NOT NULL;
