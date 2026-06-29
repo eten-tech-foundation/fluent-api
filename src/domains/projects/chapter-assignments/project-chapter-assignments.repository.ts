@@ -136,6 +136,7 @@ export async function getByProjects(
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
+        isAiEnabled: chapter_assignments.isAiEnabled,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
       })
