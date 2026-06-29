@@ -102,19 +102,19 @@ Step 9 ─ UI calls GET /ai-suggestions?bibleTextIds=...
 
 ### Who Reads What — Data Ownership Table
 
-| Data | Who Owns It | Who Reads It | How |
-|------|------------|-------------|-----|
-| `bible_texts`, `books`, `languages` | **API** (public schema) | **API only** | Direct SQL queries |
-| `projects`, `project_units` | **API** (public schema) | **API only** | Direct SQL queries |
-| `translated_verses` | **API** (public schema) | **API only** | Direct SQL queries |
-| `ai_suggestions` | **API** (public schema, moved from ai schema) | **API only** | Direct SQL queries |
-| `ai_suggestion_usage_log` | **API** (public schema, moved from ai schema) | **API only** | Direct SQL queries |
-| `jobs` (formerly `ai_suggestion_jobs`) | **AI** (ai schema) | **AI only** | Direct SQL queries |
-| `api_keys` | **AI** (ai schema) | **AI only** | Direct SQL queries |
-| Translation context (FTS + proximity results) | Computed by **API** | Consumed by **AI** | **HTTP** — `POST /internal/suggestion-context` |
-| Source verses to translate | Owned by **API** | Consumed by **AI** | **HTTP** — returned in suggestion-context response |
-| Generated suggestions | Produced by **AI** | Stored by **API** | **HTTP** — `POST /internal/ai-suggestions` |
-| Trigger "please translate these verses" | Produced by **API** | Consumed by **AI** | **HTTP** — `POST /suggestions` |
+| Data                                          | Who Owns It                                   | Who Reads It       | How                                                |
+| --------------------------------------------- | --------------------------------------------- | ------------------ | -------------------------------------------------- |
+| `bible_texts`, `books`, `languages`           | **API** (public schema)                       | **API only**       | Direct SQL queries                                 |
+| `projects`, `project_units`                   | **API** (public schema)                       | **API only**       | Direct SQL queries                                 |
+| `translated_verses`                           | **API** (public schema)                       | **API only**       | Direct SQL queries                                 |
+| `ai_suggestions`                              | **API** (public schema, moved from ai schema) | **API only**       | Direct SQL queries                                 |
+| `ai_suggestion_usage_log`                     | **API** (public schema, moved from ai schema) | **API only**       | Direct SQL queries                                 |
+| `jobs` (formerly `ai_suggestion_jobs`)        | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
+| `api_keys`                                    | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
+| Translation context (FTS + proximity results) | Computed by **API**                           | Consumed by **AI** | **HTTP** — `POST /internal/suggestion-context`     |
+| Source verses to translate                    | Owned by **API**                              | Consumed by **AI** | **HTTP** — returned in suggestion-context response |
+| Generated suggestions                         | Produced by **AI**                            | Stored by **API**  | **HTTP** — `POST /internal/ai-suggestions`         |
+| Trigger "please translate these verses"       | Produced by **API**                           | Consumed by **AI** | **HTTP** — `POST /suggestions`                     |
 
 ### Key Difference
 
@@ -228,15 +228,14 @@ If this returns a row, there are at least `threshold` non-empty translations ava
 
 Each pg-boss job payload is an array of individual verse requests:
 
-```typescript
-// One item per verse
+```json
 {
-  projectUnitId: number,
-  bibleId: number,
-  bookCode: string,       // e.g. "MAT"
-  chapterNumber: number,  // e.g. 5
-  verseStart: number,     // e.g. 3
-  verseEnd: number,       // e.g. 3 (one verse per job item)
+  "projectUnitId": 42,
+  "bibleId": 1,
+  "bookCode": "MAT",
+  "chapterNumber": 5,
+  "verseStart": 3,
+  "verseEnd": 3
 }
 ```
 
@@ -327,12 +326,14 @@ The repository function `getSuggestionContextData()` performs a sophisticated mu
 **File (API):** `domains/ai-internal/ai-internal.repository.ts`
 
 #### Step 1: Resolve Project Languages
+
 ```
 Look up the project's source and target language IDs
 and the organization from project_units → projects.
 ```
 
 #### Step 2: Resolve FTS Configuration
+
 ```
 Map the source language code (e.g. "eng") to a PostgreSQL
 full-text search dictionary (e.g. "english").
@@ -341,12 +342,14 @@ Gujarati) fall back to "simple" (whitespace tokenization).
 ```
 
 #### Step 3: Get the Target Verse Text
+
 ```
 Fetch the source text of the specific verse being translated.
 This text becomes the FTS search query.
 ```
 
 #### Step 4A: Full-Text Search (FTS)
+
 ```sql
 -- Find existing translations that are textually similar to the verse being translated
 SELECT bible_texts.*, translated_verses.content
@@ -367,6 +370,7 @@ LIMIT 50
 This finds verses with similar vocabulary to serve as relevant translation memory.
 
 #### Step 4B: Proximity Search (Backfill)
+
 ```sql
 -- Fill remaining slots with nearby verses (same chapter first, then nearby chapters)
 SELECT ... FROM translated_verses
@@ -379,6 +383,7 @@ LIMIT (100 - fts_count)
 ```
 
 #### Step 5: Fetch Source Verses
+
 ```sql
 -- Get the actual verse texts that need translation
 SELECT id, verse_number, text FROM bible_texts
@@ -423,6 +428,7 @@ The worker assembles a structured prompt for Google Gemini using the context and
 **File (AI):** `services/translation_service.py`
 
 #### System Instruction
+
 ```
 You are an expert Bible translator, fluent in biblical languages,
 English, and {target_language_name}. Your goal is to translate
@@ -439,6 +445,7 @@ CRITICAL INSTRUCTIONS:
 ```
 
 #### User Prompt
+
 ```xml
 <translation_memory>
 [Verse ID: mat_5_1]
@@ -468,6 +475,7 @@ Respond ONLY with a valid JSON object matching this schema:
 ```
 
 #### LLM Response
+
 ```json
 {
   "translations": [
@@ -532,11 +540,13 @@ GET /ai-suggestions?projectUnitId=42&bibleTextIds=12345,12346,12347
 **File (API):** `ai-suggestions.route.ts` + `ai-suggestions.service.ts`
 
 ### Authorization Flow
+
 1. `authenticateUser` — Validates the user's session
 2. `requirePermission(PERMISSIONS.PROJECT_VIEW)` — Checks RBAC
 3. `requireProjectUnitAccess` — Verifies the user is a member of the project that owns this project unit (prevents cross-tenant access)
 
 ### Query
+
 ```sql
 SELECT * FROM ai_suggestions
 WHERE project_unit_id = :projectUnitId
@@ -544,6 +554,7 @@ WHERE project_unit_id = :projectUnitId
 ```
 
 ### Response
+
 ```json
 {
   "data": [
@@ -571,15 +582,15 @@ This is stored in `ai_suggestion_usage_log` for analytics.
 
 ## Key Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| **HTTP-only communication** | No shared database between services. Either can change its schema independently. |
-| **pg-boss queue** | At-least-once delivery with retry semantics. If the API crashes after committing a chapter assignment but before queueing, the worst case is a missed trigger (not data corruption). |
-| **Idempotent endpoints** | Dedup keys on the AI side and `ON CONFLICT DO UPDATE` on the API side ensure safe retries. |
-| **FTS lives in the API** | The context retrieval logic (full-text search + proximity) runs against the API's own database. The AI service never touches `bible_texts` or `translated_verses`. |
-| **Two separate auth keys** | `AI_SERVICE_API_KEY` (API→AI) and `AI_INBOUND_SERVICE_KEY` (AI→API) allow independent rotation and scoped blast radius. |
-| **Activation threshold** | AI won't generate suggestions until enough human translations exist for the language pair. This prevents low-quality outputs when there's no translation memory. |
-| **Verse-level granularity** | Each verse is its own job item. This allows fine-grained retry (one verse failing doesn't block others) and deduplication. |
+| Decision                    | Rationale                                                                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **HTTP-only communication** | No shared database between services. Either can change its schema independently.                                                                                                     |
+| **pg-boss queue**           | At-least-once delivery with retry semantics. If the API crashes after committing a chapter assignment but before queueing, the worst case is a missed trigger (not data corruption). |
+| **Idempotent endpoints**    | Dedup keys on the AI side and `ON CONFLICT DO UPDATE` on the API side ensure safe retries.                                                                                           |
+| **FTS lives in the API**    | The context retrieval logic (full-text search + proximity) runs against the API's own database. The AI service never touches `bible_texts` or `translated_verses`.                   |
+| **Two separate auth keys**  | `AI_SERVICE_API_KEY` (API→AI) and `AI_INBOUND_SERVICE_KEY` (AI→API) allow independent rotation and scoped blast radius.                                                              |
+| **Activation threshold**    | AI won't generate suggestions until enough human translations exist for the language pair. This prevents low-quality outputs when there's no translation memory.                     |
+| **Verse-level granularity** | Each verse is its own job item. This allows fine-grained retry (one verse failing doesn't block others) and deduplication.                                                           |
 
 ---
 
@@ -587,21 +598,21 @@ This is stored in `ai_suggestion_usage_log` for analytics.
 
 ### fluent-api
 
-| Variable | Purpose |
-|----------|---------|
-| `AI_SERVICE_BASE_URL` | URL of the fluent-ai service (e.g. `http://fluent-ai:8200`) |
-| `AI_SERVICE_API_KEY` | Sent as `X-API-Key` header when triggering AI |
-| `AI_INBOUND_SERVICE_KEY` | Expected in `Authorization: Bearer` from AI on `/internal/*` calls |
-| `AI_ACTIVATION_THRESHOLD_VERSES` | Min translated verses needed before AI kicks in |
-| `AI_DEFAULT_LOOKAHEAD` | How many verses ahead to pre-generate during drafting |
-| `AI_INITIAL_QUEUE_COUNT` | How many verses to queue when a chapter is first assigned |
-| `AI_MAX_REQUESTED_BIBLE_TEXT_IDS` | Max verse IDs per GET request (rate limit) |
+| Variable                          | Purpose                                                            |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `AI_SERVICE_BASE_URL`             | URL of the fluent-ai service (e.g. `http://fluent-ai:8200`)        |
+| `AI_SERVICE_API_KEY`              | Sent as `X-API-Key` header when triggering AI                      |
+| `AI_INBOUND_SERVICE_KEY`          | Expected in `Authorization: Bearer` from AI on `/internal/*` calls |
+| `AI_ACTIVATION_THRESHOLD_VERSES`  | Min translated verses needed before AI kicks in                    |
+| `AI_DEFAULT_LOOKAHEAD`            | How many verses ahead to pre-generate during drafting              |
+| `AI_INITIAL_QUEUE_COUNT`          | How many verses to queue when a chapter is first assigned          |
+| `AI_MAX_REQUESTED_BIBLE_TEXT_IDS` | Max verse IDs per GET request (rate limit)                         |
 
 ### fluent-ai
 
-| Variable | Purpose |
-|----------|---------|
-| `API_BASE_URL` | URL of the fluent-api service (e.g. `http://fluent-api:9999`) |
-| `API_SERVICE_KEY` | Must match `AI_INBOUND_SERVICE_KEY` above |
-| `GOOGLE_AI_API_KEY` | API key for Google Gemini |
-| `GOOGLE_AI_MODEL` | Model name (e.g. `gemini-2.5-flash-lite`) |
+| Variable            | Purpose                                                       |
+| ------------------- | ------------------------------------------------------------- |
+| `API_BASE_URL`      | URL of the fluent-api service (e.g. `http://fluent-api:9999`) |
+| `API_SERVICE_KEY`   | Must match `AI_INBOUND_SERVICE_KEY` above                     |
+| `GOOGLE_AI_API_KEY` | API key for Google Gemini                                     |
+| `GOOGLE_AI_MODEL`   | Model name (e.g. `gemini-2.5-flash-lite`)                     |

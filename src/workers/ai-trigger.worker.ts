@@ -11,9 +11,7 @@ interface JobPayload {
   data: AiSuggestionTriggerJob[];
 }
 
-export async function registerAiTriggerWorker(
-  boss: PgBoss,
-): Promise<void> {
+export async function registerAiTriggerWorker(boss: PgBoss): Promise<void> {
   logger.info('Registering AI suggestion trigger worker', {
     queueName: QUEUE_NAMES.AI_SUGGESTION_TRIGGER,
   });
@@ -29,12 +27,8 @@ export async function registerAiTriggerWorker(
 
       const results = await Promise.allSettled(
         jobs.map(async (job) => {
-          try {
-            await triggerAiSuggestions(job.data);
-            return { success: true };
-          } catch (error) {
-            throw error;
-          }
+          await triggerAiSuggestions(job.data);
+          return { success: true };
         })
       );
 

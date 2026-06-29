@@ -2,6 +2,7 @@ import type { Result, User } from '@/lib/types';
 
 import env from '@/env';
 import { logger } from '@/lib/logger';
+import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
@@ -20,7 +21,6 @@ import {
   hasReachedAiActivationThreshold,
   logAiSuggestionUsage,
 } from './ai-suggestions.repository';
-import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 
 export async function trackUsage(user: User, data: TrackUsageRequest): Promise<Result<void>> {
   return logAiSuggestionUsage(user.id, data.bibleTextId, data.projectUnitId, data.wasUsed);

@@ -6,8 +6,8 @@ import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
-import { registerUSFMExportWorker } from './usfm-export.worker';
 import { registerAiTriggerWorker } from './ai-trigger.worker';
+import { registerUSFMExportWorker } from './usfm-export.worker';
 
 interface WorkerMetrics {
   startTime: number;

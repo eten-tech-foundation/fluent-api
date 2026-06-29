@@ -43,12 +43,12 @@ No SSE / WebSockets. The client continues to discover finished suggestions by
 
 ## Decisions already made (do not re-litigate)
 
-| Topic | Decision |
-| --- | --- |
+| Topic                        | Decision                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Translation-memory retrieval | **API runs the FTS/TM query server-side** and returns ready-to-use context to AI over HTTP. The heavy SQL stays where the data lives. |
-| How API triggers AI | **API enqueues its own pg-boss job after commit; a worker makes the HTTP call.** No network call inside the request DB transaction. |
-| AI's queue | AI keeps a **general-purpose** job table in its own schema. The API never touches it. |
-| Existing AI data | **Greenfield** — `ai.ai_suggestions` / `ai.ai_suggestion_usage_log` can be dropped and recreated under API ownership. No backfill. |
+| How API triggers AI          | **API enqueues its own pg-boss job after commit; a worker makes the HTTP call.** No network call inside the request DB transaction.   |
+| AI's queue                   | AI keeps a **general-purpose** job table in its own schema. The API never touches it.                                                 |
+| Existing AI data             | **Greenfield** — `ai.ai_suggestions` / `ai.ai_suggestion_usage_log` can be dropped and recreated under API ownership. No backfill.    |
 
 ## Scope of API-side work
 
@@ -97,7 +97,7 @@ called from the `/ai-suggestions/queue-next` route). A network call must not
 live inside a DB transaction, so we move the trigger to an **outbox-style
 pg-boss job** that fires after commit.
 
-Keep the *decision* logic where it is — `hasReachedAiActivationThreshold`,
+Keep the _decision_ logic where it is — `hasReachedAiActivationThreshold`,
 `getChapterAssignmentAiStatus`, `findNextUntranslatedVerses`,
 `queueNextVersesForAssignment`. These read API-owned data and stay in
 `ai-suggestions.service.ts`. Only the final step changes: instead of
@@ -107,7 +107,7 @@ pg-boss job carrying the same job specs.
 - Add a queue name + payload type in `src/lib/queue.ts`, e.g.
   `QUEUE_NAMES.AI_SUGGESTION_TRIGGER`, payload shape matching the existing job
   rows: `{ projectUnitId, bibleId, bookCode, chapterNumber, verseStart,
-  verseEnd }[]` (batch them into one job to preserve the current "queue several
+verseEnd }[]` (batch them into one job to preserve the current "queue several
   verses at once" behavior).
 - Add a worker (mirroring `src/workers/usfm-export.worker.ts`) that consumes
   that queue and POSTs the job specs to AI's trigger endpoint
@@ -151,7 +151,7 @@ verseStart, verseEnd }`, it returns everything the AI worker needs in one shot:
   `context_retrieval.py`; it is being **moved into the API** because the API
   owns `bible_texts` + `translated_verses`);
 - the **target language name** — the join `project_units → projects →
-  languages` currently done in AI's `_resolve_target_language_name`.
+languages` currently done in AI's `_resolve_target_language_name`.
 
 Returning all three together minimizes round-trips (one call per job).
 

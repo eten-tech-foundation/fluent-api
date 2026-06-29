@@ -87,7 +87,6 @@ export async function getBookCodeById(bookId: number): Promise<string | null> {
   return book[0]?.code ?? null;
 }
 
-
 export async function getAiSuggestions(
   projectUnitId: number,
   bibleTextIds: number[],

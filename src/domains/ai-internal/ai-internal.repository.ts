@@ -1,42 +1,17 @@
-import { and, asc, case as sqlCase, desc, eq, inArray, not, sql } from 'drizzle-orm';
+import { and, eq, inArray, not, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { ai_suggestions, bible_texts, books, languages, project_units, projects, translated_verses } from '@/db/schema';
-import { logger } from '@/lib/logger';
+import {
+  ai_suggestions,
+  bible_texts,
+  books,
+  languages,
+  project_units,
+  projects,
+  translated_verses,
+} from '@/db/schema';
 
-const POSTGRES_FTS_LANGUAGES: Record<string, string> = {
-  eng: 'english',
-  en: 'english',
-  spa: 'spanish',
-  es: 'spanish',
-  fre: 'french',
-  fra: 'french',
-  fr: 'french',
-  ger: 'german',
-  deu: 'german',
-  de: 'german',
-  ita: 'italian',
-  it: 'italian',
-  por: 'portuguese',
-  pt: 'portuguese',
-  rus: 'russian',
-  ru: 'russian',
-  hin: 'simple',
-  guj: 'simple',
-  mar: 'simple',
-  ben: 'simple',
-  tam: 'simple',
-};
-
-function getFtsConfig(languageCode: string | null): string {
-  if (!languageCode) return 'simple';
-  return POSTGRES_FTS_LANGUAGES[languageCode.toLowerCase()] || 'simple';
-}
-
-const CONTEXT_BOOK_CODES: Record<string, string[]> = {
-  // Add mapping logic if needed, simplify for now by using order
-  // E.g. Gospels, Epistles, etc. (Can just use default if complex)
-};
+import { getContextBookCodes, getFtsConfig } from './ai-internal.constants';
 
 export async function getSuggestionContextData(
   projectUnitId: number,
@@ -68,8 +43,16 @@ export async function getSuggestionContextData(
 
   // 2. Resolve source language FTS config and target language name
   const [sourceLang, targetLang] = await Promise.all([
-    db.select({ langCode: languages.langCodeIso6393 }).from(languages).where(eq(languages.id, sourceLanguage)).limit(1),
-    db.select({ langName: languages.langName }).from(languages).where(eq(languages.id, targetLanguage)).limit(1),
+    db
+      .select({ langCode: languages.langCodeIso6393 })
+      .from(languages)
+      .where(eq(languages.id, sourceLanguage))
+      .limit(1),
+    db
+      .select({ langName: languages.langName })
+      .from(languages)
+      .where(eq(languages.id, targetLanguage))
+      .limit(1),
   ]);
 
   const ftsConfig = getFtsConfig(sourceLang[0]?.langCode);
@@ -106,7 +89,7 @@ export async function getSuggestionContextData(
         eq(books.code, targetBookCode.toUpperCase()),
         eq(bible_texts.chapterNumber, targetChapterNumber),
         eq(bible_texts.verseNumber, targetVerseNumber)
-      )
+      )!
     )
   );
 
@@ -132,7 +115,9 @@ export async function getSuggestionContextData(
           sql`to_tsvector(${ftsConfig}, ${bible_texts.text}) @@ plainto_tsquery(${ftsConfig}, ${targetText})`
         )
       )
-      .orderBy(sql`ts_rank(to_tsvector(${ftsConfig}, ${bible_texts.text}), plainto_tsquery(${ftsConfig}, ${targetText})) DESC`)
+      .orderBy(
+        sql`ts_rank(to_tsvector(${ftsConfig}, ${bible_texts.text}), plainto_tsquery(${ftsConfig}, ${targetText})) DESC`
+      )
       .limit(MAX_CONTEXT_VERSES_FTS);
 
     ftsRows = await ftsQuery;
@@ -150,6 +135,8 @@ export async function getSuggestionContextData(
       proxWhere = and(proxWhere, not(inArray(bible_texts.id, ftsBibleTextIds)));
     }
 
+    const targetGroup = getContextBookCodes(targetBookCode);
+
     const proxQuery = db
       .select({
         bibleTextId: bible_texts.id,
@@ -166,7 +153,8 @@ export async function getSuggestionContextData(
       .innerJoin(projects, eq(project_units.projectId, projects.id))
       .where(proxWhere)
       .orderBy(
-        sqlCase().when(eq(translated_verses.projectUnitId, projectUnitId), 0).else(1),
+        sql`CASE WHEN ${translated_verses.projectUnitId} = ${projectUnitId} THEN 0 ELSE 1 END`,
+        sql`CASE WHEN ${books.code} = ${targetBookCode.toUpperCase()} THEN 0 WHEN ${inArray(books.code, targetGroup)} THEN 1 ELSE 2 END`,
         sql`ABS(${bible_texts.chapterNumber} - ${targetChapterNumber}) ASC`,
         sql`ABS(${bible_texts.verseNumber} - ${targetVerseNumber}) ASC`
       )
@@ -212,19 +200,30 @@ export async function getSuggestionContextData(
   };
 }
 
-export async function upsertAiSuggestions(items: { bibleTextId: number; projectUnitId: number; suggestedText: string; modelInfo?: string }[]) {
+export async function upsertAiSuggestions(
+  items: { bibleTextId: number; projectUnitId: number; suggestedText: string; modelInfo?: string }[]
+) {
   if (items.length === 0) return;
 
-  await db.insert(ai_suggestions).values(items).onConflictDoUpdate({
-    target: [ai_suggestions.bibleTextId, ai_suggestions.projectUnitId],
-    set: {
-      suggestedText: sql`EXCLUDED.suggested_text`,
-      modelInfo: sql`EXCLUDED.model_info`,
-    }
-  });
+  await db
+    .insert(ai_suggestions)
+    .values(items)
+    .onConflictDoUpdate({
+      target: [ai_suggestions.bibleTextId, ai_suggestions.projectUnitId],
+      set: {
+        suggestedText: sql`EXCLUDED.suggested_text`,
+        modelInfo: sql`EXCLUDED.model_info`,
+      },
+    });
 }
 
-export async function getSourceVerses(bibleId: number, bookCode: string, chapterNumber: number, verseStart: number, verseEnd: number) {
+export async function getSourceVerses(
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number,
+  verseStart: number,
+  verseEnd: number
+) {
   return db
     .select({
       id: bible_texts.id,
