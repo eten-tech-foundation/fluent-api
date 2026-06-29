@@ -6,6 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertBiblesSchema, patchBiblesSchema } from '@/db/schema';
 import { getHttpStatus } from '@/lib/types';
+import { authenticateUser, denyUntilAdminRole } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as bibleService from './bibles.service';
@@ -19,6 +20,7 @@ const listBiblesRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles',
+  middleware: [authenticateUser] as const,
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       bibleResponseSchema.array().openapi('Bibles'),
@@ -27,6 +29,10 @@ const listBiblesRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -49,6 +55,7 @@ const getBibleByIdRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles/{id}',
+  middleware: [authenticateUser] as const,
   request: { params: idParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(bibleResponseSchema.openapi('Bible'), 'The requested bible'),
@@ -59,6 +66,10 @@ const getBibleByIdRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -82,6 +93,7 @@ const getBiblesByLanguageIdRoute = createRoute({
   tags: ['Bibles'],
   method: 'get',
   path: '/bibles/language/{languageId}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({ languageId: z.coerce.number().int().positive() }),
   },
@@ -93,6 +105,10 @@ const getBiblesByLanguageIdRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -116,6 +132,7 @@ const createBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'post',
   path: '/bibles',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: {
     body: jsonContentRequired(insertBiblesSchema, 'The bible to create'),
   },
@@ -131,6 +148,10 @@ const createBibleRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Restricted to administrators'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -153,6 +174,7 @@ const updateBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'patch',
   path: '/bibles/{id}',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: {
     params: idParam,
     body: jsonContentRequired(patchBiblesSchema, 'The bible data to update'),
@@ -170,6 +192,10 @@ const updateBibleRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Restricted to administrators'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -193,6 +219,7 @@ const deleteBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'delete',
   path: '/bibles/{id}',
+  middleware: [authenticateUser, denyUntilAdminRole()] as const,
   request: { params: idParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Bible deleted successfully' },
@@ -203,6 +230,10 @@ const deleteBibleRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Restricted to administrators'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
