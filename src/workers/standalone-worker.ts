@@ -66,7 +66,7 @@ async function startWorker() {
     });
 
     await registerUSFMExportWorker(boss, metricsHooks);
-    await registerAiTriggerWorker(boss);
+    await registerAiTriggerWorker(boss, metricsHooks);
 
     logger.info('Worker started and listening for jobs');
 

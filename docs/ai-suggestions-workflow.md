@@ -23,7 +23,7 @@ This document describes how AI-powered translation suggestions are generated, de
 
 ### The Old Flow (Shared Database)
 
-```
+```mermaid
 UI → API → writes jobs into ai.ai_suggestion_jobs (cross-schema INSERT)
                                     │
                                     ▼
@@ -44,7 +44,7 @@ UI → API → writes jobs into ai.ai_suggestion_jobs (cross-schema INSERT)
 
 ### The New Flow (HTTP-Only)
 
-```
+```mermaid
 Step 1 ─ UI calls API
          Triggered by: User assigns a chapter OR drafter reaches a new verse
          API creates a pg-boss job in its own local queue
@@ -126,7 +126,7 @@ Step 9 ─ UI calls GET /ai-suggestions?bibleTextIds=...
 
 ## High-Level Architecture
 
-```
+```mermaid
 ┌─────────────────────────────────────────────────────────────────┐
 │                         FRONTEND                                │
 │  Drafter types translations → triggers queue-next / reads       │
@@ -175,7 +175,7 @@ When a chapter is assigned to a drafter, the API automatically queues AI suggest
 
 **File:** `ai-suggestions.service.ts` → `handleChapterAssigned()`
 
-```
+```text
 Chapter assigned
   → Look up book code from bookId
   → Check if the activation threshold is met
@@ -192,7 +192,7 @@ As the drafter progresses through verses, the frontend calls `POST /ai-suggestio
 
 **File:** `ai-suggestions.service.ts` → `queueNextVerses()`
 
-```
+```text
 Drafter reaches verse X
   → Frontend calls POST /ai-suggestions/queue-next
   → API checks:
@@ -251,7 +251,7 @@ A background worker running in `standalone-worker.ts` continuously polls the pg-
 
 **File:** `workers/ai-trigger.worker.ts`
 
-```
+```text
 pg-boss picks up a job
   → Worker calls triggerAiSuggestions(jobs)
   → This fires an HTTP POST to fluent-ai:
@@ -327,14 +327,14 @@ The repository function `getSuggestionContextData()` performs a sophisticated mu
 
 #### Step 1: Resolve Project Languages
 
-```
+```text
 Look up the project's source and target language IDs
 and the organization from project_units → projects.
 ```
 
 #### Step 2: Resolve FTS Configuration
 
-```
+```text
 Map the source language code (e.g. "eng") to a PostgreSQL
 full-text search dictionary (e.g. "english").
 Languages without specific Postgres FTS support (e.g. Hindi,
@@ -343,7 +343,7 @@ Gujarati) fall back to "simple" (whitespace tokenization).
 
 #### Step 3: Get the Target Verse Text
 
-```
+```text
 Fetch the source text of the specific verse being translated.
 This text becomes the FTS search query.
 ```
@@ -429,7 +429,7 @@ The worker assembles a structured prompt for Google Gemini using the context and
 
 #### System Instruction
 
-```
+```text
 You are an expert Bible translator, fluent in biblical languages,
 English, and {target_language_name}. Your goal is to translate
 biblical text with absolute theological accuracy, natural
@@ -533,7 +533,7 @@ The worker then marks the local job as `completed` in `ai.jobs`.
 
 When the drafter's editor needs suggestions, the frontend calls:
 
-```
+```http
 GET /ai-suggestions?projectUnitId=42&bibleTextIds=12345,12346,12347
 ```
 
@@ -571,7 +571,7 @@ WHERE project_unit_id = :projectUnitId
 
 When a drafter views or accepts a suggestion, the frontend calls:
 
-```
+```http
 POST /ai-suggestions/usage
 Body: { "bibleTextId": 12345, "projectUnitId": 42, "wasUsed": true }
 ```

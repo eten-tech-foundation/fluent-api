@@ -126,7 +126,7 @@ async function queueNextVersesForAssignment(
 
   try {
     const boss = await getQueue();
-    await boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, jobs);
+    await Promise.all(jobs.map((job) => boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, job)));
     return ok(undefined);
   } catch (error) {
     logger.error({

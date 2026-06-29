@@ -24,6 +24,6 @@ ALTER TABLE "ai_suggestions" ADD CONSTRAINT "ai_suggestions_bible_text_id_bible_
 ALTER TABLE "ai_suggestions" ADD CONSTRAINT "ai_suggestions_project_unit_id_project_units_id_fk" FOREIGN KEY ("project_unit_id") REFERENCES "public"."project_units"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_ai_usage_user" ON "ai_suggestion_usage_log" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_ai_usage_project_unit" ON "ai_suggestion_usage_log" USING btree ("project_unit_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "uq_ai_usage_user_text" ON "ai_suggestion_usage_log" USING btree ("user_id","bible_text_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_ai_usage_user_text" ON "ai_suggestion_usage_log" USING btree ("user_id","bible_text_id","project_unit_id");--> statement-breakpoint
 CREATE INDEX "idx_ai_suggestions_bible_text" ON "ai_suggestions" USING btree ("bible_text_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_ai_suggestions_per_text_unit" ON "ai_suggestions" USING btree ("bible_text_id","project_unit_id");

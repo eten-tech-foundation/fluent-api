@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const suggestionContextRequestSchema = z.object({
   projectUnitId: z.number().int().positive(),
   bibleId: z.number().int().positive(),
-  bookCode: z.string().min(3).max(3),
+  bookCode: z.string().min(3).max(4),
   chapterNumber: z.number().int().positive(),
   verseStart: z.number().int().positive(),
   verseEnd: z.number().int().positive(),
@@ -15,7 +15,7 @@ export const aiSuggestionItemSchema = z.object({
   bibleTextId: z.number().int().positive(),
   projectUnitId: z.number().int().positive(),
   suggestedText: z.string(),
-  modelInfo: z.string(),
+  modelInfo: z.string().optional(),
 });
 
 export type AiSuggestionItem = z.infer<typeof aiSuggestionItemSchema>;

@@ -13,6 +13,9 @@ interface AiSuggestionTriggerRequest {
 export async function triggerAiSuggestions(jobs: AiSuggestionTriggerRequest[]): Promise<void> {
   const url = `${env.FLUENT_AI_URL}${env.FLUENT_AI_API_PREFIX}/suggestions`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -21,7 +24,10 @@ export async function triggerAiSuggestions(jobs: AiSuggestionTriggerRequest[]): 
         'X-API-Key': env.FLUENT_AI_KEY,
       },
       body: JSON.stringify(jobs),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`AI Service returned ${response.status} ${response.statusText}`);

@@ -22,6 +22,9 @@ server.post('/internal/suggestion-context', requireServiceAuth, async (c) => {
     if (error.name === 'ZodError') {
       return c.json({ message: 'Validation failed', errors: error.errors }, 400);
     }
+    if (error instanceof SyntaxError) {
+      return c.json({ message: 'Invalid JSON payload' }, 400);
+    }
     return c.json({ message: error.message }, 500);
   }
 });
@@ -36,6 +39,9 @@ server.post('/internal/ai-suggestions', requireServiceAuth, async (c) => {
   } catch (error: any) {
     if (error.name === 'ZodError') {
       return c.json({ message: 'Validation failed', errors: error.errors }, 400);
+    }
+    if (error instanceof SyntaxError) {
+      return c.json({ message: 'Invalid JSON payload' }, 400);
     }
     return c.json({ message: error.message }, 500);
   }

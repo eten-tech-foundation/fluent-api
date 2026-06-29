@@ -536,7 +536,7 @@ export const ai_suggestion_usage_log = pgTable(
   (table) => [
     index('idx_ai_usage_user').on(table.userId),
     index('idx_ai_usage_project_unit').on(table.projectUnitId),
-    uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId),
+    uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId, table.projectUnitId),
   ]
 );
 

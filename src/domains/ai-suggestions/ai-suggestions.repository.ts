@@ -135,7 +135,11 @@ export async function logAiSuggestionUsage(
         wasUsed,
       })
       .onConflictDoUpdate({
-        target: [ai_suggestion_usage_log.userId, ai_suggestion_usage_log.bibleTextId],
+        target: [
+          ai_suggestion_usage_log.userId,
+          ai_suggestion_usage_log.bibleTextId,
+          ai_suggestion_usage_log.projectUnitId,
+        ],
         set: { wasUsed }, // Update if the user later accepts it
       });
 

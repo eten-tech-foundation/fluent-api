@@ -1,4 +1,4 @@
-import { and, eq, inArray, not, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, not, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -185,7 +185,8 @@ export async function getSuggestionContextData(
         sql`${bible_texts.verseNumber} >= ${verseStart}`,
         sql`${bible_texts.verseNumber} <= ${verseEnd}`
       )
-    );
+    )
+    .orderBy(asc(bible_texts.verseNumber));
 
   const sourceVerses = sourceVersesQuery.map((v) => ({
     id: v.id,
@@ -240,5 +241,6 @@ export async function getSourceVerses(
         sql`${bible_texts.verseNumber} >= ${verseStart}`,
         sql`${bible_texts.verseNumber} <= ${verseEnd}`
       )
-    );
+    )
+    .orderBy(asc(bible_texts.verseNumber));
 }
