@@ -1,6 +1,6 @@
 {
-  "id": "097dc57b-deea-4274-bafe-4b854a0ad1ff",
-  "prevId": "f6a47766-9387-4565-93c4-9237d431a0e4",
+  "id": "cb933e4b-a676-4fc7-9a63-cace0c602cb3",
+  "prevId": "32c46bec-1f67-49cb-86e7-a95f202ff5b4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1397,6 +1397,210 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.pericope_sets": {
+      "name": "pericope_sets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pericope_sets_name_unique": {
+          "name": "pericope_sets_name_unique",
+          "nullsNotDistinct": false,
+          "columns": ["name"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pericope_verses": {
+      "name": "pericope_verses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "pericope_set_id": {
+          "name": "pericope_set_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "book_id": {
+          "name": "book_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chapter_number": {
+          "name": "chapter_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verse_number": {
+          "name": "verse_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "section": {
+          "name": "section",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pericope_number": {
+          "name": "pericope_number",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pericope_title": {
+          "name": "pericope_title",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_pericope_verses_set_book_chapter_verse": {
+          "name": "idx_pericope_verses_set_book_chapter_verse",
+          "columns": [
+            {
+              "expression": "pericope_set_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chapter_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "verse_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_pericope_verses_set_book_pericope": {
+          "name": "idx_pericope_verses_set_book_pericope",
+          "columns": [
+            {
+              "expression": "pericope_set_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pericope_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chapter_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "verse_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pericope_verses_pericope_set_id_pericope_sets_id_fk": {
+          "name": "pericope_verses_pericope_set_id_pericope_sets_id_fk",
+          "tableFrom": "pericope_verses",
+          "tableTo": "pericope_sets",
+          "columnsFrom": ["pericope_set_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "pericope_verses_book_id_books_id_fk": {
+          "name": "pericope_verses_book_id_books_id_fk",
+          "tableFrom": "pericope_verses",
+          "tableTo": "books",
+          "columnsFrom": ["book_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.permissions": {
       "name": "permissions",
       "schema": "",
@@ -1740,6 +1944,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "pericope_set_id": {
+          "name": "pericope_set_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -1776,6 +1986,15 @@
           "tableFrom": "projects",
           "tableTo": "users",
           "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "projects_pericope_set_id_pericope_sets_id_fk": {
+          "name": "projects_pericope_set_id_pericope_sets_id_fk",
+          "tableFrom": "projects",
+          "tableTo": "pericope_sets",
+          "columnsFrom": ["pericope_set_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1820,6 +2039,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
