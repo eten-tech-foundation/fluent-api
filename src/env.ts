@@ -41,12 +41,6 @@ const EnvSchema = z.object({
   // '/api/v1' via env with no code change. Leading slash optional; trailing
   // slashes are trimmed when the request URL is assembled.
   FLUENT_AI_API_PREFIX: z.string().default(''),
-
-  // ── Cloudflare R2 audio storage ───────────────────────────────────────────
-  R2_ACCOUNT_ID: z.string().min(1),
-  R2_ACCESS_KEY_ID: z.string().min(1),
-  R2_SECRET_ACCESS_KEY: z.string().min(1),
-  R2_BUCKET_NAME: z.string().min(1),
 });
 
 export type env = z.infer<typeof EnvSchema>;

@@ -547,35 +547,6 @@ export const active_chapter_editors = pgTable(
   ]
 );
 
-// ─── Recordings ───────────────────────────────────────────────────────────────
-// Each row represents one audio recording uploaded from the mobile app.
-// `relative_path` is unique and serves as the Cloudflare R2 object key.
-
-export const recordings = pgTable(
-  'recordings',
-  {
-    id: serial('id').primaryKey(),
-    projectUnitId: integer('project_unit_id')
-      .notNull()
-      .references(() => project_units.id, { onDelete: 'cascade' }),
-    bibleTextId: integer('bible_text_id')
-      .notNull()
-      .references(() => bible_texts.id),
-    // R2 object key — e.g. "4-Hindi_NT_2024/audio/MAT/1/3.m4a"
-    relativePath: varchar('relative_path').notNull().unique(),
-    recordedByUserId: integer('recorded_by_user_id')
-      .notNull()
-      .references(() => users.id),
-    metadata: jsonb('metadata').$type<{ size: number | null; recorded_at: string }>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index('idx_recordings_project_unit').on(table.projectUnitId),
-    index('idx_recordings_bible_text').on(table.bibleTextId),
-    index('idx_recordings_user').on(table.recordedByUserId),
-  ]
-);
-
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
 });
@@ -609,17 +580,6 @@ export const selectProjectUsersSchema = createSelectSchema(project_users);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
 export const selectActiveChapterEditorsSchema = createSelectSchema(active_chapter_editors);
-export const selectRecordingsSchema = createSelectSchema(recordings);
-
-export const insertRecordingsSchema = createInsertSchema(recordings, {
-  projectUnitId: (schema) => schema.int().positive(),
-  bibleTextId: (schema) => schema.int().positive(),
-  relativePath: (schema) => schema.min(1),
-  recordedByUserId: (schema) => schema.int().positive(),
-}).omit({
-  id: true,
-  createdAt: true,
-});
 
 export const insertUsersSchema = createInsertSchema(users, {
   username: (schema) => schema.min(1).max(100),
