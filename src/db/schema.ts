@@ -241,7 +241,7 @@ export const pericope_verses = pgTable(
       .references(() => books.id),
     chapterNumber: integer('chapter_number').notNull(),
     verseNumber: integer('verse_number').notNull(),
-    section: integer('section'),                                 // fcbh_section only; NULL for FIA
+    section: integer('section'), // fcbh_section only; NULL for FIA
     pericopeNumber: varchar('pericope_number', { length: 20 }).notNull(), // '1', '4a', '4b'
     pericopeTitle: varchar('pericope_title', { length: 500 }), // fia_pericope_title; NULL for FCBH
   },

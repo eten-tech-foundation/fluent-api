@@ -113,7 +113,9 @@ async function seedFcbh(bookIdMap: Map<string, number>): Promise<void> {
   }
 
   if (unmappedBooks.size > 0) {
-    console.warn(`FCBH: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`);
+    console.warn(
+      `FCBH: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`
+    );
   }
 
   await replaceVerses(setId, rows);
@@ -147,7 +149,9 @@ async function seedFia(bookIdMap: Map<string, number>): Promise<void> {
   }
 
   if (unmappedBooks.size > 0) {
-    console.warn(`FIA: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`);
+    console.warn(
+      `FIA: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`
+    );
   }
 
   await replaceVerses(setId, rows);
@@ -182,9 +186,7 @@ export async function seedPericopeSets(): Promise<void> {
     console.log('Auto-assigned FIA pericope set to all projects without one.');
   }
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(pericope_verses);
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(pericope_verses);
 
   console.log(`Done. Total pericope_verses rows: ${count}`);
 }

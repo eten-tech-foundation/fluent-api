@@ -61,8 +61,14 @@ const getChapterPericopesRoute = createRoute({
     'Returns empty array if project has no pericope set or book is not covered (fallback to verse mode).',
   request: { params: chapterPericopesParamSchema },
   responses: {
-    [HttpStatusCodes.OK]: jsonContent(chapterPericopesResponseSchema, 'Pericope groups for chapter'),
-    [HttpStatusCodes.NOT_FOUND]: jsonContent(createMessageObjectSchema('Not Found'), 'Book not found'),
+    [HttpStatusCodes.OK]: jsonContent(
+      chapterPericopesResponseSchema,
+      'Pericope groups for chapter'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Book not found'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
