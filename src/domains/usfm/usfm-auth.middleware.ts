@@ -28,7 +28,7 @@ export function requireProjectUnitAccess(paramName = 'projectUnitId') {
     };
 
     const projectUnitId = Number(c.req.param(paramName));
-    if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
       return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
     }
 
