@@ -99,6 +99,13 @@
       "when": 1781682962147,
       "tag": "0013_add_metadata_to_recordings",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782282922268,
+      "tag": "0014_add_pericope_sets",
+      "breakpoints": true
     }
   ]
 }

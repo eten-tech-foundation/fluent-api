@@ -1,6 +1,9 @@
+import { eq } from 'drizzle-orm';
+
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -40,6 +43,17 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         context: { requestedBooks: input.bookId, bibleId: input.bibleId },
       });
       return err(ErrorCode.INVALID_BIBLE_BOOKS);
+    }
+
+    if (input.pericopeSetId) {
+      const [exists] = await db
+        .select({ id: pericope_sets.id })
+        .from(pericope_sets)
+        .where(eq(pericope_sets.id, input.pericopeSetId))
+        .limit(1);
+      if (!exists) {
+        return err(ErrorCode.PERICOPE_SET_NOT_FOUND);
+      }
     }
 
     return await db.transaction(async (tx) => {
@@ -95,6 +109,17 @@ export async function updateProject(
   input: UpdateProjectInput
 ): Promise<Result<Project>> {
   try {
+    if (input.pericopeSetId) {
+      const [exists] = await db
+        .select({ id: pericope_sets.id })
+        .from(pericope_sets)
+        .where(eq(pericope_sets.id, input.pericopeSetId))
+        .limit(1);
+      if (!exists) {
+        return err(ErrorCode.PERICOPE_SET_NOT_FOUND);
+      }
+    }
+
     return await db.transaction(async (tx) => {
       const { bibleId, bookId, projectUnitStatus, ...projectData } = input;
 

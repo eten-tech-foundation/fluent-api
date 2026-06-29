@@ -172,6 +172,20 @@ export const languages = pgTable('languages', {
     .$onUpdate(() => new Date()),
 });
 
+// ─── Pericope Tables ─────────────────────────────────────────────────────────
+
+export const pericope_sets = pgTable('pericope_sets', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 50 }).notNull().unique(), // 'FCBH' | 'FIA'
+  description: varchar('description', { length: 500 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
@@ -192,6 +206,8 @@ export const projects = pgTable('projects', {
     .defaultNow()
     .$onUpdate(() => new Date()),
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
+  // Nullable — existing projects have no pericope set; new projects may select one
+  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
 });
 
 export const bibles = pgTable('bibles', {
@@ -212,6 +228,41 @@ export const books = pgTable('books', {
   code: varchar('code', { length: 50 }).notNull(),
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
 });
+
+export const pericope_verses = pgTable(
+  'pericope_verses',
+  {
+    id: serial('id').primaryKey(),
+    pericopeSetId: integer('pericope_set_id')
+      .notNull()
+      .references(() => pericope_sets.id, { onDelete: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    chapterNumber: integer('chapter_number').notNull(),
+    verseNumber: integer('verse_number').notNull(),
+    section: integer('section'),                                 // fcbh_section only; NULL for FIA
+    pericopeNumber: varchar('pericope_number', { length: 20 }).notNull(), // '1', '4a', '4b'
+    pericopeTitle: varchar('pericope_title', { length: 500 }), // fia_pericope_title; NULL for FCBH
+  },
+  (table) => [
+    // verse lookup: given (set, book, chapter) find a verse's pericope
+    index('idx_pericope_verses_set_book_chapter_verse').on(
+      table.pericopeSetId,
+      table.bookId,
+      table.chapterNumber,
+      table.verseNumber
+    ),
+    // range lookup: given (set, book, pericope_number) fetch all verses in that pericope
+    index('idx_pericope_verses_set_book_pericope').on(
+      table.pericopeSetId,
+      table.bookId,
+      table.pericopeNumber,
+      table.chapterNumber,
+      table.verseNumber
+    ),
+  ]
+);
 
 export const bible_books = pgTable('bible_books', {
   bibleId: integer('bible_id')
