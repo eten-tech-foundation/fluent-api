@@ -21,6 +21,7 @@ import '@/domains/projects/users/project-users.route';
 import '@/domains/users/projects/user-projects.route';
 import '@/domains/chapter-assignments/presence/chapter-assignments-presence.route';
 import '@/domains/ai-suggestions/ai-suggestions.route';
+import '@/domains/ai-internal/ai-internal.route';
 configureOpenAPI(server);
 
 export default server;

@@ -33,6 +33,11 @@ const EnvSchema = z.object({
   AI_INITIAL_QUEUE_COUNT: z.coerce.number().int().positive().default(3),
   AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(1),
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
+
+  // AI HTTP Integration
+  AI_SERVICE_BASE_URL: z.string().url(),
+  AI_SERVICE_API_KEY: z.string().min(1),
+  AI_INBOUND_SERVICE_KEY: z.string().min(1),
 });
 
 export type env = z.infer<typeof EnvSchema>;

@@ -85,6 +85,13 @@
       "when": 1779911602173,
       "tag": "0011_add_is_ai_enabled_to_chapter_assignments",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782736413279,
+      "tag": "0012_add_ai_tables",
+      "breakpoints": true
     }
   ]
 }

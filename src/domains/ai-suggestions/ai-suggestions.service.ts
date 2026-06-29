@@ -19,8 +19,8 @@ import {
   getChapterAssignmentAiStatus,
   hasReachedAiActivationThreshold,
   logAiSuggestionUsage,
-  queueAiSuggestionJobs,
 } from './ai-suggestions.repository';
+import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 
 export async function trackUsage(user: User, data: TrackUsageRequest): Promise<Result<void>> {
   return logAiSuggestionUsage(user.id, data.bibleTextId, data.projectUnitId, data.wasUsed);
@@ -124,7 +124,18 @@ async function queueNextVersesForAssignment(
     verseEnd: verseNumber,
   }));
 
-  return queueAiSuggestionJobs(jobs);
+  try {
+    const boss = await getQueue();
+    await boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, jobs);
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to enqueue AI suggestion jobs',
+      context: { jobCount: jobs.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export async function handleChapterAssigned(

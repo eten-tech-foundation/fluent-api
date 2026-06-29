@@ -7,6 +7,7 @@ import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerUSFMExportWorker } from './usfm-export.worker';
+import { registerAiTriggerWorker } from './ai-trigger.worker';
 
 interface WorkerMetrics {
   startTime: number;
@@ -57,7 +58,15 @@ async function startWorker() {
       expireInSeconds: 3600,
     });
 
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
+      expireInSeconds: 3600,
+    });
+
     await registerUSFMExportWorker(boss, metricsHooks);
+    await registerAiTriggerWorker(boss);
 
     logger.info('Worker started and listening for jobs');
 

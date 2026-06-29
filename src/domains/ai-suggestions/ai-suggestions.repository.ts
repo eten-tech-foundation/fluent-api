@@ -4,11 +4,8 @@ import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
-  ai_suggestion_jobs,
   ai_suggestion_usage_log,
   ai_suggestions,
-} from '@/db/external/ai-schema';
-import {
   bible_texts,
   books,
   chapter_assignments,
@@ -90,45 +87,6 @@ export async function getBookCodeById(bookId: number): Promise<string | null> {
   return book[0]?.code ?? null;
 }
 
-export async function queueAiSuggestionJobs(
-  jobs: {
-    projectUnitId: number;
-    bibleId: number;
-    bookCode: string;
-    chapterNumber: number;
-    verseStart: number;
-    verseEnd: number;
-  }[],
-  tx?: DbTransaction
-): Promise<Result<void>> {
-  const database = tx || db;
-  try {
-    if (jobs.length === 0) return ok(undefined);
-
-    await database
-      .insert(ai_suggestion_jobs)
-      .values(jobs)
-      .onConflictDoNothing({
-        target: [
-          ai_suggestion_jobs.projectUnitId,
-          ai_suggestion_jobs.bibleId,
-          ai_suggestion_jobs.bookCode,
-          ai_suggestion_jobs.chapterNumber,
-          ai_suggestion_jobs.verseStart,
-          ai_suggestion_jobs.verseEnd,
-        ],
-      });
-
-    return ok(undefined);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to queue AI suggestion jobs',
-      context: { jobCount: jobs.length },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
 
 export async function getAiSuggestions(
   projectUnitId: number,
