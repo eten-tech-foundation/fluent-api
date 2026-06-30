@@ -2,9 +2,9 @@ import type { PgBoss } from 'pg-boss';
 
 import type { AiSuggestionTriggerJob } from '@/lib/queue';
 
-import { triggerAiSuggestions } from '@/lib/ai-client';
 import { logger } from '@/lib/logger';
 import { QUEUE_NAMES } from '@/lib/queue';
+import { triggerAiSuggestions } from '@/lib/services/fluent-ai/fluent-ai.client';
 
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
@@ -32,21 +32,22 @@ export async function registerAiTriggerWorker(
 
       if (metricsHooks.onBatchStart) metricsHooks.onBatchStart(jobs.length);
 
+      const startTime = Date.now();
       try {
-        await Promise.all(
-          jobs.map(async (job) => {
-            const startTime = Date.now();
-            try {
-              await triggerAiSuggestions([job.data]);
-              logger.info('AI trigger job completed', { jobId: job.id });
-              if (metricsHooks.onJobSuccess) metricsHooks.onJobSuccess(Date.now() - startTime);
-            } catch (error) {
-              logger.error('AI trigger job failed', { jobId: job.id, error });
-              if (metricsHooks.onJobFailure) metricsHooks.onJobFailure(Date.now() - startTime);
-              throw error;
-            }
-          })
-        );
+        const payloads = jobs.map((j) => j.data);
+        await triggerAiSuggestions(payloads);
+
+        logger.info('AI trigger batch completed', { jobCount: jobs.length });
+        if (metricsHooks.onJobSuccess) {
+          jobs.forEach(() => metricsHooks.onJobSuccess!(Date.now() - startTime));
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`AI trigger batch failed: ${errorMessage}`, { jobCount: jobs.length });
+        if (metricsHooks.onJobFailure) {
+          jobs.forEach(() => metricsHooks.onJobFailure!(Date.now() - startTime));
+        }
+        throw error;
       } finally {
         if (metricsHooks.onBatchEnd) metricsHooks.onBatchEnd(jobs.length);
       }

@@ -116,7 +116,7 @@ verseEnd }[]` (batch them into one job to preserve the current "queue several
   `fetch`/`undici`, reading base URL + API key from env. It sends the AI API
   key as `X-API-Key` (AI's existing auth scheme — see `fluent-ai`
   `security/auth.py`).
-- Add env vars to `src/env.ts`: `AI_SERVICE_BASE_URL`, `AI_SERVICE_API_KEY`
+- Add env vars to `src/env.ts`: `FLUENT_AI_URL`, `FLUENT_AI_KEY`, `FLUENT_AI_API_PREFIX`
   (plus the existing `AI_*` tuning vars stay).
 - In `ai-suggestions.service.ts`, replace the `queueAiSuggestionJobs(...)` call
   with a `boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, payload)`. Because

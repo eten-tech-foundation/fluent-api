@@ -80,13 +80,26 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           'drafter',
           CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
         );
-        // Fire and forget auto-queueing for drafting assignment
-        aiSuggestionsService.handleChapterAssigned(
-          assignment.projectUnitId,
-          assignment.bibleId,
-          assignment.bookId,
-          assignment.chapterNumber
-        );
+        try {
+          // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
+          await aiSuggestionsService.handleChapterAssigned(
+            assignment.projectUnitId,
+            assignment.bibleId,
+            assignment.bookId,
+            assignment.chapterNumber
+          );
+        } catch (error) {
+          logger.error({
+            cause: error,
+            message: 'Failed to enqueue AI suggestions after chapter assignment',
+            context: {
+              projectUnitId: assignment.projectUnitId,
+              bibleId: assignment.bibleId,
+              bookId: assignment.bookId,
+              chapterNumber: assignment.chapterNumber,
+            },
+          });
+        }
       }
       if (assignment.peerCheckerId) {
         await repo.insertUserAssignmentHistory(
@@ -287,13 +300,26 @@ async function recordUserAssignmentChanges(
       'drafter',
       updated.status as ChapterAssignmentStatus
     );
-    // Fire and forget auto-queueing for drafting assignment
-    aiSuggestionsService.handleChapterAssigned(
-      updated.projectUnitId,
-      updated.bibleId,
-      updated.bookId,
-      updated.chapterNumber
-    );
+    try {
+      // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
+      await aiSuggestionsService.handleChapterAssigned(
+        updated.projectUnitId,
+        updated.bibleId,
+        updated.bookId,
+        updated.chapterNumber
+      );
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Failed to enqueue AI suggestions after updating user assignment',
+        context: {
+          projectUnitId: updated.projectUnitId,
+          bibleId: updated.bibleId,
+          bookId: updated.bookId,
+          chapterNumber: updated.chapterNumber,
+        },
+      });
+    }
   }
 
   if (
@@ -331,13 +357,26 @@ export async function toggleChapterAssignmentAiStatus(
     });
 
     if (isAiEnabled) {
-      // Fire and forget initial queue
-      aiSuggestionsService.handleChapterAssigned(
-        assignment.projectUnitId,
-        assignment.bibleId,
-        assignment.bookId,
-        assignment.chapterNumber
-      );
+      try {
+        // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
+        await aiSuggestionsService.handleChapterAssigned(
+          assignment.projectUnitId,
+          assignment.bibleId,
+          assignment.bookId,
+          assignment.chapterNumber
+        );
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Failed to enqueue AI suggestions after toggling AI status',
+          context: {
+            projectUnitId: assignment.projectUnitId,
+            bibleId: assignment.bibleId,
+            bookId: assignment.bookId,
+            chapterNumber: assignment.chapterNumber,
+          },
+        });
+      }
     }
 
     return ok(undefined);

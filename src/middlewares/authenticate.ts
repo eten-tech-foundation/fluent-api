@@ -35,7 +35,8 @@ const MOBILE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // Check at most once per 
  */
 export async function authenticate(c: Context<AppBindings>, next: Next) {
   // Skip auth routes to avoid circularity if applied globally
-  if (c.req.path.startsWith('/api/auth')) {
+  // Skip internal routes as they use their own service authentication tokens
+  if (c.req.path.startsWith('/api/auth') || c.req.path.startsWith('/internal')) {
     return next();
   }
 

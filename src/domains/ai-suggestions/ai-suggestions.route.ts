@@ -9,7 +9,7 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import { requireProjectUnitAccess } from './ai-suggestions.auth.middleware';
+import { checkProjectUnitAccess, requireProjectUnitAccess } from './ai-suggestions.auth.middleware';
 import * as aiSuggestionsService from './ai-suggestions.service';
 import {
   aiSuggestionsListResponseSchema,
@@ -73,14 +73,7 @@ const queueNextVersesRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/queue-next',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_VIEW),
-    requireProjectUnitAccess(async (c) => {
-      const body = await c.req.json();
-      return body.projectUnitId;
-    }),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
   request: {
     body: jsonContent(queueNextVersesRequestSchema, 'Verses context'),
   },
@@ -101,6 +94,10 @@ const queueNextVersesRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Permission denied'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project unit not found'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'
@@ -113,6 +110,9 @@ const queueNextVersesRoute = createRoute({
 
 server.openapi(queueNextVersesRoute, async (c) => {
   const body = c.req.valid('json');
+
+  const accessError = await checkProjectUnitAccess(c, body.projectUnitId);
+  if (accessError) return accessError;
 
   const result = await aiSuggestionsService.queueNextVerses(
     body.projectUnitId,
@@ -134,14 +134,7 @@ const trackUsageRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/usage',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_VIEW),
-    requireProjectUnitAccess(async (c) => {
-      const body = await c.req.json();
-      return body.projectUnitId;
-    }),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
   request: {
     body: jsonContent(trackUsageRequestSchema, 'Usage data'),
   },
@@ -159,6 +152,10 @@ const trackUsageRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Permission denied'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project unit not found'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'
@@ -175,6 +172,9 @@ server.openapi(trackUsageRoute, async (c) => {
   if (!user?.id) {
     return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
   }
+
+  const accessError = await checkProjectUnitAccess(c, body.projectUnitId);
+  if (accessError) return accessError;
 
   const result = await aiSuggestionsService.trackUsage(user, body);
   if (result.ok) {

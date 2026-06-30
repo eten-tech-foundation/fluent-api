@@ -253,14 +253,14 @@ A background worker running in `standalone-worker.ts` continuously polls the pg-
 
 ```text
 pg-boss picks up a job
-  → Worker calls triggerAiSuggestions(jobs)
-  → This fires an HTTP POST to fluent-ai:
-       POST {AI_SERVICE_BASE_URL}/suggestions
-       Headers: X-API-Key: {AI_SERVICE_API_KEY}
+  → Worker extracts batch of payloads
+  → This fires an HTTP POST to fluent-ai via callFluentAi:
+       POST {FLUENT_AI_URL}{FLUENT_AI_API_PREFIX}/suggestions
+       Headers: X-API-Key: {FLUENT_AI_KEY}
        Body: [ { projectUnitId, bibleId, bookCode, ... }, ... ]
 ```
 
-**File:** `lib/ai-client.ts` — The HTTP client
+**File:** `lib/services/fluent-ai/fluent-ai.client.ts` — The HTTP client
 
 ### AI Service Receives the Trigger
 
@@ -600,8 +600,8 @@ This is stored in `ai_suggestion_usage_log` for analytics.
 
 | Variable                          | Purpose                                                            |
 | --------------------------------- | ------------------------------------------------------------------ |
-| `AI_SERVICE_BASE_URL`             | URL of the fluent-ai service (e.g. `http://fluent-ai:8200`)        |
-| `AI_SERVICE_API_KEY`              | Sent as `X-API-Key` header when triggering AI                      |
+| `FLUENT_AI_URL`                   | URL of the fluent-ai service (e.g. `http://fluent-ai:8200`)        |
+| `FLUENT_AI_KEY`                   | Sent as `X-API-Key` header when triggering AI                      |
 | `AI_INBOUND_SERVICE_KEY`          | Expected in `Authorization: Bearer` from AI on `/internal/*` calls |
 | `AI_ACTIVATION_THRESHOLD_VERSES`  | Min translated verses needed before AI kicks in                    |
 | `AI_DEFAULT_LOOKAHEAD`            | How many verses ahead to pre-generate during drafting              |
