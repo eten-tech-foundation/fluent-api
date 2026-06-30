@@ -32,6 +32,10 @@ const listPericopeSetsRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'

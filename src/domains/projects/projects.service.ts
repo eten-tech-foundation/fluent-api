@@ -45,7 +45,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       return err(ErrorCode.INVALID_BIBLE_BOOKS);
     }
 
-    if (input.pericopeSetId) {
+    if (input.pericopeSetId != null) {
       const [exists] = await db
         .select({ id: pericope_sets.id })
         .from(pericope_sets)
@@ -109,7 +109,7 @@ export async function updateProject(
   input: UpdateProjectInput
 ): Promise<Result<Project>> {
   try {
-    if (input.pericopeSetId) {
+    if (input.pericopeSetId != null) {
       const [exists] = await db
         .select({ id: pericope_sets.id })
         .from(pericope_sets)

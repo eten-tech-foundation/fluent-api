@@ -54,6 +54,11 @@ async function buildBookIdMap(): Promise<Map<string, number>> {
   const rows = await db.select({ id: books.id, name: books.eng_display_name }).from(books);
   const map = new Map<string, number>();
   for (const row of rows) {
+    if (map.has(row.name)) {
+      throw new Error(
+        `buildBookIdMap: duplicate eng_display_name "${row.name}" found in books table — seed data is ambiguous.`
+      );
+    }
     map.set(row.name, row.id);
   }
   return map;
@@ -113,8 +118,8 @@ async function seedFcbh(bookIdMap: Map<string, number>): Promise<void> {
   }
 
   if (unmappedBooks.size > 0) {
-    console.warn(
-      `FCBH: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`
+    throw new Error(
+      `FCBH: ${unmappedBooks.size} unknown book name(s) found with no matching books row: ${[...unmappedBooks].join(', ')}. Aborting — fix the data file or seed books first.`
     );
   }
 
@@ -149,8 +154,8 @@ async function seedFia(bookIdMap: Map<string, number>): Promise<void> {
   }
 
   if (unmappedBooks.size > 0) {
-    console.warn(
-      `FIA: skipped ${unmappedBooks.size} unknown book(s): ${[...unmappedBooks].join(', ')}`
+    throw new Error(
+      `FIA: ${unmappedBooks.size} unknown book name(s) found with no matching books row: ${[...unmappedBooks].join(', ')}. Aborting — fix the data file or seed books first.`
     );
   }
 

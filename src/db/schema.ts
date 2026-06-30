@@ -247,7 +247,8 @@ export const pericope_verses = pgTable(
   },
   (table) => [
     // verse lookup: given (set, book, chapter) find a verse's pericope
-    index('idx_pericope_verses_set_book_chapter_verse').on(
+    // unique: a verse can only belong to one pericope within a set
+    uniqueIndex('idx_pericope_verses_set_book_chapter_verse').on(
       table.pericopeSetId,
       table.bookId,
       table.chapterNumber,
