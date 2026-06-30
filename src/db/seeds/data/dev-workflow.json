@@ -1,0 +1,27 @@
+{
+  "projects": [
+    {
+      "seedKey": "local-dev-sample-project",
+      "name": "Local Dev Sample Project",
+      "organizationName": "Fluent Dev",
+      "bibleAbbreviation": "IRV",
+      "bookCodes": ["GEN", "EXO"],
+      "sourceLanguageCode": "guj",
+      "targetLanguageCode": "guj",
+      "createdByEmail": "$SEED_MANAGER",
+      "memberEmails": ["$SEED_MANAGER", "$SEED_TRANSLATOR"],
+      "chapterAssignments": [
+        {
+          "bookCode": "GEN",
+          "chapterNumber": 1,
+          "assignedUserEmail": "$SEED_TRANSLATOR"
+        },
+        {
+          "bookCode": "EXO",
+          "chapterNumber": 1,
+          "assignedUserEmail": "$SEED_MANAGER"
+        }
+      ]
+    }
+  ]
+}

@@ -31,8 +31,8 @@ npx tsx src/db/seeds/bibles.ts || { echo "ERROR: bibles seed failed"; exit 1; }
 echo "Seeding bible texts..."
 npx tsx src/db/seeds/bible-texts.ts || { echo "ERROR: bible texts seed failed"; exit 1; }
 
-echo "Seeding local dev project (mobile My Work)..."
-npx tsx src/db/seeds/dev-project.ts || { echo "ERROR: dev project seed failed"; exit 1; }
+echo "Seeding local dev workflow..."
+npx tsx src/db/seeds/dev-workflow.ts || { echo "ERROR: dev workflow seed failed"; exit 1; }
 
 echo "Starting dev server..."
 exec npx tsx watch src/index.ts

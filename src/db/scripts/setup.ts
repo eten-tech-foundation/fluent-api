@@ -3,8 +3,8 @@ import { execSync } from 'node:child_process';
 import { seedBibleTexts } from '@/db/seeds/bible-texts';
 import { seedBibles } from '@/db/seeds/bibles';
 import { seedBooks } from '@/db/seeds/books';
-import { seedDevProject } from '@/db/seeds/dev-project';
 import { seedDevUsers } from '@/db/seeds/dev-users';
+import { seedDevWorkflow } from '@/db/seeds/dev-workflow';
 import { seedLanguages } from '@/db/seeds/languages';
 import { seedOrganizations } from '@/db/seeds/organizations';
 import { seedRbac } from '@/db/seeds/rbac';
@@ -49,8 +49,8 @@ async function setup() {
   await seedBibleTexts();
   console.log('');
 
-  console.log('[10/10] Seeding local dev project (mobile My Work)...');
-  await seedDevProject();
+  console.log('[10/10] Seeding local dev workflow...');
+  await seedDevWorkflow();
   console.log('');
 
   console.log('=== Setup complete ===');

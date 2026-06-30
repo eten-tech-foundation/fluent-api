@@ -1,9 +1,10 @@
 import { hashPassword } from 'better-auth/crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import type { RoleName } from '@/lib/roles';
+import type { DbTransaction } from '@/lib/types';
 
 import { db } from '@/db';
 import { authAccount, authUser, organizations, roles, users } from '@/db/schema';
@@ -14,6 +15,39 @@ interface DevUserConfig {
   password: string;
   username: string;
   roleName: RoleName;
+}
+
+async function ensureCredentialPassword(
+  tx: DbTransaction,
+  authUserId: string,
+  email: string,
+  password: string
+): Promise<void> {
+  const hashedPassword = await hashPassword(password);
+
+  const [credentialAccount] = await tx
+    .select({ id: authAccount.id })
+    .from(authAccount)
+    .where(and(eq(authAccount.userId, authUserId), eq(authAccount.providerId, 'credential')))
+    .limit(1);
+
+  if (credentialAccount) {
+    await tx
+      .update(authAccount)
+      .set({ password: hashedPassword, updatedAt: new Date() })
+      .where(eq(authAccount.id, credentialAccount.id));
+    return;
+  }
+
+  await tx.insert(authAccount).values({
+    id: crypto.randomUUID(),
+    userId: authUserId,
+    accountId: email,
+    providerId: 'credential',
+    password: hashedPassword,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 }
 
 export async function seedDevUsers() {
@@ -51,9 +85,6 @@ export async function seedDevUsers() {
       throw new Error(`Role "${config.roleName}" not found. Run seedRoles first.`);
     }
 
-    const authUserId = crypto.randomUUID();
-    const hashedPassword = await hashPassword(config.password);
-
     await db.transaction(async (tx) => {
       const [existingAuthUser] = await tx
         .select({ id: authUser.id })
@@ -61,20 +92,23 @@ export async function seedDevUsers() {
         .where(eq(authUser.email, config.email))
         .limit(1);
 
-      if (existingAuthUser) {
-        console.log(`Skipping ${config.email} — already exists in auth_user.`);
-        return;
-      }
-
-      const [existingUserByEmail] = await tx
+      const [existingAppUser] = await tx
         .select({ id: users.id })
         .from(users)
         .where(eq(users.email, config.email))
         .limit(1);
 
-      if (existingUserByEmail) {
-        console.log(`Skipping ${config.email} — already exists in users.`);
+      if (existingAuthUser && existingAppUser) {
+        await ensureCredentialPassword(tx, existingAuthUser.id, config.email, config.password);
+        console.log(`Ensured dev user credentials: ${config.email} (${config.roleName})`);
         return;
+      }
+
+      if (existingAuthUser || existingAppUser) {
+        throw new Error(
+          `Dev user "${config.email}" is partially seeded (auth=${Boolean(existingAuthUser)}, users=${Boolean(existingAppUser)}). ` +
+            'Run on a fresh database or repair manually.'
+        );
       }
 
       const [existingUserByUsername] = await tx
@@ -84,9 +118,12 @@ export async function seedDevUsers() {
         .limit(1);
 
       if (existingUserByUsername) {
-        console.log(`Skipping ${config.username} — username already exists in users.`);
-        return;
+        throw new Error(
+          `Username "${config.username}" already exists for a different dev user. Resolve manually before re-seeding.`
+        );
       }
+
+      const authUserId = crypto.randomUUID();
 
       await tx.insert(authUser).values({
         id: authUserId,
@@ -97,15 +134,7 @@ export async function seedDevUsers() {
         updatedAt: new Date(),
       });
 
-      await tx.insert(authAccount).values({
-        id: crypto.randomUUID(),
-        userId: authUserId,
-        accountId: config.email,
-        providerId: 'credential',
-        password: hashedPassword,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      await ensureCredentialPassword(tx, authUserId, config.email, config.password);
 
       await tx.insert(users).values({
         username: config.username,
