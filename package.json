@@ -31,6 +31,7 @@
     "db:seed:books": "npx tsx src/db/seeds/books.ts",
     "db:seed:bibles": "npx tsx src/db/seeds/bibles.ts",
     "db:seed:bible-texts": "npx tsx src/db/seeds/bible-texts.ts",
+    "db:seed:dev-project": "npx tsx src/db/seeds/dev-project.ts",
     "db:migrate-users": "npx tsx src/db/scripts/migrate-users-to-betterauth.ts",
     "db:set-password": "npx tsx src/db/scripts/set-password.ts",
     "db:create-user": "npx tsx src/db/scripts/create-user.ts",
