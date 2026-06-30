@@ -87,7 +87,7 @@ describe('ai-suggestions routes', () => {
     (checkProjectUnitAccess as any).mockResolvedValue(null);
   });
 
-  describe('GET /ai-suggestions', () => {
+  describe('get /ai-suggestions', () => {
     it('returns 401 when the caller is not authenticated', async () => {
       (auth.api.getSession as any).mockResolvedValue(null);
       const res = await getAiSuggestions(1, [10]);
@@ -109,7 +109,7 @@ describe('ai-suggestions routes', () => {
     });
   });
 
-  describe('POST /ai-suggestions/queue-next', () => {
+  describe('post /ai-suggestions/queue-next', () => {
     const VALID_BODY = {
       projectUnitId: 1,
       bibleId: 2,
