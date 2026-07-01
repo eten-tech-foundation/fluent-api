@@ -5,6 +5,7 @@ import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { getHttpStatus } from '@/lib/types';
+import { rateLimit } from '@/middlewares/rate-limit';
 import { server } from '@/server/server';
 
 import type { BulkBibleTextsRequest } from './bible-texts.types';
@@ -88,6 +89,9 @@ const getBulkBibleTextsRoute = createRoute({
   tags: ['Bible Texts'],
   method: 'post',
   path: '/bibles/{bibleId}/bulk-texts',
+  // Intentionally anonymous (mobile sync pre-cache; reviewer decision 2026-06-26).
+  // Rate-limited as a scraping/abuse guard — a full sync needs only 1-2 requests.
+  middleware: [rateLimit({ windowMs: 60_000, max: 20 })] as const,
   request: {
     params: z.object({
       bibleId: z.coerce
@@ -114,6 +118,10 @@ const getBulkBibleTextsRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Invalid request body (chapters array empty or exceeds 1200)'
     ),
+    [HttpStatusCodes.TOO_MANY_REQUESTS]: jsonContent(
+      createMessageObjectSchema('Too many requests'),
+      'Rate limit exceeded (20 requests per minute per client)'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'
@@ -122,7 +130,8 @@ const getBulkBibleTextsRoute = createRoute({
   summary: 'Get bible texts for multiple chapters (bulk)',
   description:
     'Returns bible texts grouped by chapter for up to 1200 (bookId, chapterNumber) pairs in a single request. ' +
-    'Designed for mobile clients to pre-cache all assigned chapter texts in one round-trip. No authentication required.',
+    'Designed for mobile clients to pre-cache all assigned chapter texts in one round-trip. ' +
+    'Intentionally requires no authentication (mobile sync feature); rate-limited per client as an abuse guard.',
 });
 
 server.openapi(getBulkBibleTextsRoute, async (c) => {
