@@ -118,10 +118,18 @@ const getBulkBibleTextsRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Invalid request body (chapters array empty or exceeds 1200)'
     ),
-    [HttpStatusCodes.TOO_MANY_REQUESTS]: jsonContent(
-      createMessageObjectSchema('Too many requests'),
-      'Rate limit exceeded (20 requests per minute per client)'
-    ),
+    [HttpStatusCodes.TOO_MANY_REQUESTS]: {
+      ...jsonContent(
+        createMessageObjectSchema('Too many requests'),
+        'Rate limit exceeded (20 requests per minute per client IP)'
+      ),
+      headers: z.object({
+        'Retry-After': z.string().openapi({
+          description: 'Seconds until the current rate-limit window resets',
+          example: '60',
+        }),
+      }),
+    },
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
       'Internal server error'
@@ -131,7 +139,7 @@ const getBulkBibleTextsRoute = createRoute({
   description:
     'Returns bible texts grouped by chapter for up to 1200 (bookId, chapterNumber) pairs in a single request. ' +
     'Designed for mobile clients to pre-cache all assigned chapter texts in one round-trip. ' +
-    'Intentionally requires no authentication (mobile sync feature); rate-limited per client as an abuse guard.',
+    'Intentionally requires no authentication (mobile sync feature); rate-limited per client IP as an abuse guard.',
 });
 
 server.openapi(getBulkBibleTextsRoute, async (c) => {

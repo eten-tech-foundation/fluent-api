@@ -54,8 +54,8 @@ Verified: `typecheck`, `lint`, and the 78-test suite all pass.
    anonymous access is intentional.** The ~1200-chapter bulk return exists for a
    mobile sync feature, so these reads stay unauthenticated. Per the agreed
    fallback, the bulk `POST /bibles/{bibleId}/bulk-texts` endpoint is documented
-   as intentionally anonymous and **rate-limited per client** (in-memory
-   fixed-window guard in `src/middlewares/rate-limit.ts`) as a scraping/abuse
+   as intentionally anonymous and **rate-limited per client** (in-memory,
+   per-process fixed-window guard in `src/middlewares/rate-limit.ts`) as a scraping/abuse
    guard — implemented alongside this decision (#199).
 
 ## Release coupling

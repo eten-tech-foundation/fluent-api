@@ -82,12 +82,34 @@ describe('rateLimit middleware', () => {
     expect(next).toHaveBeenCalledTimes(2);
   });
 
-  it('uses the first entry of a multi-hop x-forwarded-for chain', async () => {
+  it('keys on the last (proxy-appended) hop so spoofed leading entries share a bucket', async () => {
     const middleware = rateLimit({ windowMs: 60_000, max: 1 });
     const next = vi.fn();
 
-    await middleware(createContext({ 'x-forwarded-for': '9.9.9.9, 10.0.0.1' }), next);
-    const blocked = createContext({ 'x-forwarded-for': '9.9.9.9, 10.0.0.2' });
+    await middleware(createContext({ 'x-forwarded-for': '1.1.1.1, 9.9.9.9' }), next);
+    const blocked = createContext({ 'x-forwarded-for': '2.2.2.2, 9.9.9.9' });
+    await middleware(blocked, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+  });
+
+  it('tracks distinct last hops in separate buckets', async () => {
+    const middleware = rateLimit({ windowMs: 60_000, max: 1 });
+    const next = vi.fn();
+
+    await middleware(createContext({ 'x-forwarded-for': '9.9.9.9, 1.1.1.1' }), next);
+    await middleware(createContext({ 'x-forwarded-for': '9.9.9.9, 2.2.2.2' }), next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('strips the port from the last hop so the same IP shares a bucket', async () => {
+    const middleware = rateLimit({ windowMs: 60_000, max: 1 });
+    const next = vi.fn();
+
+    await middleware(createContext({ 'x-forwarded-for': '9.9.9.9:1111' }), next);
+    const blocked = createContext({ 'x-forwarded-for': '9.9.9.9:2222' });
     await middleware(blocked, next);
 
     expect(next).toHaveBeenCalledTimes(1);
