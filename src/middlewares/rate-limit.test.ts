@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { logger } from '@/lib/logger';
+
 import { rateLimit } from './rate-limit';
+
+vi.mock('@/lib/logger', () => ({
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 function createContext(headers: Record<string, string> = {}) {
   const setHeaders: Record<string, string> = {};
@@ -18,6 +28,7 @@ function createContext(headers: Record<string, string> = {}) {
 
 describe('rateLimit middleware', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
   });
@@ -52,6 +63,10 @@ describe('rateLimit middleware', () => {
     expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
     expect(blocked.setHeaders['Retry-After']).toBe('60');
     expect(result).toEqual({ data: { message: 'Too many requests' }, status: 429 });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Rate limit exceeded',
+      expect.objectContaining({ client: '1.2.3.4', limit: 2 })
+    );
   });
 
   it('resets the window after windowMs elapses', async () => {

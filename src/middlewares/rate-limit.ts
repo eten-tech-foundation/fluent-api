@@ -4,6 +4,11 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { AppBindings } from '@/lib/types';
 
+import { logger } from '@/lib/logger';
+
+// TODO(#210): when this limiter is reused beyond bulk-texts / the API scales
+// behind a load balancer, expose windowMs/max/MAX_BUCKETS via env vars and make
+// the trusted-proxy assumption in clientKey configurable.
 interface RateLimitOptions {
   /** Window length in milliseconds. */
   windowMs: number;
@@ -78,6 +83,12 @@ export function rateLimit(options: RateLimitOptions) {
       }
       buckets.set(key, { count: 1, resetAt: now + options.windowMs });
     } else if (bucket.count >= options.max) {
+      logger.warn('Rate limit exceeded', {
+        client: key,
+        path: c.req.path,
+        limit: options.max,
+        windowMs: options.windowMs,
+      });
       c.header('Retry-After', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
       return c.json({ message: 'Too many requests' }, HttpStatusCodes.TOO_MANY_REQUESTS);
     } else {
