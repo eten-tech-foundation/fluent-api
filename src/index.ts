@@ -2,11 +2,7 @@ import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
 import env from '@/env';
-import {
-  deleteExpiredExports,
-  initializeBlobStorage,
-  isBlobStorageConfigured,
-} from '@/lib/blob-storage';
+import { initializeBlobStorage, isBlobStorageConfigured } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
 import { ensureExportQueues, initializeQueue, stopQueue } from '@/lib/queue';
 
@@ -30,13 +26,6 @@ async function startServer() {
 
     logger.info('Queue ready');
 
-    const cleanupInterval = setInterval(() => {
-      if (!isBlobStorageConfigured()) return;
-      deleteExpiredExports().catch((error) => {
-        logger.error('Cleanup task failed', { error });
-      });
-    }, 3600000);
-
     const server = serve({
       fetch: app.fetch,
       port: env.PORT,
@@ -47,8 +36,6 @@ async function startServer() {
     const gracefulShutdown = async (signal: string) => {
       logger.info(`${signal} received, shutting down server`);
       try {
-        clearInterval(cleanupInterval);
-
         server.close(() => {
           logger.info('HTTP server closed');
         });

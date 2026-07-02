@@ -386,8 +386,9 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
     };
 
     // Collapse duplicate requests: while an identical export (same unit + book
-    // selection) is queued or running, boss.send returns null instead of a new job.
-    const singletonKey = `usfm-export:${projectUnitId}:${
+    // selection) from the same requester is queued or running, boss.send returns
+    // null instead of a new job.
+    const singletonKey = `usfm-export:${user.id}:${projectUnitId}:${
       bookIds ? [...bookIds].sort((a, b) => a - b).join('-') : 'all'
     }`;
 

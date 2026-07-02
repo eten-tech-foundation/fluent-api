@@ -146,6 +146,9 @@ export function generateExportDownloadUrl(filename: string): string {
   return `${client.getBlobClient(filename).url}?${sas}`;
 }
 
+// Note: once hosted storage is provisioned, an Azure Blob lifecycle management
+// policy (server-side TTL) can replace this application-level sweep; it stays
+// for Azurite/local parity and pre-enablement volumes.
 /** Deletes export blobs older than EXPORT_TTL_MS. Safe to call on an interval. */
 export async function deleteExpiredExports(): Promise<void> {
   try {
@@ -155,8 +158,15 @@ export async function deleteExpiredExports(): Promise<void> {
     for await (const blob of client.listBlobsFlat()) {
       const createdOn = blob.properties.createdOn;
       if (createdOn && Date.now() - createdOn.getTime() > EXPORT_TTL_MS) {
-        await client.deleteBlob(blob.name);
-        deletedCount++;
+        try {
+          await client.deleteBlob(blob.name);
+          deletedCount++;
+        } catch (error: any) {
+          // A concurrent sweep (e.g. an overlapping worker restart) may have
+          // already removed this blob; a 404 is benign. Re-throw anything else
+          // so the outer catch logs it.
+          if (error?.statusCode !== 404) throw error;
+        }
       }
     }
 

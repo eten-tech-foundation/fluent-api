@@ -1,8 +1,9 @@
 # Security & Export Hardening — Proposal
 
-**Status:** Draft for review (2026-06-18). Ticket 1 (auth on open domains) is
-**partially implemented** on branch `fix/require-auth-bibles-usfm`; tickets 2–4
-are scoped but not started.
+**Status:** In progress (updated 2026-07-01). Tickets 1–3 are implemented and
+largely merged — auth on open domains (#189, #206, #199 rate-limit), export error
+UX (#200, fluent-web#312), and async export pipeline hardening (#196, this PR) —
+and ticket 4's code is merged (#202) with 2-user QA still pending (#197).
 **Origin:** Code audit of `fluent-web` + `fluent-api` (2026-06-18) plus reviewer
 feedback. This folder captures the four follow-ups the audit surfaced and the
 decision made on each.

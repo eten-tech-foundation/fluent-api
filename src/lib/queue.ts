@@ -77,10 +77,28 @@ export async function ensureExportQueues(boss: PgBoss): Promise<void> {
 
   const existing = await boss.getQueue(QUEUE_NAMES.USFM_EXPORT);
   if (existing && existing.policy !== 'exclusive') {
-    logger.warn('Recreating usfm-export queue with exclusive policy', {
-      previousPolicy: existing.policy,
-    });
-    await boss.deleteQueue(QUEUE_NAMES.USFM_EXPORT);
+    // Policy is immutable and createQueue no-ops on existing queues, so a
+    // policy change needs delete+recreate. Both the API and the worker run
+    // this at startup, so it must stay non-destructive and race-tolerant:
+    // recreate only when the queue holds no work, otherwise keep serving with
+    // the old policy and converge on a later boot once the queue drains.
+    const stats = (await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT)) as any;
+    const pendingJobs = (stats?.created ?? 0) + (stats?.retry ?? 0) + (stats?.active ?? 0);
+    if (pendingJobs > 0) {
+      logger.warn('usfm-export queue policy differs but jobs are pending; skipping recreation', {
+        previousPolicy: existing.policy,
+        pendingJobs,
+      });
+    } else {
+      try {
+        await boss.deleteQueue(QUEUE_NAMES.USFM_EXPORT);
+        logger.warn('Recreated usfm-export queue with exclusive policy', {
+          previousPolicy: existing.policy,
+        });
+      } catch (error) {
+        logger.warn('usfm-export queue recreation raced another process; continuing', { error });
+      }
+    }
   }
 
   await boss.createQueue(QUEUE_NAMES.USFM_EXPORT, {
