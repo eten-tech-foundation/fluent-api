@@ -12,6 +12,7 @@ import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireProjectUnitAccess } from './usfm-auth.middleware';
 import * as usfmService from './usfm.service';
 
 const projectUnitIdParam = z.object({
@@ -65,12 +66,16 @@ const getExportableBooksRoute = createRoute({
   tags: ['USFM Export'],
   method: 'get',
   path: '/project-units/{projectUnitId}/usfm/books',
-  middleware: [authenticateUser] as const,
+  middleware: [authenticateUser, requireProjectUnitAccess()] as const,
   request: {
     params: projectUnitIdParam,
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -87,7 +92,7 @@ const exportProjectUSFMRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm',
-  middleware: [authenticateUser] as const,
+  middleware: [authenticateUser, requireProjectUnitAccess()] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
@@ -101,7 +106,10 @@ const exportProjectUSFMRoute = createRoute({
         },
       },
     },
-    [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Project not found'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -119,13 +127,17 @@ const exportProjectUSFMAsyncRoute = createRoute({
   tags: ['USFM Export'],
   method: 'post',
   path: '/project-units/{projectUnitId}/usfm/async',
-  middleware: [authenticateUser] as const,
+  middleware: [authenticateUser, requireProjectUnitAccess()] as const,
   request: {
     params: projectUnitIdParam,
     body: jsonContent(exportRequestBodySchema, 'Book selection for export'),
   },
   responses: {
     [HttpStatusCodes.ACCEPTED]: jsonContent(exportAsyncResponseSchema, 'Export job queued'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -253,16 +265,9 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
       }
     }
 
-    const projectNameResult = await usfmService.getProjectName(projectUnitId);
-    if (!projectNameResult.ok || !projectNameResult.data) {
-      logger.warn('Project not found for project unit', { projectUnitId });
-      return c.json(
-        { error: 'Project not found for this project unit' },
-        HttpStatusCodes.NOT_FOUND
-      );
-    }
-
-    const projectName = projectNameResult.data;
+    // Project access (and existence) is already verified by requireProjectUnitAccess,
+    // which puts the resolved project on the context.
+    const projectName = c.get('project')!.name;
 
     const exportResultObj = await usfmService.createUSFMZipStreamAsync(projectUnitId, bookIds);
     if (!exportResultObj.ok || !exportResultObj.data) {
