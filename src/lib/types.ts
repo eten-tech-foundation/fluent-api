@@ -77,6 +77,7 @@ export const ErrorCode = {
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
+  PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
 } as const;
 
 // eslint-disable-next-line ts/no-redeclare
@@ -115,6 +116,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
   LANGUAGE_NOT_FOUND: 'Language not found',
+  PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
 };
 
 // ─── HTTP status map ──────────────────────────────────────────────────────────
@@ -127,6 +129,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
   LANGUAGE_NOT_FOUND: 404,
+  PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   CONFLICT: 409,

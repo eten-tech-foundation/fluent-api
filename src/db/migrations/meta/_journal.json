@@ -85,6 +85,13 @@
       "when": 1779441453059,
       "tag": "0011_add_is_mobile_to_auth_session",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782282922268,
+      "tag": "0012_add_pericope_sets",
+      "breakpoints": true
     }
   ]
 }
