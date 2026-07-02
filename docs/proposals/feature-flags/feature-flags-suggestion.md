@@ -101,7 +101,15 @@ const EnvSchema = z.object({
   //
   // Repeated Word Check (the one AI-dependent feature today). Left optional so
   // its default can be derived from AI wiring (§4.2).
-  EN_FEATURE_REPEATED_WORD_CHECK: z.coerce.boolean().optional(),
+  //
+  // NB: use z.stringbool() (Zod ≥ 3.25), NOT z.coerce.boolean(). Coercion
+  // follows JS truthiness, so the string "false" would parse to `true` and
+  // silently INVERT the safe default — exactly the wrong failure mode for a
+  // flag whose job is to keep AI UI hidden. z.stringbool() parses the usual
+  // env spellings ("true"/"false", "1"/"0", "yes"/"no", "on"/"off",
+  // case-insensitive) and rejects anything else; optional() preserves the
+  // unset case so §4.2's derived default still applies.
+  EN_FEATURE_REPEATED_WORD_CHECK: z.stringbool().optional(),
 });
 ```
 
@@ -136,9 +144,12 @@ Future non-AI flags need not carry this derivation; they can simply default to
 Add a **meta route** as a sibling of [`/health`](../../../src/routes/health.route.ts)
 in `src/routes/`:
 
-```
+```http
 GET /config/features            (unauthenticated — see Q1)
-200 →
+
+200 OK
+Content-Type: application/json
+
 {
   "features": {
     "repeatedWordCheck": true
