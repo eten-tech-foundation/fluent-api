@@ -85,6 +85,20 @@
       "when": 1779441453059,
       "tag": "0011_add_is_mobile_to_auth_session",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781609375158,
+      "tag": "0012_add_recordings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781682962147,
+      "tag": "0013_add_metadata_to_recordings",
+      "breakpoints": true
     }
   ]
 }
