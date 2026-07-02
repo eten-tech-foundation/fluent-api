@@ -41,6 +41,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.33.0",
     "@better-auth/drizzle-adapter": "^1.6.9",
     "@better-auth/passkey": "^1.6.9",
     "@hono/node-server": "1.19.13",

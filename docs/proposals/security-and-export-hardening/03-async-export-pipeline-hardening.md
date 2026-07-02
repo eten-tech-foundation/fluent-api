@@ -2,14 +2,20 @@
 
 **Priority:** P2 — the async pipeline is **not wired to the UI**, so this is
 "fix before enabling," not a live outage.
-**Status:** Not started.
+**Status:** Implemented (2026-07-02, #196): Azure Blob Storage + short-lived SAS
+download URLs, worker fails/retries properly (batchSize 1 + dead-letter queue),
+streaming upload (no in-memory buffering), owner-bound jobs/downloads, and
+`singletonKey` dedupe. Azurite backs local compose. **Remaining:** provision a
+storage account/container + `AZURE_STORAGE_CONNECTION_STRING` per hosted
+environment — the endpoints respond 503 until configured.
 
 ## Context
 
 `POST /project-units/{id}/usfm/async` enqueues a pg-boss job (`USFM_EXPORT`) that
-`src/workers/standalone-worker.ts` processes, writing a ZIP to `EXPORTS_DIR`; the
-client then polls `GET /jobs/{id}` and downloads `GET /downloads/{filename}`. No
-`fluent-web` code calls these routes today.
+`src/workers/standalone-worker.ts` processes, streaming the ZIP into Azure Blob
+Storage; the client then polls `GET /jobs/{id}` and follows the 302 from
+`GET /downloads/{filename}` to a signed URL. No `fluent-web` code calls these
+routes today.
 
 ## Defects to fix before exposing it
 

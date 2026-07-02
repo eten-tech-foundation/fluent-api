@@ -2,9 +2,13 @@ import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
 import env from '@/env';
-import { cleanupExpiredFiles, initializeFileStorage } from '@/lib/file-storage';
+import {
+  deleteExpiredExports,
+  initializeBlobStorage,
+  isBlobStorageConfigured,
+} from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import { ensureExportQueues, initializeQueue, stopQueue } from '@/lib/queue';
 
 import app from './app';
 
@@ -12,24 +16,23 @@ async function startServer() {
   try {
     logger.info('Starting Fluent API server');
 
-    await initializeFileStorage();
-    logger.info('File storage initialized');
+    if (isBlobStorageConfigured()) {
+      await initializeBlobStorage();
+    } else {
+      logger.warn('Blob storage not configured — async USFM export endpoints will respond 503');
+    }
 
     logger.info('Initializing queue');
     const boss = await initializeQueue();
 
-    logger.info('Ensuring USFM export queue exists');
-    await boss.createQueue(QUEUE_NAMES.USFM_EXPORT, {
-      retryLimit: 3,
-      retryDelay: 60,
-      retryBackoff: true,
-      expireInSeconds: 3600,
-    });
+    logger.info('Ensuring USFM export queues exist');
+    await ensureExportQueues(boss);
 
     logger.info('Queue ready');
 
     const cleanupInterval = setInterval(() => {
-      cleanupExpiredFiles().catch((error) => {
+      if (!isBlobStorageConfigured()) return;
+      deleteExpiredExports().catch((error) => {
         logger.error('Cleanup task failed', { error });
       });
     }, 3600000);

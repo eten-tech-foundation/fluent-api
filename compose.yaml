@@ -16,6 +16,35 @@ services:
       timeout: 5s
       retries: 5
 
+  azurite:
+    container_name: fluent-api-azurite
+    image: mcr.microsoft.com/azure-storage/azurite
+    command:
+      - azurite-blob
+      - --blobHost
+      - 0.0.0.0
+      - --blobPort
+      - '10000'
+      - --location
+      - /data
+      # The storage SDK may speak a newer API version than the emulator advertises.
+      - --skipApiVersionCheck
+
+    ports:
+      - '${AZURITE_PORT:-10000}:10000'
+    volumes:
+      - fluent-azurite:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').connect(10000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     container_name: fluent-api-api
     build:
@@ -34,19 +63,21 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      EXPORTS_DIR: /app/exports
+      # Azurite (local Azure Blob emulator) — well-known dev credentials.
+      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
     user: '1001:1001'
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
       - /app/.cache:noexec,nosuid,size=128m
-      - /app/exports:noexec,nosuid,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     depends_on:
       db:
+        condition: service_healthy
+      azurite:
         condition: service_healthy
     healthcheck:
       test: [CMD, curl, -f, 'http://localhost:9999/health']
@@ -69,14 +100,14 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      EXPORTS_DIR: /app/exports
+      # Azurite (local Azure Blob emulator) — well-known dev credentials.
+      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
     command: [dumb-init, --, npx, tsx, watch, src/workers/standalone-worker.ts]
     user: '1001:1001'
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
       - /app/.cache:noexec,nosuid,size=128m
-      - /app/exports:noexec,nosuid,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -84,8 +115,11 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      azurite:
+        condition: service_healthy
 
 volumes:
   fluent-pgdata:
   fluent-api-node-modules:
   fluent-worker-node-modules:
+  fluent-azurite:

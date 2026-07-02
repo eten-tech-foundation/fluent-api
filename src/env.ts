@@ -41,6 +41,13 @@ const EnvSchema = z.object({
   // '/api/v1' via env with no code change. Leading slash optional; trailing
   // slashes are trimmed when the request URL is assembled.
   FLUENT_AI_API_PREFIX: z.string().default(''),
+
+  // ── Async USFM export storage (Azure Blob) ─────────────────────────
+  // Optional: when unset, the async export endpoints respond 503 and the
+  // worker refuses export jobs. Must include an AccountKey (used to sign
+  // download SAS URLs). Local dev uses Azurite (see compose.yaml).
+  AZURE_STORAGE_CONNECTION_STRING: z.string().optional(),
+  EXPORTS_CONTAINER: z.string().default('usfm-exports'),
 });
 
 export type env = z.infer<typeof EnvSchema>;
