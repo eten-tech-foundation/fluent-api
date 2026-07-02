@@ -179,7 +179,6 @@ export async function seedPericopeSets(): Promise<void> {
   const [fiaSet] = await db
     .select({ id: pericope_sets.id })
     .from(pericope_sets)
-    //to change the old existing projects//
     .where(eq(pericope_sets.name, 'FIA'))
     .limit(1);
 
