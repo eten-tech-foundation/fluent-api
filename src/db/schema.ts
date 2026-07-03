@@ -457,8 +457,31 @@ export const editorStateResourcesSchema = z
     verseNumber: z.number(),
     languageCode: z.string().min(1),
     tabStatus: z.boolean(),
+    // ── Repeated Word Check additions (optional; old rows parse unchanged — no migration) ──
+    // Which left-panel tab is active (Resources vs Checks).
+    activeLeftTab: z.enum(['resources', 'checks']).optional(),
+    // Per-occurrence ignore rules for repeated-word findings, keyed by
+    // "{snt_id}|{repeated_word}|{ordinal}" (see fluent-web useResolvedFindings).
+    checkOccurrenceRules: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
   })
   .nullable();
+
+// ─── User-global settings (Fluent preference store; W2/W7) ───────────────────
+// One row per user, a single Zod-typed JSONB blob. `.catch({})` so unknown/old
+// shapes parse as empty rather than throwing (W8). Surfaced via GET/PUT /self/settings.
+const userSettingsObjectSchema = z.object({
+  // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
+  // pair string (e.g. "the the"); applies across all of the user's projects.
+  checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
+});
+
+// Read/storage schema: `.catch({})` so unknown/old shapes parse as empty rather
+// than throwing (W8). Use this when reading rows back from the DB.
+export const userSettingsSchema = userSettingsObjectSchema.catch({});
+
+// Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
+// (surfaced as a 400) instead of being silently swallowed.
+export const userSettingsWriteSchema = userSettingsObjectSchema;
 
 export const user_chapter_assignment_editor_state = pgTable(
   'user_chapter_assignment_editor_state',
@@ -482,6 +505,17 @@ export const user_chapter_assignment_editor_state = pgTable(
     ),
   ]
 );
+
+export const user_settings = pgTable('user_settings', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  settings: jsonb('settings').$type<z.infer<typeof userSettingsSchema>>(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 export const project_users = pgTable(
   'project_users',
@@ -578,6 +612,7 @@ export const selectUserChapterAssignmentEditorStateSchema = createSelectSchema(
   user_chapter_assignment_editor_state
 );
 export const selectProjectUsersSchema = createSelectSchema(project_users);
+export const selectUserSettingsSchema = createSelectSchema(user_settings);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
 export const selectActiveChapterEditorsSchema = createSelectSchema(active_chapter_editors);
@@ -839,6 +874,18 @@ export const insertProjectUsersSchema = createInsertSchema(project_users, {
   })
   .omit({
     createdAt: true,
+  });
+
+export const insertUserSettingsSchema = createInsertSchema(user_settings, {
+  userId: (schema) => schema.int(),
+  settings: () => userSettingsSchema,
+})
+  .required({
+    userId: true,
+  })
+  .omit({
+    createdAt: true,
+    updatedAt: true,
   });
 
 export const insertPermissionsSchema = createInsertSchema(permissions, {
