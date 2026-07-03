@@ -22,6 +22,7 @@ import '@/domains/users/projects/user-projects.route';
 import '@/domains/chapter-assignments/presence/chapter-assignments-presence.route';
 import '@/domains/ai-tools/ai-tools.route';
 import '@/domains/pericopes/pericopes.route';
+import '@/domains/self/settings/self-settings.route';
 configureOpenAPI(server);
 
 export default server;
