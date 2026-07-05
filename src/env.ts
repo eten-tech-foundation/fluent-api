@@ -24,8 +24,16 @@ expand(
 const TRUTHY = new Set(['true', '1', 'yes', 'on']);
 const FALSY = new Set(['false', '0', 'no', 'off']);
 const envBool = () =>
-  z.string().transform((v, ctx) => {
+  z.string().transform((v, ctx): boolean | undefined => {
     const normalized = v.trim().toLowerCase();
+    // Treat a blank / whitespace-only value as UNSET (undefined) rather than a
+    // parse error: dotenv loads a bare `EN_FEATURE_REPEATED_WORD_CHECK=` line
+    // (exactly how .env.example documents it) as the empty string "", and
+    // .optional() alone does NOT catch that — the transform still runs on "".
+    // Without this, copying .env.example verbatim would fail EnvSchema.safeParse
+    // at boot. Returning undefined lets the derived default (AI-wiring) apply,
+    // which is the intended "flag not explicitly set" behaviour.
+    if (normalized === '') return undefined;
     if (TRUTHY.has(normalized)) return true;
     if (FALSY.has(normalized)) return false;
     ctx.addIssue({

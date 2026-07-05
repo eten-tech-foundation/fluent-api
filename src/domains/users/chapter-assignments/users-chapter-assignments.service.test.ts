@@ -39,21 +39,21 @@ const makeProgressInfo = (
 });
 
 describe('toResponse', () => {
-  it('exposes the target ISO 639-3 code as targetLanguageCode (BUG #2 regression)', () => {
-    // The repeated-words check sends targetLanguageCode as greek-room's lang_code;
+  it('exposes the target ISO 639-3 code as targetLangCode (BUG #2 regression)', () => {
+    // The repeated-words check sends targetLangCode as greek-room's lang_code;
     // greek-room keys its legitimate-duplicate whitelist on the ISO code, so the
     // API must surface the code (not just the display name). See phase-04 manual
     // smoke (BUG #2, 2026-06-23).
     const response = toResponse(
       makeProgressInfo({ targetLanguage: 'English', targetLangCode: 'eng' })
     );
-    expect(response.targetLanguageCode).toBe('eng');
+    expect(response.targetLangCode).toBe('eng');
     // The display name still flows through its own field.
     expect(response.targetLanguage).toBe('English');
   });
 
   it('falls back to "" when the target ISO code is null', () => {
     const response = toResponse(makeProgressInfo({ targetLangCode: null }));
-    expect(response.targetLanguageCode).toBe('');
+    expect(response.targetLangCode).toBe('');
   });
 });

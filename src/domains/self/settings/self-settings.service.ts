@@ -28,11 +28,15 @@ export async function getSettings(userId: number) {
 
 export async function upsertSettings(userId: number, rawSettings: unknown) {
   // Validate the incoming write with the STRICT schema (no `.catch`), so a
-  // malformed body is rejected as a 400 rather than silently swallowed. Unknown
-  // top-level keys are stripped; bad shapes for known keys fail parsing. (The
-  // `.catch({})` W8 tolerance applies only when reading stored rows back.)
+  // malformed body is rejected (as a 422 — see below) rather than silently
+  // swallowed. Unknown top-level keys are stripped; bad shapes for known keys
+  // fail parsing. (The `.catch({})` W8 tolerance applies only when reading
+  // stored rows back.)
   const parsed = userSettingsWriteSchema.safeParse(rawSettings);
-  if (!parsed.success) return err(ErrorCode.INVALID_REFERENCE);
+  // A malformed body is a request-shape (validation) failure, not a reference
+  // error — VALIDATION_ERROR maps to 422, the correct status for a well-formed
+  // request whose contents fail schema validation.
+  if (!parsed.success) return err(ErrorCode.VALIDATION_ERROR);
 
   const settings: UserSettings = parsed.data;
 

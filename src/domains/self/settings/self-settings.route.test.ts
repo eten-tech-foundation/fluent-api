@@ -224,14 +224,16 @@ describe('pUT /self/settings', () => {
     expect((await replaced.json()).settings).toEqual({});
   });
 
-  it('returns 400 on schema violation (wrong rule value type)', async () => {
+  it('returns 422 on schema violation (wrong rule value type)', async () => {
     authenticateAs(USER_A);
 
     const res = await putSettings({
       settings: { checkIgnoredWordPairs: { 'the the': 'not-a-valid-verdict' } },
     });
 
-    expect(res.status).toBe(400);
+    // A well-formed request whose body fails schema validation is a 422
+    // (VALIDATION_ERROR), not a 400.
+    expect(res.status).toBe(422);
   });
 
   it('strips unknown top-level keys on write (persists as {} rather than rejecting)', async () => {

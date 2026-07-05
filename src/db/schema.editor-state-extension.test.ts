@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { editorStateResourcesSchema, userSettingsSchema } from '@/db/schema';
+import {
+  editorStateResourcesSchema,
+  userSettingsSchema,
+  userSettingsWriteSchema,
+} from '@/db/schema';
 
 // Phase 1 (Repeated Word Check) extends the existing editor-state JSONB schema
 // with two OPTIONAL keys and adds the user-global settings blob. These tests
@@ -66,5 +70,36 @@ describe('userSettingsSchema — user-global settings blob (W8)', () => {
   it('.catch({}) — an unknown/old top-level shape collapses to {} rather than throwing', () => {
     expect(userSettingsSchema.parse({ checkIgnoredWordPairs: 'not-a-record' })).toEqual({});
     expect(userSettingsSchema.parse('totally wrong')).toEqual({});
+  });
+});
+
+describe('userSettingsWriteSchema — strict write path (A4)', () => {
+  // The write schema is deliberately the strict object schema WITHOUT the
+  // `.catch({})` fallback used on the read path. A malformed write must be
+  // surfaced (the route maps this to a 422) rather than silently swallowed
+  // and persisted as an empty blob.
+  it('accepts a well-formed write blob', () => {
+    const blob = { checkIgnoredWordPairs: { 'the the': 'suppress' as const } };
+    expect(userSettingsWriteSchema.parse(blob)).toEqual(blob);
+  });
+
+  it('accepts an empty write blob', () => {
+    expect(userSettingsWriteSchema.parse({})).toEqual({});
+  });
+
+  it('rejects an invalid verdict value rather than collapsing to {}', () => {
+    expect(() =>
+      userSettingsWriteSchema.parse({ checkIgnoredWordPairs: { 'the the': 'ignore' } })
+    ).toThrow();
+  });
+
+  it('rejects a non-record checkIgnoredWordPairs rather than collapsing to {}', () => {
+    expect(() =>
+      userSettingsWriteSchema.parse({ checkIgnoredWordPairs: 'not-a-record' })
+    ).toThrow();
+  });
+
+  it('rejects a non-object top-level shape rather than collapsing to {}', () => {
+    expect(() => userSettingsWriteSchema.parse('totally wrong')).toThrow();
   });
 });

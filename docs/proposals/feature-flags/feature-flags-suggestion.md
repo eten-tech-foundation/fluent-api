@@ -102,14 +102,21 @@ const EnvSchema = z.object({
   // Repeated Word Check (the one AI-dependent feature today). Left optional so
   // its default can be derived from AI wiring (§4.2).
   //
-  // NB: use z.stringbool() (Zod ≥ 3.25), NOT z.coerce.boolean(). Coercion
-  // follows JS truthiness, so the string "false" would parse to `true` and
-  // silently INVERT the safe default — exactly the wrong failure mode for a
-  // flag whose job is to keep AI UI hidden. z.stringbool() parses the usual
-  // env spellings ("true"/"false", "1"/"0", "yes"/"no", "on"/"off",
-  // case-insensitive) and rejects anything else; optional() preserves the
-  // unset case so §4.2's derived default still applies.
-  EN_FEATURE_REPEATED_WORD_CHECK: z.stringbool().optional(),
+  // NB: parse with a custom string→boolean transform (`envBool()`), NOT
+  // z.coerce.boolean(). Coercion follows JS truthiness, so the string "false"
+  // would parse to `true` and silently INVERT the safe default — exactly the
+  // wrong failure mode for a flag whose job is to keep AI UI hidden.
+  //
+  // Zod's built-in `z.stringbool()` would do the job, but it is a **Zod 4**
+  // API; this repo is pinned to Zod 3.x (`@hono/zod-openapi` binds the classic
+  // v3 `z`), so `z.stringbool` does not exist here. Instead we ship a small
+  // `envBool()` helper (in this file) that parses the usual env spellings
+  // ("true"/"false", "1"/"0", "yes"/"no", "on"/"off", case-insensitive),
+  // treats blank/whitespace-only as unset (`undefined`), and rejects anything
+  // else. `.optional()` preserves the unset case so §4.2's derived default
+  // still applies. If/when the repo moves to Zod 4, `envBool()` can be
+  // replaced by `z.stringbool()`.
+  EN_FEATURE_REPEATED_WORD_CHECK: envBool().optional(),
 });
 ```
 
