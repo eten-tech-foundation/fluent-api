@@ -16,6 +16,12 @@ const MOBILE_ROLLING_MS = MOBILE_ROLLING_DAYS * 24 * 60 * 60 * 1000;
 const MOBILE_ROLL_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000; // Roll when < 30 days remain
 const MOBILE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // Check at most once per 24h
 
+// Machine-facing route prefixes authenticated via requireServiceAuth (service-key
+// bearer token) instead of a BetterAuth session. Listed explicitly — do not match
+// on a bare '/internal/' substring, since that would silently skip session auth
+// for any future route that happens to contain it anywhere in its path.
+const SERVICE_AUTH_PATH_PREFIXES = ['/ai-suggestions/internal/'];
+
 /**
  * Authentication Middleware
  *
@@ -36,7 +42,10 @@ const MOBILE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // Check at most once per 
 export async function authenticate(c: Context<AppBindings>, next: Next) {
   // Skip auth routes to avoid circularity if applied globally
   // Skip internal routes as they use their own service authentication tokens
-  if (c.req.path.startsWith('/api/auth') || c.req.path.includes('/internal/')) {
+  if (
+    c.req.path.startsWith('/api/auth') ||
+    SERVICE_AUTH_PATH_PREFIXES.some((prefix) => c.req.path.startsWith(prefix))
+  ) {
     return next();
   }
 
