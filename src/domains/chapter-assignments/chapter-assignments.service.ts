@@ -66,12 +66,13 @@ export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number
 }
 
 export async function createChapterAssignment(data: CreateChapterAssignmentRequestData) {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     try {
       const assignment = await repo.insert(data, tx);
 
       await repo.insertStatusHistory(tx, assignment.id, CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED);
 
+      let shouldTriggerAi = false;
       if (assignment.assignedUserId) {
         await repo.insertUserAssignmentHistory(
           tx,
@@ -80,26 +81,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
           'drafter',
           CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
         );
-        try {
-          // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
-          await aiSuggestionsService.handleChapterAssigned(
-            assignment.projectUnitId,
-            assignment.bibleId,
-            assignment.bookId,
-            assignment.chapterNumber
-          );
-        } catch (error) {
-          logger.error({
-            cause: error,
-            message: 'Failed to enqueue AI suggestions after chapter assignment',
-            context: {
-              projectUnitId: assignment.projectUnitId,
-              bibleId: assignment.bibleId,
-              bookId: assignment.bookId,
-              chapterNumber: assignment.chapterNumber,
-            },
-          });
-        }
+        shouldTriggerAi = true;
       }
       if (assignment.peerCheckerId) {
         await repo.insertUserAssignmentHistory(
@@ -111,7 +93,10 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
         );
       }
 
-      return ok(toChapterAssignmentResponse(assignment));
+      return ok({
+        response: toChapterAssignmentResponse(assignment),
+        shouldTriggerAi,
+      });
     } catch (error) {
       logger.error({
         cause: error,
@@ -121,6 +106,35 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
       return err(ErrorCode.INTERNAL_ERROR);
     }
   });
+
+  if (!result.ok) {
+    return result;
+  }
+
+  if (result.data.shouldTriggerAi) {
+    const assignment = result.data.response;
+    try {
+      await aiSuggestionsService.handleChapterAssigned(
+        assignment.projectUnitId,
+        assignment.bibleId,
+        assignment.bookId,
+        assignment.chapterNumber
+      );
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Failed to enqueue AI suggestions after chapter assignment',
+        context: {
+          projectUnitId: assignment.projectUnitId,
+          bibleId: assignment.bibleId,
+          bookId: assignment.bookId,
+          chapterNumber: assignment.chapterNumber,
+        },
+      });
+    }
+  }
+
+  return ok(result.data.response);
 }
 
 /**
@@ -174,9 +188,12 @@ export async function updateChapterAssignment(
       if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
       await recordStatusChange(tx, current, updated);
-      await recordUserAssignmentChanges(tx, current, updated, data);
+      const shouldTriggerAi = await recordUserAssignmentChanges(tx, current, updated, data);
 
-      return ok(toChapterAssignmentResponse(updated));
+      return ok({
+        response: toChapterAssignmentResponse(updated),
+        shouldTriggerAi,
+      });
     } catch (error) {
       logger.error({
         cause: error,
@@ -187,7 +204,36 @@ export async function updateChapterAssignment(
     }
   };
 
-  return externalTx ? exec(externalTx) : db.transaction(exec);
+  const result = await (externalTx ? exec(externalTx) : db.transaction(exec));
+
+  if (!result.ok) {
+    return result;
+  }
+
+  if (result.data.shouldTriggerAi) {
+    const assignment = result.data.response;
+    try {
+      await aiSuggestionsService.handleChapterAssigned(
+        assignment.projectUnitId,
+        assignment.bibleId,
+        assignment.bookId,
+        assignment.chapterNumber
+      );
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Failed to enqueue AI suggestions after updating user assignment',
+        context: {
+          projectUnitId: assignment.projectUnitId,
+          bibleId: assignment.bibleId,
+          bookId: assignment.bookId,
+          chapterNumber: assignment.chapterNumber,
+        },
+      });
+    }
+  }
+
+  return ok(result.data.response);
 }
 
 export async function submitChapterAssignment(chapterAssignmentId: number) {
@@ -287,7 +333,9 @@ async function recordUserAssignmentChanges(
   current: ChapterAssignmentRecord,
   updated: ChapterAssignmentRecord,
   data: UpdateChapterAssignmentRequestData
-) {
+): Promise<boolean> {
+  let shouldTriggerAi = false;
+
   if (
     data.assignedUserId !== undefined &&
     data.assignedUserId !== current.assignedUserId &&
@@ -300,26 +348,7 @@ async function recordUserAssignmentChanges(
       'drafter',
       updated.status as ChapterAssignmentStatus
     );
-    try {
-      // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
-      await aiSuggestionsService.handleChapterAssigned(
-        updated.projectUnitId,
-        updated.bibleId,
-        updated.bookId,
-        updated.chapterNumber
-      );
-    } catch (error) {
-      logger.error({
-        cause: error,
-        message: 'Failed to enqueue AI suggestions after updating user assignment',
-        context: {
-          projectUnitId: updated.projectUnitId,
-          bibleId: updated.bibleId,
-          bookId: updated.bookId,
-          chapterNumber: updated.chapterNumber,
-        },
-      });
-    }
+    shouldTriggerAi = true;
   }
 
   if (
@@ -335,9 +364,11 @@ async function recordUserAssignmentChanges(
       updated.status as ChapterAssignmentStatus
     );
   }
+
+  return shouldTriggerAi;
 }
 
-export async function toggleChapterAssignmentAiStatus(
+export async function updateChapterAssignmentAiStatus(
   assignmentId: number,
   isAiEnabled: boolean
 ): Promise<Result<void>> {

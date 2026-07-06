@@ -52,8 +52,8 @@ Because the actual reason `ai-internal` exists is auth + OpenAPI visibility, bot
 
 ## URL changes (breaking — coordinate with fluent-ai)
 
-| Old (current)                     | New                                  |
-| ---------------------------------- | ------------------------------------- |
+| Old (current)                       | New                                     |
+| ----------------------------------- | --------------------------------------- |
 | `POST /internal/suggestion-context` | `POST /ai-suggestions/internal/context` |
 | `POST /internal/ai-suggestions`     | `POST /ai-suggestions/internal/results` |
 

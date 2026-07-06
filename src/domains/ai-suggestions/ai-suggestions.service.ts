@@ -6,9 +6,12 @@ import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
+  AiSuggestionItem,
   AiSuggestionsListResponse,
   GetAiSuggestionsQuery,
   QueueNextVersesResponse,
+  SuggestionContextRequest,
+  SuggestionContextResponse,
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
@@ -18,8 +21,10 @@ import {
   getAiSuggestions as getAiSuggestionsRepo,
   getBookCodeById,
   getChapterAssignmentAiStatus,
+  getSuggestionContextData,
   hasReachedAiActivationThreshold,
   logAiSuggestionUsage,
+  upsertAiSuggestions,
 } from './ai-suggestions.repository';
 
 export async function trackUsage(user: User, data: TrackUsageRequest): Promise<Result<void>> {
@@ -176,4 +181,30 @@ export async function handleChapterAssigned(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+// ─── Internal (machine-facing) service functions ──────────────────────────────
+
+export async function getSuggestionContext(
+  params: SuggestionContextRequest
+): Promise<Result<SuggestionContextResponse>> {
+  const { projectUnitId, bibleId, bookCode, chapterNumber, verseStart, verseEnd } = params;
+
+  // MAX_CONTEXT_VERSES_TOTAL = 100
+  const limit = 100;
+
+  return getSuggestionContextData(
+    projectUnitId,
+    bibleId,
+    bookCode,
+    chapterNumber,
+    verseStart, // targetVerseNumber used for FTS
+    verseStart,
+    verseEnd,
+    limit
+  );
+}
+
+export async function saveAiSuggestions(items: AiSuggestionItem[]): Promise<Result<void>> {
+  return upsertAiSuggestions(items);
 }

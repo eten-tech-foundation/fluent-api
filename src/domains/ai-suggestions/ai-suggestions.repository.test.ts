@@ -14,7 +14,7 @@ const { mockChain } = vi.hoisted(() => {
       orderBy: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       offset: vi.fn().mockReturnThis(),
-      then: vi.fn(), // We mock `then` dynamically to resolve queries
+      then: vi.fn().mockImplementation((resolve) => resolve([])), // Default safe fallback
     },
   };
 });
@@ -91,6 +91,27 @@ describe('ai-suggestions.repository', () => {
 
       const reached = await repo.hasReachedAiActivationThreshold(1, 5);
       expect(reached).toBe(false);
+    });
+  });
+
+  describe('getSuggestionContextData', () => {
+    it('returns err(PROJECT_UNIT_NOT_FOUND) when project unit does not exist', async () => {
+      // Project langs query returns empty
+      mockChain.then.mockImplementationOnce((resolve) => resolve([]));
+
+      const result = await repo.getSuggestionContextData(999, 1, 'GEN', 1, 1, 1, 1, 100);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('PROJECT_UNIT_NOT_FOUND');
+      }
+    });
+  });
+
+  describe('upsertAiSuggestions', () => {
+    it('returns ok immediately for an empty items array', async () => {
+      const result = await repo.upsertAiSuggestions([]);
+      expect(result.ok).toBe(true);
+      expect(mockChain.select).not.toHaveBeenCalled();
     });
   });
 });

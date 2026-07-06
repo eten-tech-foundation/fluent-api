@@ -343,7 +343,7 @@ server.openapi(updateAiStatusRoute, async (c) => {
   const { chapterAssignmentId } = c.req.valid('param');
   const { isAiEnabled } = c.req.valid('json');
 
-  const result = await chapterAssignmentService.toggleChapterAssignmentAiStatus(
+  const result = await chapterAssignmentService.updateChapterAssignmentAiStatus(
     chapterAssignmentId,
     isAiEnabled
   );

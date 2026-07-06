@@ -81,6 +81,14 @@ function postQueueNext(body: unknown) {
   });
 }
 
+function postUsage(body: unknown) {
+  return server.request('/ai-suggestions/usage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 describe('ai-suggestions routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -141,6 +149,38 @@ describe('ai-suggestions routes', () => {
       const json = await res.json();
       expect(json.queueCount).toBe(5);
       expect(json.thresholdReached).toBe(true);
+    });
+  });
+
+  describe('post /ai-suggestions/usage', () => {
+    const VALID_BODY = {
+      bibleTextId: 10,
+      projectUnitId: 1,
+      wasUsed: true,
+    };
+
+    it('returns 403 when access check fails', async () => {
+      asAuthenticatedUser(true);
+      (checkProjectUnitAccess as any).mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })
+      );
+
+      const res = await postUsage(VALID_BODY);
+      expect(res.status).toBe(403);
+      expect(aiSuggestionsService.trackUsage).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 on success', async () => {
+      asAuthenticatedUser(true);
+      (aiSuggestionsService.trackUsage as any).mockResolvedValue({
+        ok: true,
+        data: undefined,
+      });
+
+      const res = await postUsage(VALID_BODY);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.message).toBe('Logged');
     });
   });
 });
