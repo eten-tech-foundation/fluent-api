@@ -14,7 +14,13 @@ import {
 // suggestion_processor worker, authenticated via service key.
 
 server.post('/ai-suggestions/internal/context', requireServiceAuth, async (c) => {
-  const body = await c.req.json();
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ message: 'Invalid JSON payload' }, 400);
+  }
+
   const parsed = suggestionContextRequestSchema.safeParse(body);
 
   if (!parsed.success) {
@@ -31,7 +37,13 @@ server.post('/ai-suggestions/internal/context', requireServiceAuth, async (c) =>
 });
 
 server.post('/ai-suggestions/internal/results', requireServiceAuth, async (c) => {
-  const body = await c.req.json();
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ message: 'Invalid JSON payload' }, 400);
+  }
+
   const parsed = upsertAiSuggestionsRequestSchema.safeParse(body);
 
   if (!parsed.success) {

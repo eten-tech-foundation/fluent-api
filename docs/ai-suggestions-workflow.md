@@ -63,7 +63,7 @@ Step 3 ─ AI receives the request, saves job to its own ai.jobs table
                     ▼
 Step 4 ─ AI background worker picks up the job
          Worker needs context data, so it calls back to API:
-         HTTP POST /internal/suggestion-context
+         HTTP POST /ai-suggestions/internal/context
                     │
                     │  Triggered by: the HTTP request arriving
                     ▼
@@ -81,7 +81,7 @@ Step 6 ─ AI builds the prompt from the context data
                     │  Triggered by: AI receiving the Gemini response
                     ▼
 Step 7 ─ AI pushes results directly to API:
-         HTTP POST /internal/ai-suggestions
+         HTTP POST /ai-suggestions/internal/results
          Note: AI does NOT store suggestions in its own database.
          AI only marks its local job as "completed".
                     │
@@ -111,9 +111,9 @@ Step 9 ─ UI calls GET /ai-suggestions?bibleTextIds=...
 | `ai_suggestion_usage_log`                     | **API** (public schema, moved from ai schema) | **API only**       | Direct SQL queries                                 |
 | `jobs` (formerly `ai_suggestion_jobs`)        | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
 | `api_keys`                                    | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
-| Translation context (FTS + proximity results) | Computed by **API**                           | Consumed by **AI** | **HTTP** — `POST /internal/suggestion-context`     |
+| Translation context (FTS + proximity results) | Computed by **API**                           | Consumed by **AI** | **HTTP** — `POST /ai-suggestions/internal/context`     |
 | Source verses to translate                    | Owned by **API**                              | Consumed by **AI** | **HTTP** — returned in suggestion-context response |
-| Generated suggestions                         | Produced by **AI**                            | Stored by **API**  | **HTTP** — `POST /internal/ai-suggestions`         |
+| Generated suggestions                         | Produced by **AI**                            | Stored by **API**  | **HTTP** — `POST /ai-suggestions/internal/results`         |
 | Trigger "please translate these verses"       | Produced by **API**                           | Consumed by **AI** | **HTTP** — `POST /suggestions`                     |
 
 ### Key Difference
@@ -143,8 +143,8 @@ Step 9 ─ UI calls GET /ai-suggestions?bibleTextIds=...
 │  └──────────────────┘    └──────────────┘    └───────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │ /internal/suggestion-context   (FTS + proximity search)  │◀──┼── AI calls back
-│  │ /internal/ai-suggestions       (upsert results)          │◀──┼── AI calls back
+│  │ /ai-suggestions/internal/context   (FTS + proximity search)  │◀──┼── AI calls back
+│  │ /ai-suggestions/internal/results       (upsert results)          │◀──┼── AI calls back
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               ▲  ▲
@@ -305,7 +305,7 @@ FOR UPDATE SKIP LOCKED
 Instead of querying the API's database directly, the worker calls back to fluent-api:
 
 ```python
-POST {API_BASE_URL}/internal/suggestion-context
+POST {API_BASE_URL}/ai-suggestions/internal/context
 Headers: Authorization: Bearer {API_SERVICE_KEY}
 Body: {
     "projectUnitId": 42,
@@ -317,13 +317,13 @@ Body: {
 }
 ```
 
-**File (API):** `domains/ai-internal/ai-internal.route.ts` — Protected by `requireServiceAuth` middleware
+**File (API):** `domains/ai-suggestions/ai-suggestions.internal.route.ts` — Protected by `requireServiceAuth` middleware
 
 ### What the API Does for Context
 
 The repository function `getSuggestionContextData()` performs a sophisticated multi-step query:
 
-**File (API):** `domains/ai-internal/ai-internal.repository.ts`
+**File (API):** `domains/ai-suggestions/ai-suggestions.repository.ts`
 
 #### Step 1: Resolve Project Languages
 
@@ -496,7 +496,7 @@ After receiving the LLM response, the worker maps each translation back to its s
 **File (AI):** `worker/suggestion_processor.py` → `process_job()`
 
 ```python
-POST {API_BASE_URL}/internal/ai-suggestions
+POST {API_BASE_URL}/ai-suggestions/internal/results
 Headers: Authorization: Bearer {API_SERVICE_KEY}
 Body: {
     "items": [
@@ -512,7 +512,7 @@ Body: {
 
 ### API Stores the Results
 
-**File (API):** `domains/ai-internal/ai-internal.repository.ts` → `upsertAiSuggestions()`
+**File (API):** `domains/ai-suggestions/ai-suggestions.repository.ts` → `upsertAiSuggestions()`
 
 ```sql
 INSERT INTO ai_suggestions (bible_text_id, project_unit_id, suggested_text, model_info)

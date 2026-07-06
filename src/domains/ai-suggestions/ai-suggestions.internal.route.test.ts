@@ -81,6 +81,18 @@ describe('ai-suggestions internal routes', () => {
       expect(json.errors).toBeDefined();
     });
 
+    it('returns 400 on malformed JSON payload', async () => {
+      const res = await server.request('/ai-suggestions/internal/context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not valid json',
+      });
+      expect(res.status).toBe(400);
+
+      const json = await res.json();
+      expect(json.message).toBe('Invalid JSON payload');
+    });
+
     it('returns 200 with context data on success', async () => {
       const mockData = {
         targetLanguageName: 'Hindi',
@@ -127,6 +139,18 @@ describe('ai-suggestions internal routes', () => {
 
       const json = await res.json();
       expect(json.message).toBe('Validation failed');
+    });
+
+    it('returns 400 on malformed JSON payload', async () => {
+      const res = await server.request('/ai-suggestions/internal/results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not valid json',
+      });
+      expect(res.status).toBe(400);
+
+      const json = await res.json();
+      expect(json.message).toBe('Invalid JSON payload');
     });
 
     it('returns 200 on success', async () => {
