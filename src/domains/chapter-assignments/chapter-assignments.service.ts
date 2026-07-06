@@ -389,7 +389,8 @@ export async function updateChapterAssignmentAiStatus(
 
     if (isAiEnabled) {
       try {
-        // Await inside transaction to prevent data loss, but catch errors to avoid rolling back the transaction
+        // Runs after the isAiEnabled update has committed (not inside a transaction);
+        // catch errors so a failed AI trigger doesn't affect the already-saved status.
         await aiSuggestionsService.handleChapterAssigned(
           assignment.projectUnitId,
           assignment.bibleId,
