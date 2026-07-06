@@ -111,9 +111,9 @@ Step 9 ─ UI calls GET /ai-suggestions?bibleTextIds=...
 | `ai_suggestion_usage_log`                     | **API** (public schema, moved from ai schema) | **API only**       | Direct SQL queries                                 |
 | `jobs` (formerly `ai_suggestion_jobs`)        | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
 | `api_keys`                                    | **AI** (ai schema)                            | **AI only**        | Direct SQL queries                                 |
-| Translation context (FTS + proximity results) | Computed by **API**                           | Consumed by **AI** | **HTTP** — `POST /ai-suggestions/internal/context`     |
+| Translation context (FTS + proximity results) | Computed by **API**                           | Consumed by **AI** | **HTTP** — `POST /ai-suggestions/internal/context` |
 | Source verses to translate                    | Owned by **API**                              | Consumed by **AI** | **HTTP** — returned in suggestion-context response |
-| Generated suggestions                         | Produced by **AI**                            | Stored by **API**  | **HTTP** — `POST /ai-suggestions/internal/results`         |
+| Generated suggestions                         | Produced by **AI**                            | Stored by **API**  | **HTTP** — `POST /ai-suggestions/internal/results` |
 | Trigger "please translate these verses"       | Produced by **API**                           | Consumed by **AI** | **HTTP** — `POST /suggestions`                     |
 
 ### Key Difference

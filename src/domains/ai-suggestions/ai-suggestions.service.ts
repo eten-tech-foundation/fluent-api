@@ -15,6 +15,7 @@ import type {
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
+import { MAX_CONTEXT_VERSES_TOTAL } from './ai-suggestions.constants';
 import {
   checkBibleTextsExist,
   findNextUntranslatedVerses,
@@ -190,9 +191,6 @@ export async function getSuggestionContext(
 ): Promise<Result<SuggestionContextResponse>> {
   const { projectUnitId, bibleId, bookCode, chapterNumber, verseStart, verseEnd } = params;
 
-  // MAX_CONTEXT_VERSES_TOTAL = 100
-  const limit = 100;
-
   return getSuggestionContextData(
     projectUnitId,
     bibleId,
@@ -201,7 +199,7 @@ export async function getSuggestionContext(
     verseStart, // targetVerseNumber used for FTS
     verseStart,
     verseEnd,
-    limit
+    MAX_CONTEXT_VERSES_TOTAL
   );
 }
 

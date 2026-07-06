@@ -1,3 +1,7 @@
+// Total number of context verses (FTS + proximity, combined) returned to the
+// AI worker per suggestion-context request.
+export const MAX_CONTEXT_VERSES_TOTAL = 100;
+
 export const POSTGRES_FTS_LANGUAGES: Record<string, string> = {
   eng: 'english',
   en: 'english',
