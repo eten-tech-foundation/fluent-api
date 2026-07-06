@@ -89,15 +89,8 @@
     {
       "idx": 12,
       "version": "7",
-      "when": 1781609375158,
-      "tag": "0012_add_recordings",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1781682962147,
-      "tag": "0013_add_metadata_to_recordings",
+      "when": 1782282922268,
+      "tag": "0012_add_pericope_sets",
       "breakpoints": true
     }
   ]

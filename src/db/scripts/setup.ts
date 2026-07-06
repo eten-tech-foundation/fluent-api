@@ -6,46 +6,51 @@ import { seedBooks } from '@/db/seeds/books';
 import { seedDevUsers } from '@/db/seeds/dev-users';
 import { seedLanguages } from '@/db/seeds/languages';
 import { seedOrganizations } from '@/db/seeds/organizations';
+import { seedPericopeSets } from '@/db/seeds/pericope-sets';
 import { seedRbac } from '@/db/seeds/rbac';
 import { seedRoles } from '@/db/seeds/roles';
 
 async function setup() {
   console.log('=== Fluent DB Setup ===\n');
 
-  console.log('[1/9] Running migrations...');
+  console.log('[1/10] Running migrations...');
   execSync('npx drizzle-kit migrate', { stdio: 'inherit' });
   console.log('Migrations complete.\n');
 
-  console.log('[2/9] Seeding organizations...');
+  console.log('[2/10] Seeding organizations...');
   await seedOrganizations();
   console.log('');
 
-  console.log('[3/9] Seeding roles...');
+  console.log('[3/10] Seeding roles...');
   await seedRoles();
   console.log('');
 
-  console.log('[4/9] Seeding RBAC...');
+  console.log('[4/10] Seeding RBAC...');
   await seedRbac();
   console.log('');
 
-  console.log('[5/9] Seeding dev users...');
+  console.log('[5/10] Seeding dev users...');
   await seedDevUsers();
   console.log('');
 
-  console.log('[6/9] Seeding languages...');
+  console.log('[6/10] Seeding languages...');
   await seedLanguages();
   console.log('');
 
-  console.log('[7/9] Seeding books...');
+  console.log('[7/10] Seeding books...');
   await seedBooks();
   console.log('');
 
-  console.log('[8/9] Seeding bibles...');
+  console.log('[8/10] Seeding bibles...');
   await seedBibles();
   console.log('');
 
-  console.log('[9/9] Seeding bible texts...');
+  console.log('[9/10] Seeding bible texts...');
   await seedBibleTexts();
+  console.log('');
+
+  console.log('[10/10] Seeding pericope sets...');
+  await seedPericopeSets();
   console.log('');
 
   console.log('=== Setup complete ===');

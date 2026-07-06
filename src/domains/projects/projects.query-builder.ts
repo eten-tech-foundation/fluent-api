@@ -65,6 +65,7 @@ export const projectWithLangNames = {
   createdAt: projects.createdAt,
   updatedAt: projects.updatedAt,
   metadata: projects.metadata,
+  pericopeSetId: projects.pericopeSetId,
   sourceLanguageId: projects.sourceLanguage,
   targetLanguageId: projects.targetLanguage,
   sourceLanguageName: sourceLanguages.langName,
