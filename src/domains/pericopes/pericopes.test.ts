@@ -107,7 +107,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 200 and list of pericope sets on success', async () => {
       asAuthenticatedUser();
-      const mockSets = [{ id: 1, name: 'FIA', description: 'Forum of International Advisors' }];
+      const mockSets = [{ id: 1, name: 'FIA', description: 'Familiarization, Internalization, Articulation' }];
       vi.mocked(repo.getAllPericopeSets).mockResolvedValue(mockSets);
 
       const res = await server.request('/pericope-sets', { method: 'GET' });
