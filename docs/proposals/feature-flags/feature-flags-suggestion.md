@@ -1,6 +1,9 @@
 # Feature Flags via a Published Config Endpoint — Proposal
 
-**Status:** Draft for review. Not yet implemented.
+**Status:** Reviewed and implemented. Q1–Q4 resolved by kaseywright (2026-07-07);
+see §9. Shipped in fluent-api #213 / fluent-web #337. The one change from the
+original draft: `GET /config/features` is **authenticated** (login-only, no
+role), not unauthenticated — Q1's floated alternative was chosen.
 **Origin:** fluent-ai is not hosted in any deployed environment. Every PR that
 depends on it therefore cannot merge — merging would light up UI (and code
 paths) that call a service that isn't there, which would block promoting the
@@ -68,7 +71,7 @@ flowchart TD
   end
 
   env --> build
-  build -->|"GET /config/features (unauthenticated)"| hook
+  build -->|"GET /config/features (authenticated — login-only, no role)"| hook
   hook --> gate
   hook --> diag
 ```
@@ -152,7 +155,7 @@ Add a **meta route** as a sibling of [`/health`](../../../src/routes/health.rout
 in `src/routes/`:
 
 ```http
-GET /config/features            (unauthenticated — see Q1)
+GET /config/features            (authenticated — login-only session, no role; Q1 resolved)
 
 200 OK
 Content-Type: application/json
@@ -162,6 +165,8 @@ Content-Type: application/json
     "repeatedWordCheck": true
   }
 }
+
+401 Unauthorized                (no valid session)
 ```
 
 - Placed in `src/routes/config.route.ts`, registered on `server` like
@@ -228,8 +233,11 @@ web PR). Precedent: the router already has a login gate via `_authenticated` and
 a Manager-only gate on `/users` — we intentionally use only the login gate here.
 
 - **Unlinked by design**: no nav entry. "If you know about it, you know about
-  it." The URL is _obscurity, not a security boundary_ — note the underlying
-  endpoint is unauthenticated (Q1), so nothing sensitive should ever live here.
+  it." Access is gated by login (the `_authenticated` layout) plus the URL's
+  obscurity; with Q1 resolved to require a session, the underlying
+  `GET /config/features` endpoint is itself login-gated too. Even so, keep only
+  non-sensitive, non-secret technical/health info here — the login gate is a
+  low bar, not a data-protection boundary.
 - **Read-only**: displays the flag map as the API reports it. No toggles.
 - **Framing / future use**: a `chrome://`-style catch-all for technical details
   — whoever keeps things running peeks here to see what's on/off and, over time,
@@ -255,40 +263,41 @@ work.
 
 ## 8. Decisions
 
-| ID  | Decision                                                                                                                                                                                                          | Rationale                                                                                                                                                                                                                     |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Flags are **env-sourced, not stored in the DB**.                                                                                                                                                                  | This is a deploy/wiring concern. A DB adds a migration + admin surface for something that changes only when infra changes.                                                                                                    |
-| D2  | **One flat boolean env var per flag under the `EN_FEATURE_*` prefix**, each **declared explicitly in the Zod schema**. The repeated-word-check flag defaults OFF when `FLUENT_AI_URL`/`FLUENT_AI_KEY` are absent. | Specific prefix avoids collisions; declaring each flag makes the schema the authoritative catalog and survives Zod's unknown-key stripping. Operator can force it; forgetting it where AI isn't wired yields the safe answer. |
-| D3  | Expose via a **dedicated meta route `GET /config/features`** in `src/routes/`, sibling of `/health`.                                                                                                              | Matches the `/health` precedent (unauthenticated, env-derived, DB-less). `/config` leaves room to grow.                                                                                                                       |
-| D4  | Response is a **named map** `{ features: { <key>: boolean } }` assembled from the `EN_FEATURE_*` vars (prefix stripped, camelCased).                                                                              | Additive: new flags need no contract change; env keys never leak verbatim onto the wire.                                                                                                                                      |
-| D5  | **No server-side enforcement.** Publishing is decoupled from the AI request path.                                                                                                                                 | Keeps the flag a pure signal; enforcement/behavior on missing AI is a separate, pre-existing concern.                                                                                                                         |
-| D6  | fluent-web consumes flags through a **reusable `useFeatureFlags` hook + `FeatureGate` primitive** over a `Record<name, boolean>`.                                                                                 | Adding a feature later is a key + a gate usage, nothing more.                                                                                                                                                                 |
-| D7  | AI/gated UI **fails closed (hidden)** while loading or on endpoint error.                                                                                                                                         | The whole point is to not surface features whose backend isn't there.                                                                                                                                                         |
-| D8  | A **login-gated, unlinked, read-only diagnostics page** hosts the flag view (extensible to other technical/health info).                                                                                          | Reuses the existing `_authenticated` gate; "know the URL" access; grows into a `chrome://`-style ops page.                                                                                                                    |
+| ID  | Decision                                                                                                                                                                                                                                                   | Rationale                                                                                                                                                                                                                                           |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Flags are **env-sourced, not stored in the DB**.                                                                                                                                                                                                           | This is a deploy/wiring concern. A DB adds a migration + admin surface for something that changes only when infra changes.                                                                                                                          |
+| D2  | **One flat boolean env var per flag under the `EN_FEATURE_*` prefix**, each **declared explicitly in the Zod schema**. The repeated-word-check flag defaults OFF when `FLUENT_AI_URL`/`FLUENT_AI_KEY` are absent.                                          | Specific prefix avoids collisions; declaring each flag makes the schema the authoritative catalog and survives Zod's unknown-key stripping. Operator can force it; forgetting it where AI isn't wired yields the safe answer.                       |
+| D3  | Expose via a **dedicated meta route `GET /config/features`** in `src/routes/`, sibling of `/health`. **Login-gated** (`authenticateUser`, no role) per the Q1 resolution — it is a config projection for signed-in SPA users, not a public liveness probe. | Matches the `/health` precedent (env-derived, DB-less) for structure; `/config` leaves room to grow. Auth added per Q1 (kaseywright, 2026-07-07): only logged-in users need it, so requiring a session costs nothing and keeps the surface minimal. |
+| D4  | Response is a **named map** `{ features: { <key>: boolean } }` assembled from the `EN_FEATURE_*` vars (prefix stripped, camelCased).                                                                                                                       | Additive: new flags need no contract change; env keys never leak verbatim onto the wire.                                                                                                                                                            |
+| D5  | **No server-side enforcement.** Publishing is decoupled from the AI request path.                                                                                                                                                                          | Keeps the flag a pure signal; enforcement/behavior on missing AI is a separate, pre-existing concern.                                                                                                                                               |
+| D6  | fluent-web consumes flags through a **reusable `useFeatureFlags` hook + `FeatureGate` primitive** over a `Record<name, boolean>`.                                                                                                                          | Adding a feature later is a key + a gate usage, nothing more.                                                                                                                                                                                       |
+| D7  | AI/gated UI **fails closed (hidden)** while loading or on endpoint error.                                                                                                                                                                                  | The whole point is to not surface features whose backend isn't there.                                                                                                                                                                               |
+| D8  | A **login-gated, unlinked, read-only diagnostics page** hosts the flag view (extensible to other technical/health info).                                                                                                                                   | Reuses the existing `_authenticated` gate; "know the URL" access; grows into a `chrome://`-style ops page.                                                                                                                                          |
 
 ---
 
-## 9. Open questions for the reviewer
+## 9. Open questions for the reviewer — RESOLVED
 
-1. **Endpoint auth (Q1).** This proposal makes `GET /config/features`
-   **unauthenticated** (like `/health`), on the grounds that it reveals only
-   "is an optional feature on" — no data, no secrets — and lets the SPA decide
-   what to render independent of login. **Is unauthenticated acceptable here, or
-   should it require a session?** (If it must be authed, the diagnostics page's
-   login gate becomes a real boundary rather than mere obscurity.)
-2. **Route vs. `/health` (Q2).** Dedicated `GET /config/features` (recommended)
-   vs. folding a `features` block into the existing `/health` payload, since
-   "what's enabled" is arguably a health concern. Preference?
-3. **Prefix & map key (Q3).** Is `EN_FEATURE_*` the right prefix (specific
-   enough to avoid collisions), and `EN_FEATURE_REPEATED_WORD_CHECK` →
-   `repeatedWordCheck` the right var/key naming (vs. `greekRoomRepeatedWords`,
-   `aiRepeatedWords`, etc.)? Also: are we comfortable declaring each flag var
-   explicitly in the schema (a small DRY cost that buys documentation +
-   validation), vs. a generic prefix sweep?
-4. **Default-derivation (Q4).** Deriving the unset default of
-   `EN_FEATURE_REPEATED_WORD_CHECK` from `FLUENT_AI_URL`/`FLUENT_AI_KEY`
-   presence — desirable safety, or too clever (prefer a plain default of `false`
-   and require operators to set it)?
+All four were answered by **kaseywright** on **2026-07-07** (proposal PR #211
+review + follow-up on impl PR #213); the resolutions are folded into the design
+above and shipped in fluent-api #213 / fluent-web #337.
+
+1. **Endpoint auth (Q1) → REQUIRE A SESSION (changed from the draft).** The
+   floated alternative was chosen: `GET /config/features` is now **login-gated**
+   (`authenticateUser`, no role) and returns **401** without a valid session.
+   Rationale: only signed-in SPA users ever need the flag map, so requiring a
+   session costs nothing and keeps the surface minimal. This is the one change
+   from the original draft; §3/§4.3/§6 and D3 above reflect it.
+2. **Route vs. `/health` (Q2) → DEDICATED `GET /config/features`** (the
+   recommendation). Kept product-config semantics off the liveness probe.
+3. **Prefix & map key (Q3) → CONFIRMED.** `EN_FEATURE_*` prefix and
+   `EN_FEATURE_REPEATED_WORD_CHECK` → `repeatedWordCheck`, with each flag
+   declared explicitly in the schema, are accepted as-is.
+4. **Default-derivation (Q4) → KEEP THE AI-WIRING-DERIVED DEFAULT.** The unset
+   default deriving from `FLUENT_AI_URL`/`FLUENT_AI_KEY` presence is retained
+   (an earlier lean toward a plain `false` default was reversed by the reviewer
+   on #213). It is defensive belt-and-suspenders; an explicit
+   `EN_FEATURE_REPEATED_WORD_CHECK=false` is always the operator override.
 
 ---
 

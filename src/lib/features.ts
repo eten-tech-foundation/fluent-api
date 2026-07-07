@@ -40,9 +40,17 @@ type Env = typeof env;
 type DefaultResolver = (e: Env) => boolean;
 
 interface FlagDefinition {
-  /** The env var backing this flag. Typed as a real key of the parsed env, so a
-   *  typo or an unbacked flag is a compile error (registry → env schema link). */
-  readonly env: Extract<keyof Env, `${typeof FEATURE_PREFIX}${string}`>;
+  /** The env var backing this flag. Constrained to env keys that are BOTH under
+   *  the `EN_FEATURE_` prefix AND parse to `boolean | undefined`, so a typo, an
+   *  unbacked flag, OR a flag pointing at a non-boolean env key is a compile
+   *  error (registry → env schema link), and `buildFeatures` needs no cast. */
+  readonly env: {
+    [K in keyof Env]: Env[K] extends boolean | undefined
+      ? K extends `${typeof FEATURE_PREFIX}${string}`
+        ? K
+        : never
+      : never;
+  }[keyof Env];
   /** The value published when the env var is unset (undefined). */
   readonly default: DefaultResolver;
 }
@@ -90,7 +98,9 @@ export type Features = Record<FeatureName, boolean>;
 export function buildFeatures(e: Env): Features {
   const entries = (Object.keys(FLAGS) as FeatureName[]).map((wireKey) => {
     const def = FLAGS[wireKey];
-    const raw = e[def.env] as boolean | undefined;
+    // No cast needed: FlagDefinition.env is constrained to env keys whose parsed
+    // type is `boolean | undefined`, so the compiler already knows `raw` is that.
+    const raw = e[def.env];
     const value = typeof raw === 'boolean' ? raw : def.default(e);
     return [wireKey, value] as const;
   });

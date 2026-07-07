@@ -47,7 +47,10 @@ server.openapi(getSelfSettingsRoute, async (c) => {
 
   const result = await selfSettingsService.getSettings(currentUser.id);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+  // Derive the status from the error code (matches the PUT handler and the rest
+  // of the codebase) rather than hardcoding 500: getSettings only surfaces repo
+  // errors (→ 500) today, but this stays correct if it gains new failure modes.
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── PUT /self/settings ───────────────────────────────────────────────────────
@@ -67,6 +70,15 @@ const saveSelfSettingsRoute = createRoute({
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
       'Invalid settings payload'
+    ),
+    // A well-formed request whose body fails schema validation is surfaced as
+    // 422 by the service (ErrorCode.VALIDATION_ERROR → getHttpStatus → 422), and
+    // the route test asserts it. Declare it here so the published OpenAPI
+    // contract advertises the real client-error surface (the paired fluent-web
+    // PR generates types/docs from this spec).
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
+      createMessageObjectSchema('Unprocessable Entity'),
+      'Settings payload failed schema validation'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),

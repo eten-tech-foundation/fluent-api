@@ -1,6 +1,9 @@
 # Feature Flags — Review Summary
 
-**Status:** Draft for review. Not yet implemented.
+**Status:** Reviewed and implemented. Q1–Q4 resolved by kaseywright (2026-07-07);
+see "Reviewer outcome" below. Shipped in fluent-api #213 / fluent-web #337. One
+change from the draft: `GET /config/features` is **authenticated** (login-only,
+no role), not unauthenticated.
 
 **Purpose:** Reviewer orientation for a lightweight feature-flag mechanism. The
 full design is in the sibling [`feature-flags-suggestion.md`](feature-flags-suggestion.md)
@@ -24,8 +27,9 @@ is a **wiring/deploy concern**, not application data.
    prefix (e.g. `EN_FEATURE_REPEATED_WORD_CHECK`), each **declared explicitly in
    the Zod env schema** — the schema doubles as the authoritative flag catalog
    and survives Zod's unknown-key stripping. No database (**D1, D2**).
-2. **A read-only endpoint `GET /config/features`** — a new unauthenticated meta
-   route (sibling of `/health`) returning a **named map**,
+2. **A read-only endpoint `GET /config/features`** — a new **login-gated** meta
+   route (sibling of `/health`; `authenticateUser`, no role, 401 without a
+   session) returning a **named map**,
    `{ features: { repeatedWordCheck: true } }`, assembled from the `EN_FEATURE_*`
    vars (prefix stripped, camelCased). New flags are purely additive (**D3, D4**).
 3. **fluent-api owns the truth, publishes a projection.** The env is the single
@@ -51,24 +55,31 @@ is a **wiring/deploy concern**, not application data.
 - No database, no runtime toggling UI, no per-user/tenant targeting, no
   percentage rollouts. This is a per-environment on/off wiring switch.
 
-## Areas where input would be most valuable
+## Areas where input was most valuable (all resolved)
 
-1. **Endpoint auth (Q1).** `GET /config/features` is proposed **unauthenticated**
-   (like `/health`) — it reveals only "is a feature on," no data/secrets. OK, or
-   require a session? (If authed, the diagnostics page's login gate becomes a
-   real boundary rather than obscurity.)
-2. **Route vs. `/health` (Q2).** Dedicated `GET /config/features` (recommended)
-   vs. folding a `features` block into the existing `/health` payload, since
-   "what's enabled" is arguably a health concern.
-3. **Prefix & key naming (Q3).** `EN_FEATURE_*` prefix and
-   `EN_FEATURE_REPEATED_WORD_CHECK` → `repeatedWordCheck` mapping; and comfort
-   with declaring each flag var in the schema (small DRY cost, buys docs +
-   validation) vs. a generic sweep.
-4. **Default-derivation (Q4).** Deriving the unset default from AI-env presence —
-   desirable safety, or too clever (prefer a plain `false` default)?
+1. **Endpoint auth (Q1).** `GET /config/features` was proposed unauthenticated;
+   the reviewer chose the floated alternative — **require a session**.
+2. **Route vs. `/health` (Q2).** Whether to fold a `features` block into
+   `/health` instead of a dedicated route.
+3. **Prefix & key naming (Q3).** `EN_FEATURE_*` prefix,
+   `EN_FEATURE_REPEATED_WORD_CHECK` → `repeatedWordCheck`, and per-flag schema
+   declaration.
+4. **Default-derivation (Q4).** Whether to keep the AI-wiring-derived unset
+   default or use a plain `false`.
 
 ## Reviewer outcome
 
-_Pending review._ Once the four questions above are answered, the confirmed
-decisions (reviewer, date, PR comment links) will be recorded here and in
-[`feature-flags-suggestion.md`](feature-flags-suggestion.md).
+Resolved by **kaseywright** on **2026-07-07** (proposal PR #211 review +
+follow-up on impl PR #213):
+
+- **Q1 → authenticate.** `GET /config/features` is **login-gated**
+  (`authenticateUser`, no role; 401 without a session) — the one change from the
+  draft. Only signed-in SPA users need the flag map.
+- **Q2 → dedicated `GET /config/features`.** Kept product-config semantics off
+  the liveness probe.
+- **Q3 → confirmed as-is.** `EN_FEATURE_*` prefix + `repeatedWordCheck` key +
+  explicit per-flag schema declaration accepted.
+- **Q4 → keep the AI-wiring-derived default.** Retained as defensive
+  belt-and-suspenders (an earlier lean toward a plain `false` was reversed by
+  the reviewer on #213); explicit `EN_FEATURE_REPEATED_WORD_CHECK=false` is the
+  operator override.

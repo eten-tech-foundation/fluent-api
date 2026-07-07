@@ -509,7 +509,9 @@ export const userSettingsObjectSchema = z.object({
 export const userSettingsSchema = userSettingsObjectSchema.catch({});
 
 // Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
-// (surfaced as a 400) instead of being silently swallowed.
+// (surfaced as a 422 VALIDATION_ERROR — a well-formed request whose contents fail
+// schema validation; see self-settings.service.upsertSettings) instead of being
+// silently swallowed.
 export const userSettingsWriteSchema = userSettingsObjectSchema;
 
 export const user_chapter_assignment_editor_state = pgTable(
