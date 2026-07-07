@@ -45,9 +45,79 @@ if (runtime.database !== database || migrator.database !== database) {
   );
 }
 
+/**
+ * Transient errors seen while Postgres is up-but-not-ready. `pg_isready` (the
+ * compose healthcheck) reports success as soon as the postmaster accepts
+ * connections, but during startup/WAL-recovery the server still rejects real
+ * queries with `57P03` ("the database system is starting up"). On a restart the
+ * API therefore wins the race, fires its first bootstrap query, and dies. These
+ * are retryable — the DB just needs a moment — so we poll until a trivial query
+ * succeeds instead of crashing the container (and taking its dependents down).
+ */
+const TRANSIENT_STARTUP_CODES = new Set([
+  '57P03', // cannot_connect_now — the database system is starting up
+  '57P02', // crash_shutdown_in_progress
+  '57P01', // admin_shutdown / terminating connection
+  '08006', // connection_failure
+  '08001', // sqlclient_unable_to_establish_sqlconnection
+  '08004', // sqlserver_rejected_establishment_of_sqlconnection
+]);
+
+/** Node/socket-level errors that mean "DB not accepting connections yet". */
+const TRANSIENT_SOCKET_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND', // DNS for the `db` service name may not resolve at first
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+]);
+
+function isTransientDbError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return (
+    typeof code === 'string' &&
+    (TRANSIENT_STARTUP_CODES.has(code) || TRANSIENT_SOCKET_CODES.has(code))
+  );
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Poll until the database actually answers a query (not just accepts a socket),
+ * so bootstrap runs against a server that is past its startup phase. Retries
+ * only transient startup/connection errors; a real error (bad credentials, etc.)
+ * fails fast. Bounded so a genuinely-down DB still surfaces after ~1 minute.
+ */
+async function waitForDatabase(sql: postgres.Sql): Promise<void> {
+  const maxAttempts = 30;
+  const delayMs = 2000; // ~60s total ceiling
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await sql`SELECT 1`;
+      if (attempt > 1) {
+        console.log(`Database ready after ${attempt} attempt(s).`);
+      }
+      return;
+    } catch (err) {
+      if (!isTransientDbError(err) || attempt === maxAttempts) throw err;
+      const code = (err as { code?: string }).code;
+      console.log(
+        `Database not ready yet (attempt ${attempt}/${maxAttempts}, ${code}); ` +
+          `retrying in ${delayMs}ms...`
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function main() {
   const sql = postgres(bootstrapUrl!, { max: 1 });
   try {
+    // The compose healthcheck (pg_isready) can report "ready" while Postgres is
+    // still starting up and rejecting queries with 57P03; wait for a real query
+    // to succeed before issuing any DDL, so a restart doesn't lose the race.
+    await waitForDatabase(sql);
+
     // Ask Postgres to produce safe identifier / literal text so special
     // characters in role names, the db name, or passwords cannot break the DDL.
     const ident = async (name: string): Promise<string> => {

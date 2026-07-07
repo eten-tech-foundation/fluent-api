@@ -30,6 +30,12 @@ export async function seedDevUsers() {
       username: 'translator',
       roleName: ROLES.TRANSLATOR,
     },
+    {
+      email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
+      password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't2@123456',
+      username: 'translator2',
+      roleName: ROLES.TRANSLATOR,
+    },
   ];
 
   const [defaultOrg] = await db

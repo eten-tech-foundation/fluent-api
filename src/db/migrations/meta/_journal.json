@@ -92,6 +92,13 @@
       "when": 1782282922268,
       "tag": "0012_add_pericope_sets",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783084537563,
+      "tag": "0013_add_user_settings",
+      "breakpoints": true
     }
   ]
 }

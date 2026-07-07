@@ -20,6 +20,11 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   bookId: z.number(),
   bookCode: z.string(),
   sourceLangCode: z.string(),
+  // ISO 639-3 target language CODE, e.g. "eng". Consumed by the repeated-words
+  // check as greek-room's lang_code (whitelist is keyed on the code). The PM
+  // "open chapter" path builds its ProjectItem from this response, so the code
+  // must be surfaced here too (not only on the user-assignments endpoint).
+  targetLangCode: z.string(),
   status: z.string(),
   bookNameEng: z.string(),
   chapterNumber: z.number(),

@@ -9,6 +9,40 @@ expand(
   })
 );
 
+// ── Env boolean parser ────────────────────────────────────────────────────────
+// A string→boolean parser for env vars, behaviourally equivalent to Zod v4's
+// z.stringbool(). We do NOT use z.coerce.boolean(): coercion follows JS
+// truthiness, so the string "false" would parse to `true` and silently INVERT a
+// safe-off default — exactly the wrong failure mode for a feature flag whose job
+// is to keep AI UI hidden. We also can't reach z.stringbool() here: it lives in
+// the Zod v4 API (the `zod/v4` subpath in zod 3.25.x), whereas @hono/zod-openapi
+// binds the classic (v3-style) `z` used throughout this schema. So we implement
+// the same contract explicitly on the classic `z`: accept the usual env
+// spellings (true/false, 1/0, yes/no, on/off — case-insensitive), reject
+// anything else, and preserve the unset case via .optional() so a derived
+// default can still apply.
+const TRUTHY = new Set(['true', '1', 'yes', 'on']);
+const FALSY = new Set(['false', '0', 'no', 'off']);
+const envBool = () =>
+  z.string().transform((v, ctx): boolean | undefined => {
+    const normalized = v.trim().toLowerCase();
+    // Treat a blank / whitespace-only value as UNSET (undefined) rather than a
+    // parse error: dotenv loads a bare `EN_FEATURE_REPEATED_WORD_CHECK=` line
+    // (exactly how .env.example documents it) as the empty string "", and
+    // .optional() alone does NOT catch that — the transform still runs on "".
+    // Without this, copying .env.example verbatim would fail EnvSchema.safeParse
+    // at boot. Returning undefined lets the derived default (AI-wiring) apply,
+    // which is the intended "flag not explicitly set" behaviour.
+    if (normalized === '') return undefined;
+    if (TRUTHY.has(normalized)) return true;
+    if (FALSY.has(normalized)) return false;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Expected a boolean-ish string (true/false, 1/0, yes/no, on/off), received "${v}"`,
+    });
+    return z.NEVER;
+  });
+
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
@@ -41,9 +75,42 @@ const EnvSchema = z.object({
   // '/api/v1' via env with no code change. Leading slash optional; trailing
   // slashes are trimmed when the request URL is assembled.
   FLUENT_AI_API_PREFIX: z.string().default(''),
+
+  // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
+  // One flat boolean env var per optional feature, under a dedicated
+  // EN_FEATURE_ prefix. Each flag is declared explicitly here (proposal D2) so
+  // this schema stays the OPERATOR's catalog of known flags and validates their
+  // values — a fixed z.object strips unknown keys, so an undeclared EN_FEATURE_*
+  // var would be dropped before it could be read.
+  //
+  // ⚠️ A flag lives in THREE places that must stay in sync — adding/removing one
+  //    here means updating the other two (a test in
+  //    src/lib/features.test.ts fails on drift, in both directions):
+  //      1. this env-schema line          (operator's catalog + validation)
+  //      2. the FLAGS registry            (src/lib/features.ts — env↔wire mapping + default)
+  //      3. the OpenAPI response schema   (src/routes/config.route.ts — programmer's catalog)
+  //    …plus a line in .env.example.
+  //
+  // Repeated Word Check — the one AI-dependent feature today. Left optional so
+  // its unset default can be derived from AI wiring by buildFeatures(): true
+  // only when FLUENT_AI_URL + FLUENT_AI_KEY are both wired, otherwise false —
+  // so forgetting to set it in an AI-less environment yields the safe answer
+  // (off). Parsed via envBool() (NOT z.coerce.boolean(), which would turn the
+  // string "false" into true and invert the safe default).
+  EN_FEATURE_REPEATED_WORD_CHECK: envBool().optional(),
 });
 
 export type env = z.infer<typeof EnvSchema>;
+
+/**
+ * The `EN_FEATURE_*` keys DECLARED in the schema (regardless of whether they are
+ * set in the current environment — Zod strips unset optionals from the parsed
+ * object, so this reads the schema shape, not `process.env`). This is the
+ * env-side half of the feature-flag drift check in src/lib/features.test.ts.
+ */
+export const declaredFeatureEnvKeys: string[] = Object.keys(EnvSchema.shape).filter((k) =>
+  k.startsWith('EN_FEATURE_')
+);
 
 // eslint-disable-next-line ts/no-redeclare
 const { data: env, error } = EnvSchema.safeParse(process.env);

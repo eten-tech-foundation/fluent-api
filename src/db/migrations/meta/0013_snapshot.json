@@ -1,6 +1,6 @@
 {
-  "id": "cb933e4b-a676-4fc7-9a63-cace0c602cb3",
-  "prevId": "32c46bec-1f67-49cb-86e7-a95f202ff5b4",
+  "id": "20c0729b-b802-485f-a821-a05c1933d52e",
+  "prevId": "cb933e4b-a676-4fc7-9a63-cace0c602cb3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2305,6 +2305,55 @@
           "tableFrom": "user_chapter_assignment_editor_state",
           "tableTo": "chapter_assignments",
           "columnsFrom": ["chapter_assignment_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_settings": {
+      "name": "user_settings",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "settings": {
+          "name": "settings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_settings_user_id_users_id_fk": {
+          "name": "user_settings_user_id_users_id_fk",
+          "tableFrom": "user_settings",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
