@@ -488,14 +488,24 @@ export const editorStateResourcesSchema = z
 //      explicit `null` value as "delete this key"; leave absent keys untouched).
 //   3. Persist the merged blob.
 // Until then, keep the single-key full-replace contract.
-const userSettingsObjectSchema = z.object({
+// The bare object shape (no `.catch`). This is also the OpenAPI-facing schema:
+// the `.catch({})` wrapper below produces a `ZodCatch` node that
+// @asteasolutions/zod-to-openapi (under @hono/zod-openapi) cannot render — it
+// throws "Unknown zod object type" while building the spec, which 500s `/doc`.
+// The `.catch` only changes behaviour on INVALID input (see `userSettingsSchema`);
+// it adds/removes no fields, so the documented shape is identical either way.
+// Anything exposed on the OpenAPI surface must therefore embed THIS schema, not
+// the `.catch` variant. (Guarded by src/routes/doc.route.test.ts.)
+export const userSettingsObjectSchema = z.object({
   // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
   // pair string (e.g. "the the"); applies across all of the user's projects.
   checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
 });
 
 // Read/storage schema: `.catch({})` so unknown/old shapes parse as empty rather
-// than throwing (W8). Use this when reading rows back from the DB.
+// than throwing (W8). Use this when reading rows back from the DB. NOTE: this is
+// a `ZodCatch` — keep it OFF the OpenAPI surface (see the note on
+// `userSettingsObjectSchema` above); expose the plain object shape there instead.
 export const userSettingsSchema = userSettingsObjectSchema.catch({});
 
 // Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected

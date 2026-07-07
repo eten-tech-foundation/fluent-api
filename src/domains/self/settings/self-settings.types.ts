@@ -1,6 +1,8 @@
 import { z } from '@hono/zod-openapi';
 
-import { userSettingsSchema } from '@/db/schema';
+import type { userSettingsSchema } from '@/db/schema';
+
+import { userSettingsObjectSchema } from '@/db/schema';
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
@@ -27,15 +29,23 @@ export type SaveUserSettingsRequest = z.infer<typeof saveUserSettingsRequestSche
 
 // ─── API response schema ──────────────────────────────────────────────────────
 
-// `settings` advertises the real `userSettingsSchema` shape (the allowed keys and
-// their enum values) rather than a generic object: the service's `toResponse`
-// already normalizes every stored blob through `userSettingsSchema` on read, so
-// the response body provably conforms to it — the spec should say so. Nullable for
-// a user with no row yet (mirrors editor-state — not a 404). (We intentionally do
+// `settings` advertises the real settings shape (the allowed keys and their enum
+// values) rather than a generic object: the service's `toResponse` already
+// normalizes every stored blob through `userSettingsSchema` on read, so the
+// response body provably conforms to it — the spec should say so. Nullable for a
+// user with no row yet (mirrors editor-state — not a 404). (We intentionally do
 // NOT tighten the *request* schema; see the boundary-vs-service note above.)
+//
+// We embed the PLAIN `userSettingsObjectSchema`, NOT the `.catch({})` read schema
+// (`userSettingsSchema`): the `.catch` wrapper is a `ZodCatch` that
+// zod-to-openapi can't render (it 500s `/doc` — see the note in db/schema.ts and
+// the guard in src/routes/doc.route.test.ts). The two schemas describe the same
+// fields, so the documented shape is unchanged; the fail-soft `.catch` tolerance
+// lives entirely in the service read path (`toResponse`), which is where it
+// belongs — it was never meant to be part of the published contract.
 export const userSettingsResponseSchema = z
   .object({
-    settings: userSettingsSchema.nullable(),
+    settings: userSettingsObjectSchema.nullable(),
     updatedAt: z.string().nullable(),
   })
   .openapi('UserSettingsResponse');
