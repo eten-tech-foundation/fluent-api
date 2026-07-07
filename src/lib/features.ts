@@ -76,9 +76,12 @@ const aiIsWired: DefaultResolver = (e) => Boolean(e.FLUENT_AI_URL && e.FLUENT_AI
  *    …plus a line in .env.example.
  */
 export const FLAGS = {
-  // Repeated Word Check — the one AI-dependent feature today. Defaults to
-  // whether AI is wired when EN_FEATURE_REPEATED_WORD_CHECK is unset (D2/§4.2).
+  // Repeated Word Check — an AI-dependent feature. Defaults to whether AI is
+  // wired when EN_FEATURE_REPEATED_WORD_CHECK is unset (D2/§4.2).
   repeatedWordCheck: { env: 'EN_FEATURE_REPEATED_WORD_CHECK', default: aiIsWired },
+  // AI Suggestions — same contract: defaults to whether AI is wired when
+  // EN_FEATURE_AI_SUGGESTIONS is unset.
+  aiSuggestions: { env: 'EN_FEATURE_AI_SUGGESTIONS', default: aiIsWired },
 } as const satisfies Record<string, FlagDefinition>;
 
 /** The set of known wire keys, e.g. `'repeatedWordCheck'`. */
@@ -122,6 +125,7 @@ export function buildFeatures(e: Env): Features {
 export const featuresSchema = z
   .object({
     repeatedWordCheck: z.boolean().openapi({ example: false }),
+    aiSuggestions: z.boolean().openapi({ example: false }),
   })
   .openapi('Features') satisfies z.ZodType<Features>;
 

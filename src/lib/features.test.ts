@@ -43,6 +43,21 @@ describe('buildFeatures', () => {
     expect(features.repeatedWordCheck).toBe(false);
   });
 
+  it('honors an explicitly-set aiSuggestions flag (true) regardless of AI wiring', () => {
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_AI_SUGGESTIONS: true }));
+    expect(features.aiSuggestions).toBe(true);
+  });
+
+  it('derives aiSuggestions = true when unset and AI is wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_WIRED }));
+    expect(features.aiSuggestions).toBe(true);
+  });
+
+  it('derives aiSuggestions = false (safe default) when unset and AI is not wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED }));
+    expect(features.aiSuggestions).toBe(false);
+  });
+
   it('returns exactly the known flag keys — no extras, none missing', () => {
     const features = buildFeatures(makeEnv({ ...AI_WIRED }));
     expect(Object.keys(features).sort()).toEqual([...wireFeatureKeys].sort());

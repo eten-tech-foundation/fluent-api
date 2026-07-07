@@ -103,6 +103,9 @@ const EnvSchema = z.object({
   // (off). Parsed via envBool() (NOT z.coerce.boolean(), which would turn the
   // string "false" into true and invert the safe default).
   EN_FEATURE_REPEATED_WORD_CHECK: envBool().optional(),
+  // AI Suggestions — same contract as EN_FEATURE_REPEATED_WORD_CHECK above:
+  // unset derives from AI wiring (aiIsWired), safe-off when AI isn't wired.
+  EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
 });
 
 export type env = z.infer<typeof EnvSchema>;
