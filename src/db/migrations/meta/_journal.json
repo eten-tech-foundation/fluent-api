@@ -106,13 +106,6 @@
       "when": 1782738358988,
       "tag": "0014_add_ai_features",
       "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1783451253102,
-      "tag": "0015_add_ai_suggestions",
-      "breakpoints": true
     }
   ]
 }

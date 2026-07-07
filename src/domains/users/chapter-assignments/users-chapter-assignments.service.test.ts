@@ -35,6 +35,7 @@ const makeProgressInfo = (
   submittedTime: null,
   createdAt: null,
   updatedAt: null,
+  isAiEnabled: false,
   ...over,
 });
 
