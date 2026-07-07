@@ -89,8 +89,29 @@
     {
       "idx": 12,
       "version": "7",
+      "when": 1782282922268,
+      "tag": "0012_add_pericope_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783084537563,
+      "tag": "0013_add_user_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
       "when": 1782738358988,
-      "tag": "0012_add_ai_features",
+      "tag": "0014_add_ai_features",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783451253102,
+      "tag": "0015_add_ai_suggestions",
       "breakpoints": true
     }
   ]

@@ -385,6 +385,9 @@ export async function findAssignmentsProgress(
         chapterNumber: chapter_assignments.chapterNumber,
         status: chapter_assignments.status,
         targetLanguage: targetLang.langName,
+        // ISO 639-3 code consumed by the repeated-words check as greek-room's
+        // lang_code (whitelist is keyed on the code). See phase-04 BUG #2.
+        targetLangCode: targetLang.langCodeIso6393,
         sourceLangCode: sourceLang.langCodeIso6393,
         totalVerses: sql<number>`COUNT(${bible_texts.id})`.mapWith(Number),
         completedVerses:
@@ -451,6 +454,7 @@ export async function findAssignmentsProgress(
         projects.name,
         bibles.name,
         targetLang.langName,
+        targetLang.langCodeIso6393,
         sourceLang.langCodeIso6393,
         books.code,
         books.eng_display_name,

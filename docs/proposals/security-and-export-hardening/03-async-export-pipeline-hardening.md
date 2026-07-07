@@ -24,7 +24,9 @@ client then polls `GET /jobs/{id}` and downloads `GET /downloads/{filename}`. No
    queue, it does not register the worker). A worker-written file is invisible to
    the API serving `/downloads`
    → 404. Fix: shared object storage (S3 / Azure Blob) + signed URL, or a shared
-   persistent volume mounted in both.
+   persistent volume mounted in both. **Decided (reviewer, 2026-06-26): Azure
+   Blob Storage + signed URLs.** Needs a storage account/container + connection
+   string provisioned per environment (Azurite or similar for local compose).
 3. **Whole ZIP buffered in memory.** The worker drains the archive stream into a
    `Buffer` before writing (`usfm-export.worker.ts` + `file-storage.ts`), risking
    OOM on large exports. Fix: stream to disk/storage via `stream.pipeline`.

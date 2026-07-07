@@ -1,3 +1,4 @@
+import type { ChapterAssignmentProgressInfo } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
@@ -29,11 +30,14 @@ export function deleteChapterAssignmentsByProject(projectId: number) {
   return repo.deleteByProject(projectId);
 }
 
-export async function getChapterAssignmentProgressByProject(projectId: number) {
-  const result = await chapterAssignmentService.getAssignmentsProgress({ projectId });
-  if (!result.ok) return result;
-
-  const mapped = result.data.map((info) => ({
+/**
+ * Map a repository `ChapterAssignmentProgressInfo` row to the wire-shape
+ * `ChapterAssignmentProgress` response. Shared by the project-progress and
+ * assign-selected endpoints so the field mapping (incl. `targetLangCode`) lives
+ * in exactly one place.
+ */
+function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo) {
+  return {
     assignmentId: info.assignmentId,
     projectUnitId: info.projectUnitId,
     status: info.status,
@@ -43,6 +47,7 @@ export async function getChapterAssignmentProgressByProject(projectId: number) {
     bookId: info.bookId,
     bookCode: info.bookCode,
     sourceLangCode: info.sourceLangCode ?? '',
+    targetLangCode: info.targetLangCode ?? '',
     assignedUser: info.assignedUserId
       ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
       : null,
@@ -55,7 +60,14 @@ export async function getChapterAssignmentProgressByProject(projectId: number) {
     updatedAt: info.updatedAt,
     submittedTime: info.submittedTime,
     isAiEnabled: info.isAiEnabled,
-  }));
+  };
+}
+
+export async function getChapterAssignmentProgressByProject(projectId: number) {
+  const result = await chapterAssignmentService.getAssignmentsProgress({ projectId });
+  if (!result.ok) return result;
+
+  const mapped = result.data.map(toChapterAssignmentProgressResponse);
   return ok(mapped);
 }
 
@@ -172,29 +184,7 @@ export async function assignSelectedChapters(
 
       const mapped = assignmentsResult.data
         .filter((info) => updatedIds.includes(info.assignmentId))
-        .map((info) => ({
-          assignmentId: info.assignmentId,
-          projectUnitId: info.projectUnitId,
-          status: info.status,
-          bookNameEng: info.bookNameEng,
-          chapterNumber: info.chapterNumber,
-          bibleId: info.bibleId,
-          bookId: info.bookId,
-          bookCode: info.bookCode,
-          sourceLangCode: info.sourceLangCode ?? '',
-          assignedUser: info.assignedUserId
-            ? { id: info.assignedUserId, displayName: info.assignedUserDisplayName ?? '' }
-            : null,
-          peerChecker: info.peerCheckerId
-            ? { id: info.peerCheckerId, displayName: info.peerCheckerDisplayName ?? '' }
-            : null,
-          totalVerses: info.totalVerses,
-          completedVerses: info.completedVerses,
-          createdAt: info.createdAt,
-          updatedAt: info.updatedAt,
-          submittedTime: info.submittedTime,
-          isAiEnabled: info.isAiEnabled,
-        }));
+        .map(toChapterAssignmentProgressResponse);
 
       return ok(mapped);
     });

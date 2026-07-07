@@ -2,6 +2,7 @@ import configureOpenAPI from '@/lib/configure-open-api';
 import { server } from '@/server/server';
 import '@/routes/index.route';
 import '@/routes/health.route';
+import '@/routes/config.route';
 import '@/routes/auth-doc.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
@@ -23,6 +24,8 @@ import '@/domains/chapter-assignments/presence/chapter-assignments-presence.rout
 import '@/domains/ai-suggestions/ai-suggestions.route';
 import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
+import '@/domains/pericopes/pericopes.route';
+import '@/domains/self/settings/self-settings.route';
 configureOpenAPI(server);
 
 export default server;

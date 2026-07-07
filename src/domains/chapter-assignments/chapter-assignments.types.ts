@@ -50,7 +50,14 @@ export interface ChapterAssignmentProgressInfo {
   bookNameEng: string;
   chapterNumber: number;
   status: string;
+  /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string | null;
+  /**
+   * ISO 639-3 target language CODE, e.g. "eng". Consumed by the repeated-words
+   * check as greek-room's `lang_code` (which keys its legitimate-duplicate
+   * whitelist on the ISO code). See phase-04 manual smoke (BUG #2).
+   */
+  targetLangCode: string | null;
   sourceLangCode: string | null;
   totalVerses: number;
   completedVerses: number;

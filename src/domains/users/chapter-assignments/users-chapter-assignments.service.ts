@@ -22,6 +22,7 @@ export function toResponse(
     bibleName: assignment.bibleName ?? '',
     chapterStatus: assignment.status,
     targetLanguage: assignment.targetLanguage ?? '',
+    targetLangCode: assignment.targetLangCode ?? '',
     sourceLangCode: assignment.sourceLangCode ?? '',
     bookCode: assignment.bookCode,
     bookId: assignment.bookId,
