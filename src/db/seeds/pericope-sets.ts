@@ -131,7 +131,7 @@ async function seedFia(bookIdMap: Map<string, number>): Promise<void> {
   console.log('Seeding FIA...');
 
   const records = loadJson<FiaRecord[]>('FIA-All-Books.json');
-  const setId = await upsertPericopeSet('FIA', 'Forum of International Advisors');
+  const setId = await upsertPericopeSet('FIA', 'Familiarization, Internalization, Articulation');
 
   const unmappedBooks = new Set<string>();
   const rows: PericopeVerseInsert[] = [];
