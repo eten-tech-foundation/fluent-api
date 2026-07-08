@@ -238,24 +238,28 @@ describe('pericopes router & service integrations', () => {
         {
           chapterNumber: 1,
           verseNumber: 1,
+          section: null,
           pericopeNumber: '1',
           pericopeTitle: 'The Word Became Flesh',
         },
         {
           chapterNumber: 1,
           verseNumber: 2,
+          section: null,
           pericopeNumber: '1',
           pericopeTitle: 'The Word Became Flesh',
         },
         {
           chapterNumber: 1,
           verseNumber: 3,
+          section: null,
           pericopeNumber: '2',
           pericopeTitle: 'John the Baptist Denies Being the Messiah',
         },
         {
           chapterNumber: 1,
           verseNumber: 4,
+          section: null,
           pericopeNumber: '3',
           pericopeTitle: null,
         },
@@ -283,6 +287,68 @@ describe('pericopes router & service integrations', () => {
           pericopeNumber: '3',
           pericopeTitle: null,
           verses: [{ chapterNumber: 1, verseNumber: 4 }],
+        },
+      ]);
+    });
+
+    it('returns 200 and groups FCBH pericopes using a composite key (section_pericopeNumber) when section is not null', async () => {
+      asAuthenticatedUser();
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
+      vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(2);
+      vi.mocked(repo.getBookIdByCode).mockResolvedValue(43);
+
+      const mockVerses = [
+        {
+          chapterNumber: 6,
+          verseNumber: 1,
+          section: 6,
+          pericopeNumber: '1',
+          pericopeTitle: null,
+        },
+        {
+          chapterNumber: 6,
+          verseNumber: 2,
+          section: 6,
+          pericopeNumber: '1',
+          pericopeTitle: null,
+        },
+        {
+          chapterNumber: 6,
+          verseNumber: 9,
+          section: 7,
+          pericopeNumber: '1',
+          pericopeTitle: null,
+        },
+        {
+          chapterNumber: 6,
+          verseNumber: 10,
+          section: 7,
+          pericopeNumber: '1',
+          pericopeTitle: null,
+        },
+      ];
+      vi.mocked(repo.getPericopeVersesForChapter).mockResolvedValue(mockVerses as any);
+
+      const res = await server.request('/projects/10/pericopes/GEN/6', { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([
+        {
+          pericopeNumber: '6_1',
+          pericopeTitle: null,
+          verses: [
+            { chapterNumber: 6, verseNumber: 1 },
+            { chapterNumber: 6, verseNumber: 2 },
+          ],
+        },
+        {
+          pericopeNumber: '7_1',
+          pericopeTitle: null,
+          verses: [
+            { chapterNumber: 6, verseNumber: 9 },
+            { chapterNumber: 6, verseNumber: 10 },
+          ],
         },
       ]);
     });

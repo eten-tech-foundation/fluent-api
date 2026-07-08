@@ -37,17 +37,19 @@ export async function getChapterPericopes(
     // 4. No rows = book not covered in this set → verse-by-verse fallback
     if (rows.length === 0) return ok([]);
 
-    // 5. Group rows by pericope_number in application layer
+    // 5. Group rows by section + pericope_number in application layer if section is present (FCBH)
     const groupMap = new Map<string, ChapterPericopesResponse[number]>();
     for (const row of rows) {
-      if (!groupMap.has(row.pericopeNumber)) {
-        groupMap.set(row.pericopeNumber, {
-          pericopeNumber: row.pericopeNumber,
+      const groupKey =
+        row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, {
+          pericopeNumber: groupKey,
           pericopeTitle: row.pericopeTitle ?? null,
           verses: [],
         });
       }
-      groupMap.get(row.pericopeNumber)!.verses.push({
+      groupMap.get(groupKey)!.verses.push({
         chapterNumber: row.chapterNumber,
         verseNumber: row.verseNumber,
       });
