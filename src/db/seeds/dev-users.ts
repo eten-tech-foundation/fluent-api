@@ -32,7 +32,7 @@ export async function seedDevUsers() {
     },
     {
       email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
-      password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't2@123456',
+      password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
       username: 'translator2',
       roleName: ROLES.TRANSLATOR,
     },

@@ -58,9 +58,12 @@ async function setup() {
   const managerPassword = process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456';
   const translatorEmail = process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local';
   const translatorPassword = process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456';
+  const translator2Email = process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local';
+  const translator2Password = process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456';
 
   console.log(`Manager:    ${managerEmail} / ${managerPassword}`);
   console.log(`Translator: ${translatorEmail} / ${translatorPassword}`);
+  console.log(`Translator2: ${translator2Email} / ${translator2Password}`);
   process.exit(0);
 }
 
