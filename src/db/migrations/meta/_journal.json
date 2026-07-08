@@ -99,6 +99,13 @@
       "when": 1783084537563,
       "tag": "0013_add_user_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782738358988,
+      "tag": "0014_add_ai_features",
+      "breakpoints": true
     }
   ]
 }

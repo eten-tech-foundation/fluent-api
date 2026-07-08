@@ -35,6 +35,7 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   submittedTime: z.date().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  isAiEnabled: z.boolean(),
 });
 
 // ─── Assign-all input ─────────────────────────────────────────────────────────

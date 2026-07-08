@@ -34,6 +34,7 @@ export function toResponse(
     assignedUserId: assignment.assignedUserId,
     peerCheckerId: assignment.peerCheckerId,
     updatedAt: assignment.updatedAt?.toISOString() ?? null,
+    isAiEnabled: assignment.isAiEnabled,
   };
 }
 

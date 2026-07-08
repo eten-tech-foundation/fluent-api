@@ -62,6 +62,12 @@ const EnvSchema = z.object({
   EMAIL_SERVICE_SENDER: z.string(),
   FRONTEND_URL: z.string(),
 
+  // AI suggestion tunables
+  AI_ACTIVATION_THRESHOLD_VERSES: z.coerce.number().int().positive().default(500),
+  AI_INITIAL_QUEUE_COUNT: z.coerce.number().int().positive().default(3),
+  AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(1),
+  AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
+
   // ── Fluent-AI integration ──────────────────────────────────────────
   // Base URL of the fluent-ai service (no trailing slash, no path suffix).
   // Ecosystem mode (via fluent-platform): http://ai:8200 — standalone: http://localhost:8200
@@ -69,12 +75,11 @@ const EnvSchema = z.object({
   // Shared API key for calling fluent-ai (matches a row in fluent-ai's ai_api_keys table).
   FLUENT_AI_KEY: z.string().min(1),
   // Path prefix that fluent-ai mounts its routers under, BETWEEN the base URL and
-  // the per-tool path. The live fluent-ai build currently mounts routers at the
-  // root (e.g. POST /tools/greek-room/repeated-words), so the default is empty.
-  // When fluent-ai eventually adopts versioned routing it can be flipped to
-  // '/api/v1' via env with no code change. Leading slash optional; trailing
-  // slashes are trimmed when the request URL is assembled.
+  // the per-tool path.
   FLUENT_AI_API_PREFIX: z.string().default(''),
+
+  // Key used to authenticate incoming webhook callbacks from fluent-ai
+  AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
@@ -98,6 +103,9 @@ const EnvSchema = z.object({
   // (off). Parsed via envBool() (NOT z.coerce.boolean(), which would turn the
   // string "false" into true and invert the safe default).
   EN_FEATURE_REPEATED_WORD_CHECK: envBool().optional(),
+  // AI Suggestions — same contract as EN_FEATURE_REPEATED_WORD_CHECK above:
+  // unset derives from AI wiring (aiIsWired), safe-off when AI isn't wired.
+  EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
 });
 
 export type env = z.infer<typeof EnvSchema>;

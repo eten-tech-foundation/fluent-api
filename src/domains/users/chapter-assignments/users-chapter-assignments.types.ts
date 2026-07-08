@@ -24,6 +24,7 @@ export interface UserChapterAssignment {
   assignedUserId: number | null;
   peerCheckerId: number | null;
   updatedAt: string | null;
+  isAiEnabled: boolean;
 }
 
 // ─── API response schema ──────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   assignedUserId: z.number().int().nullable(),
   peerCheckerId: z.number().int().nullable(),
   updatedAt: z.string().nullable(),
+  isAiEnabled: z.boolean(),
 });
 
 export const userChapterAssignmentsByUserResponseSchema = z.object({

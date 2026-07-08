@@ -10,6 +10,7 @@ export const CHAPTER_ASSIGNMENT_ACTIONS = {
   SUBMIT: 'submit',
   DELETE: 'delete',
   IS_PARTICIPANT: 'isParticipant',
+  TOGGLE_AI: 'toggleAi',
 } as const;
 
 export type ChapterAssignmentAction =
@@ -67,6 +68,7 @@ export interface ChapterAssignmentProgressInfo {
   submittedTime: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  isAiEnabled: boolean;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -85,7 +87,12 @@ export interface UpdateChapterAssignmentRequestData {
   peerCheckerId?: number | null;
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
+  isAiEnabled?: boolean;
 }
+
+export const updateChapterAssignmentAiStatusSchema = z.object({
+  isAiEnabled: z.boolean(),
+});
 
 // ─── API response schema ──────────────────────────────────────────────────────
 

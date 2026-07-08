@@ -59,6 +59,7 @@ function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo
     createdAt: info.createdAt,
     updatedAt: info.updatedAt,
     submittedTime: info.submittedTime,
+    isAiEnabled: info.isAiEnabled,
   };
 }
 

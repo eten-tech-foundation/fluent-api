@@ -69,6 +69,7 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
+        isAiEnabled: chapter_assignments.isAiEnabled,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         organizationId: projects.organization,
@@ -105,6 +106,7 @@ export async function findByIdWithAuthContext(
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
+        isAiEnabled: chapter_assignments.isAiEnabled,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         // Project context
@@ -399,6 +401,7 @@ export async function findAssignmentsProgress(
         submittedTime: chapter_assignments.submittedTime,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
+        isAiEnabled: chapter_assignments.isAiEnabled,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

@@ -13,6 +13,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -40,7 +41,6 @@ export const chapterStatusEnum = pgEnum('chapter_status', [
   'complete',
 ]);
 export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_checker']);
-
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull().unique(),
@@ -379,6 +379,7 @@ export const chapter_assignments = pgTable(
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
     status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
+    isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
     submittedTime: timestamp('submitted_time'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
@@ -613,6 +614,49 @@ export const active_chapter_editors = pgTable(
   ]
 );
 
+export const ai_suggestions = pgTable(
+  'ai_suggestions',
+  {
+    id: serial('id').primaryKey(),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    suggestedText: text('suggested_text').notNull(),
+    modelInfo: varchar('model_info', { length: 100 }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (table) => [
+    index('idx_ai_suggestions_bible_text').on(table.bibleTextId),
+    uniqueIndex('uq_ai_suggestions_per_text_unit').on(table.bibleTextId, table.projectUnitId),
+  ]
+);
+
+export const ai_suggestion_usage_log = pgTable(
+  'ai_suggestion_usage_log',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    wasUsed: boolean('was_used').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_ai_usage_user').on(table.userId),
+    index('idx_ai_usage_project_unit').on(table.projectUnitId),
+    uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId, table.projectUnitId),
+  ]
+);
+
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
 });
@@ -647,6 +691,8 @@ export const selectUserSettingsSchema = createSelectSchema(user_settings);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
 export const selectActiveChapterEditorsSchema = createSelectSchema(active_chapter_editors);
+export const selectAiSuggestionsSchema = createSelectSchema(ai_suggestions);
+export const selectAiSuggestionUsageLogSchema = createSelectSchema(ai_suggestion_usage_log);
 
 export const insertUsersSchema = createInsertSchema(users, {
   username: (schema) => schema.min(1).max(100),
@@ -931,6 +977,22 @@ export const insertRolePermissionsSchema = createInsertSchema(role_permissions, 
   .required({ roleId: true, permissionId: true })
   .omit({ updatedAt: true });
 
+export const insertAiSuggestionsSchema = createInsertSchema(ai_suggestions, {
+  bibleTextId: (schema) => schema.int(),
+  projectUnitId: (schema) => schema.int(),
+  suggestedText: (schema) => schema.min(1),
+})
+  .required({ bibleTextId: true, projectUnitId: true, suggestedText: true })
+  .omit({ id: true, createdAt: true });
+
+export const insertAiSuggestionUsageLogSchema = createInsertSchema(ai_suggestion_usage_log, {
+  userId: (schema) => schema.int(),
+  bibleTextId: (schema) => schema.int(),
+  projectUnitId: (schema) => schema.int(),
+})
+  .required({ userId: true, bibleTextId: true, projectUnitId: true, wasUsed: true })
+  .omit({ id: true, createdAt: true });
+
 export const insertActiveChapterEditorsSchema = createInsertSchema(active_chapter_editors, {
   chapterAssignmentId: (schema) => schema.int(),
   userId: (schema) => schema.int(),
@@ -966,6 +1028,8 @@ export const patchUserChapterAssignmentEditorStateSchema =
 export const patchProjectUsersSchema = insertProjectUsersSchema.partial();
 export const patchPermissionsSchema = insertPermissionsSchema.partial();
 export const patchRolePermissionsSchema = insertRolePermissionsSchema.partial();
+export const patchAiSuggestionsSchema = insertAiSuggestionsSchema.partial();
+export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.partial();
 
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,
