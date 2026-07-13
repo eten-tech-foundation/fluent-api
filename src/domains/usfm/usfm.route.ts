@@ -3,6 +3,7 @@ import { createMiddleware } from 'hono/factory';
 import { stream } from 'hono/streaming';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
+import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import type { USFMExportJob } from '@/lib/queue';
 import type { AppEnv } from '@/server/context.types';
@@ -16,6 +17,7 @@ import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireProjectUnitAccess } from './usfm-auth.middleware';
 import * as usfmService from './usfm.service';
 
 const requireProjectUnitAccess = createMiddleware<AppEnv>(async (c, next) => {
@@ -107,6 +109,18 @@ const getExportableBooksRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -129,8 +143,19 @@ const exportProjectUSFMRoute = createRoute({
         },
       },
     },
-    [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Project not found'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -146,7 +171,19 @@ const exportProjectUSFMAsyncRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.ACCEPTED]: jsonContent(exportAsyncResponseSchema, 'Export job queued'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -164,6 +201,14 @@ const getJobStatusRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(jobStatusResponseSchema, 'Job status'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Job not found'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
@@ -187,6 +232,14 @@ const downloadExportRoute = createRoute({
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'File not found or expired'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Invalid filename'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
   },
 });
 
@@ -220,12 +273,11 @@ server.openapi(getExportableBooksRoute, async (c) => {
       projectUnitId: c.req.param('projectUnitId'),
     });
 
-    const errorResponse: ErrorResponse = {
-      error: 'Failed to get exportable books',
-      details: errorMessage,
-    };
-
-    return c.json(errorResponse, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+    // Detail is logged above; do not leak the raw error message to the client.
+    return c.json(
+      { error: 'Failed to get exportable books' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR
+    );
   }
 });
 
@@ -250,16 +302,9 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
       }
     }
 
-    const projectNameResult = await usfmService.getProjectName(projectUnitId);
-    if (!projectNameResult.ok || !projectNameResult.data) {
-      logger.warn('Project not found for project unit', { projectUnitId });
-      return c.json(
-        { error: 'Project not found for this project unit' },
-        HttpStatusCodes.NOT_FOUND
-      );
-    }
-
-    const projectName = projectNameResult.data;
+    // Project access (and existence) is already verified by requireProjectUnitAccess,
+    // which puts the resolved project on the context.
+    const projectName = c.get('project')!.name;
 
     const exportResultObj = await usfmService.createUSFMZipStreamAsync(projectUnitId, bookIds);
     if (!exportResultObj.ok || !exportResultObj.data) {
@@ -319,13 +364,8 @@ server.openapi(exportProjectUSFMRoute, async (c) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('USFM export error', { error: errorMessage, projectUnitId, bookIds });
 
-    return c.json(
-      {
-        error: 'Failed to export USFM',
-        details: errorMessage,
-      },
-      HttpStatusCodes.INTERNAL_SERVER_ERROR
-    );
+    // Detail is logged above; do not leak the raw error message to the client.
+    return c.json({ error: 'Failed to export USFM' }, HttpStatusCodes.INTERNAL_SERVER_ERROR);
   }
 });
 

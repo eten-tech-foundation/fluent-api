@@ -190,6 +190,28 @@ export async function callFluentAi<TReq, TResult>(
   };
 }
 
+/**
+ * Triggers the AI suggestions background generation asynchronously.
+ * This does not wait for a job envelope, just for a successful HTTP submission.
+ */
+export async function triggerAiSuggestions(payloads: unknown[]): Promise<void> {
+  const url = buildToolUrl('suggestions');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': env.FLUENT_AI_KEY,
+    },
+    body: JSON.stringify(payloads),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`fluent-ai returned HTTP ${response.status}: ${text}`);
+  }
+}
+
 function safeJsonParse(text: string): unknown {
   try {
     return JSON.parse(text);

@@ -89,29 +89,50 @@
     {
       "idx": 12,
       "version": "7",
-      "when": 1781161896900,
-      "tag": "0012_create_user_role_grants",
+      "when": 1782282922268,
+      "tag": "0012_add_pericope_sets",
       "breakpoints": true
     },
     {
       "idx": 13,
       "version": "7",
-      "when": 1781162563413,
-      "tag": "0013_drop_legacy_rbac_columns",
+      "when": 1783084537563,
+      "tag": "0013_add_user_settings",
       "breakpoints": true
     },
     {
       "idx": 14,
       "version": "7",
-      "when": 1781182166615,
-      "tag": "0014_add_user_roles_unique_index",
+      "when": 1783595849670,
+      "tag": "0014_add_ai_features",
       "breakpoints": true
     },
     {
       "idx": 15,
       "version": "7",
+      "when": 1781161896900,
+      "tag": "0015_create_user_role_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781162563413,
+      "tag": "0016_drop_legacy_rbac_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781182166615,
+      "tag": "0017_add_user_roles_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
       "when": 1781503992107,
-      "tag": "0015_added_user_session",
+      "tag": "0018_added_user_session",
       "breakpoints": true
     }
   ]

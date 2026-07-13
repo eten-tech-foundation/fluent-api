@@ -91,7 +91,39 @@ export function createServer() {
     return auth.handler(new Request(url, c.req.raw));
   }
 
-  app.post('/api/auth/password/set', (c) => proxyToAuth(c, '/api/auth/set-password'));
+  app.post('/api/auth/password/set', async (c) => {
+    try {
+      const { newPassword } = await c.req.json();
+      await auth.api.setPassword({
+        body: { newPassword },
+        headers: c.req.raw.headers,
+      });
+
+      const session = await auth.api.getSession({
+        headers: c.req.raw.headers,
+      });
+
+      if (session?.user?.email) {
+        await db
+          .update(schema.users)
+          .set({ status: 'verified', updatedAt: new Date() })
+          .where(eq(schema.users.email, session.user.email));
+        logger.info(`User status updated to verified for email: ${session.user.email}`);
+      } else {
+        logger.warn(
+          'Password set succeeded, but session or user email is missing. Skipped updating user status to verified.'
+        );
+      }
+
+      return c.json({ success: true });
+    } catch (err) {
+      logger.error('Failed to set password:', err);
+      return c.json(
+        { message: err instanceof Error ? err.message : 'Failed to set password' },
+        400
+      );
+    }
+  });
 
   // POST /api/auth/forget-password
   app.post('/api/auth/forget-password', (c) => proxyToAuth(c, '/api/auth/request-password-reset'));

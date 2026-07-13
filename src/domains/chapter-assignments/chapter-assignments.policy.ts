@@ -100,6 +100,25 @@ export const ChapterAssignmentPolicy = {
     return this.edit(user, assignment, isProjectMember);
   },
 
+  /**
+   * Can this user toggle AI for this assignment?
+   */
+  toggleAi(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+
+    if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) {
+      return true;
+    }
+
+    if (authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) {
+      if (assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
+        return assignment.assignedUserId === user.id;
+      }
+    }
+
+    return false;
+  },
+
   isParticipant(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
