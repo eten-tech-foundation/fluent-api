@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
 import { server } from '@/server/server';
 
 import { checkProjectUnitAccess } from './ai-suggestions.auth.middleware';
@@ -18,9 +18,22 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([]),
+    returning: vi.fn().mockResolvedValue([]),
+  };
+  return {
+    db: {
+      select: vi.fn(() => mockQueryBuilder),
+      insert: vi.fn(() => mockQueryBuilder),
+      update: vi.fn(() => mockQueryBuilder),
+      delete: vi.fn(() => mockQueryBuilder),
+    },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -30,9 +43,11 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
+
+// Removed permissions.service mock
 
 vi.mock('./ai-suggestions.service', () => ({
   getAiSuggestions: vi.fn(),
@@ -56,13 +71,16 @@ const APP_USER = {
   status: 'verified' as const,
 };
 
-function asAuthenticatedUser(granted: boolean) {
+function asAuthenticatedUser() {
   (auth.api.getSession as any).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
   });
   (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
-  (roleHasPermission as any).mockResolvedValue(granted);
+  (findGrantsByUserId as any).mockResolvedValue({
+    ok: true,
+    data: [{ orgId: null, projectId: null, permissions: new Set(['project:view']) }],
+  });
 }
 
 function getAiSuggestions(projectUnitId: number, bibleTextIds: number[]) {
@@ -103,7 +121,7 @@ describe('ai-suggestions routes', () => {
     });
 
     it('returns 200 with suggestions on success', async () => {
-      asAuthenticatedUser(true);
+      asAuthenticatedUser();
       (aiSuggestionsService.getAiSuggestions as any).mockResolvedValue({
         ok: true,
         data: { data: [{ bibleTextId: 1, suggestedText: 'hello' }] },
@@ -127,7 +145,7 @@ describe('ai-suggestions routes', () => {
     };
 
     it('returns 403 when access check fails', async () => {
-      asAuthenticatedUser(true);
+      asAuthenticatedUser();
       (checkProjectUnitAccess as any).mockResolvedValue(
         new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })
       );
@@ -138,7 +156,7 @@ describe('ai-suggestions routes', () => {
     });
 
     it('returns 200 on success', async () => {
-      asAuthenticatedUser(true);
+      asAuthenticatedUser();
       (aiSuggestionsService.queueNextVerses as any).mockResolvedValue({
         ok: true,
         data: { queueCount: 5, thresholdReached: true },
@@ -160,7 +178,7 @@ describe('ai-suggestions routes', () => {
     };
 
     it('returns 403 when access check fails', async () => {
-      asAuthenticatedUser(true);
+      asAuthenticatedUser();
       (checkProjectUnitAccess as any).mockResolvedValue(
         new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })
       );
@@ -171,7 +189,7 @@ describe('ai-suggestions routes', () => {
     });
 
     it('returns 200 on success', async () => {
-      asAuthenticatedUser(true);
+      asAuthenticatedUser();
       (aiSuggestionsService.trackUsage as any).mockResolvedValue({
         ok: true,
         data: undefined,

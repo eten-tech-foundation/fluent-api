@@ -39,7 +39,7 @@ async function attachGrants(user: User): Promise<UserResponse> {
   const grantsMap = await findRoleGrantsByUserIds([user.id], 'ALL');
   response.orgGrants = grantsMap.get(user.id) ?? [];
 
-  logger.info(
+  logger.debug(
     { userId: user.id, orgGrants: response.orgGrants },
     'Attached grants for user in attachGrants'
   );
@@ -83,7 +83,7 @@ export async function getUsersForUser(user: AppPolicyUser): Promise<Result<UserR
   const filter = hasGlobalView ? 'ALL' : orgIdsArray;
   const grantsMap = await findRoleGrantsByUserIds(userIds, filter);
 
-  logger.info(
+  logger.debug(
     { callerId: user.id, count: userRows.length },
     'Returning users with grants in getUsersForUser'
   );

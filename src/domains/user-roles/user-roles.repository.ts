@@ -48,7 +48,7 @@ export async function findGrantsByUserId(userId: number): Promise<Result<Grant[]
       .innerJoin(permissions, eq(permissions.id, role_permissions.permissionId))
       .where(eq(user_roles.userId, userId));
 
-    logger.info({ userId, rowsCount: rows.length, rows }, 'DB rows for findGrantsByUserId');
+    logger.debug({ userId, rowsCount: rows.length, rows }, 'DB rows for findGrantsByUserId');
     return ok(groupGrantRows(rows));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to load grants', context: { userId } });
@@ -131,7 +131,7 @@ export async function findRoleGrantsByUserIds(
     });
   }
 
-  logger.info(
+  logger.debug(
     {
       userIds,
       filterOrgIds,

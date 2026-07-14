@@ -170,7 +170,7 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
           message: 'Internal Server Error: Failed to load user grants',
         });
       }
-      logger.info(
+      logger.debug(
         {
           userId: userResult.data.id,
           grantsCount: grantsResult.data.length,

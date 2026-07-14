@@ -1,9 +1,6 @@
-import { ROLES } from '@/lib/roles';
-
 export interface PolicyUser {
   id: number;
-  roleName: string;
-  organization: number;
+  grants: any[];
 }
 
 export interface ProjectUnitAuthContext {
@@ -18,12 +15,17 @@ export class AiSuggestionsPolicy {
    * Translators can access if they are assigned as a member of the project.
    */
   static canAccessProjectUnit(user: PolicyUser, context: ProjectUnitAuthContext): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return context.organizationId === user.organization;
+    const isManager = user.grants.some(
+      (g) =>
+        g.orgId === context.organizationId &&
+        (g.permissions.has('project:create') || g.permissions.has('project:update'))
+    );
+    if (isManager) {
+      return true;
     }
 
-    if (user.roleName === ROLES.TRANSLATOR) {
-      return context.memberUserIds.includes(user.id);
+    if (context.memberUserIds.includes(user.id)) {
+      return true;
     }
 
     return false;
