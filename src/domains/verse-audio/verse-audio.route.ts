@@ -179,6 +179,10 @@ const getVerseAudioRoute = createRoute({
       verseAudioResponseSchema,
       'Recording metadata with a short-lived playback URL'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad request'),
+      'Invalid parameters'
+    ),
     ...commonErrorResponses,
   },
   summary: 'Get the audio recording for a verse',
