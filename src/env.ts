@@ -57,6 +57,13 @@ const EnvSchema = z.object({
   BETTER_AUTH_SESSION_EXPIRY_SECONDS: z.coerce.number().default(60 * 60 * 24 * 7), // 7 days
   APPLICATIONINSIGHTS_CONNECTION_STRING: z.string(),
 
+  // ── Verse audio storage ────────────────────────────────────────────────
+  // Azure Blob Storage connection string (Azurite locally). When unset, the
+  // verse-audio routes respond 503 and the rest of the API is unaffected.
+  AZURE_STORAGE_CONNECTION_STRING: z.string().optional(),
+  // Container holding verse audio recordings (persistent — no TTL).
+  AUDIO_CONTAINER: z.string().default('verse-audio'),
+
   EMAIL_SERVICE_API_KEY: z.string(),
   EMAIL_SERVICE_DOMAIN: z.string(),
   EMAIL_SERVICE_SENDER: z.string(),
