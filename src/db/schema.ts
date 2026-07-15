@@ -12,6 +12,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -359,6 +360,33 @@ export const translated_verses = pgTable(
   },
   (table) => [
     uniqueIndex('uq_translated_verse_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+  ]
+);
+
+export const verse_audio_recordings = pgTable(
+  'verse_audio_recordings',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id),
+    uploadedBy: integer('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    contentType: varchar('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: real('duration_seconds'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
   ]
 );
 
