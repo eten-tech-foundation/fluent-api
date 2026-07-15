@@ -273,6 +273,10 @@ const deleteVerseAudioRoute = createRoute({
       createMessageObjectSchema('Verse audio recording deleted'),
       'Recording deleted'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad request'),
+      'Invalid parameters or verse reference'
+    ),
     ...commonErrorResponses,
   },
   summary: 'Delete the audio recording for a verse',
