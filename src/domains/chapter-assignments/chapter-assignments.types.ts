@@ -10,6 +10,7 @@ export const CHAPTER_ASSIGNMENT_ACTIONS = {
   SUBMIT: 'submit',
   DELETE: 'delete',
   IS_PARTICIPANT: 'isParticipant',
+  TOGGLE_AI: 'toggleAi',
 } as const;
 
 export type ChapterAssignmentAction =
@@ -49,7 +50,14 @@ export interface ChapterAssignmentProgressInfo {
   bookNameEng: string;
   chapterNumber: number;
   status: string;
+  /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string | null;
+  /**
+   * ISO 639-3 target language CODE, e.g. "eng". Consumed by the repeated-words
+   * check as greek-room's `lang_code` (which keys its legitimate-duplicate
+   * whitelist on the ISO code). See phase-04 manual smoke (BUG #2).
+   */
+  targetLangCode: string | null;
   sourceLangCode: string | null;
   totalVerses: number;
   completedVerses: number;
@@ -60,6 +68,7 @@ export interface ChapterAssignmentProgressInfo {
   submittedTime: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  isAiEnabled: boolean;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -78,7 +87,12 @@ export interface UpdateChapterAssignmentRequestData {
   peerCheckerId?: number | null;
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
+  isAiEnabled?: boolean;
 }
+
+export const updateChapterAssignmentAiStatusSchema = z.object({
+  isAiEnabled: z.boolean(),
+});
 
 // ─── API response schema ──────────────────────────────────────────────────────
 

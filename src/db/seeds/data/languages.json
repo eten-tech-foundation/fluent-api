@@ -23,5 +23,11 @@
 		"lang_name_localized" : "कुक्णा‎",
 		"lang_code_iso_639_3" : "kex",
 		"script_direction" : "ltr"
+	},
+	{
+		"lang_name" : "English",
+		"lang_name_localized" : "English",
+		"lang_code_iso_639_3" : "eng",
+		"script_direction" : "ltr"
 	}
 ]}

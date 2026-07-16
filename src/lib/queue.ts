@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   USFM_EXPORT: 'usfm-export',
   /** Dead-letter destination for exports that exhaust their retries. */
   USFM_EXPORT_DLQ: 'usfm-export-dlq',
+  AI_SUGGESTION_TRIGGER: 'ai-suggestion-trigger',
 } as const;
 
 export interface USFMExportJob {
@@ -15,6 +16,15 @@ export interface USFMExportJob {
   bookIds?: number[];
   /** User id of the authenticated requester; jobs and downloads are bound to it. */
   requestedBy?: number;
+}
+
+export interface AiSuggestionTriggerJob {
+  projectUnitId: number;
+  bibleId: number;
+  bookCode: string;
+  chapterNumber: number;
+  verseStart: number;
+  verseEnd: number;
 }
 
 export async function initializeQueue(): Promise<PgBoss> {

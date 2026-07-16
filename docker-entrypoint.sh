@@ -31,5 +31,8 @@ npx tsx src/db/seeds/bibles.ts || { echo "ERROR: bibles seed failed"; exit 1; }
 echo "Seeding bible texts..."
 npx tsx src/db/seeds/bible-texts.ts || { echo "ERROR: bible texts seed failed"; exit 1; }
 
+echo "Seeding pericope sets..."
+npx tsx src/db/seeds/pericope-sets.ts || { echo "ERROR: pericope sets seed failed"; exit 1; }
+
 echo "Starting dev server..."
 exec npx tsx watch src/index.ts

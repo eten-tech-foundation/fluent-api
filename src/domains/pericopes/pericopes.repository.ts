@@ -41,6 +41,7 @@ export async function getPericopeVersesForChapter(
     .select({
       chapterNumber: pericope_verses.chapterNumber,
       verseNumber: pericope_verses.verseNumber,
+      section: pericope_verses.section,
       pericopeNumber: pericope_verses.pericopeNumber,
       pericopeTitle: pericope_verses.pericopeTitle,
     })

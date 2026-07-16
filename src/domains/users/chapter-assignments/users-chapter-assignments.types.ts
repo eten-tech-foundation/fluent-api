@@ -9,7 +9,10 @@ export interface UserChapterAssignment {
   bibleId: number;
   bibleName: string;
   chapterStatus: string;
+  /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string;
+  /** ISO 639-3 target language CODE, e.g. "eng" (the check's lang_code). */
+  targetLangCode: string;
   sourceLangCode: string;
   bookCode: string;
   bookId: number;
@@ -21,6 +24,7 @@ export interface UserChapterAssignment {
   assignedUserId: number | null;
   peerCheckerId: number | null;
   updatedAt: string | null;
+  isAiEnabled: boolean;
 }
 
 // ─── API response schema ──────────────────────────────────────────────────────
@@ -33,6 +37,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   bibleName: z.string(),
   chapterStatus: z.string(),
   targetLanguage: z.string(),
+  targetLangCode: z.string(),
   sourceLangCode: z.string(),
   bookCode: z.string(),
   bookId: z.number().int(),
@@ -44,6 +49,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   assignedUserId: z.number().int().nullable(),
   peerCheckerId: z.number().int().nullable(),
   updatedAt: z.string().nullable(),
+  isAiEnabled: z.boolean(),
 });
 
 export const userChapterAssignmentsByUserResponseSchema = z.object({

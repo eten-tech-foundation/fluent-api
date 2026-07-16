@@ -22,6 +22,7 @@ export function toResponse(
     bibleName: assignment.bibleName ?? '',
     chapterStatus: assignment.status,
     targetLanguage: assignment.targetLanguage ?? '',
+    targetLangCode: assignment.targetLangCode ?? '',
     sourceLangCode: assignment.sourceLangCode ?? '',
     bookCode: assignment.bookCode,
     bookId: assignment.bookId,
@@ -33,6 +34,7 @@ export function toResponse(
     assignedUserId: assignment.assignedUserId,
     peerCheckerId: assignment.peerCheckerId,
     updatedAt: assignment.updatedAt?.toISOString() ?? null,
+    isAiEnabled: assignment.isAiEnabled,
   };
 }
 
