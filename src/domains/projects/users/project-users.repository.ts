@@ -64,7 +64,8 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
 
 export async function addProjectUsers(
   projectId: number,
-  userIds: number[]
+  userIds: number[],
+  roleId: number
 ): Promise<
   Result<{ projectId: number; userId: number; roleId: number; createdAt: Date | null }[]>
 > {
@@ -84,7 +85,16 @@ export async function addProjectUsers(
       return err(ErrorCode.USER_NOT_FOUND);
     }
 
-    const ptId = await getRoleId(ROLES.PROJECT_TRANSLATOR);
+    // Validate that the provided roleId is one of the three project-level roles
+    const [pmId, ptId, poId] = await Promise.all([
+      getRoleId(ROLES.PROJECT_MANAGER),
+      getRoleId(ROLES.PROJECT_TRANSLATOR),
+      getRoleId(ROLES.PROJECT_OBSERVER),
+    ]);
+    const validProjectRoleIds = new Set([pmId, ptId, poId]);
+    if (!validProjectRoleIds.has(roleId)) {
+      return err(ErrorCode.NOT_FOUND);
+    }
 
     const inserted = await db
       .insert(user_roles)
@@ -93,7 +103,7 @@ export async function addProjectUsers(
           projectId,
           userId,
           orgId: project.organization,
-          roleId: ptId,
+          roleId,
         }))
       )
       .onConflictDoNothing()

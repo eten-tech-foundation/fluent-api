@@ -113,9 +113,9 @@ const addProjectUsersRoute = createRoute({
 
 server.openapi(addProjectUsersRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const { userIds } = c.req.valid('json');
+  const { userIds, roleId } = c.req.valid('json');
 
-  const result = await projectUsersService.addProjectUsers(projectId, userIds);
+  const result = await projectUsersService.addProjectUsers(projectId, userIds, roleId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

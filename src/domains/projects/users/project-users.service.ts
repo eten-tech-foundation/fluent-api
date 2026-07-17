@@ -7,7 +7,7 @@ export function getProjectUsers(projectId: number) {
   return repo.getProjectUsers(projectId);
 }
 
-export async function addProjectUsers(projectId: number, userIds: number[]) {
+export async function addProjectUsers(projectId: number, userIds: number[], roleId: number) {
   const usersResult = await usersService.getUsersByIds(userIds);
   if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
 
@@ -15,7 +15,7 @@ export async function addProjectUsers(projectId: number, userIds: number[]) {
   const missingId = userIds.find((id) => !foundIds.has(id));
   if (missingId) return err(ErrorCode.USER_NOT_FOUND);
 
-  const insertResult = await repo.addProjectUsers(projectId, userIds);
+  const insertResult = await repo.addProjectUsers(projectId, userIds, roleId);
   if (!insertResult.ok) return insertResult;
 
   const userMap = new Map(usersResult.data.map((u) => [u.id, u]));
