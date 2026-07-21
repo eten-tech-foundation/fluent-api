@@ -15,7 +15,9 @@ async function startServer() {
     if (isBlobStorageConfigured()) {
       await initializeBlobStorage();
     } else {
-      logger.warn('Blob storage not configured — async USFM export endpoints will respond 503');
+      logger.warn(
+        'R2 export storage not configured — async USFM export endpoints will respond 503'
+      );
     }
 
     logger.info('Initializing queue');

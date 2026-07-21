@@ -41,7 +41,9 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "@azure/storage-blob": "^12.33.0",
+    "@aws-sdk/client-s3": "^3.1091.0",
+    "@aws-sdk/lib-storage": "^3.1091.0",
+    "@aws-sdk/s3-request-presigner": "^3.1091.0",
     "@better-auth/drizzle-adapter": "^1.6.9",
     "@better-auth/passkey": "^1.6.9",
     "@hono/node-server": "1.19.13",

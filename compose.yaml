@@ -16,35 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  azurite:
-    container_name: fluent-api-azurite
-    image: mcr.microsoft.com/azure-storage/azurite:3.34.0
-    command:
-      - azurite-blob
-      - --blobHost
-      - 0.0.0.0
-      - --blobPort
-      - '10000'
-      - --location
-      - /data
-      # The storage SDK may speak a newer API version than the emulator advertises.
-      - --skipApiVersionCheck
-
-    ports:
-      - '${AZURITE_PORT:-10000}:10000'
-    volumes:
-      - fluent-azurite:/data
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "require('net').connect(10000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
-
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   api:
     container_name: fluent-api-api
     build:
@@ -63,8 +34,9 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      # Azurite (local Azure Blob emulator) — well-known dev credentials.
-      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      # Async USFM export uses Cloudflare R2 (S3-compatible). R2 has no local
+      # emulator: set R2_* in .env (MinIO or a real R2 dev bucket — see
+      # .env.example) to enable it; otherwise async export responds 503.
     user: '1001:1001'
     read_only: true
     tmpfs:
@@ -76,8 +48,6 @@ services:
       - ALL
     depends_on:
       db:
-        condition: service_healthy
-      azurite:
         condition: service_healthy
     healthcheck:
       test: [CMD, curl, -f, 'http://localhost:9999/health']
@@ -100,8 +70,9 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      # Azurite (local Azure Blob emulator) — well-known dev credentials.
-      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      # Async USFM export uses Cloudflare R2 (S3-compatible). The worker refuses
+      # to start without R2 credentials: set R2_* in .env (MinIO or a real R2 dev
+      # bucket — see .env.example). R2 has no local emulator.
     command: [dumb-init, --, npx, tsx, watch, src/workers/standalone-worker.ts]
     user: '1001:1001'
     read_only: true
@@ -115,11 +86,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      azurite:
-        condition: service_healthy
 
 volumes:
   fluent-pgdata:
   fluent-api-node-modules:
   fluent-worker-node-modules:
-  fluent-azurite:

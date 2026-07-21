@@ -55,7 +55,9 @@ async function startWorker() {
     } else {
       // Without storage the worker cannot persist results; every job would
       // fail its retries. Refuse to start so the misconfiguration is loud.
-      throw new Error('AZURE_STORAGE_CONNECTION_STRING is required for the export worker');
+      throw new Error(
+        'Cloudflare R2 credentials (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY) are required for the export worker'
+      );
     }
 
     const boss = await initializeQueue();

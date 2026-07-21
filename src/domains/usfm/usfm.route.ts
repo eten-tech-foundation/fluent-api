@@ -198,10 +198,10 @@ const downloadExportRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.MOVED_TEMPORARILY]: {
-      description: 'Redirect to a short-lived signed (SAS) download URL for the export ZIP',
+      description: 'Redirect to a short-lived presigned download URL for the export ZIP',
       headers: z.object({
         Location: z.string().openapi({
-          description: 'Signed blob URL, valid for a few minutes',
+          description: 'Presigned object URL, valid for a few minutes',
         }),
       }),
     },
@@ -503,7 +503,7 @@ server.openapi(downloadExportRoute, async (c) => {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const downloadUrl = generateExportDownloadUrl(filename);
+    const downloadUrl = await generateExportDownloadUrl(filename);
     logger.info('Export download redirect issued', {
       filename,
       requestedBy: user.id,

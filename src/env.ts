@@ -81,12 +81,24 @@ const EnvSchema = z.object({
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
-  // ── Async USFM export storage (Azure Blob) ─────────────────────────
-  // Optional: when unset, the async export endpoints respond 503 and the
-  // worker refuses export jobs. Must include an AccountKey (used to sign
-  // download SAS URLs). Local dev uses Azurite (see compose.yaml).
-  AZURE_STORAGE_CONNECTION_STRING: z.string().optional(),
-  EXPORTS_CONTAINER: z.string().default('usfm-exports'),
+  // ── Async USFM export storage (Cloudflare R2, S3-compatible) ───────
+  // Optional: when the three R2 credentials are unset the async export
+  // endpoints respond 503 and the worker refuses export jobs (the sync export
+  // path is unaffected). Credential var names are shared with the audio-record
+  // R2 integration for org consistency. The exports bucket MUST be created in
+  // the EU jurisdiction so files at rest stay in the EU (GDPR) — see
+  // .env.example. Local dev: MinIO or a real R2 dev bucket.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  // Jurisdiction segment of the R2 endpoint
+  // ({account}.{jurisdiction}.r2.cloudflarestorage.com). 'eu' pins data at rest
+  // to the EU (GDPR); 'default' uses the un-pinned global endpoint.
+  R2_JURISDICTION: z.string().default('eu'),
+  // Bucket dedicated to USFM exports — kept separate from other R2 buckets
+  // because deleteExpiredExports sweeps and deletes every object in it older
+  // than the export TTL.
+  R2_EXPORTS_BUCKET: z.string().default('usfm-exports'),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
