@@ -40,7 +40,12 @@ export const addProjectUserSchema = z.object({
   roleId: z.number().int().positive(),
 });
 
+export const updateProjectUserRoleBodySchema = z.object({
+  roleId: z.number().int().positive(),
+});
+
 // Domain types inferred from zod
 
 export type ProjectUserRecord = z.infer<typeof projectUserResponseSchema>;
 export type AddProjectUserInput = z.infer<typeof addProjectUserSchema>;
+export type UpdateProjectUserRoleInput = z.infer<typeof updateProjectUserRoleBodySchema>;

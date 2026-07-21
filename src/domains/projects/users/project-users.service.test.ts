@@ -4,13 +4,14 @@ import * as usersService from '@/domains/users/users.service';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './project-users.repository';
-import { addProjectUsers } from './project-users.service';
+import { addProjectUsers, updateProjectUserRole } from './project-users.service';
 
 vi.mock('./project-users.repository', () => ({
   getProjectUsers: vi.fn(),
   addProjectUsers: vi.fn(),
   removeProjectUser: vi.fn(),
   resolveIsProjectMember: vi.fn(),
+  updateProjectUserRole: vi.fn(),
 }));
 
 vi.mock('@/domains/users/users.service', () => ({
@@ -99,6 +100,64 @@ describe('project-users service', () => {
           { projectId, userId: 20, roleId, createdAt: null, displayName: 'bob', roleID: roleId },
         ]);
       }
+    });
+  });
+
+  describe('updateProjectUserRole', () => {
+    const callerId = 5;
+    const projectId = 1;
+    const userId = 10;
+    const roleId = 3;
+    const mockUser = { id: 10, username: 'alice' };
+
+    it('returns FORBIDDEN if the caller tries to change their own role', async () => {
+      const result = await updateProjectUserRole(userId, projectId, userId, roleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe(ErrorCode.FORBIDDEN);
+      expect(repo.updateProjectUserRole).not.toHaveBeenCalled();
+    });
+
+    it('returns USER_NOT_FOUND if the target userId does not exist', async () => {
+      vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([]));
+
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe(ErrorCode.USER_NOT_FOUND);
+      expect(repo.updateProjectUserRole).not.toHaveBeenCalled();
+    });
+
+    it('returns error if repository update fails', async () => {
+      vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([mockUser] as any));
+      vi.mocked(repo.updateProjectUserRole).mockResolvedValue(err(ErrorCode.USER_NOT_IN_PROJECT));
+
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe(ErrorCode.USER_NOT_IN_PROJECT);
+    });
+
+    it('returns updated and enriched user record on success', async () => {
+      vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([mockUser] as any));
+      vi.mocked(repo.updateProjectUserRole).mockResolvedValue(
+        ok({ projectId, userId, roleId, createdAt: null })
+      );
+
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toEqual({
+          projectId,
+          userId,
+          roleId,
+          createdAt: null,
+          displayName: 'alice',
+          roleID: roleId,
+        });
+      }
+      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(projectId, userId, roleId);
     });
   });
 });

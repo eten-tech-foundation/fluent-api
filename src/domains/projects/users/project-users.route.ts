@@ -17,6 +17,7 @@ import {
   projectIdParamSchema,
   projectUserResponseSchema,
   removeProjectUserParamSchema,
+  updateProjectUserRoleBodySchema,
 } from './project-users.types';
 
 // ─── GET /projects/:projectId/users ──────────────────────────────────────────
@@ -170,6 +171,65 @@ server.openapi(removeProjectUserRoute, async (c) => {
 
   const result = await projectUsersService.removeProjectUser(projectId, userId);
   if (result.ok) return c.body(null, HttpStatusCodes.NO_CONTENT);
+
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── PATCH /projects/:projectId/users/:userId ────────────────────────────────
+
+const updateProjectUserRoleRoute = createRoute({
+  tags: ['Projects - Users'],
+  method: 'patch',
+  path: '/projects/{projectId}/users/{userId}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
+  request: {
+    params: removeProjectUserParamSchema,
+    body: jsonContentRequired(updateProjectUserRoleBodySchema, 'New role for the project user'),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(projectUserResponseSchema, 'User role successfully updated'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid input or role'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Manager access required or self-update attempted'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'Project, User, or Role not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'Update user role in project',
+  description:
+    "Updates a project member's role. Manager only. Project Managers may not change their own role.",
+});
+
+server.openapi(updateProjectUserRoleRoute, async (c) => {
+  const { projectId, userId } = c.req.valid('param');
+  const { roleId } = c.req.valid('json');
+  const caller = c.get('user')!;
+
+  const result = await projectUsersService.updateProjectUserRole(
+    caller.id,
+    projectId,
+    userId,
+    roleId
+  );
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

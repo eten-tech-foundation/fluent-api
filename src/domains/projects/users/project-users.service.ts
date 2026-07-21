@@ -36,3 +36,29 @@ export function removeProjectUser(projectId: number, userId: number) {
 export function resolveIsProjectMember(projectId: number, userId: number) {
   return repo.resolveIsProjectMember(projectId, userId);
 }
+
+export async function updateProjectUserRole(
+  callerId: number,
+  projectId: number,
+  userId: number,
+  roleId: number
+) {
+  if (callerId === userId) {
+    return err(ErrorCode.FORBIDDEN);
+  }
+
+  const userResult = await usersService.getUsersByIds([userId]);
+  if (!userResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+  if (userResult.data.length === 0) return err(ErrorCode.USER_NOT_FOUND);
+
+  const result = await repo.updateProjectUserRole(projectId, userId, roleId);
+  if (!result.ok) return result;
+
+  const targetUser = userResult.data[0];
+
+  return ok({
+    ...result.data,
+    displayName: targetUser.username,
+    roleID: result.data.roleId,
+  });
+}

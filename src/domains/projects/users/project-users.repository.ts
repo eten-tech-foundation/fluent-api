@@ -188,3 +188,58 @@ export async function resolveIsProjectMember(projectId: number, userId: number):
     .limit(1);
   return rows.length > 0;
 }
+
+export async function getProjectUserRole(
+  projectId: number,
+  userId: number
+): Promise<number | null> {
+  const [row] = await db
+    .select({ roleId: user_roles.roleId })
+    .from(user_roles)
+    .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+    .limit(1);
+  return row ? row.roleId : null;
+}
+
+export async function updateProjectUserRole(
+  projectId: number,
+  userId: number,
+  roleId: number
+): Promise<Result<{ projectId: number; userId: number; roleId: number; createdAt: Date | null }>> {
+  try {
+    // Validate that the provided roleId is one of the three project-level roles
+    const [pmId, ptId, poId] = await Promise.all([
+      getRoleId(ROLES.PROJECT_MANAGER),
+      getRoleId(ROLES.PROJECT_TRANSLATOR),
+      getRoleId(ROLES.PROJECT_OBSERVER),
+    ]);
+    const validProjectRoleIds = new Set([pmId, ptId, poId]);
+    if (!validProjectRoleIds.has(roleId)) {
+      return err(ErrorCode.NOT_FOUND);
+    }
+
+    const [updated] = await db
+      .update(user_roles)
+      .set({ roleId })
+      .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+      .returning({
+        projectId: user_roles.projectId,
+        userId: user_roles.userId,
+        roleId: user_roles.roleId,
+        createdAt: user_roles.createdAt,
+      });
+
+    if (!updated) {
+      return err(ErrorCode.USER_NOT_IN_PROJECT);
+    }
+
+    return ok(updated as any);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to update project user role',
+      context: { projectId, userId, roleId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
