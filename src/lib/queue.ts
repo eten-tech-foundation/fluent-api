@@ -77,7 +77,7 @@ const EXPORT_QUEUE_OPTIONS = {
 
 /**
  * Creates/converges the export queues. The 'exclusive' policy backs singletonKey
- * dedupe (at most one job per key in created/retry/active). createQueue is a
+ * dedupe (at most one job per key in queued/active/deferred). createQueue is a
  * no-op for existing queues and policy is immutable, so a queue created with an
  * older policy is dropped and recreated (pre-enablement: nothing user-facing
  * queues jobs yet); the remaining options are converged via updateQueue.
@@ -92,8 +92,8 @@ export async function ensureExportQueues(boss: PgBoss): Promise<void> {
     // this at startup, so it must stay non-destructive and race-tolerant:
     // recreate only when the queue holds no work, otherwise keep serving with
     // the old policy and converge on a later boot once the queue drains.
-    const stats = (await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT)) as any;
-    const pendingJobs = (stats?.created ?? 0) + (stats?.retry ?? 0) + (stats?.active ?? 0);
+    const stats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
+    const pendingJobs = stats.queuedCount + stats.activeCount + stats.deferredCount;
     if (pendingJobs > 0) {
       logger.warn('usfm-export queue policy differs but jobs are pending; skipping recreation', {
         previousPolicy: existing.policy,

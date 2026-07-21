@@ -89,10 +89,8 @@ async function startWorker() {
               ? workerMetrics.totalProcessingTime / workerMetrics.jobsProcessed
               : 0;
 
-          const rawStats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
-          const stats = rawStats as any;
-
-          const queueSize = (stats?.created ?? 0) + (stats?.retry ?? 0) + (stats?.active ?? 0);
+          const stats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
+          const queueSize = stats.queuedCount + stats.activeCount + stats.deferredCount;
 
           logger.info('Worker heartbeat', {
             queueName: QUEUE_NAMES.USFM_EXPORT,
