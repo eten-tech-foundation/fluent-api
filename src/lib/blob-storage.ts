@@ -32,6 +32,16 @@ const SAS_TTL_MINUTES = 15;
 // pinned by the bucket's jurisdiction (encoded in the endpoint host), not here.
 const R2_REGION = 'auto';
 
+// Export objects are named `export-{jobId}.zip`, where jobId is a pg-boss UUID
+// (see uploadExportStream). Both writing and cleanup key off this shape, so
+// deleteExpiredExports can only ever delete objects this module wrote: a shared
+// or misconfigured bucket can never lose unrelated objects to the TTL sweep.
+// EXPORT_KEY_PATTERN encodes the same prefix and mirrors the download route's
+// filename validation (usfm.route.ts). Bucket organization is a second layer of
+// defence, not the only guard.
+const EXPORT_KEY_PREFIX = 'export-';
+const EXPORT_KEY_PATTERN = /^export-[a-f0-9-]+\.zip$/;
+
 let s3Client: S3Client | null = null;
 
 export function isBlobStorageConfigured(): boolean {
@@ -118,7 +128,7 @@ export async function uploadExportStream(
   stream: Readable,
   metadata: ExportBlobMetadata
 ): Promise<{ filename: string; sizeBytes: number; expiresAt: Date }> {
-  const filename = `export-${jobId}.zip`;
+  const filename = `${EXPORT_KEY_PREFIX}${jobId}.zip`;
 
   let sizeBytes = 0;
   const byteCounter = new Transform({
@@ -194,12 +204,20 @@ export async function deleteExpiredExports(): Promise<void> {
       const list = await client.send(
         new ListObjectsV2Command({
           Bucket: env.R2_EXPORTS_BUCKET,
+          // Scope the listing to our own key prefix. This narrows what the sweep
+          // can touch (and cuts listing cost on a large bucket) so unrelated
+          // objects are never even considered for deletion.
+          Prefix: EXPORT_KEY_PREFIX,
           ContinuationToken: continuationToken,
         })
       );
 
       for (const object of list.Contents ?? []) {
         if (!object.Key) continue;
+        // Defence in depth on top of the Prefix above: only ever delete keys that
+        // match the full export naming shape, so an object that merely shares the
+        // prefix (or a shared/misconfigured bucket) can never be swept by TTL.
+        if (!EXPORT_KEY_PATTERN.test(object.Key)) continue;
         const lastModified = object.LastModified;
         if (lastModified && Date.now() - lastModified.getTime() > EXPORT_TTL_MS) {
           try {
