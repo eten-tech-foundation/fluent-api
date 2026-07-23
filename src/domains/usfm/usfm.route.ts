@@ -503,7 +503,7 @@ server.openapi(downloadExportRoute, async (c) => {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const downloadUrl = await generateExportDownloadUrl(filename);
+    const downloadUrl = await generateExportDownloadUrl(filename, info.createdOn);
     logger.info('Export download redirect issued', {
       filename,
       requestedBy: user.id,

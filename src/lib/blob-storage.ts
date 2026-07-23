@@ -159,7 +159,7 @@ export async function uploadExportStream(
 
 export interface ExportBlobInfo {
   metadata: Partial<ExportBlobMetadata>;
-  createdOn?: Date;
+  createdOn: Date;
   contentLength?: number;
 }
 
@@ -170,7 +170,9 @@ export async function getExportBlobInfo(filename: string): Promise<ExportBlobInf
       new HeadObjectCommand({ Bucket: env.R2_EXPORTS_BUCKET, Key: filename })
     );
     const createdOn = head.LastModified;
-    if (createdOn && Date.now() - createdOn.getTime() > EXPORT_TTL_MS) {
+    // No creation timestamp (anomalous) or past the export TTL -> treat as gone,
+    // so the download route 404s instead of signing a stale object.
+    if (!createdOn || Date.now() - createdOn.getTime() > EXPORT_TTL_MS) {
       return null;
     }
     return {
@@ -184,10 +186,25 @@ export async function getExportBlobInfo(filename: string): Promise<ExportBlobInf
   }
 }
 
-/** Generates a short-lived read-only presigned URL for a stored export. */
-export async function generateExportDownloadUrl(filename: string): Promise<string> {
+/**
+ * Generates a short-lived read-only presigned URL for a stored export. The URL
+ * lifetime is capped at the export's own remaining TTL so it can never outlive
+ * the object: getExportBlobInfo starts returning null (404) once an export is
+ * older than EXPORT_TTL_MS, and without this cap a URL signed moments before that
+ * boundary would keep working for up to SAS_TTL_MINUTES afterwards. Pass the
+ * createdOn from getExportBlobInfo; an already-elapsed timestamp is rejected.
+ */
+export async function generateExportDownloadUrl(
+  filename: string,
+  createdOn: Date
+): Promise<string> {
+  const remainingSeconds = Math.floor((EXPORT_TTL_MS - (Date.now() - createdOn.getTime())) / 1000);
+  if (remainingSeconds <= 0) {
+    throw new Error(`Export "${filename}" has expired and cannot be signed for download`);
+  }
+  const expiresIn = Math.min(SAS_TTL_MINUTES * 60, remainingSeconds);
   const command = new GetObjectCommand({ Bucket: env.R2_EXPORTS_BUCKET, Key: filename });
-  return getSignedUrl(getS3Client(), command, { expiresIn: SAS_TTL_MINUTES * 60 });
+  return getSignedUrl(getS3Client(), command, { expiresIn });
 }
 
 // Note: R2 supports object lifecycle rules (server-side TTL) that can replace

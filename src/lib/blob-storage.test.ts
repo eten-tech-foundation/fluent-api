@@ -1,7 +1,8 @@
 import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { deleteExpiredExports } from './blob-storage';
+import { deleteExpiredExports, generateExportDownloadUrl, getExportBlobInfo } from './blob-storage';
 
 // Shared, hoisted so the mocked S3Client.send and the test body reference the
 // same spy.
@@ -93,5 +94,71 @@ describe('deleteExpiredExports', () => {
       .find((command) => command instanceof ListObjectsV2Command);
 
     expect(listCommand?.input.Prefix).toBe('export-');
+  });
+});
+
+describe('getExportBlobInfo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns null when the object has no creation timestamp', async () => {
+    sendMock.mockResolvedValue({ Metadata: { requestedby: '1' } });
+
+    expect(await getExportBlobInfo('export-x.zip')).toBeNull();
+  });
+
+  it('returns null when the object is older than the export TTL', async () => {
+    sendMock.mockResolvedValue({
+      LastModified: new Date(Date.now() - 2 * HOUR_MS),
+      Metadata: { requestedby: '1' },
+    });
+
+    expect(await getExportBlobInfo('export-x.zip')).toBeNull();
+  });
+
+  it('returns metadata and timestamp for a live object', async () => {
+    const createdOn = new Date(Date.now() - 60 * 1000);
+    sendMock.mockResolvedValue({
+      LastModified: createdOn,
+      Metadata: { requestedby: '7' },
+      ContentLength: 42,
+    });
+
+    const info = await getExportBlobInfo('export-x.zip');
+
+    expect(info?.createdOn).toEqual(createdOn);
+    expect(info?.metadata.requestedby).toBe('7');
+    expect(info?.contentLength).toBe(42);
+  });
+});
+
+describe('generateExportDownloadUrl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('signs for the full 15-minute window when ample TTL remains', async () => {
+    await generateExportDownloadUrl('export-x.zip', new Date(Date.now() - 5 * 60 * 1000));
+
+    const options = vi.mocked(getSignedUrl).mock.calls[0]?.[2];
+    expect(options?.expiresIn).toBe(15 * 60);
+  });
+
+  it('caps the URL lifetime at the export remaining TTL near expiry', async () => {
+    // ~1 minute of TTL left: the signed URL must not outlive the object.
+    await generateExportDownloadUrl('export-x.zip', new Date(Date.now() - (HOUR_MS - 60 * 1000)));
+
+    const options = vi.mocked(getSignedUrl).mock.calls[0]?.[2];
+    expect(options?.expiresIn).toBeGreaterThan(0);
+    expect(options?.expiresIn).toBeLessThan(15 * 60);
+  });
+
+  it('rejects an already-expired export instead of signing a URL', async () => {
+    await expect(
+      generateExportDownloadUrl('export-x.zip', new Date(Date.now() - 2 * HOUR_MS))
+    ).rejects.toThrow(/expired/);
+
+    expect(getSignedUrl).not.toHaveBeenCalled();
   });
 });
