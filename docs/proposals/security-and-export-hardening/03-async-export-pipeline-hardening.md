@@ -6,10 +6,14 @@
 worker fails/retries properly (batchSize 1 + dead-letter queue), streaming upload
 (no in-memory buffering), owner-bound jobs/downloads, and `singletonKey` dedupe.
 Storage backend migrated Azure Blob → Cloudflare R2 (S3-compatible) in #212 for
-EU data-at-rest (GDPR). **Remaining:** provision R2 credentials (`R2_ACCOUNT_ID` /
-`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) + an EU-jurisdiction exports bucket
-per hosted environment — the endpoints respond 503 until configured. R2 has no
-local emulator; use MinIO or a real R2 dev bucket for local compose.
+EU data-at-rest (GDPR). **Remaining:** provision the three R2 credentials
+(`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) and an
+EU-jurisdiction exports bucket per hosted environment. The async endpoints respond
+503 only while the three credentials are unset (`isBlobStorageConfigured()`); once
+they are set, the exports bucket is verified at startup (`initializeBlobStorage`
+fails fast, so the process refuses to boot if the bucket is unreachable) rather
+than being gated per request. R2 has no local emulator; use MinIO or a real R2 dev
+bucket for local compose.
 
 ## Context
 
