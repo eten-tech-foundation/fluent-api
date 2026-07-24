@@ -1,4 +1,4 @@
-import { and, eq  } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -52,8 +52,7 @@ const roleIdCache = new Map<string, number>();
 export async function getRoleId(name: string): Promise<number> {
   const cached = roleIdCache.get(name);
   if (cached) return cached;
-  const [row] =
-    await db.select({ id: roles.id }).from(roles).where(eq(roles.name, name)).limit(1);
+  const [row] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, name)).limit(1);
   if (!row) throw new Error(`Role not found: ${name}`);
   roleIdCache.set(name, row.id);
   return row.id;
@@ -68,7 +67,11 @@ export async function inviteUserToOrg(
     const roleId = await getRoleId(ROLES.ORG_MEMBER);
     return grantRole({ userId, orgId, projectId: null, roleId, createdBy });
   } catch (error) {
-    logger.error({ cause: error, message: 'Failed to create org member anchor row', context: { userId, orgId } });
+    logger.error({
+      cause: error,
+      message: 'Failed to create org member anchor row',
+      context: { userId, orgId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

@@ -10,7 +10,10 @@ import * as schema from '@/db/schema';
 import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
-import { createUserWithInvitation, inviteExistingUserToOrg } from '@/lib/services/auth/auth.service';
+import {
+  createUserWithInvitation,
+  inviteExistingUserToOrg,
+} from '@/lib/services/auth/auth.service';
 import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';

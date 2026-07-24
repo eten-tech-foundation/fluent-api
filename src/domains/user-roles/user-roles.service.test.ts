@@ -78,5 +78,4 @@ describe('inviteUserToOrg', () => {
     // INSERT is still called — the conflict is handled by the DB, not in application code
     expect(db.insert).toHaveBeenCalledTimes(1);
   });
-
 });

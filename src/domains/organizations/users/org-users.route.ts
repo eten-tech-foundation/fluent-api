@@ -62,7 +62,7 @@ const removeOrgUserRoute = createRoute({
   },
   summary: 'Remove user from org',
   description:
-    'Removes a user from the org entirely. Clears all their chapter assignments across every project in the org, then deletes all their role grants (anchor + project-scoped + org-scoped). Org Manager only. The user\'s account and grants in other orgs are unaffected.',
+    "Removes a user from the org entirely. Clears all their chapter assignments across every project in the org, then deletes all their role grants (anchor + project-scoped + org-scoped). Org Manager only. The user's account and grants in other orgs are unaffected.",
 });
 
 server.openapi(removeOrgUserRoute, async (c) => {

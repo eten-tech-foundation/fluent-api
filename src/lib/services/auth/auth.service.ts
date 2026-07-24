@@ -95,7 +95,6 @@ export async function createUserWithInvitation(
     const scopedProjectId =
       roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
 
-
     await inviteUserToOrg(dbResult.data.id, scopedOrgId!, dbResult.data.createdBy ?? null);
 
     const grantResult = await grantRole({

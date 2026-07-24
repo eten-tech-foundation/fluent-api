@@ -73,12 +73,8 @@ describe('inviteExistingUserToOrg', () => {
       baseInput.createdBy
     );
     // inviteUserToOrg must be called before grantRole
-    const anchorOrder = vi
-      .mocked(userRolesService.inviteUserToOrg)
-      .mock.invocationCallOrder[0]!;
-    const grantOrder = vi
-      .mocked(userRolesService.grantRole)
-      .mock.invocationCallOrder[0]!;
+    const anchorOrder = vi.mocked(userRolesService.inviteUserToOrg).mock.invocationCallOrder[0]!;
+    const grantOrder = vi.mocked(userRolesService.grantRole).mock.invocationCallOrder[0]!;
     expect(anchorOrder).toBeLessThan(grantOrder);
   });
 
@@ -125,9 +121,7 @@ describe('inviteExistingUserToOrg', () => {
   });
 
   it('returns error when grantRole fails', async () => {
-    vi.mocked(userRolesService.grantRole).mockResolvedValue(
-      err(ErrorCode.INTERNAL_ERROR)
-    );
+    vi.mocked(userRolesService.grantRole).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
     const result = await inviteExistingUserToOrg(baseInput);
 
