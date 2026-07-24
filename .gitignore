@@ -96,3 +96,6 @@ bun.lock*
 
 # AI files
 docs/superpowers/
+
+# superpowers agent scratch workspaces (never committed)
+.superpowers/
