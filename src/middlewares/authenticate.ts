@@ -191,6 +191,9 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
   } catch (error) {
     if (error instanceof HTTPException) throw error;
     logger.error('Authentication middleware error', { error });
+    throw new HTTPException(500, {
+      message: 'Internal Server Error: Authentication failure',
+    });
   }
 
   await next();

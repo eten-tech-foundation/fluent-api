@@ -470,8 +470,41 @@ server.openapi(getJobStatusRoute, async (c) => {
 
 server.openapi(downloadExportRoute, async (c) => {
   const { filename } = c.req.valid('param');
+  const user = c.get('user')!;
 
   try {
+    const match = filename.match(/^export-([a-f0-9-]+)\.zip$/i);
+    if (!match) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+    }
+
+    const jobId = match[1];
+    const boss = await getQueue();
+    const job = await boss.getJobById(QUEUE_NAMES.USFM_EXPORT, jobId);
+    if (!job) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+    }
+
+    const projectUnitId = (job.data as Record<string, any>)?.projectUnitId;
+    if (projectUnitId) {
+      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+      if (!unitResult.ok) {
+        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+      if (!projectResult.ok) {
+        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+      const policyUser = { id: user.id, grants: user.grants };
+
+      if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+      }
+    }
+
     const exists = await fileExists(filename);
     if (!exists) {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);

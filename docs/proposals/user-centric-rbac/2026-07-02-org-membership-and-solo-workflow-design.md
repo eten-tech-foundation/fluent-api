@@ -57,7 +57,7 @@ Org Owner is removed.
 
 Inviting a user into an org (an Org Manager action) creates exactly one grant:
 
-```
+```text
 (user, org_id, project_id: null, role: Org Member)
 ```
 
@@ -67,7 +67,7 @@ This is the **anchor row**. Its only job is to make the user emergent-a-member o
 
 When a user is later given a real role (a project-scoped grant, or promotion to `Org Manager`), a **new grant row is inserted**. The anchor row is left untouched.
 
-```
+```text
 (user, org, null, OrgMember)          <- anchor, created at invite time, never modified
 (user, org, project, ProjectManager)  <- added when granted; can be removed independently
 ```

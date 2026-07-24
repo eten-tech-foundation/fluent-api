@@ -18,6 +18,8 @@ import { err, ErrorCode, ok } from '@/lib/types';
  * The user's account and any grants in other orgs are unaffected.
  * Per 2026-07-02 spec §"Remove from org".
  */
+class UserNotInOrgException extends Error {}
+
 export async function removeOrgUser(orgId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
@@ -63,12 +65,15 @@ export async function removeOrgUser(orgId: number, userId: number): Promise<Resu
         .returning({ id: user_roles.id });
 
       if (deleted.length === 0) {
-        return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
+        throw new UserNotInOrgException('User not in organization');
       }
 
       return ok(undefined);
     });
   } catch (error) {
+    if (error instanceof UserNotInOrgException) {
+      return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
+    }
     logger.error({
       cause: error,
       message: 'Failed to remove user from org',

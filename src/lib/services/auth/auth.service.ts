@@ -95,7 +95,24 @@ export async function createUserWithInvitation(
     const scopedProjectId =
       roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
 
-    await inviteUserToOrg(dbResult.data.id, scopedOrgId!, dbResult.data.createdBy ?? null);
+    if (scopedOrgId !== null) {
+      const inviteResult = await inviteUserToOrg(
+        dbResult.data.id,
+        scopedOrgId,
+        dbResult.data.createdBy ?? null
+      );
+      if (!inviteResult.ok) {
+        await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
+        await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
+        return {
+          ok: false,
+          error: {
+            code: ErrorCode.INTERNAL_ERROR,
+            message: `Failed to create initial organization anchor grant: ${inviteResult.error.message}`,
+          },
+        };
+      }
+    }
 
     const grantResult = await grantRole({
       userId: dbResult.data.id,
@@ -182,7 +199,16 @@ export async function inviteExistingUserToOrg(
     const roleId = await getRoleId(resolvedRoleName);
 
     // 1. Anchor row — marks org membership with zero-permission Org Member role
-    await inviteUserToOrg(existingUser.id, orgId, createdBy);
+    const inviteResult = await inviteUserToOrg(existingUser.id, orgId, createdBy);
+    if (!inviteResult.ok) {
+      return {
+        ok: false,
+        error: {
+          code: ErrorCode.INTERNAL_ERROR,
+          message: `Failed to create organization anchor grant: ${inviteResult.error.message}`,
+        },
+      };
+    }
 
     // 2. Project-scoped grant — gives actual permissions for this project
     const grantResult = await grantRole({

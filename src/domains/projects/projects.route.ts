@@ -118,9 +118,7 @@ server.openapi(createProjectRoute, async (c) => {
   const projectData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  const { getRoleId, grantRole, inviteUserToOrg } = await import(
-    '@/domains/user-roles/user-roles.service'
-  );
+  const { getRoleId, grantRole } = await import('@/domains/user-roles/user-roles.service');
   const { ROLES } = await import('@/lib/roles');
   const { db } = await import('@/db');
   const { organizations } = await import('@/db/schema');
@@ -139,9 +137,14 @@ server.openapi(createProjectRoute, async (c) => {
   // If the caller has no existing org, provision a personal org and grant
   // Org Manager + Org Member anchor row before continuing.
   let resolvedOrgId = projectData.organization;
+  const hasAnyOrg = currentUser.grants.some((g) => g.orgId !== null);
+
+  if (!hasAnyOrg) {
+    // Zero-org solo path: ignore caller-supplied org ID and force personal org provisioning
+    resolvedOrgId = undefined as any;
+  }
 
   if (!resolvedOrgId) {
-    const hasAnyOrg = currentUser.grants.some((g) => g.orgId !== null);
     if (hasAnyOrg) {
       // User has orgs but didn't specify one — require it.
       return c.json(
@@ -150,26 +153,44 @@ server.openapi(createProjectRoute, async (c) => {
       );
     }
 
-    // Zero-org path: provision a personal org.
+    // Zero-org path: provision a personal org atomically.
     try {
+      const { user_roles } = await import('@/db/schema');
       const orgName = `${currentUser.email}'s Organization`;
-      const [newOrg] = await db
-        .insert(organizations)
-        .values({ name: orgName })
-        .returning({ id: organizations.id });
 
-      resolvedOrgId = newOrg.id;
+      await db.transaction(async (tx) => {
+        const [newOrg] = await tx
+          .insert(organizations)
+          .values({ name: orgName })
+          .returning({ id: organizations.id });
 
-      const orgManagerRoleId = await getRoleId(ROLES.ORG_MANAGER);
+        resolvedOrgId = newOrg.id;
 
-      // Anchor row (Org Member) + Org Manager grant — both idempotent.
-      await inviteUserToOrg(currentUser.id, resolvedOrgId, currentUser.id);
-      await grantRole({
-        userId: currentUser.id,
-        orgId: resolvedOrgId,
-        projectId: null,
-        roleId: orgManagerRoleId,
-        createdBy: currentUser.id,
+        const orgMemberRoleId = await getRoleId(ROLES.ORG_MEMBER);
+        const orgManagerRoleId = await getRoleId(ROLES.ORG_MANAGER);
+
+        // Anchor row (Org Member) + Org Manager grant
+        await tx
+          .insert(user_roles)
+          .values({
+            userId: currentUser.id,
+            orgId: resolvedOrgId,
+            projectId: null,
+            roleId: orgMemberRoleId,
+            createdBy: currentUser.id,
+          })
+          .onConflictDoNothing();
+
+        await tx
+          .insert(user_roles)
+          .values({
+            userId: currentUser.id,
+            orgId: resolvedOrgId,
+            projectId: null,
+            roleId: orgManagerRoleId,
+            createdBy: currentUser.id,
+          })
+          .onConflictDoNothing();
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to provision personal org';
@@ -181,13 +202,13 @@ server.openapi(createProjectRoute, async (c) => {
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
-    organization: resolvedOrgId,
+    organization: resolvedOrgId!,
   });
 
   if (result.ok) {
     const grantResult = await grantRole({
       userId: currentUser.id,
-      orgId: resolvedOrgId,
+      orgId: resolvedOrgId!,
       projectId: result.data.id,
       roleId: pmRoleId,
       createdBy: currentUser.id,

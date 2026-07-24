@@ -55,9 +55,9 @@ describe('inviteUserToOrg', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('is idempotent — succeeds even if row already exists', async () => {
+  it('is idempotent — succeeds even if called repeatedly', async () => {
     // getRoleId returns id 7
-    (db.select as any).mockReturnValueOnce({
+    (db.select as any).mockReturnValue({
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
           limit: vi.fn().mockResolvedValue([{ id: 7 }]),
@@ -72,10 +72,11 @@ describe('inviteUserToOrg', () => {
       }),
     });
 
-    const result = await inviteUserToOrg(42, 2, 59);
+    const result1 = await inviteUserToOrg(42, 2, 59);
+    const result2 = await inviteUserToOrg(42, 2, 59);
 
-    expect(result.ok).toBe(true);
-    // INSERT is still called — the conflict is handled by the DB, not in application code
-    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(result1.ok).toBe(true);
+    expect(result2.ok).toBe(true);
+    expect(db.insert).toHaveBeenCalledTimes(2);
   });
 });

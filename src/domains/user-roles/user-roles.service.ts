@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -36,14 +36,31 @@ export async function grantRole(input: GrantInput): Promise<Result<void>> {
   }
 }
 
-export async function revokeRole(userId: number, roleId: number): Promise<Result<void>> {
+export async function revokeRole(
+  userId: number,
+  roleId: number,
+  orgId?: number | null,
+  projectId?: number | null
+): Promise<Result<void>> {
   try {
-    await db
-      .delete(user_roles)
-      .where(and(eq(user_roles.userId, userId), eq(user_roles.roleId, roleId)));
+    const conditions = [eq(user_roles.userId, userId), eq(user_roles.roleId, roleId)];
+    if (orgId !== undefined) {
+      conditions.push(orgId === null ? isNull(user_roles.orgId) : eq(user_roles.orgId, orgId));
+    }
+    if (projectId !== undefined) {
+      conditions.push(
+        projectId === null ? isNull(user_roles.projectId) : eq(user_roles.projectId, projectId)
+      );
+    }
+
+    await db.delete(user_roles).where(and(...conditions));
     return ok(undefined);
   } catch (error) {
-    logger.error({ cause: error, message: 'Failed to revoke role', context: { userId, roleId } });
+    logger.error({
+      cause: error,
+      message: 'Failed to revoke role',
+      context: { userId, roleId, orgId, projectId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

@@ -50,13 +50,28 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
       )
       .orderBy(users.username);
 
+    const [orgMgrId, pmId, ptId, poId] = await Promise.all([
+      getRoleId(ROLES.ORG_MANAGER),
+      getRoleId(ROLES.PROJECT_MANAGER),
+      getRoleId(ROLES.PROJECT_TRANSLATOR),
+      getRoleId(ROLES.PROJECT_OBSERVER),
+    ]);
+    const rolePriorityMap = new Map<number, number>([
+      [orgMgrId, 4],
+      [pmId, 3],
+      [ptId, 2],
+      [poId, 1],
+    ]);
+    const getRolePriority = (roleId: number) => rolePriorityMap.get(roleId) ?? 0;
+
     const uniqueUsers = new Map<number, (typeof rows)[number]>();
     for (const r of rows) {
       const existing = uniqueUsers.get(r.userId);
       if (
         !existing ||
         (r.projectId !== null && existing.projectId === null) ||
-        (Boolean(r.projectId) === Boolean(existing.projectId) && r.roleID < existing.roleID)
+        (Boolean(r.projectId) === Boolean(existing.projectId) &&
+          getRolePriority(r.roleID) > getRolePriority(existing.roleID))
       ) {
         uniqueUsers.set(r.userId, r);
       }
@@ -148,7 +163,15 @@ export async function addProjectUsers(
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
-      // 1. Find all chapter_assignment IDs in this project where the user is assigned.
+      // 1. Delete the project-scoped grant first.
+      const deleted = await tx
+        .delete(user_roles)
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .returning({ userId: user_roles.userId });
+
+      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
+
+      // 2. Find all chapter_assignment IDs in this project where the user is assigned.
       const affectedIds = await tx
         .select({ id: chapter_assignments.id })
         .from(chapter_assignments)
@@ -160,7 +183,7 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
           )
         );
 
-      // 2. Null out the user's drafter / peer-checker columns on those assignments.
+      // 3. Null out the user's drafter / peer-checker columns on those assignments.
       if (affectedIds.length > 0) {
         const ids = affectedIds.map((r) => r.id);
         await tx
@@ -171,14 +194,6 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
           })
           .where(inArray(chapter_assignments.id, ids));
       }
-
-      // 3. Delete the project-scoped grant.
-      const deleted = await tx
-        .delete(user_roles)
-        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-        .returning({ userId: user_roles.userId });
-
-      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
 
       return ok(undefined);
     });

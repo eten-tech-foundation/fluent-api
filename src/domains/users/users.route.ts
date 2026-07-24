@@ -575,17 +575,18 @@ server.openapi(updateActiveOrgRoute, async (c) => {
     );
   }
 
-  // Update session
-  await db
-    .update(schema.authSession)
-    .set({ activeOrgId: orgId })
-    .where(eq(schema.authSession.id, session.session.id));
+  // Update session and user default atomically in a single transaction
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.authSession)
+      .set({ activeOrgId: orgId })
+      .where(eq(schema.authSession.id, session.session.id));
 
-  // Update user default
-  await db
-    .update(schema.users)
-    .set({ lastActiveOrgId: orgId })
-    .where(eq(schema.users.id, currentUser.id));
+    await tx
+      .update(schema.users)
+      .set({ lastActiveOrgId: orgId })
+      .where(eq(schema.users.id, currentUser.id));
+  });
 
   return c.body(null, HttpStatusCodes.OK);
 });
