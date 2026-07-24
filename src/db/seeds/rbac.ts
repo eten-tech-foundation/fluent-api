@@ -26,22 +26,7 @@ const ROLE_PERMISSION_MAP = [
   // ── SuperAdmin: every permission ──────────────────────────────────────
   ...Object.values(PERMISSIONS).map((p) => ({ roleName: ROLES.SUPER_ADMIN, permissionName: p })),
 
-  // ── Org Owner: full org control (same as SuperAdmin within an org) ────
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.PROJECT_VIEW },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.PROJECT_CREATE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.PROJECT_UPDATE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.PROJECT_DELETE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.CONTENT_VIEW },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.CONTENT_ASSIGN },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.CONTENT_UPDATE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.MEMBERSHIP_REVOKE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.ROLE_ASSIGN_PROJECT },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.USER_VIEW },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.USER_CREATE },
-  { roleName: ROLES.ORG_OWNER, permissionName: PERMISSIONS.USER_UPDATE },
-
-  // ── Org Manager: manage projects + users but cannot delete org or assign owners ─
+  // ── Org Manager: manage projects + users within an org ───────────────────────
   { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_VIEW },
   { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_CREATE },
   { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_UPDATE },

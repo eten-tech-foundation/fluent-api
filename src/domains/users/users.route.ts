@@ -10,7 +10,7 @@ import * as schema from '@/db/schema';
 import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
-import { createUserWithInvitation } from '@/lib/services/auth/auth.service';
+import { createUserWithInvitation, inviteExistingUserToOrg } from '@/lib/services/auth/auth.service';
 import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
@@ -21,6 +21,7 @@ import { UserPolicy } from './user.policy';
 import * as userService from './users.service';
 import {
   createUserRequestSchema,
+  inviteUserRequestSchema,
   updateActiveOrgRequestSchema,
   updateUserRequestSchema,
   USER_ACTIONS,
@@ -204,12 +205,16 @@ const createUserWithInvitationRoute = createRoute({
     requireUserAccess(USER_ACTIONS.CREATE),
   ] as const,
   request: {
-    body: jsonContent(createUserRequestSchema, 'The user to create and invite'),
+    body: jsonContent(inviteUserRequestSchema, 'The user to invite'),
   },
   responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      z.object({ user: userResponseSchema }),
+      'Existing user added to org and project — login link email sent'
+    ),
     [HttpStatusCodes.CREATED]: jsonContent(
       z.object({ user: userResponseSchema }),
-      'User created and invitation sent'
+      'New user created and magic link invitation sent'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
@@ -245,13 +250,36 @@ const createUserWithInvitationRoute = createRoute({
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
-  const requestData = c.req.valid('json');
+  const { email, username, orgId, projectId, roleName, orgName, inviterName } = c.req.valid('json');
+  const caller = c.get('user')!;
+  const normalizedEmail = email.toLowerCase();
 
-  const result = await createUserWithInvitation(requestData, c.req.raw.headers);
-  if (result.ok) {
-    return c.json(result.data, HttpStatusCodes.CREATED);
+  // Check if the user already exists in the system
+  const existingUserResult = await userService.getUserByEmail(normalizedEmail);
+
+  if (existingUserResult.ok) {
+    // ── EXISTING USER PATH ────────────────────────────────────────────────────
+    // User already has a Fluent account — grant access and send login-link email.
+    const result = await inviteExistingUserToOrg({
+      existingUser: existingUserResult.data,
+      orgId,
+      projectId,
+      roleName,
+      createdBy: caller.id,
+      orgName,
+      inviterName,
+    });
+    if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
+  // ── NEW USER PATH ─────────────────────────────────────────────────────────
+  // User doesn't exist yet — create account and send magic link invitation.
+  const result = await createUserWithInvitation(
+    { email: normalizedEmail, username, orgId, projectId, roleName, status: 'invited' },
+    c.req.raw.headers
+  );
+  if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 

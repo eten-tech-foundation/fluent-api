@@ -6,11 +6,12 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { getRoleId, grantRole } from '@/domains/user-roles/user-roles.service';
+import { getRoleId, grantRole, inviteUserToOrg } from '@/domains/user-roles/user-roles.service';
 import { createUserWithAuth, deleteUser } from '@/domains/users/users.service';
 import env from '@/env';
 import { auth } from '@/lib/auth';
 import { ROLES } from '@/lib/roles';
+import { sendExistingUserOrgInviteEmail } from '@/lib/services/notifications/mailgun.service';
 import { ErrorCode } from '@/lib/types';
 
 export interface UserInvitationResult {
@@ -94,6 +95,9 @@ export async function createUserWithInvitation(
     const scopedProjectId =
       roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
 
+
+    await inviteUserToOrg(dbResult.data.id, scopedOrgId!, dbResult.data.createdBy ?? null);
+
     const grantResult = await grantRole({
       userId: dbResult.data.id,
       orgId: scopedOrgId,
@@ -155,6 +159,66 @@ export async function createUserWithInvitation(
         code: ErrorCode.AUTH_ERROR,
         message: `User invitation failed and was rolled back. Reason: ${errorMessage}`,
       },
+    };
+  }
+}
+
+export interface ExistingUserInviteInput {
+  existingUser: UserResponse;
+  orgId: number;
+  projectId?: number | null;
+  roleName?: string;
+  createdBy: number;
+  orgName?: string | null;
+  inviterName?: string | null;
+}
+
+export async function inviteExistingUserToOrg(
+  input: ExistingUserInviteInput
+): Promise<Result<UserInvitationResult>> {
+  const { existingUser, orgId, projectId, roleName, createdBy, orgName, inviterName } = input;
+
+  try {
+    const resolvedRoleName = roleName || ROLES.PROJECT_TRANSLATOR;
+    const roleId = await getRoleId(resolvedRoleName);
+
+    // 1. Anchor row — marks org membership with zero-permission Org Member role
+    await inviteUserToOrg(existingUser.id, orgId, createdBy);
+
+    // 2. Project-scoped grant — gives actual permissions for this project
+    const grantResult = await grantRole({
+      userId: existingUser.id,
+      orgId,
+      projectId: projectId ?? null,
+      roleId,
+      createdBy,
+    });
+
+    if (!grantResult.ok) {
+      return {
+        ok: false,
+        error: {
+          code: ErrorCode.INTERNAL_ERROR,
+          message: `Failed to grant project role: ${grantResult.error.message}`,
+        },
+      };
+    }
+
+    // 3. Send login-link email (same card style as magic link, no token)
+    await sendExistingUserOrgInviteEmail({
+      email: existingUser.email,
+      firstName: existingUser.username,
+      inviterName: inviterName ?? null,
+      orgName: orgName ?? null,
+      loginUrl: `${env.FRONTEND_URL}/login`,
+    });
+
+    return { ok: true, data: { user: existingUser } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      ok: false,
+      error: { code: ErrorCode.INTERNAL_ERROR, message },
     };
   }
 }

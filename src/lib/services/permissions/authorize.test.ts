@@ -105,6 +105,15 @@ describe('authorize', () => {
       false
     );
   });
+
+  it('org Member grant contributes no permissions — all authorize checks denied', () => {
+    // Regression test per 2026-07-02 spec: Org Member carries zero role_permissions;
+    // it exists only as an anchor row and must never satisfy any permission check.
+    const orgMemberUser = { id: 99, grants: [grant(ORG, null, [])] };
+    expect(authorize(orgMemberUser, PERMISSIONS.PROJECT_VIEW, { orgId: ORG })).toBe(false);
+    expect(authorize(orgMemberUser, PERMISSIONS.CONTENT_VIEW, { orgId: ORG })).toBe(false);
+    expect(authorize(orgMemberUser, PERMISSIONS.USER_VIEW, { orgId: ORG })).toBe(false);
+  });
 });
 
 describe('canAssignRole', () => {
@@ -136,16 +145,16 @@ describe('canAssignRole', () => {
     expect(canAssignRole(orgPM, ROLES.SUPER_ADMIN, ORG, null)).toBe(false);
   });
 
-  it('superAdmin can assign Org Owner', () => {
-    expect(canAssignRole(superAdmin, ROLES.ORG_OWNER, ORG, null)).toBe(true);
-  });
-
-  it('org PM without ROLE_ASSIGN_ORG_MANAGER cannot assign Org Owner', () => {
-    expect(canAssignRole(orgPM, ROLES.ORG_OWNER, ORG, null)).toBe(false);
-  });
-
   it('superAdmin can assign Org Manager', () => {
     expect(canAssignRole(superAdmin, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+  });
+
+  it('org Manager with USER_CREATE can invite Org Member (create anchor row)', () => {
+    const orgManager = {
+      id: 5,
+      grants: [grant(ORG, null, [PERMISSIONS.USER_CREATE, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER])],
+    };
+    expect(canAssignRole(orgManager, ROLES.ORG_MEMBER, ORG, null)).toBe(true);
   });
 
   it('org PM with ROLE_ASSIGN_PROJECT can assign Project Manager', () => {

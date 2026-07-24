@@ -54,6 +54,16 @@ export const createUserRequestSchema = z.object({
   roleName: z.string().optional(),
 });
 
+export const inviteUserRequestSchema = z.object({
+  username: z.string().min(1).max(100),
+  email: z.string().email().max(255),
+  orgId: z.number().int(),
+  projectId: z.number().int().optional().nullable(),
+  roleName: z.string().optional(),
+  orgName: z.string().optional(),
+  inviterName: z.string().optional(),
+});
+
 export const updateUserRequestSchema = z.object({
   username: z.string().min(1).max(100).optional(),
   email: z.string().email().max(255).optional(),

@@ -65,22 +65,12 @@ export function canAssignRole(
     );
   }
 
-  // 2. Org Owner role can only be assigned by a SuperAdmin or an Org Owner of this org
-  if (targetRoleName === ROLES.ORG_OWNER) {
-    const hasOrgAssign = authorize(caller, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, scope);
-    if (!hasOrgAssign) return false;
-    return caller.grants.some(
-      (g) =>
-        (g.orgId === null && g.projectId === null) || (g.orgId === orgId && g.projectId === null)
-    );
-  }
-
-  // 3. Org Manager role requires ROLE_ASSIGN_ORG_MANAGER permission
+  // 2. Org Manager role requires ROLE_ASSIGN_ORG_MANAGER permission
   if (targetRoleName === ROLES.ORG_MANAGER) {
     return authorize(caller, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, scope);
   }
 
-  // 4. Org Member role requires USER_CREATE, ROLE_ASSIGN_PROJECT, or ROLE_ASSIGN_ORG_MANAGER permission
+  // 3. Org Member role: any caller with user:create, role:assign:project, or role:assign:org_manager
   if (targetRoleName === ROLES.ORG_MEMBER) {
     return (
       authorize(caller, PERMISSIONS.USER_CREATE, scope) ||
@@ -89,7 +79,7 @@ export function canAssignRole(
     );
   }
 
-  // 5. Project-level roles (Project Manager, Translator, Observer) require ROLE_ASSIGN_PROJECT permission
+  // 4. Project-level roles (Project Manager, Translator, Observer) require ROLE_ASSIGN_PROJECT
   if (
     targetRoleName === ROLES.PROJECT_MANAGER ||
     targetRoleName === ROLES.PROJECT_TRANSLATOR ||

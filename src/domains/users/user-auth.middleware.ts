@@ -34,7 +34,8 @@ export function requireUserAccess(action: UserAction, paramName = 'id') {
       const { ROLES } = await import('@/lib/roles');
       const { canAssignRole } = await import('@/lib/services/permissions/authorize');
 
-      const targetRoleName = body?.roleName || ROLES.PROJECT_TRANSLATOR;
+      const defaultRole = projectId !== null ? ROLES.PROJECT_TRANSLATOR : ROLES.ORG_MEMBER;
+      const targetRoleName = body?.roleName || defaultRole;
 
       if (!Number.isFinite(orgId)) {
         return c.json({ message: 'Missing organization ID' }, HttpStatusCodes.BAD_REQUEST);

@@ -79,10 +79,19 @@ const createProjectRoute = createRoute({
   path: '/projects',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_CREATE, orgFromBody),
+    // Solo-workflow: users with zero orgs are allowed through without a PROJECT_CREATE grant.
+    // The handler detects this and provisions a personal org before creating the project.
+    // Users who already belong to an org must still have PROJECT_CREATE scoped to that org.
+    (c: any, next: any) => {
+      const user = c.get('user');
+      const hasAnyOrg = user?.grants?.some((g: any) => g.orgId !== null);
+      if (!hasAnyOrg) return next(); // zero-org solo path — skip permission gate
+      return requirePermission(PERMISSIONS.PROJECT_CREATE, orgFromBody)(c, next);
+    },
   ] as const,
   summary: 'Create a new project',
-  description: 'Project Manager only.',
+  description:
+    'Creates a project. If the caller has no org yet, provisions a personal org automatically (solo workflow).',
   request: { body: jsonContentRequired(createProjectWithUnitsSchema, 'Project to create') },
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent(projectResponseSchema, 'Created project'),
@@ -109,8 +118,12 @@ server.openapi(createProjectRoute, async (c) => {
   const projectData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  const { getRoleId, grantRole } = await import('@/domains/user-roles/user-roles.service');
+  const { getRoleId, grantRole, inviteUserToOrg } = await import(
+    '@/domains/user-roles/user-roles.service'
+  );
   const { ROLES } = await import('@/lib/roles');
+  const { db } = await import('@/db');
+  const { organizations } = await import('@/db/schema');
 
   let pmRoleId: number;
   try {
@@ -122,16 +135,59 @@ server.openapi(createProjectRoute, async (c) => {
     );
   }
 
+  // ── Solo-workflow extension point ───────────────────────────────
+  // If the caller has no existing org, provision a personal org and grant
+  // Org Manager + Org Member anchor row before continuing.
+  let resolvedOrgId = projectData.organization;
+
+  if (!resolvedOrgId) {
+    const hasAnyOrg = currentUser.grants.some((g) => g.orgId !== null);
+    if (hasAnyOrg) {
+      // User has orgs but didn't specify one — require it.
+      return c.json(
+        { message: 'organization is required when the caller belongs to one or more orgs.' },
+        HttpStatusCodes.BAD_REQUEST as never
+      );
+    }
+
+    // Zero-org path: provision a personal org.
+    try {
+      const orgName = `${currentUser.email}'s Organization`;
+      const [newOrg] = await db
+        .insert(organizations)
+        .values({ name: orgName })
+        .returning({ id: organizations.id });
+
+      resolvedOrgId = newOrg.id;
+
+      const orgManagerRoleId = await getRoleId(ROLES.ORG_MANAGER);
+
+      // Anchor row (Org Member) + Org Manager grant — both idempotent.
+      await inviteUserToOrg(currentUser.id, resolvedOrgId, currentUser.id);
+      await grantRole({
+        userId: currentUser.id,
+        orgId: resolvedOrgId,
+        projectId: null,
+        roleId: orgManagerRoleId,
+        createdBy: currentUser.id,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to provision personal org';
+      return c.json({ message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────
+
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
-    organization: projectData.organization,
+    organization: resolvedOrgId,
   });
 
   if (result.ok) {
     const grantResult = await grantRole({
       userId: currentUser.id,
-      orgId: projectData.organization,
+      orgId: resolvedOrgId,
       projectId: result.data.id,
       roleId: pmRoleId,
       createdBy: currentUser.id,

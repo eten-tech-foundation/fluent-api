@@ -1,4 +1,4 @@
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -24,6 +24,9 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
       .limit(1);
     if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
 
+    // Exclude the Org Member anchor role (zero permissions, backend-only, never shown in UI).
+    const orgMemberRoleId = await getRoleId(ROLES.ORG_MEMBER);
+
     const rows = await db
       .select({
         projectId: user_roles.projectId,
@@ -34,14 +37,27 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
       })
       .from(user_roles)
       .innerJoin(users, eq(user_roles.userId, users.id))
-      .where(eq(user_roles.projectId, projectId))
+      .where(
+        and(
+          // Include project-pinned grants for this project OR org-wide grants for the project's org.
+          or(
+            eq(user_roles.projectId, projectId),
+            and(isNull(user_roles.projectId), eq(user_roles.orgId, project.organization))
+          ),
+          // Exclude Org Member anchor rows — they carry zero permissions and are not displayed.
+          sql`${user_roles.roleId} != ${orgMemberRoleId}`
+        )
+      )
       .orderBy(users.username);
 
-    // Deduplicate by userId, keeping the grant with the highest privilege (lowest roleID)
     const uniqueUsers = new Map<number, (typeof rows)[number]>();
     for (const r of rows) {
       const existing = uniqueUsers.get(r.userId);
-      if (!existing || r.roleID < existing.roleID) {
+      if (
+        !existing ||
+        (r.projectId !== null && existing.projectId === null) ||
+        (Boolean(r.projectId) === Boolean(existing.projectId) && r.roleID < existing.roleID)
+      ) {
         uniqueUsers.set(r.userId, r);
       }
     }
@@ -131,31 +147,41 @@ export async function addProjectUsers(
 
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
-    const [assignedContent] = await db
-      .select({ userId: chapter_assignments.assignedUserId })
-      .from(chapter_assignments)
-      .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-      .where(
-        and(
-          eq(project_units.projectId, projectId),
-          or(
-            eq(chapter_assignments.assignedUserId, userId),
-            eq(chapter_assignments.peerCheckerId, userId)
+    return await db.transaction(async (tx) => {
+      // 1. Find all chapter_assignment IDs in this project where the user is assigned.
+      const affectedIds = await tx
+        .select({ id: chapter_assignments.id })
+        .from(chapter_assignments)
+        .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
+        .where(
+          and(
+            eq(project_units.projectId, projectId),
+            sql`(${chapter_assignments.assignedUserId} = ${userId} OR ${chapter_assignments.peerCheckerId} = ${userId})`
           )
-        )
-      )
-      .limit(1);
+        );
 
-    if (assignedContent) return err(ErrorCode.USER_HAS_ASSIGNED_CONTENT);
+      // 2. Null out the user's drafter / peer-checker columns on those assignments.
+      if (affectedIds.length > 0) {
+        const ids = affectedIds.map((r) => r.id);
+        await tx
+          .update(chapter_assignments)
+          .set({
+            assignedUserId: sql`CASE WHEN ${chapter_assignments.assignedUserId} = ${userId} THEN NULL ELSE ${chapter_assignments.assignedUserId} END`,
+            peerCheckerId: sql`CASE WHEN ${chapter_assignments.peerCheckerId} = ${userId} THEN NULL ELSE ${chapter_assignments.peerCheckerId} END`,
+          })
+          .where(inArray(chapter_assignments.id, ids));
+      }
 
-    const deleted = await db
-      .delete(user_roles)
-      .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-      .returning({ userId: user_roles.userId });
+      // 3. Delete the project-scoped grant.
+      const deleted = await tx
+        .delete(user_roles)
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .returning({ userId: user_roles.userId });
 
-    if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
+      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
 
-    return ok(undefined);
+      return ok(undefined);
+    });
   } catch (error) {
     logger.error({
       cause: error,
@@ -229,11 +255,58 @@ export async function updateProjectUserRole(
         createdAt: user_roles.createdAt,
       });
 
-    if (!updated) {
+    if (updated) {
+      return ok(updated as any);
+    }
+
+    // If no project-pinned row exists, check if the user is a member of the project
+    const [project] = await db
+      .select({ organization: projects.organization })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+
+    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+
+    const isMember = await resolveIsProjectMember(projectId, userId);
+    if (!isMember) {
       return err(ErrorCode.USER_NOT_IN_PROJECT);
     }
 
-    return ok(updated as any);
+    // Insert project-pinned grant row for this user
+    const [inserted] = await db
+      .insert(user_roles)
+      .values({
+        userId,
+        orgId: project.organization,
+        projectId,
+        roleId,
+      })
+      .onConflictDoNothing()
+      .returning({
+        projectId: user_roles.projectId,
+        userId: user_roles.userId,
+        roleId: user_roles.roleId,
+        createdAt: user_roles.createdAt,
+      });
+
+    if (!inserted) {
+      const [existingRow] = await db
+        .select({
+          projectId: user_roles.projectId,
+          userId: user_roles.userId,
+          roleId: user_roles.roleId,
+          createdAt: user_roles.createdAt,
+        })
+        .from(user_roles)
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .limit(1);
+
+      if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
+      return ok(existingRow as any);
+    }
+
+    return ok(inserted as any);
   } catch (error) {
     logger.error({
       cause: error,

@@ -138,12 +138,8 @@ const removeProjectUserRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: {
-      description: 'User successfully removed from project',
+      description: 'User successfully removed from project. Any active assignments were cleared.',
     },
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
-      createMessageObjectSchema('Bad Request'),
-      'User still has content assigned'
-    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -163,7 +159,7 @@ const removeProjectUserRoute = createRoute({
   },
   summary: 'Remove user from project',
   description:
-    'Removes a user from the project. Fails if the user still has assigned content. Manager only.',
+    'Removes a user from the project, auto-clearing any active chapter assignments. Manager only.',
 });
 
 server.openapi(removeProjectUserRoute, async (c) => {
