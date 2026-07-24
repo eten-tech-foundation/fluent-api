@@ -9,8 +9,9 @@ import { ROLES } from '@/lib/roles';
  *  - it is global (org + project both null) — SuperAdmin; OR
  *  - the request is project-scoped (projectId given) and the grant is either
  *    pinned to that project, or an org-wide role over that project's org; OR
- *  - the request is org-scoped (no project) and the grant lives in that org
- *    (org-wide OR pinned to any project in it).
+ *  - the request is org-scoped (no project) and the grant is an org-wide grant
+ *    (grant.projectId === null). Project-pinned grants never satisfy org-scoped
+ *    checks — a translator pinned to project 10 must not gain org:create.
  */
 function isGrantApplicable(grant: Grant, orgId: number | null, projectId: number | null): boolean {
   if (grant.orgId === null && grant.projectId === null) return true;
@@ -22,7 +23,7 @@ function isGrantApplicable(grant: Grant, orgId: number | null, projectId: number
   }
 
   if (orgId !== null) {
-    return grant.orgId === orgId;
+    return grant.orgId === orgId && grant.projectId === null;
   }
 
   return false;
@@ -79,7 +80,16 @@ export function canAssignRole(
     return authorize(caller, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, scope);
   }
 
-  // 4. Project-level roles (Project Manager, Translator, Observer) require ROLE_ASSIGN_PROJECT permission
+  // 4. Org Member role requires USER_CREATE, ROLE_ASSIGN_PROJECT, or ROLE_ASSIGN_ORG_MANAGER permission
+  if (targetRoleName === ROLES.ORG_MEMBER) {
+    return (
+      authorize(caller, PERMISSIONS.USER_CREATE, scope) ||
+      authorize(caller, PERMISSIONS.ROLE_ASSIGN_PROJECT, scope) ||
+      authorize(caller, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, scope)
+    );
+  }
+
+  // 5. Project-level roles (Project Manager, Translator, Observer) require ROLE_ASSIGN_PROJECT permission
   if (
     targetRoleName === ROLES.PROJECT_MANAGER ||
     targetRoleName === ROLES.PROJECT_TRANSLATOR ||

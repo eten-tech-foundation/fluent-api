@@ -41,8 +41,15 @@ describe('authorize', () => {
     );
   });
 
-  it('project-pinned PM grant applies to org-scoped action (create project)', () => {
+  it('project-pinned grant does NOT satisfy an org-scoped action (create project)', () => {
+    // A user pinned to a single project must not gain org-wide create via that grant.
+    // This was regressed in 27719f5 and re-fixed here (original fix: 10df565).
     const user = { id: 1, grants: [grant(ORG, PROJ, [PERMISSIONS.PROJECT_CREATE])] };
+    expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: ORG })).toBe(false);
+  });
+
+  it('org-wide grant (projectId=null) satisfies an org-scoped action (create project)', () => {
+    const user = { id: 1, grants: [grant(ORG, null, [PERMISSIONS.PROJECT_CREATE])] };
     expect(authorize(user, PERMISSIONS.PROJECT_CREATE, { orgId: ORG })).toBe(true);
   });
 
