@@ -1,19 +1,31 @@
 import type { Context, Next } from 'hono';
 
+import { getConnInfo } from '@hono/node-server/conninfo';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { AppBindings } from '@/lib/types';
 
+import env from '@/env';
 import { logger } from '@/lib/logger';
 
-// TODO(#210): when this limiter is reused beyond bulk-texts / the API scales
-// behind a load balancer, expose windowMs/max/MAX_BUCKETS via env vars and make
-// the trusted-proxy assumption in clientKey configurable.
 interface RateLimitOptions {
-  /** Window length in milliseconds. */
-  windowMs: number;
-  /** Max requests allowed per client within one window. */
-  max: number;
+  /** Window length in milliseconds. Default: env.RATE_LIMIT_WINDOW_MS (60s). */
+  windowMs?: number;
+  /** Max requests allowed per client within one window. Default: env.RATE_LIMIT_MAX (20). */
+  max?: number;
+  /**
+   * Hard cap on tracked buckets for this limiter instance; when full, expired
+   * entries are swept and, if necessary, oldest-inserted entries are evicted
+   * so memory stays bounded. Default: env.RATE_LIMIT_MAX_BUCKETS (10k).
+   */
+  maxBuckets?: number;
+  /**
+   * How many trusted proxies append to x-forwarded-for in front of this app.
+   * 1 = Azure App Service (default), 2 = an extra appending LB in front,
+   * 0 = no trusted proxy — ignore the header and key on the socket address.
+   * Default: env.RATE_LIMIT_TRUSTED_HOPS.
+   */
+  trustedHops?: number;
 }
 
 interface Bucket {
@@ -21,26 +33,31 @@ interface Bucket {
   resetAt: number;
 }
 
-// Hard cap on tracked buckets; when full, expired entries are swept and, if
-// necessary, oldest-inserted entries are evicted so memory stays bounded.
-const MAX_BUCKETS = 10_000;
-
-function clientKey(c: Context<AppBindings>): string {
-  // Trust only the proxy-appended tail of x-forwarded-for: Azure App Service
-  // APPENDS the real client IP (as ip[:port]) to whatever the caller sent, so
-  // the LAST entry comes from our trusted front-end while leading entries are
-  // client-controlled and spoofable. Requests that arrive without a proxy
-  // (local dev) share one bucket rather than trusting a client-sent header.
-  const forwarded = c.req.header('x-forwarded-for');
-  if (forwarded) {
-    const entries = forwarded
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    const last = entries[entries.length - 1];
-    if (last) return stripPort(last);
+// Socket peer address via the node-server adapter; undefined where no socket
+// is reachable (non-node transports, bare test contexts).
+function socketAddress(c: Context<AppBindings>): string | undefined {
+  try {
+    return getConnInfo(c).remote.address;
+  } catch {
+    return undefined;
   }
-  return 'unknown';
+}
+
+// Resolve the client key from the deployment's trusted-proxy topology
+// (standard proxy-addr semantics): walk [socket, ...x-forwarded-for entries
+// right-to-left] and take the entry trustedHops steps out — each trusted
+// proxy APPENDS exactly one entry (Azure App Service appends the real client
+// IP as ip[:port]), so that position is the closest address a client cannot
+// spoof, while leading entries are client-controlled. A chain shorter than
+// trustedHops degrades to its furthest (leftmost) available entry.
+function clientKey(c: Context<AppBindings>, trustedHops: number): string {
+  const forwarded = c.req.header('x-forwarded-for') ?? '';
+  const entries = forwarded
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const candidates = [socketAddress(c) ?? 'unknown', ...entries.reverse()];
+  return stripPort(candidates[Math.min(trustedHops, candidates.length - 1)]);
 }
 
 // App Service formats IPv4 entries as "ip:port"; bracketed IPv6 as "[::1]:port".
@@ -59,35 +76,42 @@ function stripPort(entry: string): string {
  * State is in-memory (per process), so limits apply per instance — sufficient
  * as a scraping/abuse guard for intentionally unauthenticated routes. better-auth
  * rate-limits /api/auth/* separately; this covers everything else.
+ *
+ * All options default to the RATE_LIMIT_* env vars (see src/env.ts), so plain
+ * `rateLimit()` gives the operator-configured limiter.
  */
-export function rateLimit(options: RateLimitOptions) {
+export function rateLimit(options: RateLimitOptions = {}) {
+  const windowMs = options.windowMs ?? env.RATE_LIMIT_WINDOW_MS;
+  const max = options.max ?? env.RATE_LIMIT_MAX;
+  const maxBuckets = options.maxBuckets ?? env.RATE_LIMIT_MAX_BUCKETS;
+  const trustedHops = options.trustedHops ?? env.RATE_LIMIT_TRUSTED_HOPS;
   const buckets = new Map<string, Bucket>();
 
   return async (c: Context<AppBindings>, next: Next) => {
     const now = Date.now();
-    const key = clientKey(c);
+    const key = clientKey(c, trustedHops);
     const bucket = buckets.get(key);
 
     if (!bucket || bucket.resetAt <= now) {
-      if (buckets.size >= MAX_BUCKETS) {
+      if (buckets.size >= maxBuckets) {
         for (const [k, b] of buckets) {
           if (b.resetAt <= now) buckets.delete(k);
         }
         // Map iteration order is insertion order, so this evicts oldest first.
-        if (buckets.size >= MAX_BUCKETS) {
+        if (buckets.size >= maxBuckets) {
           for (const k of buckets.keys()) {
             buckets.delete(k);
-            if (buckets.size < MAX_BUCKETS) break;
+            if (buckets.size < maxBuckets) break;
           }
         }
       }
-      buckets.set(key, { count: 1, resetAt: now + options.windowMs });
-    } else if (bucket.count >= options.max) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+    } else if (bucket.count >= max) {
       logger.warn('Rate limit exceeded', {
         client: key,
         path: c.req.path,
-        limit: options.max,
-        windowMs: options.windowMs,
+        limit: max,
+        windowMs,
       });
       c.header('Retry-After', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
       return c.json({ message: 'Too many requests' }, HttpStatusCodes.TOO_MANY_REQUESTS);

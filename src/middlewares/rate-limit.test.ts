@@ -12,9 +12,16 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
-function createContext(headers: Record<string, string> = {}) {
+function createContext(headers: Record<string, string> = {}, socketAddress?: string) {
   const setHeaders: Record<string, string> = {};
   return {
+    env: socketAddress
+      ? {
+          incoming: {
+            socket: { remoteAddress: socketAddress, remoteFamily: 'IPv4', remotePort: 40_000 },
+          },
+        }
+      : undefined,
     req: {
       header: vi.fn((name: string) => headers[name.toLowerCase()]),
     },
@@ -129,5 +136,129 @@ describe('rateLimit middleware', () => {
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+  });
+
+  it('resolves limits from env defaults when options are omitted', async () => {
+    const middleware = rateLimit();
+    const next = vi.fn();
+
+    for (let i = 0; i < 20; i++) {
+      await middleware(createContext({ 'x-forwarded-for': '1.2.3.4' }), next);
+    }
+    expect(next).toHaveBeenCalledTimes(20);
+
+    const blocked = createContext({ 'x-forwarded-for': '1.2.3.4' });
+    await middleware(blocked, next);
+
+    expect(next).toHaveBeenCalledTimes(20);
+    expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Rate limit exceeded',
+      expect.objectContaining({ limit: 20, windowMs: 60_000 })
+    );
+  });
+
+  it('honors a custom maxBuckets by evicting the oldest bucket at capacity', async () => {
+    const middleware = rateLimit({ windowMs: 60_000, max: 1, maxBuckets: 2, trustedHops: 1 });
+    const next = vi.fn();
+
+    await middleware(createContext({ 'x-forwarded-for': '1.1.1.1' }), next);
+    await middleware(createContext({ 'x-forwarded-for': '2.2.2.2' }), next);
+    await middleware(createContext({ 'x-forwarded-for': '3.3.3.3' }), next);
+
+    const again = createContext({ 'x-forwarded-for': '1.1.1.1' });
+    await middleware(again, next);
+
+    expect(next).toHaveBeenCalledTimes(4);
+    expect(again.json).not.toHaveBeenCalled();
+  });
+
+  describe('trusted hops', () => {
+    it('trustedHops=0 keys on the socket address and ignores x-forwarded-for', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 0 });
+      const next = vi.fn();
+
+      await middleware(createContext({ 'x-forwarded-for': '1.1.1.1' }, '9.9.9.9'), next);
+      const blocked = createContext({ 'x-forwarded-for': '2.2.2.2' }, '9.9.9.9');
+      await middleware(blocked, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Rate limit exceeded',
+        expect.objectContaining({ client: '9.9.9.9' })
+      );
+    });
+
+    it('trustedHops=0 tracks distinct sockets separately', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 0 });
+      const next = vi.fn();
+
+      await middleware(createContext({}, '9.9.9.9'), next);
+      await middleware(createContext({}, '8.8.8.8'), next);
+
+      expect(next).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to the socket address when x-forwarded-for is absent', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 1 });
+      const next = vi.fn();
+
+      await middleware(createContext({}, '9.9.9.9'), next);
+      const blocked = createContext({}, '9.9.9.9');
+      await middleware(blocked, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+    });
+
+    it('trustedHops=2 keys on the second-from-last entry', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 2 });
+      const next = vi.fn();
+
+      await middleware(createContext({ 'x-forwarded-for': 'spoof, 1.1.1.1, 10.0.0.7' }), next);
+      const blocked = createContext({ 'x-forwarded-for': 'other, 1.1.1.1, 10.0.0.7' });
+      await middleware(blocked, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+    });
+
+    it('trustedHops=2 separates clients that differ in the second-from-last entry', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 2 });
+      const next = vi.fn();
+
+      await middleware(createContext({ 'x-forwarded-for': '1.1.1.1, 10.0.0.7' }), next);
+      await middleware(createContext({ 'x-forwarded-for': '2.2.2.2, 10.0.0.7' }), next);
+
+      expect(next).toHaveBeenCalledTimes(2);
+    });
+
+    it('degrades to the leftmost entry when hops exceed the chain length', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 3 });
+      const next = vi.fn();
+
+      await middleware(createContext({ 'x-forwarded-for': '1.1.1.1' }, '10.0.0.7'), next);
+      const blocked = createContext({ 'x-forwarded-for': '1.1.1.1' }, '10.0.0.8');
+      await middleware(blocked, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(blocked.json).toHaveBeenCalledWith({ message: 'Too many requests' }, 429);
+    });
+
+    it('shares the unknown bucket when neither proxy header nor socket is available', async () => {
+      const middleware = rateLimit({ windowMs: 60_000, max: 1, trustedHops: 1 });
+      const next = vi.fn();
+
+      await middleware(createContext(), next);
+      const blocked = createContext();
+      await middleware(blocked, next);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Rate limit exceeded',
+        expect.objectContaining({ client: 'unknown' })
+      );
+    });
   });
 });
