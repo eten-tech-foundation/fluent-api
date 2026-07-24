@@ -43,6 +43,16 @@ const envBool = () =>
     return z.NEVER;
   });
 
+// ── Env int parser ────────────────────────────────────────────────────────────
+// Wraps a numeric schema so a blank / whitespace-only value counts as UNSET
+// (the schema's .default() applies) instead of being coerced: dotenv loads a
+// bare `RATE_LIMIT_MAX=` line (exactly how .env.example documents optional
+// vars) as "", and z.coerce.number() coerces "" to 0 — which would fail boot
+// for positive vars and, worse, silently flip RATE_LIMIT_TRUSTED_HOPS to 0
+// (socket keying). Same blank-is-unset contract as envBool() above.
+export const envInt = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
+
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
@@ -80,6 +90,18 @@ const EnvSchema = z.object({
 
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
+
+  // ── Rate limiter (src/middlewares/rate-limit.ts) ──────────────────────
+  // Per-process fixed-window limiter on anonymous endpoints (bulk
+  // bible-texts today). Blank/unset ⇒ default (envInt); invalid values fail
+  // boot via the safeParse below.
+  RATE_LIMIT_WINDOW_MS: envInt(z.coerce.number().int().positive().default(60_000)),
+  RATE_LIMIT_MAX: envInt(z.coerce.number().int().positive().default(20)),
+  RATE_LIMIT_MAX_BUCKETS: envInt(z.coerce.number().int().positive().default(10_000)),
+  // Trusted proxies appending to x-forwarded-for: 1 = Azure App Service
+  // (default), 2 = an extra appending LB in front, 0 = no trusted proxy —
+  // ignore x-forwarded-for and key on the socket address.
+  RATE_LIMIT_TRUSTED_HOPS: envInt(z.coerce.number().int().min(0).default(1)),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
