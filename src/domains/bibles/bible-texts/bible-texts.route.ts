@@ -90,8 +90,9 @@ const getBulkBibleTextsRoute = createRoute({
   method: 'post',
   path: '/bibles/{bibleId}/bulk-texts',
   // Intentionally anonymous (mobile sync pre-cache; reviewer decision 2026-06-26).
-  // Rate-limited as a scraping/abuse guard — a full sync needs only 1-2 requests.
-  middleware: [rateLimit({ windowMs: 60_000, max: 20 })] as const,
+  // Rate-limited as a scraping/abuse guard — a full sync needs only 1-2
+  // requests. Limits come from the RATE_LIMIT_* env vars (default 20/min).
+  middleware: [rateLimit()] as const,
   request: {
     params: z.object({
       bibleId: z.coerce
@@ -121,7 +122,7 @@ const getBulkBibleTextsRoute = createRoute({
     [HttpStatusCodes.TOO_MANY_REQUESTS]: {
       ...jsonContent(
         createMessageObjectSchema('Too many requests'),
-        'Rate limit exceeded (20 requests per minute per client IP)'
+        'Rate limit exceeded (default 20 requests per minute per client IP)'
       ),
       headers: z.object({
         'Retry-After': z.string().openapi({
