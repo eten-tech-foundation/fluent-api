@@ -12,7 +12,7 @@ A `develop`-as-default-branch alternative was considered and rejected: it introd
 
 Keep `main` as the single trunk everyone merges into continuously — no new long-lived branch. Instead of prod deploying from whatever `main` HEAD happens to be, prod deploys from an explicit, immutable **git tag** cut on demand. The tag is the thing QA verifies; it doesn't move if someone merges to `main` afterward.
 
-This is the smallest possible change to the existing pipeline shape (`.github/workflows/post-merge-deploy.yml` already separates dev/prod deploy jobs) and gives us CalVer versioning for free, since the tag name *is* the version.
+This is the smallest possible change to the existing pipeline shape (`.github/workflows/post-merge-deploy.yml` already separates dev/prod deploy jobs) and gives us CalVer versioning for free, since the tag name _is_ the version.
 
 ## CalVer format
 
@@ -20,12 +20,12 @@ This is the smallest possible change to the existing pipeline shape (`.github/wo
 
 ## What changes
 
-| Component | Change |
-|---|---|
-| `pre-merge.yml` | No change. Still gates every PR into `main`. |
-| `post-merge-deploy.yml` | Dev deploy still triggers on push to `main` (unchanged). Prod deploy trigger switches from manual `workflow_dispatch` to `push: tags: 'v*.*.*'` — prod can now *only* deploy a tagged commit, never a bare `main` HEAD. |
-| New `cut-release.yml` workflow | Manually triggered when a team is ready to start a QA cycle. Computes the next `YY.MM.SERIAL` tag from existing tags and pushes it — this is the one new step in the process. |
-| `package.json` version | Stamped from the tag at build time instead of hand-maintained, so the deployed artifact can report its own version. |
+| Component                      | Change                                                                                                                                                                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pre-merge.yml`                | No change. Still gates every PR into `main`.                                                                                                                                                                            |
+| `post-merge-deploy.yml`        | Dev deploy still triggers on push to `main` (unchanged). Prod deploy trigger switches from manual `workflow_dispatch` to `push: tags: 'v*.*.*'` — prod can now _only_ deploy a tagged commit, never a bare `main` HEAD. |
+| New `cut-release.yml` workflow | Manually triggered when a team is ready to start a QA cycle. Computes the next `YY.MM.SERIAL` tag from existing tags and pushes it — this is the one new step in the process.                                           |
+| `package.json` version         | Stamped from the tag at build time instead of hand-maintained, so the deployed artifact can report its own version.                                                                                                     |
 
 ## How this solves the blocking problem
 

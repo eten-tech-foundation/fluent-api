@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0   # need full tag history to compute the next serial
+          fetch-depth: 0 # need full tag history to compute the next serial
 
       - name: Compute CalVer tag
         id: version
@@ -86,9 +86,9 @@ New trigger:
 on:
   push:
     branches:
-      - main       # dev deploy path — unchanged behavior
+      - main # dev deploy path — unchanged behavior
     tags:
-      - 'v*.*.*'   # prod deploy path — replaces workflow_dispatch
+      - 'v*.*.*' # prod deploy path — replaces workflow_dispatch
 ```
 
 Remove the `workflow_dispatch` environment input entirely — prod deploys should never be dispatchable against an arbitrary `main` HEAD. `dev` continues to deploy automatically on every merge, same as today.
