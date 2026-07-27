@@ -74,23 +74,21 @@ export async function createUserWithInvitation(
     const scopedOrgId = normalizedInput.orgId;
     const scopedProjectId = normalizedInput.projectId ?? null;
 
-    if (scopedOrgId !== null) {
-      const inviteResult = await inviteUserToOrg(
-        dbResult.data.id,
-        scopedOrgId,
-        dbResult.data.createdBy ?? null
-      );
-      if (!inviteResult.ok) {
-        await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
-        await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
-        return {
-          ok: false,
-          error: {
-            code: ErrorCode.INTERNAL_ERROR,
-            message: `Failed to create initial organization anchor grant: ${inviteResult.error.message}`,
-          },
-        };
-      }
+    const inviteResult = await inviteUserToOrg(
+      dbResult.data.id,
+      scopedOrgId,
+      dbResult.data.createdBy ?? null
+    );
+    if (!inviteResult.ok) {
+      await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
+      await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
+      return {
+        ok: false,
+        error: {
+          code: ErrorCode.INTERNAL_ERROR,
+          message: `Failed to create initial organization anchor grant: ${inviteResult.error.message}`,
+        },
+      };
     }
 
     const grantResult = await grantRole({

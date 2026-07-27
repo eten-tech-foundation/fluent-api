@@ -4,8 +4,12 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { db } from '@/db';
+import { organizations, user_roles } from '@/db/schema';
+import { getRoleId, grantRole } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
+import { ROLES } from '@/lib/roles';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -118,11 +122,6 @@ server.openapi(createProjectRoute, async (c) => {
   const projectData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  const { getRoleId, grantRole } = await import('@/domains/user-roles/user-roles.service');
-  const { ROLES } = await import('@/lib/roles');
-  const { db } = await import('@/db');
-  const { organizations } = await import('@/db/schema');
-
   let pmRoleId: number;
   try {
     pmRoleId = await getRoleId(ROLES.PROJECT_MANAGER);
@@ -136,12 +135,12 @@ server.openapi(createProjectRoute, async (c) => {
   // ── Solo-workflow extension point ───────────────────────────────
   // If the caller has no existing org, provision a personal org and grant
   // Org Manager + Org Member anchor row before continuing.
-  let resolvedOrgId = projectData.organization;
+  let resolvedOrgId: number | undefined = projectData.organization;
   const hasAnyOrg = currentUser.grants.some((g) => g.orgId !== null);
 
   if (!hasAnyOrg) {
     // Zero-org solo path: ignore caller-supplied org ID and force personal org provisioning
-    resolvedOrgId = undefined as any;
+    resolvedOrgId = undefined;
   }
 
   if (!resolvedOrgId) {
@@ -155,7 +154,6 @@ server.openapi(createProjectRoute, async (c) => {
 
     // Zero-org path: provision a personal org atomically.
     try {
-      const { user_roles } = await import('@/db/schema');
       const orgName = `${currentUser.email}'s Organization`;
 
       await db.transaction(async (tx) => {
@@ -197,18 +195,25 @@ server.openapi(createProjectRoute, async (c) => {
       return c.json({ message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
     }
   }
+
+  if (!resolvedOrgId) {
+    return c.json(
+      { message: 'Failed to resolve organization' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+    );
+  }
   // ──────────────────────────────────────────────────────────────────
 
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
-    organization: resolvedOrgId!,
+    organization: resolvedOrgId,
   });
 
   if (result.ok) {
     const grantResult = await grantRole({
       userId: currentUser.id,
-      orgId: resolvedOrgId!,
+      orgId: resolvedOrgId,
       projectId: result.data.id,
       roleId: pmRoleId,
       createdBy: currentUser.id,

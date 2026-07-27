@@ -422,24 +422,26 @@ server.openapi(getJobStatusRoute, async (c) => {
     }
 
     const user = c.get('user')!;
-    const projectUnitId = (job.data as Record<string, any>)?.projectUnitId;
-    if (projectUnitId) {
-      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      if (!unitResult.ok) {
-        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const projectUnitId = Number((job.data as Record<string, any>)?.projectUnitId);
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      const projectResult = await projectService.getProjectById(unitResult.data.projectId);
-      if (!projectResult.ok) {
-        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+    if (!unitResult.ok) {
+      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
-      const policyUser = { id: user.id, grants: user.grants };
+    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+    if (!projectResult.ok) {
+      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-        return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+    const policyUser = { id: user.id, grants: user.grants };
+
+    if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
     }
 
     return c.json(
@@ -485,24 +487,26 @@ server.openapi(downloadExportRoute, async (c) => {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const projectUnitId = (job.data as Record<string, any>)?.projectUnitId;
-    if (projectUnitId) {
-      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      if (!unitResult.ok) {
-        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const projectUnitId = Number((job.data as Record<string, any>)?.projectUnitId);
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      const projectResult = await projectService.getProjectById(unitResult.data.projectId);
-      if (!projectResult.ok) {
-        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+    if (!unitResult.ok) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
-      const policyUser = { id: user.id, grants: user.grants };
+    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+    if (!projectResult.ok) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-        return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-      }
+    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+    const policyUser = { id: user.id, grants: user.grants };
+
+    if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
     const exists = await fileExists(filename);
