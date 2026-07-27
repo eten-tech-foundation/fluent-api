@@ -6,11 +6,10 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { getRoleId, grantRole, inviteUserToOrg } from '@/domains/user-roles/user-roles.service';
+import { grantRole, inviteUserToOrg } from '@/domains/user-roles/user-roles.service';
 import { createUserWithAuth, deleteUser } from '@/domains/users/users.service';
 import env from '@/env';
 import { auth } from '@/lib/auth';
-import { ROLES } from '@/lib/roles';
 import { sendExistingUserOrgInviteEmail } from '@/lib/services/notifications/mailgun.service';
 import { ErrorCode } from '@/lib/types';
 
@@ -22,7 +21,7 @@ export interface UserInvitationResult {
 export interface InviteUserInput extends CreateUserInput {
   orgId: number;
   projectId?: number | null;
-  roleName?: string;
+  roleId: number;
 }
 
 /**
@@ -72,28 +71,8 @@ export async function createUserWithInvitation(
 
   // 3. Grant the new user their initial role via user_roles
   try {
-    const roleName = normalizedInput.roleName || ROLES.PROJECT_TRANSLATOR;
-
-    if (
-      !normalizedInput.projectId &&
-      [ROLES.PROJECT_TRANSLATOR, ROLES.PROJECT_OBSERVER].includes(roleName as any)
-    ) {
-      await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
-      await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
-      return {
-        ok: false,
-        error: {
-          code: ErrorCode.VALIDATION_ERROR,
-          message: `${roleName} role requires a specific projectId.`,
-        },
-      };
-    }
-
-    const roleId = await getRoleId(roleName);
-
-    const scopedOrgId = roleName === ROLES.SUPER_ADMIN ? null : normalizedInput.orgId;
-    const scopedProjectId =
-      roleName === ROLES.SUPER_ADMIN ? null : (normalizedInput.projectId ?? null);
+    const scopedOrgId = normalizedInput.orgId;
+    const scopedProjectId = normalizedInput.projectId ?? null;
 
     if (scopedOrgId !== null) {
       const inviteResult = await inviteUserToOrg(
@@ -118,7 +97,7 @@ export async function createUserWithInvitation(
       userId: dbResult.data.id,
       orgId: scopedOrgId,
       projectId: scopedProjectId,
-      roleId,
+      roleId: normalizedInput.roleId,
       createdBy: dbResult.data.createdBy ?? null,
     });
 
@@ -183,7 +162,7 @@ export interface ExistingUserInviteInput {
   existingUser: UserResponse;
   orgId: number;
   projectId?: number | null;
-  roleName?: string;
+  roleId: number;
   createdBy: number;
   orgName?: string | null;
   inviterName?: string | null;
@@ -192,12 +171,9 @@ export interface ExistingUserInviteInput {
 export async function inviteExistingUserToOrg(
   input: ExistingUserInviteInput
 ): Promise<Result<UserInvitationResult>> {
-  const { existingUser, orgId, projectId, roleName, createdBy, orgName, inviterName } = input;
+  const { existingUser, orgId, projectId, roleId, createdBy, orgName, inviterName } = input;
 
   try {
-    const resolvedRoleName = roleName || ROLES.PROJECT_TRANSLATOR;
-    const roleId = await getRoleId(resolvedRoleName);
-
     // 1. Anchor row — marks org membership with zero-permission Org Member role
     const inviteResult = await inviteUserToOrg(existingUser.id, orgId, createdBy);
     if (!inviteResult.ok) {

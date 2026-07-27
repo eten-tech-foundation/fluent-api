@@ -47,7 +47,7 @@ const baseInput = {
   existingUser,
   orgId: 2,
   projectId: 83,
-  roleName: 'Project Translator',
+  roleId: 2,
   createdBy: 59,
   orgName: 'orgb',
   inviterName: 'Patricia PM',
@@ -58,7 +58,6 @@ const baseInput = {
 describe('inviteExistingUserToOrg', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(userRolesService.getRoleId).mockResolvedValue(3);
     vi.mocked(userRolesService.inviteUserToOrg).mockResolvedValue(ok(undefined));
     vi.mocked(userRolesService.grantRole).mockResolvedValue(ok(undefined));
     vi.mocked(mailgunService.sendExistingUserOrgInviteEmail).mockResolvedValue(undefined);
@@ -85,17 +84,9 @@ describe('inviteExistingUserToOrg', () => {
       userId: existingUser.id,
       orgId: baseInput.orgId,
       projectId: baseInput.projectId,
-      roleId: 3,
+      roleId: 2,
       createdBy: baseInput.createdBy,
     });
-  });
-
-  it('defaults to Project Translator when no roleName provided', async () => {
-    const { roleName: _omit, ...inputWithoutRole } = baseInput;
-    await inviteExistingUserToOrg(inputWithoutRole);
-
-    // getRoleId should be called with the default role name
-    expect(userRolesService.getRoleId).toHaveBeenCalledWith('Project Translator');
   });
 
   it('returns ok with user data on success', async () => {
@@ -138,6 +129,7 @@ describe('inviteExistingUserToOrg', () => {
       existingUser,
       orgId: 2,
       projectId: 83,
+      roleId: 2,
       createdBy: 59,
     };
 

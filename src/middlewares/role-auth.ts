@@ -66,11 +66,15 @@ export function requirePermission(permission: Permission, resolveScope?: ScopeRe
   };
 }
 
-/** Scope from a numeric `orgId` or `organization` field in the JSON body. */
+/** Scope from a numeric `orgId` (or `organization`) and optional `projectId` field in the JSON body. */
 export const orgFromBody: ScopeResolver = async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const orgId = Number(body?.orgId ?? body?.organization);
-  return Number.isFinite(orgId) ? { orgId } : {};
+  const projectId = Number(body?.projectId);
+  return {
+    ...(Number.isFinite(orgId) ? { orgId } : {}),
+    ...(Number.isFinite(projectId) ? { projectId } : {}),
+  };
 };
 
 /**

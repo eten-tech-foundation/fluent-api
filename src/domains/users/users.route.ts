@@ -143,29 +143,13 @@ server.openapi(createUserRoute, async (c) => {
   // Grant the new user their initial role via user_roles
   if (requestData.orgId) {
     try {
-      const { grantRole, getRoleId } = await import('@/domains/user-roles/user-roles.service');
-      const { ROLES } = await import('@/lib/roles');
-      const roleName = requestData.roleName || ROLES.PROJECT_TRANSLATOR;
+      const { grantRole } = await import('@/domains/user-roles/user-roles.service');
 
-      const isProjectRole =
-        roleName === ROLES.PROJECT_MANAGER ||
-        roleName === ROLES.PROJECT_TRANSLATOR ||
-        roleName === ROLES.PROJECT_OBSERVER;
-
-      if (isProjectRole && !requestData.projectId) {
-        await userService.deleteUser(result.data.id);
-        return c.json(
-          { message: `${roleName} role requires a specific projectId.` },
-          HttpStatusCodes.BAD_REQUEST
-        );
-      }
-
-      const roleId = await getRoleId(roleName);
       const grantResult = await grantRole({
         userId: result.data.id,
         orgId: requestData.orgId,
         projectId: requestData.projectId ?? null,
-        roleId,
+        roleId: requestData.roleId,
         createdBy: currentUser.id,
       });
       if (!grantResult.ok) {
@@ -253,7 +237,7 @@ const createUserWithInvitationRoute = createRoute({
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
-  const { email, username, orgId, projectId, roleName, orgName, inviterName } = c.req.valid('json');
+  const { email, username, orgId, projectId, roleId, orgName, inviterName } = c.req.valid('json');
   const caller = c.get('user')!;
   const normalizedEmail = email.toLowerCase();
 
@@ -267,7 +251,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
       existingUser: existingUserResult.data,
       orgId,
       projectId,
-      roleName,
+      roleId,
       createdBy: caller.id,
       orgName,
       inviterName,
@@ -279,7 +263,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
   // ── NEW USER PATH ─────────────────────────────────────────────────────────
   // User doesn't exist yet — create account and send magic link invitation.
   const result = await createUserWithInvitation(
-    { email: normalizedEmail, username, orgId, projectId, roleName, status: 'invited' },
+    { email: normalizedEmail, username, orgId, projectId, roleId, status: 'invited' },
     c.req.raw.headers
   );
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
@@ -589,4 +573,5 @@ server.openapi(updateActiveOrgRoute, async (c) => {
   });
 
   return c.body(null, HttpStatusCodes.OK);
+  // eslint-disable-next-line max-lines
 });
