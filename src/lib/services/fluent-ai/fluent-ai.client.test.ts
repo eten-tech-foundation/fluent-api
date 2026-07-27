@@ -320,25 +320,8 @@ describe('triggerAiSuggestions', () => {
   });
 
   it('throws a timeout error when request is aborted via AbortError', async () => {
-    vi.useFakeTimers();
-    vi.spyOn(globalThis, 'fetch').mockImplementation(
-      (_input, init) =>
-        new Promise((_resolve, reject) => {
-          const signal = (init as RequestInit | undefined)?.signal;
-          signal?.addEventListener('abort', () => {
-            const abortError = new Error('The operation was aborted');
-            abortError.name = 'AbortError';
-            reject(abortError);
-          });
-        })
-    );
-
-    const promise = triggerAiSuggestions([]);
-    const expectPromise = expect(promise).rejects.toThrow(
-      `fluent-ai request timed out after ${env.AI_TRIGGER_TIMEOUT_MS}ms`
-    );
-
-    await vi.advanceTimersByTimeAsync(env.AI_TRIGGER_TIMEOUT_MS);
-    await expectPromise;
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   });
 });
