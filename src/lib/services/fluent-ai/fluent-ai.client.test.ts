@@ -320,8 +320,8 @@ describe('triggerAiSuggestions', () => {
   });
 
   it('throws a timeout error when request is aborted via AbortError', async () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
   });
 });
