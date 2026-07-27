@@ -48,3 +48,9 @@ export const PERMISSIONS = {
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+const VALID_PERMISSIONS = new Set<string>(Object.values(PERMISSIONS));
+
+export function isPermission(value: string): value is Permission {
+  return VALID_PERMISSIONS.has(value);
+}

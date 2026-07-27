@@ -35,9 +35,12 @@ export function toUserResponse(user: User): UserResponse {
 // ─── Reads ────────────────────────────────────────────────────────────────────
 
 async function attachGrants(user: User): Promise<UserResponse> {
-  const response = toUserResponse(user);
   const grantsMap = await findRoleGrantsByUserIds([user.id], 'ALL');
-  response.orgGrants = grantsMap.get(user.id) ?? [];
+  const orgGrants = grantsMap.get(user.id) ?? [];
+  const response: UserResponse = {
+    ...toUserResponse(user),
+    orgGrants,
+  };
 
   logger.debug(
     { userId: user.id, orgGrants: response.orgGrants },
@@ -89,11 +92,10 @@ export async function getUsersForUser(user: AppPolicyUser): Promise<Result<UserR
   );
 
   return ok(
-    userRows.map((u) => {
-      const response = toUserResponse(u);
-      response.orgGrants = grantsMap.get(u.id) ?? [];
-      return response;
-    })
+    userRows.map((u) => ({
+      ...toUserResponse(u),
+      orgGrants: grantsMap.get(u.id) ?? [],
+    }))
   );
 }
 
@@ -109,11 +111,10 @@ export async function getUsersByIds(ids: number[]): Promise<Result<UserResponse[
 
   const grantsMap = await findRoleGrantsByUserIds(ids, 'ALL');
   return ok(
-    result.data.map((u) => {
-      const response = toUserResponse(u);
-      response.orgGrants = grantsMap.get(u.id) ?? [];
-      return response;
-    })
+    result.data.map((u) => ({
+      ...toUserResponse(u),
+      orgGrants: grantsMap.get(u.id) ?? [],
+    }))
   );
 }
 

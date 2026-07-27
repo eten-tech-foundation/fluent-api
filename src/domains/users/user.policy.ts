@@ -29,8 +29,8 @@ export const UserPolicy = {
     return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_UPDATE, { orgId }));
   },
 
-  delete(user: AppPolicyUser, target: PolicyTargetUser): boolean {
-    // Full account deletion is SuperAdmin-only (no role is seeded user:delete). Deferred otherwise.
-    return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_DELETE, { orgId }));
+  delete(user: AppPolicyUser, _target: PolicyTargetUser): boolean {
+    // Full account deletion is SuperAdmin-only.
+    return authorize(user, PERMISSIONS.USER_DELETE, { orgId: null });
   },
 };

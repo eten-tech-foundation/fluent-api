@@ -359,12 +359,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "active_org_id": {
-          "name": "active_org_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -376,15 +370,6 @@
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "auth_session_active_org_id_organizations_id_fk": {
-          "name": "auth_session_active_org_id_organizations_id_fk",
-          "tableFrom": "auth_session",
-          "tableTo": "organizations",
-          "columnsFrom": ["active_org_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -2245,12 +2230,6 @@
           "notNull": true,
           "default": "'invited'"
         },
-        "last_active_org_id": {
-          "name": "last_active_org_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "integer",
@@ -2281,15 +2260,6 @@
           "columnsFrom": ["auth_user_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "users_last_active_org_id_organizations_id_fk": {
-          "name": "users_last_active_org_id_organizations_id_fk",
-          "tableFrom": "users",
-          "tableTo": "organizations",
-          "columnsFrom": ["last_active_org_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
           "onUpdate": "no action"
         },
         "users_created_by_users_id_fk": {

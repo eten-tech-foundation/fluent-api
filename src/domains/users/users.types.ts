@@ -49,16 +49,16 @@ export const createUserRequestSchema = z.object({
   lastName: z.string().max(100).optional(),
   status: z.enum(['invited', 'verified', 'inactive']).default('invited'),
   // Grant fields — where and what role to assign the new user
-  orgId: z.number().int(),
-  projectId: z.number().int().optional().nullable(),
+  orgId: z.number().int().positive(),
+  projectId: z.number().int().positive().optional().nullable(),
   roleName: z.string().optional(),
 });
 
 export const inviteUserRequestSchema = z.object({
   username: z.string().min(1).max(100),
   email: z.string().email().max(255),
-  orgId: z.number().int(),
-  projectId: z.number().int().optional().nullable(),
+  orgId: z.number().int().positive(),
+  projectId: z.number().int().positive().optional().nullable(),
   roleName: z.string().optional(),
   orgName: z.string().optional(),
   inviterName: z.string().optional(),

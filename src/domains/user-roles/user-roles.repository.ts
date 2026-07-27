@@ -1,11 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
-import type { Permission } from '@/lib/permissions';
+import type {Permission} from '@/lib/permissions';
 import type { Grant, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { organizations, permissions, role_permissions, roles, user_roles } from '@/db/schema';
 import { logger } from '@/lib/logger';
+import { isPermission  } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 export interface GrantRow {
@@ -24,13 +25,17 @@ export function groupGrantRows(rows: GrantRow[]): Grant[] {
     { orgId: number | null; projectId: number | null; permissions: Set<Permission> }
   >();
   for (const row of rows) {
+    if (!isPermission(row.permission)) {
+      logger.warn({ permission: row.permission }, 'Ignoring unknown permission from DB');
+      continue;
+    }
     const k = key(row.orgId, row.projectId);
     let entry = byScope.get(k);
     if (!entry) {
       entry = { orgId: row.orgId, projectId: row.projectId, permissions: new Set<Permission>() };
       byScope.set(k, entry);
     }
-    entry.permissions.add(row.permission as Permission);
+    entry.permissions.add(row.permission);
   }
   return [...byScope.values()];
 }
