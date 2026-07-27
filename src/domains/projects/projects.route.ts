@@ -218,10 +218,7 @@ server.openapi(createProjectRoute, async (c) => {
       const message = deleteResult.ok
         ? 'Project created but failed to assign creator role. Rolled back.'
         : `Project created but failed to assign creator role, and rollback failed: ${deleteResult.error.message}`;
-      return c.json(
-        { message },
-        HttpStatusCodes.INTERNAL_SERVER_ERROR as never
-      );
+      return c.json({ message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
     }
     return c.json(result.data, HttpStatusCodes.CREATED);
   }

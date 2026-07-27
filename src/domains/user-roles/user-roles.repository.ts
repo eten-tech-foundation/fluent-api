@@ -1,12 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
-import type {Permission} from '@/lib/permissions';
+import type { Permission } from '@/lib/permissions';
 import type { Grant, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { organizations, permissions, role_permissions, roles, user_roles } from '@/db/schema';
 import { logger } from '@/lib/logger';
-import { isPermission  } from '@/lib/permissions';
+import { isPermission } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 export interface GrantRow {
