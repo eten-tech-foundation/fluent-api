@@ -59,6 +59,7 @@ async function startWorker() {
     });
 
     await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+      policy: 'exclusive',
       retryLimit: 3,
       retryDelay: 60,
       retryBackoff: true,

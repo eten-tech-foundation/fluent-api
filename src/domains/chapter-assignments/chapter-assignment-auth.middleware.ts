@@ -64,6 +64,10 @@ export function requireChapterAssignmentAccess(
         allowed = ChapterAssignmentPolicy.delete(policyUser, policyAssignment);
         break;
 
+      case CHAPTER_ASSIGNMENT_ACTIONS.TOGGLE_AI:
+        allowed = ChapterAssignmentPolicy.toggleAi(policyUser, policyAssignment);
+        break;
+
       case CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT:
         allowed = ChapterAssignmentPolicy.isParticipant(
           policyUser,
