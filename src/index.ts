@@ -26,6 +26,15 @@ async function startServer() {
       expireInSeconds: 3600,
     });
 
+    logger.info('Ensuring AI suggestion trigger queue exists');
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+      policy: 'exclusive',
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
+      expireInSeconds: 3600,
+    });
+
     logger.info('Queue ready');
 
     const cleanupInterval = setInterval(() => {
