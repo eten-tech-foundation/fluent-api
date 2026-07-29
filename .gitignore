@@ -97,6 +97,8 @@ bun.lock*
 # AI files
 docs/superpowers/
 .superpowers
+# Agent-created worktrees of other branches (full repo copies)
+.claude/worktrees/
 
 # Local browser-smoke screenshots (never committed)
 .playwright-mcp/
