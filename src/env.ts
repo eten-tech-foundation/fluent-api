@@ -72,8 +72,9 @@ const EnvSchema = z.object({
   // AI suggestion tunables
   AI_ACTIVATION_THRESHOLD_VERSES: z.coerce.number().int().positive().default(500),
   AI_INITIAL_QUEUE_COUNT: z.coerce.number().int().positive().default(3),
-  AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(1),
+  AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(3),
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
+  AI_TRIGGER_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 
   // ── Fluent-AI integration ──────────────────────────────────────────
   // Base URL of the fluent-ai service (no trailing slash, no path suffix).
