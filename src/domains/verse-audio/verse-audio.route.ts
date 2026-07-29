@@ -16,17 +16,13 @@ import { requireVerseAudioAccess } from './verse-audio-auth.middleware';
 import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
-  storageUnavailableSchema,
   VERSE_AUDIO_ACTIONS,
   VERSE_AUDIO_ID_SOURCES,
   verseAudioListResponseSchema,
   verseAudioResponseSchema,
 } from './verse-audio.types';
 
-const STORAGE_UNAVAILABLE_BODY = {
-  error: 'Verse audio is not available',
-  details: 'Audio storage is not configured',
-} as const;
+const STORAGE_UNAVAILABLE_BODY = { message: 'Audio storage is not configured' } as const;
 
 const verseAudioParamsSchema = z.object({
   projectUnitId: z.coerce
@@ -60,7 +56,7 @@ const commonErrorResponses = {
     'Recording, verse, or assignment not found'
   ),
   [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
-    storageUnavailableSchema,
+    createMessageObjectSchema('Audio storage is not configured'),
     'Audio storage is not configured'
   ),
   [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(

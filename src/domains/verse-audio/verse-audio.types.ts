@@ -76,11 +76,6 @@ export const verseAudioListResponseSchema = z.object({
   items: z.array(verseAudioResponseSchema),
 });
 
-export const storageUnavailableSchema = z.object({
-  error: z.string(),
-  details: z.string(),
-});
-
 // ── Const enumerations ───────────────────────────────────────────────────────
 
 export const VERSE_AUDIO_ACTIONS = {
