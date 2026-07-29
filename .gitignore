@@ -96,6 +96,7 @@ bun.lock*
 
 # AI files
 docs/superpowers/
+.superpowers
 
 # Local browser-smoke screenshots (never committed)
 .playwright-mcp/
