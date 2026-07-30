@@ -127,6 +127,13 @@
       "when": 1783595849673,
       "tag": "0017_added_user_session",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783595849674,
+      "tag": "0018_validate_user_session_fks",
+      "breakpoints": true
     }
   ]
 }

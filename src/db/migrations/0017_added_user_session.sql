@@ -1,4 +1,4 @@
 ALTER TABLE "auth_session" ADD COLUMN "active_org_id" integer;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "last_active_org_id" integer;--> statement-breakpoint
-ALTER TABLE "auth_session" ADD CONSTRAINT "auth_session_active_org_id_organizations_id_fk" FOREIGN KEY ("active_org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "users" ADD CONSTRAINT "users_last_active_org_id_organizations_id_fk" FOREIGN KEY ("last_active_org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action;
+ALTER TABLE "auth_session" ADD CONSTRAINT "auth_session_active_org_id_organizations_id_fk" FOREIGN KEY ("active_org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action NOT VALID;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_last_active_org_id_organizations_id_fk" FOREIGN KEY ("last_active_org_id") REFERENCES "public"."organizations"("id") ON DELETE no action ON UPDATE no action NOT VALID;

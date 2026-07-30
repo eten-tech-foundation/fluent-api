@@ -10,10 +10,16 @@ INSERT INTO "roles" ("name") VALUES
   ('Project Observer')
 ON CONFLICT ("name") DO NOTHING;--> statement-breakpoint
 INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
+SELECT u."id", NULL, NULL, r."id", u."id"
+FROM "users" u
+JOIN "roles" r ON r."name" = 'SuperAdmin'
+WHERE u."role" = r."id"
+ON CONFLICT DO NOTHING;--> statement-breakpoint
+INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
 SELECT u."id", u."organization", NULL, r."id", u."id"
 FROM "users" u
-JOIN "roles" r ON r."name" = 'Project Manager'
-WHERE u."role" = r."id"
+JOIN "roles" r ON u."role" = r."id"
+WHERE r."name" <> 'SuperAdmin'
 ON CONFLICT DO NOTHING;--> statement-breakpoint
 INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
 SELECT pu."user_id", u."organization", pu."project_id", r."id", pu."user_id"
