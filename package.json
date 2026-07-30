@@ -27,7 +27,6 @@
     "db:seed:roles": "npx tsx src/db/seeds/roles.ts",
     "db:seed:org": "npx tsx src/db/seeds/organizations.ts",
     "db:seed:dev-users": "npx tsx src/db/seeds/dev-users.ts",
-    "db:migrate-rbac": "npx tsx src/db/scripts/migrate-to-user-central-rbac.ts",
     "db:seed:languages": "npx tsx src/db/seeds/languages.ts",
     "db:seed:books": "npx tsx src/db/seeds/books.ts",
     "db:seed:bibles": "npx tsx src/db/seeds/bibles.ts",

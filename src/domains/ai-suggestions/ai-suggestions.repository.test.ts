@@ -7,6 +7,7 @@ const { mockChain } = vi.hoisted(() => {
   return {
     mockChain: {
       select: vi.fn().mockReturnThis(),
+      selectDistinct: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
       innerJoin: vi.fn().mockReturnThis(),
       leftJoin: vi.fn().mockReturnThis(),
@@ -104,6 +105,32 @@ describe('ai-suggestions.repository', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('PROJECT_UNIT_NOT_FOUND');
       }
+    });
+  });
+
+  describe('findProjectUnitAuthContext', () => {
+    it('returns null when no records match', async () => {
+      mockChain.then.mockImplementationOnce((resolve) => resolve([]));
+
+      const context = await repo.findProjectUnitAuthContext(999);
+      expect(context).toBeNull();
+    });
+
+    it('returns organization ID and filtered member user IDs', async () => {
+      mockChain.then.mockImplementationOnce((resolve) =>
+        resolve([
+          { organizationId: 10, memberUserId: 101 },
+          { organizationId: 10, memberUserId: 102 },
+          { organizationId: 10, memberUserId: null },
+        ])
+      );
+
+      const context = await repo.findProjectUnitAuthContext(1);
+      expect(context).toEqual({
+        organizationId: 10,
+        memberUserIds: [101, 102],
+      });
+      expect(mockChain.selectDistinct).toHaveBeenCalled();
     });
   });
 

@@ -547,23 +547,6 @@ export const user_settings = pgTable('user_settings', {
     .$onUpdate(() => new Date()),
 });
 
-export const project_users = pgTable(
-  'project_users',
-  {
-    projectId: integer('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-    userId: integer('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-    createdAt: timestamp('created_at').defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.userId] }),
-    index('idx_project_users_project').on(table.projectId),
-    index('idx_project_users_user').on(table.userId),
-  ]
-);
 export const permissions = pgTable('permissions', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull().unique(),
@@ -711,7 +694,6 @@ export const selectChapterAssignmentStatusHistorySchema = createSelectSchema(
 export const selectUserChapterAssignmentEditorStateSchema = createSelectSchema(
   user_chapter_assignment_editor_state
 );
-export const selectProjectUsersSchema = createSelectSchema(project_users);
 export const selectUserSettingsSchema = createSelectSchema(user_settings);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
@@ -963,18 +945,6 @@ export const insertUserChapterAssignmentEditorStateSchema = createInsertSchema(
   .omit({
     createdAt: true,
     updatedAt: true,
-  });
-
-export const insertProjectUsersSchema = createInsertSchema(project_users, {
-  projectId: (schema) => schema.int(),
-  userId: (schema) => schema.int(),
-})
-  .required({
-    projectId: true,
-    userId: true,
-  })
-  .omit({
-    createdAt: true,
   });
 
 export const insertUserSettingsSchema = createInsertSchema(user_settings, {

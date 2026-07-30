@@ -11,9 +11,9 @@ import {
   chapter_assignments,
   languages,
   project_units,
-  project_users,
   projects,
   translated_verses,
+  user_roles,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -27,13 +27,13 @@ export async function findProjectUnitAuthContext(
   projectUnitId: number
 ): Promise<ProjectUnitAuthContext | null> {
   const records = await db
-    .select({
+    .selectDistinct({
       organizationId: projects.organization,
-      memberUserId: project_users.userId,
+      memberUserId: user_roles.userId,
     })
     .from(project_units)
     .innerJoin(projects, eq(project_units.projectId, projects.id))
-    .leftJoin(project_users, eq(project_users.projectId, projects.id))
+    .leftJoin(user_roles, eq(user_roles.projectId, projects.id))
     .where(eq(project_units.id, projectUnitId));
 
   if (records.length === 0) return null;

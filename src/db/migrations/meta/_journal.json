@@ -110,29 +110,22 @@
     {
       "idx": 15,
       "version": "7",
-      "when": 1781161896900,
+      "when": 1783595849671,
       "tag": "0015_create_user_role_grants",
       "breakpoints": true
     },
     {
       "idx": 16,
       "version": "7",
-      "when": 1781162563413,
+      "when": 1783595849672,
       "tag": "0016_drop_legacy_rbac_columns",
       "breakpoints": true
     },
     {
       "idx": 17,
       "version": "7",
-      "when": 1781182166615,
-      "tag": "0017_add_user_roles_unique_index",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1781503992107,
-      "tag": "0018_added_user_session",
+      "when": 1783595849673,
+      "tag": "0017_added_user_session",
       "breakpoints": true
     }
   ]
