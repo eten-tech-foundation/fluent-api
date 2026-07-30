@@ -4,7 +4,7 @@ If you need to roll back production to a previous version, **do not just re-run 
 
 Re-running the workflow unconditionally runs the `migrate-prod` step, which will attempt to run database migrations. If the bad release included database schema changes, simply deploying the old application code against the new schema will likely cause errors.
 
-### To Rollback Safely:
+## To Rollback Safely:
 
 1. **Verify Database Compatibility:** Determine if the bad release included any database migrations. If it did, you must either write a downward migration (and deploy forward) or manually intervene in the database.
 2. If there are no schema changes or downward migrations are safe, the recommended way to roll back is to deploy forward. Cut a hotfix (see `prod-emergency-hotfix.md`) that reverts the bad commit, and push a new tag.
