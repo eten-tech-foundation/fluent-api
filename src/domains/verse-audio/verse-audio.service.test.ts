@@ -11,19 +11,29 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { VerseAudioRecord } from './verse-audio.types';
 
+import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
 import {
   deleteRecording,
   getRecording,
   listChapterRecordings,
+  reclaimOrphanedStorageObjects,
   uploadRecording,
 } from './verse-audio.service';
 
 vi.mock('@/lib/audio-storage', () => ({
   audioBlobName: vi.fn((unitId: number, textId: number) => `unit-${unitId}/text-${textId}`),
+  audioBucket: vi.fn(() => 'verse-audio'),
   uploadVerseAudio: vi.fn(async () => {}),
   deleteVerseAudio: vi.fn(async () => {}),
-  generateAudioDownloadUrl: vi.fn(() => 'https://blob.example/unit-12/text-3401?sas'),
+  // R2 presigning is async, unlike Azure's synchronous SAS builder.
+  generateAudioDownloadUrl: vi.fn(async () => 'https://r2.example/unit-12/text-3401?sig=x'),
+}));
+
+vi.mock('./storage-objects.repository', () => ({
+  claim: vi.fn(),
+  markDeleted: vi.fn(),
+  findOrphans: vi.fn(),
 }));
 
 vi.mock('./verse-audio.repository', () => ({
@@ -42,6 +52,7 @@ const record: VerseAudioRecord = {
   projectUnitId: 12,
   bibleTextId: 3401,
   uploadedBy: 7,
+  storageObjectId: 55,
   contentType: 'audio/mp4',
   sizeBytes: 4,
   durationSeconds: 12.5,
@@ -59,9 +70,24 @@ const uploadInput = {
   durationSeconds: 12.5,
 };
 
+// What routes see: the internal storage link is stripped from responses.
+const { storageObjectId: _hidden, ...publicRecord } = record;
+
 describe('verse-audio service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations, so re-arm the ones a previous test
+    // may have pointed at a rejection.
+    vi.mocked(storageRepo.claim).mockResolvedValue(
+      ok({
+        id: 55,
+        bucket: 'verse-audio',
+        key: 'unit-12/text-3401',
+        createdAt: new Date(),
+        deletedAt: null,
+      })
+    );
+    vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
   });
@@ -81,12 +107,13 @@ describe('verse-audio service', () => {
         projectUnitId: 12,
         bibleTextId: 3401,
         uploadedBy: 7,
+        storageObjectId: 55,
         contentType: 'audio/mp4',
         sizeBytes: 4,
         durationSeconds: 12.5,
       });
       expect(result).toEqual(
-        ok({ ...record, downloadUrl: 'https://blob.example/unit-12/text-3401?sas' })
+        ok({ ...publicRecord, downloadUrl: 'https://r2.example/unit-12/text-3401?sig=x' })
       );
     });
 
@@ -106,7 +133,7 @@ describe('verse-audio service', () => {
     });
 
     it('returns INTERNAL_ERROR and skips the DB when the blob upload throws', async () => {
-      vi.mocked(uploadVerseAudio).mockRejectedValue(new Error('azure down'));
+      vi.mocked(uploadVerseAudio).mockRejectedValue(new Error('r2 down'));
 
       const result = await uploadRecording(uploadInput);
 
@@ -140,7 +167,7 @@ describe('verse-audio service', () => {
       expect(repo.get).toHaveBeenCalledWith(12, 3401);
       expect(audioBlobName).toHaveBeenCalledWith(12, 3401);
       expect(result).toEqual(
-        ok({ ...record, downloadUrl: 'https://blob.example/unit-12/text-3401?sas' })
+        ok({ ...publicRecord, downloadUrl: 'https://r2.example/unit-12/text-3401?sig=x' })
       );
     });
 
@@ -194,12 +221,104 @@ describe('verse-audio service', () => {
 
     it('returns INTERNAL_ERROR and keeps the row when blob deletion throws', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
-      vi.mocked(deleteVerseAudio).mockRejectedValue(new Error('azure down'));
+      vi.mocked(deleteVerseAudio).mockRejectedValue(new Error('r2 down'));
 
       const result = await deleteRecording(12, 3401);
 
       expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
       expect(repo.remove).not.toHaveBeenCalled();
+    });
+
+    it('stamps the storage row as deleted once the object is gone', async () => {
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
+
+      await deleteRecording(12, 3401);
+
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(55);
+    });
+  });
+
+  describe('storage object tracking', () => {
+    it('claims the storage row before writing the object', async () => {
+      const order: string[] = [];
+      vi.mocked(storageRepo.claim).mockImplementation(async () => {
+        order.push('claim');
+        return ok({
+          id: 55,
+          bucket: 'verse-audio',
+          key: 'unit-12/text-3401',
+          createdAt: new Date(),
+          deletedAt: null,
+        });
+      });
+      vi.mocked(uploadVerseAudio).mockImplementation(async () => {
+        order.push('upload');
+      });
+      vi.mocked(repo.upsert).mockResolvedValue(ok(record));
+
+      await uploadRecording(uploadInput);
+
+      // Claim first: a crash between the two leaves a reclaimable marker rather
+      // than bytes nothing knows about.
+      expect(order).toEqual(['claim', 'upload']);
+      expect(storageRepo.claim).toHaveBeenCalledWith('verse-audio', 'unit-12/text-3401');
+    });
+
+    it('does not upload when the storage row cannot be claimed', async () => {
+      vi.mocked(storageRepo.claim).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+      const result = await uploadRecording(uploadInput);
+
+      expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
+      expect(uploadVerseAudio).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reclaimOrphanedStorageObjects', () => {
+    const orphan = (id: number, key: string) => ({
+      id,
+      key,
+      bucket: 'verse-audio',
+      createdAt: new Date(),
+      deletedAt: null,
+    });
+
+    it('deletes each orphaned object and stamps its row', async () => {
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(
+        ok([orphan(1, 'unit-9/text-1'), orphan(2, 'unit-9/text-2')])
+      );
+
+      const result = await reclaimOrphanedStorageObjects();
+
+      expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(1);
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
+      expect(result).toEqual(ok(2));
+    });
+
+    it('leaves a row unstamped when its object fails to delete, so the next sweep retries', async () => {
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(
+        ok([orphan(1, 'unit-9/text-1'), orphan(2, 'unit-9/text-2')])
+      );
+      vi.mocked(deleteVerseAudio)
+        .mockRejectedValueOnce(new Error('r2 down'))
+        .mockResolvedValueOnce(undefined);
+
+      const result = await reclaimOrphanedStorageObjects();
+
+      expect(storageRepo.markDeleted).not.toHaveBeenCalledWith(1);
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
+      expect(result).toEqual(ok(1));
+    });
+
+    it('is a no-op when nothing is orphaned', async () => {
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([]));
+
+      const result = await reclaimOrphanedStorageObjects();
+
+      expect(deleteVerseAudio).not.toHaveBeenCalled();
+      expect(result).toEqual(ok(0));
     });
   });
 });

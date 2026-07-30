@@ -26,6 +26,8 @@ export interface VerseAudioRecord {
   projectUnitId: number;
   bibleTextId: number;
   uploadedBy: number;
+  /** Row in storage_objects that tracks the bytes, for orphan reclaim. */
+  storageObjectId: number | null;
   contentType: string;
   sizeBytes: number;
   durationSeconds: number | null;
@@ -34,7 +36,8 @@ export interface VerseAudioRecord {
   updatedAt: Date;
 }
 
-export interface VerseAudioWithUrl extends VerseAudioRecord {
+/** What routes return: storageObjectId is internal bookkeeping, never on the wire. */
+export interface VerseAudioWithUrl extends Omit<VerseAudioRecord, 'storageObjectId'> {
   downloadUrl: string;
 }
 
@@ -42,6 +45,7 @@ export interface UpsertVerseAudioInput {
   projectUnitId: number;
   bibleTextId: number;
   uploadedBy: number;
+  storageObjectId: number;
   contentType: string;
   sizeBytes: number;
   durationSeconds?: number | null;

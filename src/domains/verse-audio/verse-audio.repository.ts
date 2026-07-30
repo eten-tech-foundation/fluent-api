@@ -14,6 +14,7 @@ const recordSelection = {
   projectUnitId: verse_audio_recordings.projectUnitId,
   bibleTextId: verse_audio_recordings.bibleTextId,
   uploadedBy: verse_audio_recordings.uploadedBy,
+  storageObjectId: verse_audio_recordings.storageObjectId,
   contentType: verse_audio_recordings.contentType,
   sizeBytes: verse_audio_recordings.sizeBytes,
   durationSeconds: verse_audio_recordings.durationSeconds,
@@ -93,6 +94,7 @@ export async function upsert(input: UpsertVerseAudioInput): Promise<Result<Verse
         target: [verse_audio_recordings.projectUnitId, verse_audio_recordings.bibleTextId],
         set: {
           uploadedBy: sql`excluded.uploaded_by`,
+          storageObjectId: sql`excluded.storage_object_id`,
           contentType: sql`excluded.content_type`,
           sizeBytes: sql`excluded.size_bytes`,
           durationSeconds: sql`excluded.duration_seconds`,

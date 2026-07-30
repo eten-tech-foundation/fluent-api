@@ -363,6 +363,36 @@ export const translated_verses = pgTable(
   ]
 );
 
+/**
+ * Every object this API writes to cloud storage, so a row can always be traced
+ * back to bytes that need reclaiming.
+ *
+ * Postgres cannot delete an object in a bucket, so cascades alone can never keep
+ * storage clean: dropping a project unit cascades its recordings away and would
+ * silently strand their audio. Rows here are therefore NOT cascade-deleted —
+ * when the owning recording disappears, this row survives as the marker the
+ * reclaim sweep uses to delete the object and stamp deletedAt.
+ *
+ * Chosen over a DB trigger writing a tombstone queue (reviewer call on PR #224):
+ * triggers are invisible from application code, which rots without a dedicated
+ * DBA.
+ */
+export const storage_objects = pgTable(
+  'storage_objects',
+  {
+    id: serial('id').primaryKey(),
+    bucket: varchar('bucket').notNull(),
+    key: varchar('key').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    /** Set once the object has actually been removed from the bucket. */
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_storage_object_bucket_key').on(table.bucket, table.key),
+    index('idx_storage_objects_unreclaimed').on(table.deletedAt),
+  ]
+);
+
 export const verse_audio_recordings = pgTable(
   'verse_audio_recordings',
   {
@@ -376,6 +406,9 @@ export const verse_audio_recordings = pgTable(
     uploadedBy: integer('uploaded_by')
       .notNull()
       .references(() => users.id),
+    // Deliberately no cascade: the storage row must outlive the recording so the
+    // sweep can still find and delete the object it points at.
+    storageObjectId: integer('storage_object_id').references(() => storage_objects.id),
     contentType: varchar('content_type').notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     durationSeconds: real('duration_seconds'),

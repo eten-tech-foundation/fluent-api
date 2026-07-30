@@ -57,12 +57,23 @@ const EnvSchema = z.object({
   BETTER_AUTH_SESSION_EXPIRY_SECONDS: z.coerce.number().default(60 * 60 * 24 * 7), // 7 days
   APPLICATIONINSIGHTS_CONNECTION_STRING: z.string(),
 
-  // ── Verse audio storage ────────────────────────────────────────────────
-  // Azure Blob Storage connection string (Azurite locally). When unset, the
-  // verse-audio routes respond 503 and the rest of the API is unaffected.
-  AZURE_STORAGE_CONNECTION_STRING: z.string().optional(),
-  // Container holding verse audio recordings (persistent — no TTL).
-  AUDIO_CONTAINER: z.string().default('verse-audio'),
+  // ── Verse audio storage (Cloudflare R2) ────────────────────────────────
+  // Credentials are optional: when any is unset the verse-audio routes respond
+  // 503 and the rest of the API is unaffected. The audio bucket MUST be created
+  // in the EU jurisdiction so files at rest stay in the EU (GDPR) — see
+  // .env.example. Local dev: MinIO or a real R2 dev bucket.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  // Jurisdiction segment of the R2 endpoint
+  // ({account}.{jurisdiction}.r2.cloudflarestorage.com). 'eu' pins data at rest
+  // to the EU (GDPR); 'default' uses the un-pinned global endpoint.
+  R2_JURISDICTION: z.string().default('eu'),
+  // Bucket dedicated to verse audio — deliberately separate from the exports
+  // bucket, whose contents are swept on a TTL. Recordings are permanent.
+  R2_AUDIO_BUCKET: z.string().default('verse-audio'),
+  // How often orphaned storage objects are reclaimed (see storage_objects).
+  AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
 
   EMAIL_SERVICE_API_KEY: z.string(),
   EMAIL_SERVICE_DOMAIN: z.string(),

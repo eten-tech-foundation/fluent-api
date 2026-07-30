@@ -2,6 +2,7 @@ import type { Result } from '@/lib/types';
 
 import {
   audioBlobName,
+  audioBucket,
   deleteVerseAudio,
   generateAudioDownloadUrl,
   uploadVerseAudio,
@@ -15,13 +16,17 @@ import type {
   VerseAudioWithUrl,
 } from './verse-audio.types';
 
+import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
 import { ALLOWED_AUDIO_CONTENT_TYPES } from './verse-audio.types';
 
-function withUrl(record: VerseAudioRecord): VerseAudioWithUrl {
+async function withUrl(record: VerseAudioRecord): Promise<VerseAudioWithUrl> {
+  const { storageObjectId: _internal, ...response } = record;
   return {
-    ...record,
-    downloadUrl: generateAudioDownloadUrl(audioBlobName(record.projectUnitId, record.bibleTextId)),
+    ...response,
+    downloadUrl: await generateAudioDownloadUrl(
+      audioBlobName(record.projectUnitId, record.bibleTextId)
+    ),
   };
 }
 
@@ -35,18 +40,26 @@ export async function uploadRecording(
     return err(ErrorCode.EMPTY_AUDIO_FILE);
   }
 
-  const blobName = audioBlobName(input.projectUnitId, input.bibleTextId);
+  const key = audioBlobName(input.projectUnitId, input.bibleTextId);
 
-  // Blob first, row second: if the row write fails the blob holds the new
-  // bytes with stale metadata, and the next successful upload heals it
-  // (deterministic name ⇒ in-place overwrite).
+  // Claim the storage row BEFORE writing the object: if the write succeeds but
+  // this process dies before the metadata row lands, the claim is already there
+  // and the reclaim sweep can free the bytes. A claim with no object behind it
+  // is harmless — deleting a missing key is a no-op on R2.
+  const claim = await storageRepo.claim(audioBucket(), key);
+  if (!claim.ok) {
+    return claim;
+  }
+
+  // Object next, metadata row last. The key is deterministic, so a re-recording
+  // overwrites in place and the next successful upload heals any stale row.
   try {
-    await uploadVerseAudio(blobName, input.data, input.contentType);
+    await uploadVerseAudio(key, input.data, input.contentType);
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to upload verse audio blob',
-      context: { blobName, contentType: input.contentType, sizeBytes: input.data.length },
+      message: 'Failed to upload verse audio object',
+      context: { key, contentType: input.contentType, sizeBytes: input.data.length },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -55,6 +68,7 @@ export async function uploadRecording(
     projectUnitId: input.projectUnitId,
     bibleTextId: input.bibleTextId,
     uploadedBy: input.uploadedBy,
+    storageObjectId: claim.data.id,
     contentType: input.contentType,
     sizeBytes: input.data.length,
     durationSeconds: input.durationSeconds ?? null,
@@ -64,7 +78,7 @@ export async function uploadRecording(
     return result;
   }
 
-  return ok(withUrl(result.data));
+  return ok(await withUrl(result.data));
 }
 
 export async function getRecording(
@@ -75,7 +89,7 @@ export async function getRecording(
   if (!result.ok) {
     return result;
   }
-  return ok(withUrl(result.data));
+  return ok(await withUrl(result.data));
 }
 
 export async function listChapterRecordings(
@@ -87,7 +101,7 @@ export async function listChapterRecordings(
   if (!result.ok) {
     return result;
   }
-  return ok(result.data.map((recording) => withUrl(recording)));
+  return ok(await Promise.all(result.data.map((recording) => withUrl(recording))));
 }
 
 export async function deleteRecording(
@@ -99,17 +113,64 @@ export async function deleteRecording(
     return existing;
   }
 
-  const blobName = audioBlobName(projectUnitId, bibleTextId);
+  const key = audioBlobName(projectUnitId, bibleTextId);
   try {
-    await deleteVerseAudio(blobName);
+    await deleteVerseAudio(key);
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to delete verse audio blob',
-      context: { blobName },
+      message: 'Failed to delete verse audio object',
+      context: { key },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 
-  return repo.remove(projectUnitId, bibleTextId);
+  const removed = await repo.remove(projectUnitId, bibleTextId);
+  if (!removed.ok) {
+    return removed;
+  }
+
+  // Best effort: the object is already gone, so a failure here only leaves a
+  // stale claim that the next sweep re-deletes (idempotently) and stamps.
+  if (existing.data.storageObjectId !== null) {
+    await storageRepo.markDeleted(existing.data.storageObjectId);
+  }
+
+  return ok(undefined);
+}
+
+/**
+ * Deletes objects nothing references any more and stamps their rows.
+ *
+ * This is the counterpart to the cascade: dropping a project unit cascades its
+ * recordings away, but Postgres cannot touch a bucket, so without this the audio
+ * would sit there forever. Runs on an interval from the server entrypoint.
+ */
+export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
+  const orphans = await storageRepo.findOrphans();
+  if (!orphans.ok) {
+    return orphans;
+  }
+
+  let reclaimed = 0;
+  for (const orphan of orphans.data) {
+    try {
+      await deleteVerseAudio(orphan.key);
+    } catch (error) {
+      // Leave the row unstamped so the next sweep retries this object.
+      logger.error({
+        cause: error,
+        message: 'Failed to reclaim orphaned storage object',
+        context: { bucket: orphan.bucket, key: orphan.key },
+      });
+      continue;
+    }
+    await storageRepo.markDeleted(orphan.id);
+    reclaimed++;
+  }
+
+  if (reclaimed > 0) {
+    logger.info('Reclaimed orphaned verse audio objects', { reclaimed });
+  }
+  return ok(reclaimed);
 }
