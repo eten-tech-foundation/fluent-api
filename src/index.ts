@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server';
 
 import { reclaimOrphanedStorageObjects } from '@/domains/verse-audio/verse-audio.service';
 import env from '@/env';
-import { isAudioStorageConfigured } from '@/lib/audio-storage';
+import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-storage';
 import { cleanupExpiredFiles, initializeFileStorage } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
@@ -47,14 +47,23 @@ async function startServer() {
 
     // Deleting a project unit cascades its recordings away, but Postgres cannot
     // delete an object in a bucket — this sweep is what actually frees those
-    // bytes. Skipped entirely when R2 is unconfigured (audio is then off).
-    const audioReclaimInterval = isAudioStorageConfigured()
-      ? setInterval(() => {
+    // bytes. It only starts once the bucket has answered, so bad credentials or
+    // a missing bucket surface here instead of as an hourly failing sweep. Audio
+    // being optional, a failed probe is logged and the API keeps serving (the
+    // routes then fail per-request rather than taking the whole server down).
+    let audioReclaimInterval: NodeJS.Timeout | null = null;
+    if (isAudioStorageConfigured()) {
+      try {
+        await initializeAudioStorage();
+        audioReclaimInterval = setInterval(() => {
           reclaimOrphanedStorageObjects().catch((error) => {
             logger.error('Verse audio reclaim task failed', { error });
           });
-        }, env.AUDIO_RECLAIM_INTERVAL_MS)
-      : null;
+        }, env.AUDIO_RECLAIM_INTERVAL_MS);
+      } catch (error) {
+        logger.error('Verse audio storage unavailable; reclaim sweep disabled', { error });
+      }
+    }
 
     const server = serve({
       fetch: app.fetch,

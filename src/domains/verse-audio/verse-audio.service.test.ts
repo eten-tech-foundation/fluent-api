@@ -198,14 +198,14 @@ describe('verse-audio service', () => {
   });
 
   describe('deleteRecording', () => {
-    it('deletes the blob then the row', async () => {
+    it('removes the row then the object', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
       vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
 
       const result = await deleteRecording(12, 3401);
 
-      expect(deleteVerseAudio).toHaveBeenCalledWith('unit-12/text-3401');
       expect(repo.remove).toHaveBeenCalledWith(12, 3401);
+      expect(deleteVerseAudio).toHaveBeenCalledWith('unit-12/text-3401');
       expect(result).toEqual(ok(undefined));
     });
 
@@ -219,14 +219,27 @@ describe('verse-audio service', () => {
       expect(repo.remove).not.toHaveBeenCalled();
     });
 
-    it('returns INTERNAL_ERROR and keeps the row when blob deletion throws', async () => {
+    it('still succeeds when the object delete fails, leaving it to the sweep', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
       vi.mocked(deleteVerseAudio).mockRejectedValue(new Error('r2 down'));
 
       const result = await deleteRecording(12, 3401);
 
+      // The row is gone, so the storage row is now an orphan the sweep collects.
+      // Reporting failure here would invite a retry that can no longer help.
+      expect(result).toEqual(ok(undefined));
+      expect(storageRepo.markDeleted).not.toHaveBeenCalled();
+    });
+
+    it('touches no bytes when the row delete fails, so a retry is safe', async () => {
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.remove).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+      const result = await deleteRecording(12, 3401);
+
       expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
-      expect(repo.remove).not.toHaveBeenCalled();
+      expect(deleteVerseAudio).not.toHaveBeenCalled();
     });
 
     it('stamps the storage row as deleted once the object is gone', async () => {
@@ -291,6 +304,8 @@ describe('verse-audio service', () => {
 
       const result = await reclaimOrphanedStorageObjects();
 
+      // The sweep must never consider rows younger than the grace period.
+      expect(storageRepo.findOrphans).toHaveBeenCalledWith(expect.any(Number));
       expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(1);
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);

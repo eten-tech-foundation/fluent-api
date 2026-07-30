@@ -52,6 +52,8 @@ export function audioBlobName(projectUnitId: number, bibleTextId: number): strin
  *   default  → https://{account}.r2.cloudflarestorage.com      (no pin)
  */
 function buildR2Endpoint(accountId: string): string {
+  // Explicit override wins — that is how local dev points at MinIO.
+  if (env.R2_ENDPOINT) return env.R2_ENDPOINT;
   const jurisdiction = env.R2_JURISDICTION.trim().toLowerCase();
   const segment = jurisdiction && jurisdiction !== 'default' ? `${jurisdiction}.` : '';
   return `https://${accountId}.${segment}r2.cloudflarestorage.com`;
@@ -74,6 +76,9 @@ function getS3Client(): S3Client {
     // style would fold the bucket into the host and break the jurisdiction host.
     forcePathStyle: true,
     credentials: { accessKeyId, secretAccessKey },
+    // The SDK's Node handler defaults to NO timeouts, so an unreachable bucket
+    // would hang an upload, a delete or the reclaim sweep indefinitely.
+    requestHandler: { connectionTimeout: 5_000, requestTimeout: 30_000 },
   });
   return s3Client;
 }

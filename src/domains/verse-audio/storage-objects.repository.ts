@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -28,7 +28,11 @@ export async function claim(bucket: string, key: string): Promise<Result<Storage
       .values({ bucket, key })
       .onConflictDoUpdate({
         target: [storage_objects.bucket, storage_objects.key],
-        set: { deletedAt: null },
+        // createdAt is refreshed as well as deletedAt cleared: it is what the
+        // reclaim grace period keys off, so a revived row must look new. Without
+        // this, a sweep running between claim and the metadata write could treat
+        // a freshly re-uploaded object as a long-dead orphan and delete it.
+        set: { deletedAt: null, createdAt: new Date() },
       })
       .returning();
 
@@ -65,8 +69,17 @@ export async function markDeleted(id: number): Promise<Result<void>> {
  * Live objects no recording points at any more — the cascade-deleted case. These
  * are exactly the rows whose bytes are still sitting in the bucket with nothing
  * referencing them.
+ *
+ * `graceMs` excludes rows claimed very recently. An upload claims its row before
+ * writing the object and only then writes the metadata row, so for a moment a
+ * perfectly healthy upload looks orphaned; the grace period keeps the sweep off
+ * anything that young. Legitimately orphaned rows (a dropped project unit, a
+ * crashed upload) simply get collected on a later pass.
  */
-export async function findOrphans(limit = 500): Promise<Result<StorageObjectRecord[]>> {
+export async function findOrphans(
+  graceMs: number,
+  limit = 500
+): Promise<Result<StorageObjectRecord[]>> {
   try {
     const rows = await db
       .select({
@@ -80,6 +93,7 @@ export async function findOrphans(limit = 500): Promise<Result<StorageObjectReco
       .where(
         and(
           isNull(storage_objects.deletedAt),
+          lt(storage_objects.createdAt, new Date(Date.now() - graceMs)),
           sql`NOT EXISTS (
             SELECT 1 FROM ${verse_audio_recordings}
             WHERE ${verse_audio_recordings.storageObjectId} = ${storage_objects.id}

@@ -72,8 +72,16 @@ const EnvSchema = z.object({
   // Bucket dedicated to verse audio — deliberately separate from the exports
   // bucket, whose contents are swept on a TTL. Recordings are permanent.
   R2_AUDIO_BUCKET: z.string().default('verse-audio'),
+  // Overrides the derived R2 endpoint. Only for pointing local dev at an
+  // S3-compatible server (MinIO); leave unset against real R2 so the
+  // jurisdiction stays pinned by the derived host.
+  R2_ENDPOINT: z.string().url().optional(),
   // How often orphaned storage objects are reclaimed (see storage_objects).
   AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  // How long a storage row is left alone before the sweep may reclaim it. An
+  // upload claims its row before writing the object, so it briefly looks
+  // orphaned; this keeps the sweep off anything that young.
+  AUDIO_RECLAIM_GRACE_MS: z.coerce.number().int().positive().default(3600000),
 
   EMAIL_SERVICE_API_KEY: z.string(),
   EMAIL_SERVICE_DOMAIN: z.string(),

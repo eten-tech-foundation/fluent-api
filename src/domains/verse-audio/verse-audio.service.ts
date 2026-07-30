@@ -1,5 +1,6 @@
 import type { Result } from '@/lib/types';
 
+import env from '@/env';
 import {
   audioBlobName,
   audioBucket,
@@ -113,25 +114,28 @@ export async function deleteRecording(
     return existing;
   }
 
+  // Row first, bytes second. If the row write fails nothing has been destroyed
+  // and the caller can retry; if the object delete then fails, the row is
+  // already gone so the storage row is an orphan and the sweep collects it.
+  // (Deleting bytes first would strand a recording pointing at nothing, which
+  // no amount of sweeping can repair.)
+  const removed = await repo.remove(projectUnitId, bibleTextId);
+  if (!removed.ok) {
+    return removed;
+  }
+
   const key = audioBlobName(projectUnitId, bibleTextId);
   try {
     await deleteVerseAudio(key);
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to delete verse audio object',
+      message: 'Verse audio object delete failed; left for the reclaim sweep',
       context: { key },
     });
-    return err(ErrorCode.INTERNAL_ERROR);
+    return ok(undefined);
   }
 
-  const removed = await repo.remove(projectUnitId, bibleTextId);
-  if (!removed.ok) {
-    return removed;
-  }
-
-  // Best effort: the object is already gone, so a failure here only leaves a
-  // stale claim that the next sweep re-deletes (idempotently) and stamps.
   if (existing.data.storageObjectId !== null) {
     await storageRepo.markDeleted(existing.data.storageObjectId);
   }
@@ -147,7 +151,7 @@ export async function deleteRecording(
  * would sit there forever. Runs on an interval from the server entrypoint.
  */
 export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
-  const orphans = await storageRepo.findOrphans();
+  const orphans = await storageRepo.findOrphans(env.AUDIO_RECLAIM_GRACE_MS);
   if (!orphans.ok) {
     return orphans;
   }
