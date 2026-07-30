@@ -6,7 +6,7 @@ Across the Fluent repositories, we use Calendar Versioning (CalVer) for release 
 
 We use the strict format:
 
-```
+```text
 YY.MM.SERIAL
 ```
 
@@ -33,7 +33,7 @@ In these repositories, production deployments are strictly **Tag-Based**.
 3. Pushing the `v*.*.*` tag automatically triggers the **Post-merge Deploy** workflow.
 4. The deployment runner checks out the exact tag.
 5. To inject the version into the build without crashing Strict SemVer parsers (like `npm`), the CI pipeline dynamically parses the configuration using tools like `jq` or env vars (`VITE_APP_VERSION`), completely bypassing `npm version`.
-6. The app is built with frozen lockfiles and securely deployed to Azure.
+6. The app is built and securely deployed to Azure. (`fluent-web` enforces `--frozen-lockfile` for reproducible rollbacks.)
 
 ### `fluent-ai` (Manual)
 
