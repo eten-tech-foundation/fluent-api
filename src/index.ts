@@ -5,6 +5,8 @@ import env from '@/env';
 import { cleanupExpiredFiles, initializeFileStorage } from '@/lib/file-storage';
 import { logger } from '@/lib/logger';
 import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import { registerAiTriggerWorker } from '@/workers/ai-trigger.worker';
+import { registerUSFMExportWorker } from '@/workers/usfm-export.worker';
 
 import app from './app';
 
@@ -36,6 +38,10 @@ async function startServer() {
     });
 
     logger.info('Queue ready');
+
+    // Register workers in-process to avoid dual-container memory crashes on Azure
+    await registerUSFMExportWorker(boss, {});
+    await registerAiTriggerWorker(boss, {});
 
     const cleanupInterval = setInterval(() => {
       cleanupExpiredFiles().catch((error) => {
