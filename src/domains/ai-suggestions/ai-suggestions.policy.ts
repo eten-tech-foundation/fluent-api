@@ -5,29 +5,19 @@ import { authorize } from '@/lib/services/permissions/authorize';
 
 export interface ProjectUnitAuthContext {
   organizationId: number;
-  memberUserIds: number[];
+  projectId: number;
 }
 
 export class AiSuggestionsPolicy {
   /**
    * Determines if a user can access AI suggestions for a specific project unit.
-   * Project Managers can access if they belong to the same organization.
-   * Translators can access if they are assigned as a member of the project.
+   * Checks if the user has project view or content update permissions within the project scope.
    */
   static canAccessProjectUnit(user: AppPolicyUser, context: ProjectUnitAuthContext): boolean {
-    const scope = { orgId: context.organizationId, projectId: null };
-    const isManager =
-      authorize(user, PERMISSIONS.PROJECT_CREATE, scope) ||
-      authorize(user, PERMISSIONS.PROJECT_UPDATE, scope);
-
-    if (isManager) {
-      return true;
-    }
-
-    if (context.memberUserIds.includes(user.id)) {
-      return true;
-    }
-
-    return false;
+    const scope = { orgId: context.organizationId, projectId: context.projectId };
+    return (
+      authorize(user, PERMISSIONS.PROJECT_VIEW, scope) ||
+      authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)
+    );
   }
 }

@@ -13,7 +13,6 @@ import {
   project_units,
   projects,
   translated_verses,
-  user_roles,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -27,20 +26,20 @@ export async function findProjectUnitAuthContext(
   projectUnitId: number
 ): Promise<ProjectUnitAuthContext | null> {
   const records = await db
-    .selectDistinct({
+    .select({
       organizationId: projects.organization,
-      memberUserId: user_roles.userId,
+      projectId: projects.id,
     })
     .from(project_units)
     .innerJoin(projects, eq(project_units.projectId, projects.id))
-    .leftJoin(user_roles, eq(user_roles.projectId, projects.id))
-    .where(eq(project_units.id, projectUnitId));
+    .where(eq(project_units.id, projectUnitId))
+    .limit(1);
 
   if (records.length === 0) return null;
 
   return {
     organizationId: records[0].organizationId,
-    memberUserIds: records.map((r) => r.memberUserId).filter((id): id is number => id !== null),
+    projectId: records[0].projectId,
   };
 }
 

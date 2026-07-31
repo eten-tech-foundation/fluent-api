@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as projectsService from '@/domains/projects/projects.service';
+import * as projectUsersService from '@/domains/projects/users/project-users.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
@@ -23,6 +25,8 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/db', () => {
   const chain = {
     from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue([]),
   };
@@ -41,6 +45,14 @@ vi.mock('@/domains/users/users.service', () => ({
 
 vi.mock('@/domains/user-roles/user-roles.repository', () => ({
   findGrantsByUserId: vi.fn(),
+}));
+
+vi.mock('@/domains/projects/projects.service', () => ({
+  getProjectById: vi.fn(),
+}));
+
+vi.mock('@/domains/projects/users/project-users.service', () => ({
+  resolveIsProjectMember: vi.fn(),
 }));
 
 vi.mock('./ai-tools.service', () => ({
@@ -86,7 +98,7 @@ function buildEnvelope(overrides: Record<string, unknown> = {}) {
 }
 
 /** Authenticate as APP_USER with the given permission grant. */
-function asAuthenticatedUser(granted: boolean) {
+function asAuthenticatedUser(granted: boolean, isMember = true, projectOk = true) {
   (auth.api.getSession as any).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
@@ -95,9 +107,32 @@ function asAuthenticatedUser(granted: boolean) {
   (findGrantsByUserId as any).mockResolvedValue({
     ok: true,
     data: granted
-      ? [{ orgId: null, projectId: null, permissions: new Set([PERMISSIONS.AI_TOOLS_USE]) }]
+      ? [
+          {
+            orgId: 1,
+            projectId: 1,
+            permissions: new Set([PERMISSIONS.AI_TOOLS_USE, PERMISSIONS.PROJECT_VIEW]),
+          },
+        ]
       : [],
   });
+
+  const getProjectById = vi.mocked(projectsService.getProjectById);
+  const resolveIsProjectMember = vi.mocked(projectUsersService.resolveIsProjectMember);
+
+  if (projectOk) {
+    getProjectById.mockResolvedValue({
+      ok: true,
+      data: { id: 1, name: 'Test Project', organization: 1 } as any,
+    });
+  } else {
+    getProjectById.mockResolvedValue({
+      ok: false,
+      error: { code: ErrorCode.PROJECT_NOT_FOUND, message: 'Project not found' },
+    });
+  }
+
+  resolveIsProjectMember.mockResolvedValue(isMember);
 }
 
 function postRepeatedWords(body: unknown, headers: Record<string, string> = {}) {
@@ -128,6 +163,15 @@ describe('pOST /ai/tools/greek-room/repeated-words', () => {
     const res = await postRepeatedWords(VALID_BODY);
 
     expect(res.status).toBe(403);
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the caller cannot access the requested project', async () => {
+    asAuthenticatedUser(true, false, false);
+
+    const res = await postRepeatedWords(VALID_BODY);
+
+    expect(res.status).toBe(404);
     expect(callRepeatedWords).not.toHaveBeenCalled();
   });
 

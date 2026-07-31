@@ -116,21 +116,17 @@ describe('ai-suggestions.repository', () => {
       expect(context).toBeNull();
     });
 
-    it('returns organization ID and filtered member user IDs', async () => {
+    it('returns organization ID and project ID', async () => {
       mockChain.then.mockImplementationOnce((resolve) =>
-        resolve([
-          { organizationId: 10, memberUserId: 101 },
-          { organizationId: 10, memberUserId: 102 },
-          { organizationId: 10, memberUserId: null },
-        ])
+        resolve([{ organizationId: 10, projectId: 5 }])
       );
 
       const context = await repo.findProjectUnitAuthContext(1);
       expect(context).toEqual({
         organizationId: 10,
-        memberUserIds: [101, 102],
+        projectId: 5,
       });
-      expect(mockChain.selectDistinct).toHaveBeenCalled();
+      expect(mockChain.select).toHaveBeenCalled();
     });
   });
 
