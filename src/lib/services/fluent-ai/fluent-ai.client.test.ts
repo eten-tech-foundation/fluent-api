@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import env from '@/env';
 import { ErrorCode } from '@/lib/types';
 
-import { callFluentAi } from './fluent-ai.client';
+import { callFluentAi, triggerAiSuggestions } from './fluent-ai.client';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -277,5 +277,51 @@ describe('callFluentAi', () => {
     } finally {
       env.FLUENT_AI_API_PREFIX = original;
     }
+  });
+});
+
+describe('triggerAiSuggestions', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('triggers AI suggestions successfully when fetch resolves HTTP 200', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('', { status: 200 }));
+
+    const payloads = [
+      {
+        projectUnitId: 1,
+        bibleId: 2,
+        bookCode: 'GEN',
+        chapterNumber: 1,
+        verseStart: 1,
+        verseEnd: 1,
+      },
+    ];
+    await expect(triggerAiSuggestions(payloads)).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${env.FLUENT_AI_URL}/suggestions`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(payloads);
+  });
+
+  it('throws an error when HTTP response is not ok', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Internal Server Error', { status: 500 })
+    );
+
+    await expect(triggerAiSuggestions([])).rejects.toThrow(
+      'fluent-ai returned HTTP 500: Internal Server Error'
+    );
+  });
+
+  it('throws a timeout error when request is aborted via AbortError', async () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
   });
 });

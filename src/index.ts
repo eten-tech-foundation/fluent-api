@@ -4,7 +4,7 @@ import { serve } from '@hono/node-server';
 import env from '@/env';
 import { initializeBlobStorage, isBlobStorageConfigured } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { ensureExportQueues, initializeQueue, stopQueue } from '@/lib/queue';
+import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 
 import app from './app';
 
@@ -25,6 +25,15 @@ async function startServer() {
 
     logger.info('Ensuring USFM export queues exist');
     await ensureExportQueues(boss);
+
+    logger.info('Ensuring AI suggestion trigger queue exists');
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+      policy: 'exclusive',
+      retryLimit: 3,
+      retryDelay: 60,
+      retryBackoff: true,
+      expireInSeconds: 3600,
+    });
 
     logger.info('Queue ready');
 

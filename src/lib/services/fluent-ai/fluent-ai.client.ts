@@ -197,18 +197,31 @@ export async function callFluentAi<TReq, TResult>(
 export async function triggerAiSuggestions(payloads: unknown[]): Promise<void> {
   const url = buildToolUrl('suggestions');
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': env.FLUENT_AI_KEY,
-    },
-    body: JSON.stringify(payloads),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), env.AI_TRIGGER_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`fluent-ai returned HTTP ${response.status}: ${text}`);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': env.FLUENT_AI_KEY,
+      },
+      body: JSON.stringify(payloads),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`fluent-ai returned HTTP ${response.status}: ${text}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`fluent-ai request timed out after ${env.AI_TRIGGER_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

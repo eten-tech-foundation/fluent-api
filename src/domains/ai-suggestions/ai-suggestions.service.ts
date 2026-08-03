@@ -132,7 +132,31 @@ async function queueNextVersesForAssignment(
 
   try {
     const boss = await getQueue();
-    await Promise.all(jobs.map((job) => boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, job)));
+    const results = await Promise.all(
+      jobs.map((job) =>
+        boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, job, {
+          // Deduplication key scoped to the exact verse. pgboss silently drops
+          // a send() if a job with the same singletonKey is already pending or
+          // running, returning null instead of a job ID.
+          singletonKey: `${job.projectUnitId}:${job.bibleId}:${job.bookCode}:${job.chapterNumber}:${job.verseStart}`,
+        })
+      )
+    );
+
+    // pgboss returns null (not an error) when a singletonKey duplicate is
+    // rejected — that is the correct dedup behaviour. Log it at debug so
+    // operators can confirm the window is working as intended without any noise.
+    const accepted = results.filter((id) => id !== null).length;
+    const deduped = results.length - accepted;
+    logger.debug('AI suggestion jobs submitted to queue', {
+      total: results.length,
+      accepted,
+      deduped,
+      projectUnitId,
+      bookCode,
+      chapterNumber,
+    });
+
     return ok(undefined);
   } catch (error) {
     logger.error({
