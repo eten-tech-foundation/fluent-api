@@ -10,10 +10,12 @@ EU data-at-rest (GDPR). **Remaining:** provision the three R2 credentials
 (`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) and an
 EU-jurisdiction exports bucket per hosted environment. The async endpoints respond
 503 only while the three credentials are unset (`isBlobStorageConfigured()`); once
-they are set, the exports bucket is verified at startup (`initializeBlobStorage`
-fails fast, so the process refuses to boot if the bucket is unreachable) rather
-than being gated per request. R2 has no local emulator; use MinIO or a real R2 dev
-bucket for local compose.
+they are set, the exports bucket is verified at API startup
+(`verifyBlobStorageOnBoot`), where an unreachable bucket logs a warning and boot
+continues — only async export degrades (jobs fail per-attempt), never the whole
+API. The dedicated export worker still refuses to boot without reachable storage,
+since storage is load-bearing there. R2 has no local emulator; use MinIO or a real
+R2 dev bucket for local compose.
 
 ## Context
 

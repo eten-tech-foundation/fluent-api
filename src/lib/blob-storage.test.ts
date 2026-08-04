@@ -1,15 +1,21 @@
-import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadBucketCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { deleteExpiredExports, generateExportDownloadUrl, getExportBlobInfo } from './blob-storage';
+import {
+  deleteExpiredExports,
+  generateExportDownloadUrl,
+  getExportBlobInfo,
+  verifyBlobStorageOnBoot,
+} from './blob-storage';
+import { logger } from './logger';
 
 // Shared, hoisted so the mocked S3Client.send and the test body reference the
-// same spy.
-const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
-
-vi.mock('@/env', () => ({
-  default: {
+// same spy. mockEnv is a live object so individual tests can blank credentials
+// (verifyBlobStorageOnBoot's unconfigured path) — beforeEach restores it.
+const { sendMock, mockEnv } = vi.hoisted(() => ({
+  sendMock: vi.fn(),
+  mockEnv: {
     R2_ACCOUNT_ID: 'test-account',
     R2_ACCESS_KEY_ID: 'test-key',
     R2_SECRET_ACCESS_KEY: 'test-secret',
@@ -17,6 +23,8 @@ vi.mock('@/env', () => ({
     R2_EXPORTS_BUCKET: 'usfm-exports',
   },
 }));
+
+vi.mock('@/env', () => ({ default: mockEnv }));
 
 vi.mock('./logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -130,6 +138,46 @@ describe('getExportBlobInfo', () => {
     expect(info?.createdOn).toEqual(createdOn);
     expect(info?.metadata.requestedby).toBe('7');
     expect(info?.contentLength).toBe(42);
+  });
+});
+
+describe('verifyBlobStorageOnBoot', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEnv.R2_ACCOUNT_ID = 'test-account';
+    mockEnv.R2_ACCESS_KEY_ID = 'test-key';
+    mockEnv.R2_SECRET_ACCESS_KEY = 'test-secret';
+  });
+
+  it('warns and returns false when credentials are unset, without touching R2', async () => {
+    mockEnv.R2_ACCOUNT_ID = '';
+
+    await expect(verifyBlobStorageOnBoot()).resolves.toBe(false);
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('returns true when the exports bucket is reachable', async () => {
+    sendMock.mockResolvedValue({});
+
+    await expect(verifyBlobStorageOnBoot()).resolves.toBe(true);
+
+    const headCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof HeadBucketCommand);
+    expect(headCommand?.input.Bucket).toBe('usfm-exports');
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns and returns false instead of throwing when the bucket check fails', async () => {
+    // A bucket typo, rotated key, or R2 outage: the API must keep booting —
+    // only the async export feature degrades (kaseywright review, PR #212).
+    sendMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND'));
+
+    await expect(verifyBlobStorageOnBoot()).resolves.toBe(false);
+
+    expect(logger.warn).toHaveBeenCalledOnce();
   });
 });
 

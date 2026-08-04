@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
 import env from '@/env';
-import { initializeBlobStorage, isBlobStorageConfigured } from '@/lib/blob-storage';
+import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
 import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 
@@ -12,13 +12,7 @@ async function startServer() {
   try {
     logger.info('Starting Fluent API server');
 
-    if (isBlobStorageConfigured()) {
-      await initializeBlobStorage();
-    } else {
-      logger.warn(
-        'R2 export storage not configured — async USFM export endpoints will respond 503'
-      );
-    }
+    await verifyBlobStorageOnBoot();
 
     logger.info('Initializing queue');
     const boss = await initializeQueue();

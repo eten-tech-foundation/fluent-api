@@ -109,6 +109,32 @@ export async function initializeBlobStorage(): Promise<void> {
   });
 }
 
+/**
+ * Boot-time storage check for the API entrypoint. Never throws: async export is
+ * not exposed to the UI yet, so a bucket typo, rotated key, or transient R2
+ * outage must degrade only this feature — never block the whole API from
+ * booting. Unconfigured credentials keep the async endpoints on their 503 path;
+ * an unreachable bucket surfaces per-job in the worker. The dedicated export
+ * worker (standalone-worker.ts) still fails fast on the throwing
+ * initializeBlobStorage, since storage is load-bearing there.
+ */
+export async function verifyBlobStorageOnBoot(): Promise<boolean> {
+  if (!isBlobStorageConfigured()) {
+    logger.warn('R2 export storage not configured — async USFM export endpoints will respond 503');
+    return false;
+  }
+  try {
+    await initializeBlobStorage();
+    return true;
+  } catch (error) {
+    logger.warn(
+      'R2 export storage is unreachable — API will start, but async USFM export jobs will fail until storage is fixed',
+      { error }
+    );
+    return false;
+  }
+}
+
 // The explicit index signature keeps this assignable to the SDK's Metadata type
 // (Record<string, string>). Object metadata keys are lowercased by S3/R2, so
 // these are declared lowercase to match what reads back.
