@@ -17,12 +17,12 @@ each finding; the decisions are encoded in the per-ticket docs below.
 
 ## Tickets
 
-| #   | Title                                                                    | Priority        | Status                                                                                                       |
-| --- | ------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| 1   | [Require auth on open domains](01-auth-open-domains.md)                  | P0 (security)   | Bibles + USFM auth merged (#189); project-scoping in review (#206); bulk-texts decided + rate-limited (#199) |
-| 2   | [Export error UX + Azure logging](02-export-error-ux-and-logging.md)     | P1              | Done — #200 + fluent-web#312 merged (#195 closed)                                                            |
-| 3   | [Async export pipeline hardening](03-async-export-pipeline-hardening.md) | P2 (pre-enable) | Implemented — Azure Blob + SAS, worker retries, owner binding (#196); hosted storage provisioning pending    |
-| 4   | [Verify concurrent-editor warning](04-concurrent-editor-warning-qa.md)   | P2 (QA)         | Authz + first-editor race fixed (#202); 2-user QA pending (#197)                                             |
+| #   | Title                                                                    | Priority        | Status                                                                                                                       |
+| --- | ------------------------------------------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [Require auth on open domains](01-auth-open-domains.md)                  | P0 (security)   | Bibles + USFM auth merged (#189); project-scoping in review (#206); bulk-texts decided + rate-limited (#199)                 |
+| 2   | [Export error UX + Azure logging](02-export-error-ux-and-logging.md)     | P1              | Done — #200 + fluent-web#312 merged (#195 closed)                                                                            |
+| 3   | [Async export pipeline hardening](03-async-export-pipeline-hardening.md) | P2 (pre-enable) | Implemented — Cloudflare R2 (EU) + presigned downloads, worker retries, owner binding (#196); R2 bucket provisioning pending |
+| 4   | [Verify concurrent-editor warning](04-concurrent-editor-warning-qa.md)   | P2 (QA)         | Authz + first-editor race fixed (#202); 2-user QA pending (#197)                                                             |
 
 ## Key framing corrections from the audit
 
