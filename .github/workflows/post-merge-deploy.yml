@@ -24,7 +24,7 @@ jobs:
       # TODO: This repo uses actions/checkout@v6 while cut-release.yml uses @v7.0.0.
       # Align to the same version in a future cleanup PR.
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Node.js version
         uses: actions/setup-node@v6.4.0
@@ -89,7 +89,7 @@ jobs:
     environment: Development
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Node.js version
         uses: actions/setup-node@v6.4.0
@@ -114,7 +114,7 @@ jobs:
     environment: Production
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Node.js version
         uses: actions/setup-node@v6.4.0
