@@ -25,6 +25,7 @@ export async function getByProject(projectId: number): Promise<Result<ChapterAss
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
+        isAiEnabled: chapter_assignments.isAiEnabled,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
       })
@@ -47,22 +48,23 @@ export async function deleteByProject(
   projectId: number
 ): Promise<Result<{ deletedCount: number }>> {
   try {
-    return await db.transaction(async (tx) => {
-      const [projectUnit] = await tx
-        .select({ id: project_units.id })
-        .from(project_units)
-        .where(eq(project_units.projectId, projectId))
-        .limit(1);
+    // Delete assignments across all of the project's units in one statement.
+    // (Previously this selected a single unit with limit(1) and deleted only its
+    // assignments, orphaning the rest if a project ever had more than one unit.)
+    const deletedAssignments = await db
+      .delete(chapter_assignments)
+      .where(
+        inArray(
+          chapter_assignments.projectUnitId,
+          db
+            .select({ id: project_units.id })
+            .from(project_units)
+            .where(eq(project_units.projectId, projectId))
+        )
+      )
+      .returning({ id: chapter_assignments.id });
 
-      if (!projectUnit) return ok({ deletedCount: 0 });
-
-      const deletedAssignments = await tx
-        .delete(chapter_assignments)
-        .where(eq(chapter_assignments.projectUnitId, projectUnit.id))
-        .returning({ id: chapter_assignments.id });
-
-      return ok({ deletedCount: deletedAssignments.length });
-    });
+    return ok({ deletedCount: deletedAssignments.length });
   } catch (error) {
     logger.error({
       cause: error,
@@ -135,6 +137,7 @@ export async function getByProjects(
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
+        isAiEnabled: chapter_assignments.isAiEnabled,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
       })

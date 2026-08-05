@@ -135,7 +135,6 @@ start_db_container() {
     -e POSTGRES_PASSWORD=postgres \
     -e POSTGRES_DB=fluent \
     -v $PGDATA_VOLUME:/var/lib/postgresql/data \
-    -v "$SCRIPT_DIR/db/init:/docker-entrypoint-initdb.d:ro" \
     --health-cmd "pg_isready -U postgres -d fluent" \
     --health-interval 5s \
     --health-timeout 5s \
@@ -155,7 +154,9 @@ start_api_container() {
 
   local -a env_flags=(
     -e "NODE_ENV=development"
-    -e "DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent"
+    -e "BOOTSTRAP_DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent"
+    -e "MIGRATIONS_DATABASE_URL=postgres://api_migrator:password@localhost:5432/fluent"
+    -e "DATABASE_URL=postgres://api_user:password@localhost:5432/fluent"
     -e "EXPORTS_DIR=/app/exports"
   )
   if [[ -f "$SCRIPT_DIR/.env" ]]; then
@@ -190,7 +191,9 @@ start_worker_container() {
 
   local -a env_flags=(
     -e "NODE_ENV=development"
-    -e "DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent"
+    -e "BOOTSTRAP_DATABASE_URL=postgres://postgres:postgres@localhost:5432/fluent"
+    -e "MIGRATIONS_DATABASE_URL=postgres://api_migrator:password@localhost:5432/fluent"
+    -e "DATABASE_URL=postgres://api_user:password@localhost:5432/fluent"
     -e "EXPORTS_DIR=/app/exports"
   )
   if [[ -f "$SCRIPT_DIR/.env" ]]; then
@@ -316,11 +319,11 @@ podman_shell() {
 }
 
 podman_exec_api() {
-  if ! $RUNTIME container exists $API_CONTAINER 2>/dev/null; then
-    echo_error "API container is not running. Run './fapi.sh up api' first."
+  if ! $RUNTIME ps --format "{{.Names}}" 2>/dev/null | grep -qx "$API_CONTAINER"; then
+    echo_error "API container ($API_CONTAINER) is not running. Run './fapi.sh up' first."
     exit 1
   fi
-  $RUNTIME exec $API_CONTAINER "$@"
+  $RUNTIME exec "$API_CONTAINER" "$@"
 }
 
 podman_clean() {
@@ -398,14 +401,18 @@ compose_status() {
 compose_shell() {
   local service="${1:-api}"
   if [ "$service" = "db" ]; then
-    $COMPOSE_CMD exec db psql -U postgres -d fluent
+    docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
   else
-    $COMPOSE_CMD exec "$service" sh
+    docker exec -it "${CONTAINER_PREFIX}$service" sh
   fi
 }
 
 compose_exec_api() {
-  $COMPOSE_CMD exec api "$@"
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$API_CONTAINER"; then
+    echo_error "API container ($API_CONTAINER) is not running. Run './fapi.sh up' first."
+    exit 1
+  fi
+  docker exec "$API_CONTAINER" "$@"
 }
 
 compose_clean() {
@@ -434,7 +441,7 @@ compose_build() {
 }
 
 compose_db_psql() {
-  $COMPOSE_CMD exec db psql -U postgres -d fluent
+  docker exec -it "$DB_CONTAINER" psql -U postgres -d fluent
 }
 
 # ── Runtime dispatch helpers ───────────────────────────────────────────────────
@@ -557,6 +564,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_api npm run db:seed:rbac
     echo_running "Seeding dev users..."
     exec_api npm run db:seed:dev-users
+    echo_running "Seeding languages..."
+    exec_api npm run db:seed:languages
+    echo_running "Seeding books..."
+    exec_api npm run db:seed:books
+    echo_running "Seeding bibles..."
+    exec_api npm run db:seed:bibles
+    echo_running "Seeding bible texts..."
+    exec_api npm run db:seed:bible-texts
     echo_success "All seeds complete."
     ;;
 
@@ -588,35 +603,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     else
       compose_db_psql
     fi
-    ;;
-
-  db:dump-schema)
-    output="${1:-}"
-    if [ -z "$output" ]; then
-      if [ -d "$SCRIPT_DIR/../fluent-ai/db/init" ]; then
-        output="$SCRIPT_DIR/../fluent-ai/db/init/02-fluent-api-schema.sql"
-      else
-        output="$SCRIPT_DIR/fluent-api-schema-dump.sql"
-      fi
-    fi
-    echo_running "Dumping fluent-api public schema to $output..."
-    {
-      cat <<'HEADER'
--- Schema-only dump of fluent-api's public tables.
--- Used for standalone fluent-ai development so cross-schema reads work.
---
--- This file is auto-generated. DO NOT EDIT MANUALLY.
--- Regenerate with: ./fapi.sh db:dump-schema [output-path]
--- Then commit to fluent-ai/db/init/ to update the standalone DB snapshot.
-HEADER
-      if [ "$RUNTIME_MODE" = "podman-pod" ]; then
-        $RUNTIME exec $DB_CONTAINER pg_dump -U postgres --schema-only --schema=public fluent
-      else
-        $COMPOSE_CMD exec -T db pg_dump -U postgres --schema-only --schema=public fluent
-      fi
-    } > "$output"
-    echo_success "Schema dumped to $output"
-    echo "Next: commit this file to fluent-ai/db/init/ and run './fai.sh clean && ./fai.sh up' to sync."
     ;;
 
   # ── Lifecycle commands ─────────────────────────────────────────────────────
@@ -671,7 +657,7 @@ HEADER
     else
       echo ".env already exists, skipping."
     fi
-    echo "Remember to fill in DATABASE_URL and BETTER_AUTH_SECRET in .env before running db:init."
+    echo "Remember to fill in the DB URLs (BOOTSTRAP/MIGRATIONS/DATABASE) and BETTER_AUTH_SECRET in .env before running db:init."
     ;;
 
   help|*)
@@ -703,13 +689,12 @@ Development (runs in API container):
   run <script>           Run an npm script inside the API container
 
 Database:
+  db:init                Run migrations + all seeds (interactive confirmation)
   db:migrate             Run Drizzle migrations
-  db:seed                Seed all data (org, roles, RBAC, dev users)
-  db:init                Run migrations + all seeds (delegates to npm run db:setup)
+  db:seed                Seed all data (org, roles, RBAC, dev users, languages, books, bibles, bible texts)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host
   db:psql                Open psql session
-  db:dump-schema [path]  pg_dump public schema for fluent-ai standalone sync
 
 Lifecycle:
   clean [service]        Remove containers and volumes (default: all)
@@ -720,7 +705,9 @@ Lifecycle:
 Environment variables:
   DB_PORT                Standalone DB host port (default: 5432)
   API_PORT               API service host port (default: 9999)
-  DATABASE_URL           Override DB connection (set in .env to use platform DB)
+  BOOTSTRAP_DATABASE_URL Superuser URL the container uses to self-provision (bootstrap)
+  MIGRATIONS_DATABASE_URL  api_migrator URL for Drizzle migrations (DDL)
+  DATABASE_URL           api_user runtime URL (least-privilege; set in .env to use platform DB)
 USAGE
     ;;
   esac

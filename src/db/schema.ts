@@ -13,6 +13,7 @@ import {
   pgTable,
   primaryKey,
   serial,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -40,7 +41,6 @@ export const chapterStatusEnum = pgEnum('chapter_status', [
   'complete',
 ]);
 export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_checker']);
-
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull().unique(),
@@ -172,6 +172,20 @@ export const languages = pgTable('languages', {
     .$onUpdate(() => new Date()),
 });
 
+// ─── Pericope Tables ─────────────────────────────────────────────────────────
+
+export const pericope_sets = pgTable('pericope_sets', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 50 }).notNull().unique(), // 'FCBH' | 'FIA'
+  description: varchar('description', { length: 500 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
@@ -192,6 +206,8 @@ export const projects = pgTable('projects', {
     .defaultNow()
     .$onUpdate(() => new Date()),
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
+  // Nullable — existing projects have no pericope set; new projects may select one
+  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
 });
 
 export const bibles = pgTable('bibles', {
@@ -212,6 +228,42 @@ export const books = pgTable('books', {
   code: varchar('code', { length: 50 }).notNull(),
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
 });
+
+export const pericope_verses = pgTable(
+  'pericope_verses',
+  {
+    id: serial('id').primaryKey(),
+    pericopeSetId: integer('pericope_set_id')
+      .notNull()
+      .references(() => pericope_sets.id, { onDelete: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    chapterNumber: integer('chapter_number').notNull(),
+    verseNumber: integer('verse_number').notNull(),
+    section: integer('section'), // fcbh_section only; NULL for FIA
+    pericopeNumber: varchar('pericope_number', { length: 20 }).notNull(), // '1', '4a', '4b'
+    pericopeTitle: varchar('pericope_title', { length: 500 }), // fia_pericope_title; NULL for FCBH
+  },
+  (table) => [
+    // verse lookup: given (set, book, chapter) find a verse's pericope
+    // unique: a verse can only belong to one pericope within a set
+    uniqueIndex('idx_pericope_verses_set_book_chapter_verse').on(
+      table.pericopeSetId,
+      table.bookId,
+      table.chapterNumber,
+      table.verseNumber
+    ),
+    // range lookup: given (set, book, pericope_number) fetch all verses in that pericope
+    index('idx_pericope_verses_set_book_pericope').on(
+      table.pericopeSetId,
+      table.bookId,
+      table.pericopeNumber,
+      table.chapterNumber,
+      table.verseNumber
+    ),
+  ]
+);
 
 export const bible_books = pgTable('bible_books', {
   bibleId: integer('bible_id')
@@ -327,6 +379,7 @@ export const chapter_assignments = pgTable(
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
     status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
+    isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
     submittedTime: timestamp('submitted_time'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
@@ -405,8 +458,62 @@ export const editorStateResourcesSchema = z
     verseNumber: z.number(),
     languageCode: z.string().min(1),
     tabStatus: z.boolean(),
+    // ── Repeated Word Check additions (optional; old rows parse unchanged — no migration) ──
+    // Which left-panel tab is active (Resources vs Checks).
+    activeLeftTab: z.enum(['resources', 'checks']).optional(),
+    // Per-occurrence ignore rules for repeated-word findings, keyed by
+    // "{snt_id}|{repeated_word}|{ordinal}" (see fluent-web useResolvedFindings).
+    checkOccurrenceRules: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
   })
   .nullable();
+
+// ─── User-global settings (Fluent preference store; W2/W7) ───────────────────
+// One row per user, a single Zod-typed JSONB blob. `.catch({})` so unknown/old
+// shapes parse as empty rather than throwing (W8). Surfaced via GET/PUT /self/settings.
+//
+// ⚠️ IMPLEMENTATION NOTE — full-replace today; ADD MERGE BEFORE A SECOND KEY ⚠️
+// `PUT /self/settings` is a deliberate **full-replace** of the whole blob
+// (last-writer-wins; no PATCH/ETags — §8.1/§8.3). That is safe ONLY while there
+// is exactly ONE key (`checkIgnoredWordPairs`): the client just GETs, edits the
+// one key, and PUTs the whole blob back. There is no server-side merge.
+//
+// Because this is a plain `z.object`, the write schema **strips any unknown
+// key**, so a sibling setting cannot even reach the store today — which means
+// this object is the *only* gate: you literally cannot introduce a second
+// setting without editing THIS schema. So, before adding any second key here,
+// you MUST also make the write path merge instead of replace, or the
+// full-replace PUT will silently drop whichever key the caller didn't send.
+// Recommended at that point (in `self-settings.service.upsertSettings`):
+//   1. GET the existing stored blob for the user.
+//   2. Shallow-merge the incoming keys over it (set provided keys; treat an
+//      explicit `null` value as "delete this key"; leave absent keys untouched).
+//   3. Persist the merged blob.
+// Until then, keep the single-key full-replace contract.
+// The bare object shape (no `.catch`). This is also the OpenAPI-facing schema:
+// the `.catch({})` wrapper below produces a `ZodCatch` node that
+// @asteasolutions/zod-to-openapi (under @hono/zod-openapi) cannot render — it
+// throws "Unknown zod object type" while building the spec, which 500s `/doc`.
+// The `.catch` only changes behaviour on INVALID input (see `userSettingsSchema`);
+// it adds/removes no fields, so the documented shape is identical either way.
+// Anything exposed on the OpenAPI surface must therefore embed THIS schema, not
+// the `.catch` variant. (Guarded by src/routes/doc.route.test.ts.)
+export const userSettingsObjectSchema = z.object({
+  // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
+  // pair string (e.g. "the the"); applies across all of the user's projects.
+  checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
+});
+
+// Read/storage schema: `.catch({})` so unknown/old shapes parse as empty rather
+// than throwing (W8). Use this when reading rows back from the DB. NOTE: this is
+// a `ZodCatch` — keep it OFF the OpenAPI surface (see the note on
+// `userSettingsObjectSchema` above); expose the plain object shape there instead.
+export const userSettingsSchema = userSettingsObjectSchema.catch({});
+
+// Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
+// (surfaced as a 422 VALIDATION_ERROR — a well-formed request whose contents fail
+// schema validation; see self-settings.service.upsertSettings) instead of being
+// silently swallowed.
+export const userSettingsWriteSchema = userSettingsObjectSchema;
 
 export const user_chapter_assignment_editor_state = pgTable(
   'user_chapter_assignment_editor_state',
@@ -430,6 +537,17 @@ export const user_chapter_assignment_editor_state = pgTable(
     ),
   ]
 );
+
+export const user_settings = pgTable('user_settings', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  settings: jsonb('settings').$type<z.infer<typeof userSettingsSchema>>(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 export const project_users = pgTable(
   'project_users',
@@ -496,6 +614,49 @@ export const active_chapter_editors = pgTable(
   ]
 );
 
+export const ai_suggestions = pgTable(
+  'ai_suggestions',
+  {
+    id: serial('id').primaryKey(),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    suggestedText: text('suggested_text').notNull(),
+    modelInfo: varchar('model_info', { length: 100 }),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (table) => [
+    index('idx_ai_suggestions_bible_text').on(table.bibleTextId),
+    uniqueIndex('uq_ai_suggestions_per_text_unit').on(table.bibleTextId, table.projectUnitId),
+  ]
+);
+
+export const ai_suggestion_usage_log = pgTable(
+  'ai_suggestion_usage_log',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    wasUsed: boolean('was_used').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_ai_usage_user').on(table.userId),
+    index('idx_ai_usage_project_unit').on(table.projectUnitId),
+    uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId, table.projectUnitId),
+  ]
+);
+
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
 });
@@ -526,9 +687,12 @@ export const selectUserChapterAssignmentEditorStateSchema = createSelectSchema(
   user_chapter_assignment_editor_state
 );
 export const selectProjectUsersSchema = createSelectSchema(project_users);
+export const selectUserSettingsSchema = createSelectSchema(user_settings);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
 export const selectActiveChapterEditorsSchema = createSelectSchema(active_chapter_editors);
+export const selectAiSuggestionsSchema = createSelectSchema(ai_suggestions);
+export const selectAiSuggestionUsageLogSchema = createSelectSchema(ai_suggestion_usage_log);
 
 export const insertUsersSchema = createInsertSchema(users, {
   username: (schema) => schema.min(1).max(100),
@@ -789,6 +953,18 @@ export const insertProjectUsersSchema = createInsertSchema(project_users, {
     createdAt: true,
   });
 
+export const insertUserSettingsSchema = createInsertSchema(user_settings, {
+  userId: (schema) => schema.int(),
+  settings: () => userSettingsSchema,
+})
+  .required({
+    userId: true,
+  })
+  .omit({
+    createdAt: true,
+    updatedAt: true,
+  });
+
 export const insertPermissionsSchema = createInsertSchema(permissions, {
   name: (schema) => schema.min(1).max(100),
   description: (schema) => schema.max(255).optional(),
@@ -800,6 +976,22 @@ export const insertRolePermissionsSchema = createInsertSchema(role_permissions, 
 })
   .required({ roleId: true, permissionId: true })
   .omit({ updatedAt: true });
+
+export const insertAiSuggestionsSchema = createInsertSchema(ai_suggestions, {
+  bibleTextId: (schema) => schema.int(),
+  projectUnitId: (schema) => schema.int(),
+  suggestedText: (schema) => schema.min(1),
+})
+  .required({ bibleTextId: true, projectUnitId: true, suggestedText: true })
+  .omit({ id: true, createdAt: true });
+
+export const insertAiSuggestionUsageLogSchema = createInsertSchema(ai_suggestion_usage_log, {
+  userId: (schema) => schema.int(),
+  bibleTextId: (schema) => schema.int(),
+  projectUnitId: (schema) => schema.int(),
+})
+  .required({ userId: true, bibleTextId: true, projectUnitId: true, wasUsed: true })
+  .omit({ id: true, createdAt: true });
 
 export const insertActiveChapterEditorsSchema = createInsertSchema(active_chapter_editors, {
   chapterAssignmentId: (schema) => schema.int(),
@@ -836,6 +1028,8 @@ export const patchUserChapterAssignmentEditorStateSchema =
 export const patchProjectUsersSchema = insertProjectUsersSchema.partial();
 export const patchPermissionsSchema = insertPermissionsSchema.partial();
 export const patchRolePermissionsSchema = insertRolePermissionsSchema.partial();
+export const patchAiSuggestionsSchema = insertAiSuggestionsSchema.partial();
+export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.partial();
 
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,

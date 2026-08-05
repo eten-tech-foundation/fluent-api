@@ -1,7 +1,7 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
-import { jsonContent } from 'stoker/openapi/helpers';
+import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import * as projectHandler from '@/domains/projects/projects.service';
@@ -16,6 +16,7 @@ import * as chapterAssignmentService from './chapter-assignments.service';
 import {
   CHAPTER_ASSIGNMENT_ACTIONS,
   chapterAssignmentResponseSchema,
+  updateChapterAssignmentAiStatusSchema,
 } from './chapter-assignments.types';
 
 const chapterAssignmentIdParam = z.object({
@@ -297,5 +298,55 @@ server.openapi(deleteChapterAssignmentRoute, async (c) => {
 
   const result = await chapterAssignmentService.deleteChapterAssignment(chapterAssignmentId);
   if (result.ok) return c.body(null, HttpStatusCodes.NO_CONTENT);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── PATCH /chapter-assignments/:chapterAssignmentId/ai-status ────────────────
+const updateAiStatusRoute = createRoute({
+  tags: ['Chapter Assignments'],
+  method: 'patch',
+  path: '/chapter-assignments/{chapterAssignmentId}/ai-status',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.TOGGLE_AI),
+  ] as const,
+  summary: 'Toggle AI Suggestion status for Chapter Assignment',
+  description:
+    'Project Manager only. Enables or disables AI translation suggestions for a specific chapter assignment.',
+  request: {
+    params: chapterAssignmentIdParam,
+    body: jsonContentRequired(updateChapterAssignmentAiStatusSchema, 'AI Status update'),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(createMessageObjectSchema('Updated successfully'), 'Success'),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Insufficient permissions'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Chapter assignment not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+});
+
+server.openapi(updateAiStatusRoute, async (c) => {
+  const { chapterAssignmentId } = c.req.valid('param');
+  const { isAiEnabled } = c.req.valid('json');
+
+  const result = await chapterAssignmentService.updateChapterAssignmentAiStatus(
+    chapterAssignmentId,
+    isAiEnabled
+  );
+  if (result.ok) return c.json({ message: 'Updated successfully' }, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

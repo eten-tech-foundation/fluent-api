@@ -35,4 +35,7 @@ package-lock.json
 yarn.lock
 
 # Generated files
-*.generated.* 
+*.generated.*
+
+# Vendored seed data (committed verbatim from PROD exports)
+src/db/seeds/data
