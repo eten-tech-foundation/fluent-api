@@ -12,10 +12,11 @@ const CHUNK_SIZE = 1000;
 const MAX_FIELD_LENGTH = 100; // matches varchar(100) in schema
 
 /**
- * Script names whose languages read right-to-left.
- * Source: Unicode CLDR + project spec.
+ * Script names matched against the Ethnologue English language name.
+ * Catches language families like "Arabic, Baharna" or "Hebrew".
+ * Source: project spec.
  */
-const RTL_KEYWORDS = [
+const RTL_NAME_KEYWORDS = [
   'Arabic',
   'Hebrew',
   'Syriac',
@@ -30,8 +31,51 @@ const RTL_KEYWORDS = [
   'Old Hungarian',
 ];
 
-function isRTL(name: string): boolean {
-  return RTL_KEYWORDS.some((kw) => name.includes(kw));
+/**
+ * Explicit ISO 639-3 codes for RTL languages whose English names
+ * don't contain any of the keywords above (e.g., "Urdu" uses Arabic script
+ * but the name doesn't contain "Arabic").
+ *
+ * Note: This is a best-effort list. Script direction will be definitively
+ * confirmed during DBL Bible ingestion (see #230).
+ */
+const RTL_CODES = new Set([
+  // Urdu
+  'urd',
+  // Persian / Dari
+  'fas',
+  'pes',
+  'prs',
+  // Pashto variants
+  'pbt',
+  'pbu',
+  'pst',
+  // Kurdish (Sorani / Southern)
+  'ckb',
+  'sdh',
+  // Sindhi
+  'snd',
+  // Dhivehi (Maldivian)
+  'div',
+  // Uyghur
+  'uig',
+  // Kashmiri
+  'kas',
+  // Balochi variants
+  'bal',
+  'bcc',
+  'bgn',
+  'bgp',
+  // Saraiki
+  'skr',
+  // Brahui
+  'brh',
+  // Hazaragi
+  'haz',
+]);
+
+function isRTL(code: string, name: string): boolean {
+  return RTL_CODES.has(code) || RTL_NAME_KEYWORDS.some((kw) => name.includes(kw));
 }
 
 function truncate(value: string, max: number): string {
@@ -137,12 +181,13 @@ function loadPrimaryLanguages(files: string[], folderPath: string): Map<string, 
       const code = parts[isoIdx]?.trim();
       const name = parts[nameIdx]?.trim();
       if (!code || !name) continue;
+      if (code.length !== 3) continue; // ISO 639-3 codes are exactly 3 chars
       if (map.has(code)) continue; // first occurrence wins
 
       map.set(code, {
         langName: truncate(name, MAX_FIELD_LENGTH),
         langNameLocalized: null,
-        scriptDirection: isRTL(name) ? 'rtl' : 'ltr',
+        scriptDirection: isRTL(code, name) ? 'rtl' : 'ltr',
       });
       added++;
     }
@@ -210,8 +255,8 @@ export async function seedLanguages() {
     files = readdirSync(dataFolder).filter((f) =>
       ['.csv', '.tsv'].includes(extname(f).toLowerCase())
     );
-  } catch {
-    throw new Error(`Language data folder not found: ${dataFolder}`);
+  } catch (err) {
+    throw new Error(`Language data folder not found: ${dataFolder}`, { cause: err });
   }
 
   if (files.length === 0) {
@@ -247,8 +292,13 @@ export async function seedLanguages() {
   }[] = [];
   let rtlCount = 0;
 
+  let skippedCount = 0;
+
   for (const [code, data] of allLanguages.entries()) {
-    if (existingCodes.has(code)) continue;
+    if (existingCodes.has(code)) {
+      skippedCount++;
+      continue;
+    }
 
     if (data.scriptDirection === 'rtl') rtlCount++;
 
@@ -280,7 +330,7 @@ export async function seedLanguages() {
   const localizedCount = toInsert.filter((r) => r.langNameLocalized).length;
   console.log('\n═══ Seed Summary ═══');
   console.log(`  Total inserted:   ${toInsert.length}`);
-  console.log(`  Skipped (in DB):  ${existingCodes.size}`);
+  console.log(`  Skipped (in DB):  ${skippedCount}`);
   console.log(`  With autonym:     ${localizedCount}`);
   console.log(`  Without autonym:  ${toInsert.length - localizedCount}`);
   console.log(`  RTL:              ${rtlCount}`);
