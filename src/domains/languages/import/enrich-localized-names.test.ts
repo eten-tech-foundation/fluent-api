@@ -45,6 +45,17 @@ describe('enrichLocalizedNames', () => {
     );
   });
 
+  it('counts code points correctly for limits, accepting a 255 code point string with emojis', async () => {
+    mockExistingLanguages([{ id: 1, code: 'aaa', localized: null }]);
+    mockUpdateChain();
+
+    // An emoji takes 2 code units. 255 emojis = 510 code units, but 255 code points.
+    const longName = '🌍'.repeat(255);
+    const summary = await enrichLocalizedNames(`ISO_639,Print_Name\naaa,${longName}\n`);
+
+    expect(summary.enriched).toBe(1);
+  });
+
   it('sets the localized name for a matching language with none set yet', async () => {
     mockExistingLanguages([{ id: 1, code: 'aaa', localized: null }]);
     const { setFn, whereFn } = mockUpdateChain();

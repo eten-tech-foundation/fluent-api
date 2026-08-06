@@ -17,7 +17,8 @@ async function main() {
 
   if (!filePath) {
     console.error('Usage: npm run db:import:language-names -- <path-to-autonyms-csv>');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   let content: string;
@@ -25,7 +26,8 @@ async function main() {
     content = readFileSync(filePath, 'utf-8');
   } catch (error) {
     console.error(`Failed to read file: ${filePath}`, error);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const summary = await enrichLocalizedNames(content);
@@ -38,9 +40,7 @@ async function main() {
   console.log(`  Skipped (invalid):   ${summary.skippedInvalid}`);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error: unknown) => {
-    console.error('Enrichment failed:', error);
-    process.exit(1);
-  });
+main().catch((error: unknown) => {
+  console.error('Enrichment failed:', error);
+  process.exitCode = 1;
+});

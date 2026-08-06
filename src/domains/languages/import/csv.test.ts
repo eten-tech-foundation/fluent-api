@@ -89,4 +89,12 @@ describe('parseCsv', () => {
       rows: [['aaa', ' Spaced Name ']],
     });
   });
+
+  it('preserves newlines inside quoted fields', () => {
+    const content = 'LangID,Name\naaa,"Multi-line\nName"\n';
+    expect(parseCsv(content)).toEqual({
+      headers: ['langid', 'name'],
+      rows: [['aaa', 'Multi-line\nName']],
+    });
+  });
 });

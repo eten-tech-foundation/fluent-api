@@ -61,7 +61,7 @@ export async function enrichLocalizedNames(csvContent: string): Promise<EnrichSu
         continue;
       }
 
-      if (printName.length > MAX_FIELD_LENGTH) {
+      if (Array.from(printName).length > MAX_FIELD_LENGTH) {
         throw new Error(
           `Localized name exceeds ${MAX_FIELD_LENGTH} characters for code "${code}": "${printName}"`
         );

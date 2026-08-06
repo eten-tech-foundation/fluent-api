@@ -48,6 +48,17 @@ describe('importEthnologueLanguages', () => {
     );
   });
 
+  it('counts code points correctly for limits, accepting a 255 code point string with emojis', async () => {
+    mockExistingCodes([]);
+    mockInsertResult([{ id: 1, scriptDirection: 'ltr' }]);
+
+    // An emoji takes 2 code units. 255 emojis = 510 code units, but 255 code points.
+    const longName = '🌍'.repeat(255);
+    const summary = await importEthnologueLanguages(`LangID,Name\naaa,${longName}\n`);
+
+    expect(summary.inserted).toBe(1);
+  });
+
   it('skips rows with malformed codes and still imports valid ones, normalizing uppercase', async () => {
     mockExistingCodes([]);
     const valuesFn = mockInsertResult([{ id: 1, scriptDirection: 'ltr' }]);
@@ -108,6 +119,7 @@ describe('importEthnologueLanguages', () => {
 
     expect(summary.inserted).toBe(1);
     expect(summary.ltrCount).toBe(1);
+    expect(summary.skippedExisting).toBe(1);
   });
 
   it('passes the unique code column as the onConflictDoNothing target', async () => {

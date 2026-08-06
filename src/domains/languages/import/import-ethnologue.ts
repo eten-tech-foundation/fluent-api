@@ -45,7 +45,7 @@ export async function importEthnologueLanguages(csvContent: string): Promise<Imp
       continue;
     }
 
-    if (name.length > MAX_FIELD_LENGTH) {
+    if (Array.from(name).length > MAX_FIELD_LENGTH) {
       throw new Error(
         `Language name exceeds ${MAX_FIELD_LENGTH} characters for code "${code}": "${name}"`
       );
@@ -88,6 +88,7 @@ export async function importEthnologueLanguages(csvContent: string): Promise<Imp
         .returning({ id: languages.id, scriptDirection: languages.scriptDirection });
 
       inserted += insertedRows.length;
+      skippedExisting += chunk.length - insertedRows.length;
       for (const row of insertedRows) {
         if (row.scriptDirection === 'rtl') rtlCount++;
         else ltrCount++;

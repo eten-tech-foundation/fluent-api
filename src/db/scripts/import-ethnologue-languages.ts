@@ -19,7 +19,8 @@ async function main() {
 
   if (!filePath) {
     console.error('Usage: npm run db:import:languages -- <path-to-ethnologue-csv>');
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   let content: string;
@@ -27,7 +28,8 @@ async function main() {
     content = readFileSync(filePath, 'utf-8');
   } catch (error) {
     console.error(`Failed to read file: ${filePath}`, error);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const summary = await importEthnologueLanguages(content);
@@ -41,9 +43,7 @@ async function main() {
   console.log(`  LTR:               ${summary.ltrCount}`);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error: unknown) => {
-    console.error('Import failed:', error);
-    process.exit(1);
-  });
+main().catch((error: unknown) => {
+  console.error('Import failed:', error);
+  process.exitCode = 1;
+});

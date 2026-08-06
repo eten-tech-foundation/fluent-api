@@ -34,11 +34,24 @@ export interface ParsedCsv {
 
 export function parseCsv(content: string): ParsedCsv {
   const cleaned = content.startsWith('\uFEFF') ? content.slice(1) : content;
-  const lines = cleaned
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .filter((line) => line.trim().length > 0);
+  const normalized = cleaned.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const lines: string[] = [];
+  let currentLine = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+    if (char === '"') inQuotes = !inQuotes;
+
+    if (char === '\n' && !inQuotes) {
+      if (currentLine.trim().length > 0) lines.push(currentLine);
+      currentLine = '';
+    } else {
+      currentLine += char;
+    }
+  }
+  if (currentLine.trim().length > 0) lines.push(currentLine);
 
   if (lines.length < 2) {
     return { headers: [], rows: [] };
