@@ -28,6 +28,7 @@ import '@/domains/chapter-assignments/presence/chapter-assignments-presence.rout
 import '@/domains/ai-suggestions/ai-suggestions.route';
 import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
+import '@/domains/ai-tools/tts.route';
 import '@/domains/pericopes/pericopes.route';
 import '@/domains/translation-resources/translation-resources.route';
 import '@/domains/source-audio/source-audio.route';

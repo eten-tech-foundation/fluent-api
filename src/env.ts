@@ -139,6 +139,23 @@ const EnvBaseSchema = z.object({
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
+  // ── Source TTS (proxy tripwire) ────────────────────────────────────
+  // Maximum `text` length accepted by POST /ai/tts/generate. This is a
+  // TRIPWIRE, not a product limit (T14 / §7.1): legitimate inputs are
+  // verse-sized, so 20k characters is "large enough that something is
+  // obviously going sideways for this to be hit" — it catches an accidental
+  // whole-chapter/whole-book submission or abuse, and nothing else.
+  //
+  // Enforced HERE at the proxy edge (§7.1) so an oversized request never costs
+  // a round-trip to fluent-ai. fluent-ai carries its own copy of the same limit
+  // for direct (non-fluent-api) consumers; the two are independent by design and
+  // are not required to hold equal values.
+  //
+  // Note that Gemini's own ceilings (an 8,192-token input cap) sit BELOW this
+  // tripwire for dense non-Latin text, so such an input fails later, at
+  // synthesis, through the normal provider-failure path rather than here (§7.1).
+  TTS_MAX_TEXT_LENGTH: z.coerce.number().int().positive().default(20_000),
+
   // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
   // Base URL of the Aquifer API (no trailing slash). Defaults to production.
   AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
