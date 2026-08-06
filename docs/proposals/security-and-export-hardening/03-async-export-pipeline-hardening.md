@@ -2,14 +2,28 @@
 
 **Priority:** P2 — the async pipeline is **not wired to the UI**, so this is
 "fix before enabling," not a live outage.
-**Status:** Not started.
+**Status:** Implemented (2026-07-02, #196): short-lived signed download URLs,
+worker fails/retries properly (batchSize 1 + dead-letter queue), streaming upload
+(no in-memory buffering), owner-bound jobs/downloads, and `singletonKey` dedupe.
+Storage backend migrated Azure Blob → Cloudflare R2 (S3-compatible) in #212 for
+EU data-at-rest (GDPR). **Remaining:** provision the three R2 credentials
+(`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) and an
+EU-jurisdiction exports bucket per hosted environment. The async endpoints respond
+503 only while the three credentials are unset (`isBlobStorageConfigured()`); once
+they are set, the exports bucket is verified at API startup
+(`verifyBlobStorageOnBoot`), where an unreachable bucket logs a warning and boot
+continues — only async export degrades (jobs fail per-attempt), never the whole
+API. The dedicated export worker still refuses to boot without reachable storage,
+since storage is load-bearing there. R2 has no local emulator; use MinIO or a real
+R2 dev bucket for local compose.
 
 ## Context
 
 `POST /project-units/{id}/usfm/async` enqueues a pg-boss job (`USFM_EXPORT`) that
-`src/workers/standalone-worker.ts` processes, writing a ZIP to `EXPORTS_DIR`; the
-client then polls `GET /jobs/{id}` and downloads `GET /downloads/{filename}`. No
-`fluent-web` code calls these routes today.
+`src/workers/standalone-worker.ts` processes, streaming the ZIP into Cloudflare
+R2; the client then polls `GET /jobs/{id}` and follows the 302 from
+`GET /downloads/{filename}` to a signed URL. No `fluent-web` code calls these
+routes today.
 
 ## Defects to fix before exposing it
 
@@ -23,10 +37,12 @@ client then polls `GET /jobs/{id}` and downloads `GET /downloads/{filename}`. No
    against `compose.yaml`; the API entrypoint `src/index.ts` only creates the
    queue, it does not register the worker). A worker-written file is invisible to
    the API serving `/downloads`
-   → 404. Fix: shared object storage (S3 / Azure Blob) + signed URL, or a shared
-   persistent volume mounted in both. **Decided (reviewer, 2026-06-26): Azure
-   Blob Storage + signed URLs.** Needs a storage account/container + connection
-   string provisioned per environment (Azurite or similar for local compose).
+   → 404. Fix: shared object storage (S3-compatible) + signed URL, or a shared
+   persistent volume mounted in both. **Decided (reviewer, 2026-06-26): object
+   storage + signed URLs; superseded 2026-07 (#212 review) to Cloudflare R2
+   (S3-compatible) for EU data-at-rest (GDPR).** Needs R2 credentials + an
+   EU-jurisdiction bucket provisioned per environment (MinIO or a real R2 bucket
+   for local compose).
 3. **Whole ZIP buffered in memory.** The worker drains the archive stream into a
    `Buffer` before writing (`usfm-export.worker.ts` + `file-storage.ts`), risking
    OOM on large exports. Fix: stream to disk/storage via `stream.pipeline`.
