@@ -132,4 +132,16 @@ describe('gET /config/features', () => {
     expect(json.features).toHaveProperty('aiSuggestions');
     expect(json.features.aiSuggestions).toBe(true);
   });
+
+  it('publishes the sourceTts flag (authenticated)', async () => {
+    authenticateAs(USER);
+
+    const res = await getFeatures();
+    const json = await res.json();
+
+    // .env.test wires FLUENT_AI_URL + FLUENT_AI_KEY and leaves the flag unset,
+    // so the derived (safe) default resolves to true in the test env.
+    expect(json.features).toHaveProperty('sourceTts');
+    expect(json.features.sourceTts).toBe(true);
+  });
 });
