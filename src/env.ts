@@ -43,7 +43,7 @@ const envBool = () =>
     return z.NEVER;
   });
 
-const EnvSchema = z.object({
+const EnvBaseSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
   LOG_LEVEL: z
@@ -77,10 +77,12 @@ const EnvSchema = z.object({
   R2_ENDPOINT: z.string().url().optional(),
   // Bucket dedicated to USFM exports — kept separate from the audio bucket
   // because deleteExpiredExports sweeps and deletes every object in it older
-  // than the export TTL, while recordings are permanent.
-  R2_EXPORTS_BUCKET: z.string().default('usfm-exports'),
-  // Bucket dedicated to verse audio recordings (never TTL-swept).
-  R2_AUDIO_BUCKET: z.string().default('verse-audio'),
+  // than the export TTL, while recordings are permanent. Deliberately NOT
+  // defaulted; required alongside the credentials — see requireExplicitR2Buckets.
+  R2_EXPORTS_BUCKET: z.string().optional(),
+  // Bucket dedicated to verse audio recordings (never TTL-swept). Also not
+  // defaulted — see requireExplicitR2Buckets.
+  R2_AUDIO_BUCKET: z.string().optional(),
   // How often orphaned storage objects are reclaimed (see storage_objects).
   AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
   // How long a storage row is left alone before the sweep may reclaim it. An
@@ -140,6 +142,50 @@ const EnvSchema = z.object({
   EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
 });
 
+const R2_BUCKET_KEYS = ['R2_EXPORTS_BUCKET', 'R2_AUDIO_BUCKET'] as const;
+
+/**
+ * Neither bucket var may carry a hardcoded default.
+ *
+ * R2 credentials are ACCOUNT-level, so environments pointed at the same R2
+ * account are separated by nothing but their bucket names. With a default, an
+ * environment whose deploy config forgot `R2_AUDIO_BUCKET` would boot happily on
+ * the fallback name — and because audio object keys are deterministic
+ * (`unit-{id}/text-{id}`), two such environments would read and OVERWRITE each
+ * other's recordings rather than miss and 404. Silent and destructive, instead of
+ * loud and safe.
+ *
+ * So once any R2 credential is present, both buckets must be named explicitly.
+ * A missing one fails env validation at boot — a static config error caught
+ * before the server starts, unlike an unreachable bucket at runtime, which stays
+ * non-fatal by design (see verifyBlobStorageOnBoot / isAudioStorageAvailable).
+ */
+function requireExplicitR2Buckets(
+  value: z.infer<typeof EnvBaseSchema>,
+  ctx: z.RefinementCtx
+): void {
+  const anyCredential = Boolean(
+    value.R2_ACCOUNT_ID || value.R2_ACCESS_KEY_ID || value.R2_SECRET_ACCESS_KEY
+  );
+  if (!anyCredential) return;
+
+  for (const key of R2_BUCKET_KEYS) {
+    if (value[key]) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [key],
+      message: `${key} is required when R2 credentials are set — name the bucket this environment owns explicitly; there is no default to inherit, because two environments sharing one bucket would overwrite each other's objects`,
+    });
+  }
+}
+
+/**
+ * The full env contract. Exported so src/env.test.ts can exercise the R2 rule
+ * above: parsing the real environment happens once at module load below, which
+ * leaves no other seam to test a cross-field rule through.
+ */
+export const EnvSchema = EnvBaseSchema.superRefine(requireExplicitR2Buckets);
+
 export type env = z.infer<typeof EnvSchema>;
 
 /**
@@ -148,7 +194,7 @@ export type env = z.infer<typeof EnvSchema>;
  * object, so this reads the schema shape, not `process.env`). This is the
  * env-side half of the feature-flag drift check in src/lib/features.test.ts.
  */
-export const declaredFeatureEnvKeys: string[] = Object.keys(EnvSchema.shape).filter((k) =>
+export const declaredFeatureEnvKeys: string[] = Object.keys(EnvBaseSchema.shape).filter((k) =>
   k.startsWith('EN_FEATURE_')
 );
 

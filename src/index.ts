@@ -37,8 +37,9 @@ async function startServer() {
     // delete an object in a bucket — this sweep is what actually frees those
     // bytes. It only starts once the bucket has answered, so bad credentials or
     // a missing bucket surface here instead of as an hourly failing sweep. Audio
-    // being optional, a failed probe is logged and the API keeps serving (the
-    // routes then fail per-request rather than taking the whole server down).
+    // being optional, a failed probe is logged and the API keeps serving; the
+    // probe result is recorded in the storage module, so the verse-audio routes
+    // then answer 503 instead of a 500 per request.
     let audioReclaimInterval: NodeJS.Timeout | null = null;
     if (isAudioStorageConfigured()) {
       try {

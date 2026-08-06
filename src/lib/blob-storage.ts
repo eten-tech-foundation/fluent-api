@@ -49,6 +49,22 @@ export function isBlobStorageConfigured(): boolean {
 }
 
 /**
+ * The bucket exports live in.
+ *
+ * There is no default: env validation requires R2_EXPORTS_BUCKET whenever the R2
+ * credentials are set (see requireExplicitR2Buckets in src/env.ts), so a
+ * validated environment always has one and never inherits a name another
+ * environment owns — which matters here because the TTL sweep DELETES from this
+ * bucket. The throw below therefore only fires on the unconfigured path, which
+ * isBlobStorageConfigured()/getS3Client() reject first.
+ */
+function exportsBucket(): string {
+  const bucket = env.R2_EXPORTS_BUCKET;
+  if (!bucket) throw new Error('R2_EXPORTS_BUCKET is not configured');
+  return bucket;
+}
+
+/**
  * Builds the R2 S3 endpoint, pinning the data-at-rest jurisdiction via the host:
  *   eu       → https://{account}.eu.r2.cloudflarestorage.com   (GDPR default)
  *   default  → https://{account}.r2.cloudflarestorage.com      (no pin)
@@ -93,18 +109,19 @@ function isNotFound(error: unknown): boolean {
  */
 export async function initializeBlobStorage(): Promise<void> {
   const client = getS3Client();
+  const bucket = exportsBucket();
   try {
-    await client.send(new HeadBucketCommand({ Bucket: env.R2_EXPORTS_BUCKET }));
+    await client.send(new HeadBucketCommand({ Bucket: bucket }));
   } catch (error) {
     throw new Error(
-      `R2 exports bucket "${env.R2_EXPORTS_BUCKET}" is not reachable — it must be ` +
+      `R2 exports bucket "${bucket}" is not reachable — it must be ` +
         `created in the "${env.R2_JURISDICTION}" jurisdiction (GDPR data-at-rest) ` +
         `before async export is enabled`,
       { cause: error }
     );
   }
   logger.info('R2 export storage initialized', {
-    bucket: env.R2_EXPORTS_BUCKET,
+    bucket,
     jurisdiction: env.R2_JURISDICTION,
   });
 }
@@ -169,7 +186,7 @@ export async function uploadExportStream(
   const upload = new Upload({
     client: getS3Client(),
     params: {
-      Bucket: env.R2_EXPORTS_BUCKET,
+      Bucket: exportsBucket(),
       Key: filename,
       Body: stream.pipe(byteCounter),
       ContentType: 'application/zip',
@@ -193,7 +210,7 @@ export interface ExportBlobInfo {
 export async function getExportBlobInfo(filename: string): Promise<ExportBlobInfo | null> {
   try {
     const head = await getS3Client().send(
-      new HeadObjectCommand({ Bucket: env.R2_EXPORTS_BUCKET, Key: filename })
+      new HeadObjectCommand({ Bucket: exportsBucket(), Key: filename })
     );
     const createdOn = head.LastModified;
     // No creation timestamp (anomalous) or past the export TTL -> treat as gone,
@@ -229,7 +246,7 @@ export async function generateExportDownloadUrl(
     throw new Error(`Export "${filename}" has expired and cannot be signed for download`);
   }
   const expiresIn = Math.min(SAS_TTL_MINUTES * 60, remainingSeconds);
-  const command = new GetObjectCommand({ Bucket: env.R2_EXPORTS_BUCKET, Key: filename });
+  const command = new GetObjectCommand({ Bucket: exportsBucket(), Key: filename });
   return getSignedUrl(getS3Client(), command, { expiresIn });
 }
 
@@ -240,13 +257,14 @@ export async function generateExportDownloadUrl(
 export async function deleteExpiredExports(): Promise<void> {
   try {
     const client = getS3Client();
+    const bucket = exportsBucket();
     let deletedCount = 0;
     let continuationToken: string | undefined;
 
     do {
       const list = await client.send(
         new ListObjectsV2Command({
-          Bucket: env.R2_EXPORTS_BUCKET,
+          Bucket: bucket,
           // Scope the listing to our own key prefix. This narrows what the sweep
           // can touch (and cuts listing cost on a large bucket) so unrelated
           // objects are never even considered for deletion.
@@ -264,9 +282,7 @@ export async function deleteExpiredExports(): Promise<void> {
         const lastModified = object.LastModified;
         if (lastModified && Date.now() - lastModified.getTime() > EXPORT_TTL_MS) {
           try {
-            await client.send(
-              new DeleteObjectCommand({ Bucket: env.R2_EXPORTS_BUCKET, Key: object.Key })
-            );
+            await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: object.Key }));
             deletedCount++;
           } catch (error) {
             // A concurrent sweep (e.g. an overlapping worker restart) may have

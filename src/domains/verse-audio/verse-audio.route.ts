@@ -6,7 +6,7 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { isAudioStorageConfigured } from '@/lib/audio-storage';
+import { isAudioStorageAvailable } from '@/lib/audio-storage';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -22,7 +22,11 @@ import {
   verseAudioResponseSchema,
 } from './verse-audio.types';
 
-const STORAGE_UNAVAILABLE_BODY = { message: 'Audio storage is not configured' } as const;
+// Covers both ways audio storage can be out: credentials unset, or the bucket
+// unreachable at boot. Either way the answer is one clean 503 rather than a 500
+// from whichever R2 call the request happened to reach.
+const STORAGE_UNAVAILABLE_MESSAGE = 'Audio storage is unavailable';
+const STORAGE_UNAVAILABLE_BODY = { message: STORAGE_UNAVAILABLE_MESSAGE } as const;
 
 const verseAudioParamsSchema = z.object({
   projectUnitId: z.coerce
@@ -56,8 +60,8 @@ const commonErrorResponses = {
     'Recording, verse, or assignment not found'
   ),
   [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
-    createMessageObjectSchema('Audio storage is not configured'),
-    'Audio storage is not configured'
+    createMessageObjectSchema(STORAGE_UNAVAILABLE_MESSAGE),
+    'Audio storage is not configured, or its bucket was unreachable at startup'
   ),
   [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
     createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -122,7 +126,7 @@ const uploadVerseAudioRoute = createRoute({
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
-  if (!isAudioStorageConfigured()) {
+  if (!isAudioStorageAvailable()) {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 
@@ -187,7 +191,7 @@ const getVerseAudioRoute = createRoute({
 });
 
 server.openapi(getVerseAudioRoute, async (c) => {
-  if (!isAudioStorageConfigured()) {
+  if (!isAudioStorageAvailable()) {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 
@@ -236,7 +240,7 @@ const listVerseAudioRoute = createRoute({
 });
 
 server.openapi(listVerseAudioRoute, async (c) => {
-  if (!isAudioStorageConfigured()) {
+  if (!isAudioStorageAvailable()) {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 
@@ -284,7 +288,7 @@ const deleteVerseAudioRoute = createRoute({
 });
 
 server.openapi(deleteVerseAudioRoute, async (c) => {
-  if (!isAudioStorageConfigured()) {
+  if (!isAudioStorageAvailable()) {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 

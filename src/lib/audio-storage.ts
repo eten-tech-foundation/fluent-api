@@ -32,13 +32,38 @@ const R2_REGION = 'auto';
 
 let s3Client: S3Client | null = null;
 
+// Result of the boot-time bucket probe: null until it runs (and when storage is
+// unconfigured, in which case it never runs), true/false once it has.
+let bucketReachable: boolean | null = null;
+
 export function isAudioStorageConfigured(): boolean {
   return Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY);
 }
 
-/** The bucket recordings live in — recorded on every storage_objects row. */
+/**
+ * Whether the verse-audio routes can serve. False when the R2 credentials are
+ * unset, and also when the boot-time probe found the bucket unreachable — so a
+ * bad bucket answers one clean 503 per request instead of a scattered 500 from
+ * whichever S3 call happened to run. A failed probe still never stops the API
+ * from booting: only this feature degrades (kaseywright, PR #212).
+ */
+export function isAudioStorageAvailable(): boolean {
+  return isAudioStorageConfigured() && bucketReachable !== false;
+}
+
+/**
+ * The bucket recordings live in — recorded on every storage_objects row.
+ *
+ * There is no default: env validation requires R2_AUDIO_BUCKET whenever the R2
+ * credentials are set (see requireExplicitR2Buckets in src/env.ts), so a
+ * validated environment always has one and never inherits a name another
+ * environment owns. The throw below therefore only fires on the unconfigured
+ * path, which isAudioStorageConfigured()/getS3Client() reject first.
+ */
 export function audioBucket(): string {
-  return env.R2_AUDIO_BUCKET;
+  const bucket = env.R2_AUDIO_BUCKET;
+  if (!bucket) throw new Error('R2_AUDIO_BUCKET is not configured');
+  return bucket;
 }
 
 /** Deterministic object key — replacement overwrites in place, never orphans. */
@@ -91,18 +116,23 @@ function getS3Client(): S3Client {
  */
 export async function initializeAudioStorage(): Promise<void> {
   const client = getS3Client();
+  const bucket = audioBucket();
   try {
-    await client.send(new HeadBucketCommand({ Bucket: env.R2_AUDIO_BUCKET }));
+    await client.send(new HeadBucketCommand({ Bucket: bucket }));
+    bucketReachable = true;
   } catch (error) {
+    // Recorded before rethrowing: the caller logs and keeps the API up, and the
+    // routes read this to answer 503 rather than 500 (isAudioStorageAvailable).
+    bucketReachable = false;
     throw new Error(
-      `R2 audio bucket "${env.R2_AUDIO_BUCKET}" is not reachable — it must be created ` +
+      `R2 audio bucket "${bucket}" is not reachable — it must be created ` +
         `in the "${env.R2_JURISDICTION}" jurisdiction (GDPR data-at-rest) before verse ` +
         `audio is enabled`,
       { cause: error }
     );
   }
   logger.info('R2 audio storage initialized', {
-    bucket: env.R2_AUDIO_BUCKET,
+    bucket,
     jurisdiction: env.R2_JURISDICTION,
   });
 }
@@ -112,11 +142,12 @@ export async function uploadVerseAudio(
   data: Buffer,
   contentType: string
 ): Promise<void> {
+  const bucket = audioBucket();
   // Recordings are capped at 30 MB by the route's bodyLimit and already buffered,
   // so a single PutObject is enough — no multipart upload needed.
   await getS3Client().send(
     new PutObjectCommand({
-      Bucket: env.R2_AUDIO_BUCKET,
+      Bucket: bucket,
       Key: key,
       Body: data,
       ContentType: contentType,
@@ -124,7 +155,7 @@ export async function uploadVerseAudio(
     })
   );
   logger.info('Verse audio object uploaded', {
-    bucket: env.R2_AUDIO_BUCKET,
+    bucket,
     key,
     sizeBytes: data.length,
     contentType,
@@ -132,17 +163,16 @@ export async function uploadVerseAudio(
 }
 
 export async function deleteVerseAudio(key: string): Promise<void> {
+  const bucket = audioBucket();
   // DeleteObject is idempotent on S3/R2: deleting a missing key succeeds, which
   // is what the reclaim sweep wants when a blob is already gone.
-  await getS3Client().send(new DeleteObjectCommand({ Bucket: env.R2_AUDIO_BUCKET, Key: key }));
-  logger.info('Verse audio object deleted', { bucket: env.R2_AUDIO_BUCKET, key });
+  await getS3Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  logger.info('Verse audio object deleted', { bucket, key });
 }
 
 /** Short-lived read-only presigned URL that players stream directly from. */
 export async function generateAudioDownloadUrl(key: string): Promise<string> {
-  return getSignedUrl(
-    getS3Client(),
-    new GetObjectCommand({ Bucket: env.R2_AUDIO_BUCKET, Key: key }),
-    { expiresIn: DOWNLOAD_TTL_SECONDS }
-  );
+  return getSignedUrl(getS3Client(), new GetObjectCommand({ Bucket: audioBucket(), Key: key }), {
+    expiresIn: DOWNLOAD_TTL_SECONDS,
+  });
 }
