@@ -16,6 +16,7 @@ import '@/domains/bible-books/bible-books.route';
 import '@/domains/projects/books/project-books.route';
 import '@/domains/bibles/bible-texts/bible-texts.route';
 import '@/domains/translated-verses/translated-verses.route';
+import '@/domains/verse-audio/verse-audio.route';
 import '@/domains/usfm/usfm.route';
 import '@/domains/chapter-assignments/editor-state/user-chapter-assignment-editor-state.route';
 import '@/domains/projects/users/project-users.route';
