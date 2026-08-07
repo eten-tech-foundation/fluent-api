@@ -1,6 +1,6 @@
 {
-  "id": "67a56565-8a54-40d3-848c-d8bfbc5ab139",
-  "prevId": "52dd54c6-7bda-492f-86bb-35a85726329c",
+  "id": "873b66e6-2478-4746-a0ce-d175df84c803",
+  "prevId": "67a56565-8a54-40d3-848c-d8bfbc5ab139",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2373,6 +2373,87 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.storage_objects": {
+      "name": "storage_objects",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bucket": {
+          "name": "bucket",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "uq_storage_object_bucket_key": {
+          "name": "uq_storage_object_bucket_key",
+          "columns": [
+            {
+              "expression": "bucket",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_storage_objects_unreclaimed": {
+          "name": "idx_storage_objects_unreclaimed",
+          "columns": [
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.translated_verses": {
       "name": "translated_verses",
       "schema": "",
@@ -2780,6 +2861,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "storage_object_id": {
+          "name": "storage_object_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "content_type": {
           "name": "content_type",
           "type": "varchar",
@@ -2860,6 +2947,15 @@
           "tableFrom": "verse_audio_recordings",
           "tableTo": "users",
           "columnsFrom": ["uploaded_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "verse_audio_recordings_storage_object_id_storage_objects_id_fk": {
+          "name": "verse_audio_recordings_storage_object_id_storage_objects_id_fk",
+          "tableFrom": "verse_audio_recordings",
+          "tableTo": "storage_objects",
+          "columnsFrom": ["storage_object_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
