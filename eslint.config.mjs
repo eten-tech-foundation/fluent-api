@@ -7,7 +7,7 @@ export default antfu(
     typescript: true,
     formatters: true,
     stylistic: false,
-    ignores: ['**/migrations/*', 'src/db/seeds/data/**', 'data/**', 'docs/proposals/**'],
+    ignores: ['**/migrations/*', 'src/db/seeds/data/**', 'data/**', '.superpowers/**', 'docs/proposals/**'],
   },
   {
     ...prettier,
