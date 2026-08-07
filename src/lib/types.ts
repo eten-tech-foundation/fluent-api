@@ -57,6 +57,7 @@ export const ErrorCode = {
   BOOK_NOT_FOUND: 'BOOK_NOT_FOUND',
   BIBLE_BOOK_NOT_FOUND: 'BIBLE_BOOK_NOT_FOUND',
   TRANSLATED_VERSE_NOT_FOUND: 'TRANSLATED_VERSE_NOT_FOUND',
+  VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -69,6 +70,8 @@ export const ErrorCode = {
   CHAPTER_LIMIT_EXCEEDED: 'CHAPTER_LIMIT_EXCEEDED',
   INVALID_REFERENCE: 'INVALID_REFERENCE',
   INVALID_BIBLE_BOOKS: 'INVALID_BIBLE_BOOKS',
+  UNSUPPORTED_AUDIO_TYPE: 'UNSUPPORTED_AUDIO_TYPE',
+  EMPTY_AUDIO_FILE: 'EMPTY_AUDIO_FILE',
   // External service errors
   AUTH_ERROR: 'AUTH_ERROR',
   EMAIL_SERVICE_ERROR: 'EMAIL_SERVICE_ERROR',
@@ -101,6 +104,9 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   BOOK_NOT_FOUND: 'Book not found',
   BIBLE_BOOK_NOT_FOUND: 'Bible book not found',
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
+  VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
+  UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
+  EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
   EMAIL_CONFLICT: 'Email is already in use',
   DUPLICATE: 'Resource already exists',
@@ -154,6 +160,9 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   BOOK_NOT_FOUND: 404,
   BIBLE_BOOK_NOT_FOUND: 404,
   TRANSLATED_VERSE_NOT_FOUND: 404,
+  VERSE_AUDIO_NOT_FOUND: 404,
+  UNSUPPORTED_AUDIO_TYPE: 400,
+  EMPTY_AUDIO_FILE: 400,
 };
 
 export interface AppError {

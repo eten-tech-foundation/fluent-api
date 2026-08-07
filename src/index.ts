@@ -1,10 +1,12 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
+import { reclaimOrphanedStorageObjects } from '@/domains/verse-audio/verse-audio.service';
 import env from '@/env';
-import { cleanupExpiredFiles, initializeFileStorage } from '@/lib/file-storage';
+import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-storage';
+import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 
 import app from './app';
 
@@ -12,19 +14,13 @@ async function startServer() {
   try {
     logger.info('Starting Fluent API server');
 
-    await initializeFileStorage();
-    logger.info('File storage initialized');
+    await verifyBlobStorageOnBoot();
 
     logger.info('Initializing queue');
     const boss = await initializeQueue();
 
-    logger.info('Ensuring USFM export queue exists');
-    await boss.createQueue(QUEUE_NAMES.USFM_EXPORT, {
-      retryLimit: 3,
-      retryDelay: 60,
-      retryBackoff: true,
-      expireInSeconds: 3600,
-    });
+    logger.info('Ensuring USFM export queues exist');
+    await ensureExportQueues(boss);
 
     logger.info('Ensuring AI suggestion trigger queue exists');
     await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
@@ -37,11 +33,26 @@ async function startServer() {
 
     logger.info('Queue ready');
 
-    const cleanupInterval = setInterval(() => {
-      cleanupExpiredFiles().catch((error) => {
-        logger.error('Cleanup task failed', { error });
-      });
-    }, 3600000);
+    // Deleting a project unit cascades its recordings away, but Postgres cannot
+    // delete an object in a bucket — this sweep is what actually frees those
+    // bytes. It only starts once the bucket has answered, so bad credentials or
+    // a missing bucket surface here instead of as an hourly failing sweep. Audio
+    // being optional, a failed probe is logged and the API keeps serving; the
+    // probe result is recorded in the storage module, so the verse-audio routes
+    // then answer 503 instead of a 500 per request.
+    let audioReclaimInterval: NodeJS.Timeout | null = null;
+    if (isAudioStorageConfigured()) {
+      try {
+        await initializeAudioStorage();
+        audioReclaimInterval = setInterval(() => {
+          reclaimOrphanedStorageObjects().catch((error) => {
+            logger.error('Verse audio reclaim task failed', { error });
+          });
+        }, env.AUDIO_RECLAIM_INTERVAL_MS);
+      } catch (error) {
+        logger.error('Verse audio storage unavailable; reclaim sweep disabled', { error });
+      }
+    }
 
     const server = serve({
       fetch: app.fetch,
@@ -53,7 +64,7 @@ async function startServer() {
     const gracefulShutdown = async (signal: string) => {
       logger.info(`${signal} received, shutting down server`);
       try {
-        clearInterval(cleanupInterval);
+        if (audioReclaimInterval) clearInterval(audioReclaimInterval);
 
         server.close(() => {
           logger.info('HTTP server closed');

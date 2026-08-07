@@ -39,3 +39,6 @@ yarn.lock
 
 # Vendored seed data (committed verbatim from PROD exports)
 src/db/seeds/data
+
+# Agent scratch space (gitignored; eslint.config.mjs ignores it too)
+.superpowers

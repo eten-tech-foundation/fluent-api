@@ -34,13 +34,14 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      EXPORTS_DIR: /app/exports
+      # Async USFM export uses Cloudflare R2 (S3-compatible). R2 has no local
+      # emulator: set R2_* in .env (MinIO or a real R2 dev bucket — see
+      # .env.example) to enable it; otherwise async export responds 503.
     user: '1001:1001'
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
       - /app/.cache:noexec,nosuid,size=128m
-      - /app/exports:noexec,nosuid,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -69,14 +70,15 @@ services:
       BOOTSTRAP_DATABASE_URL: postgres://postgres:postgres@db:5432/fluent
       MIGRATIONS_DATABASE_URL: postgres://api_migrator:password@db:5432/fluent
       DATABASE_URL: postgres://api_user:password@db:5432/fluent
-      EXPORTS_DIR: /app/exports
+      # Async USFM export uses Cloudflare R2 (S3-compatible). The worker refuses
+      # to start without R2 credentials: set R2_* in .env (MinIO or a real R2 dev
+      # bucket — see .env.example). R2 has no local emulator.
     command: [dumb-init, --, npx, tsx, watch, src/workers/standalone-worker.ts]
     user: '1001:1001'
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
       - /app/.cache:noexec,nosuid,size=128m
-      - /app/exports:noexec,nosuid,size=256m
     security_opt:
       - no-new-privileges:true
     cap_drop:

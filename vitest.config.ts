@@ -11,4 +11,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  test: {
+    // Agent tooling checks out sibling branches into .claude/worktrees/<branch>/,
+    // each a full copy of this repo. Without this exclude, vitest collects those
+    // copies' suites too and reports another branch's failures as if they were
+    // ours. CI is unaffected (a clean checkout has no .claude/), so this only
+    // keeps local runs honest.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/.claude/**'],
+  },
 });

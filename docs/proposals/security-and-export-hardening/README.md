@@ -1,8 +1,9 @@
 # Security & Export Hardening — Proposal
 
-**Status:** Draft for review (2026-06-18). Ticket 1 (auth on open domains) is
-**partially implemented** on branch `fix/require-auth-bibles-usfm`; tickets 2–4
-are scoped but not started.
+**Status:** In progress (updated 2026-07-01). Tickets 1–3 are implemented and
+largely merged — auth on open domains (#189, #206, #199 rate-limit), export error
+UX (#200, fluent-web#312), and async export pipeline hardening (#196, this PR) —
+and ticket 4's code is merged (#202) with 2-user QA still pending (#197).
 **Origin:** Code audit of `fluent-web` + `fluent-api` (2026-06-18) plus reviewer
 feedback. This folder captures the four follow-ups the audit surfaced and the
 decision made on each.
@@ -16,12 +17,12 @@ each finding; the decisions are encoded in the per-ticket docs below.
 
 ## Tickets
 
-| #   | Title                                                                    | Priority        | Status                                                                                                       |
-| --- | ------------------------------------------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------ |
-| 1   | [Require auth on open domains](01-auth-open-domains.md)                  | P0 (security)   | Bibles + USFM auth merged (#189); project-scoping in review (#206); bulk-texts decided + rate-limited (#199) |
-| 2   | [Export error UX + Azure logging](02-export-error-ux-and-logging.md)     | P1              | Done — #200 + fluent-web#312 merged (#195 closed)                                                            |
-| 3   | [Async export pipeline hardening](03-async-export-pipeline-hardening.md) | P2 (pre-enable) | Decided: Azure Blob + signed URLs (2026-06-26); implementation pending (#196)                                |
-| 4   | [Verify concurrent-editor warning](04-concurrent-editor-warning-qa.md)   | P2 (QA)         | Authz + first-editor race fixed (#202); 2-user QA pending (#197)                                             |
+| #   | Title                                                                    | Priority        | Status                                                                                                                       |
+| --- | ------------------------------------------------------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [Require auth on open domains](01-auth-open-domains.md)                  | P0 (security)   | Bibles + USFM auth merged (#189); project-scoping in review (#206); bulk-texts decided + rate-limited (#199)                 |
+| 2   | [Export error UX + Azure logging](02-export-error-ux-and-logging.md)     | P1              | Done — #200 + fluent-web#312 merged (#195 closed)                                                                            |
+| 3   | [Async export pipeline hardening](03-async-export-pipeline-hardening.md) | P2 (pre-enable) | Implemented — Cloudflare R2 (EU) + presigned downloads, worker retries, owner binding (#196); R2 bucket provisioning pending |
+| 4   | [Verify concurrent-editor warning](04-concurrent-editor-warning-qa.md)   | P2 (QA)         | Authz + first-editor race fixed (#202); 2-user QA pending (#197)                                                             |
 
 ## Key framing corrections from the audit
 
