@@ -120,6 +120,13 @@
       "when": 1785433278845,
       "tag": "0016_add_storage_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786083177788,
+      "tag": "0017_add_languages_unique_code_and_widen_names",
+      "breakpoints": true
     }
   ]
 }
