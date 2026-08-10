@@ -168,13 +168,13 @@ export async function list(
     const verses =
       conditions.length > 0
         ? await baseQuery
-          .where(and(...conditions))
-          .orderBy(bible_texts.bookId, bible_texts.chapterNumber, bible_texts.verseNumber)
+            .where(and(...conditions))
+            .orderBy(bible_texts.bookId, bible_texts.chapterNumber, bible_texts.verseNumber)
         : await baseQuery.orderBy(
-          bible_texts.bookId,
-          bible_texts.chapterNumber,
-          bible_texts.verseNumber
-        );
+            bible_texts.bookId,
+            bible_texts.chapterNumber,
+            bible_texts.verseNumber
+          );
     return ok(verses);
   } catch (error) {
     logger.error({
