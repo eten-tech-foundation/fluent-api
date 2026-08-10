@@ -209,6 +209,7 @@ export const projects = pgTable('projects', {
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
   // Nullable — existing projects have no pericope set; new projects may select one
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
+  lastActivityAt: timestamp('last_activity_at'),
 });
 
 export const bibles = pgTable('bibles', {
@@ -817,6 +818,7 @@ export const insertProjectsSchema = createInsertSchema(projects, {
     id: true,
     createdAt: true,
     updatedAt: true,
+    lastActivityAt: true,
   });
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
