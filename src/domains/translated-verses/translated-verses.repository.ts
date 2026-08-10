@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, translated_verses } from '@/db/schema';
@@ -14,9 +14,13 @@ import type {
   UpdateTranslatedVerseInput,
 } from './translated-verses.types';
 
-export async function getById(id: number): Promise<Result<TranslatedVerseRecord>> {
+export async function getById(
+  id: number,
+  tx?: DbTransaction
+): Promise<Result<TranslatedVerseRecord>> {
   try {
-    const [verse] = await db
+    const conn = tx ?? db;
+    const [verse] = await conn
       .select({
         id: translated_verses.id,
         projectUnitId: translated_verses.projectUnitId,
@@ -101,10 +105,12 @@ export async function update(
 }
 
 export async function upsert(
-  input: CreateTranslatedVerseInput
+  input: CreateTranslatedVerseInput,
+  tx?: DbTransaction
 ): Promise<Result<TranslatedVerseRecord>> {
   try {
-    const [verse] = await db
+    const conn = tx ?? db;
+    const [verse] = await conn
       .insert(translated_verses)
       .values(input)
       .onConflictDoUpdate({
@@ -116,7 +122,7 @@ export async function upsert(
       })
       .returning();
 
-    const result = await getById(verse.id);
+    const result = await getById(verse.id, tx);
     if (!result.ok) {
       return err(ErrorCode.INTERNAL_ERROR);
     }
@@ -162,13 +168,13 @@ export async function list(
     const verses =
       conditions.length > 0
         ? await baseQuery
-            .where(and(...conditions))
-            .orderBy(bible_texts.bookId, bible_texts.chapterNumber, bible_texts.verseNumber)
+          .where(and(...conditions))
+          .orderBy(bible_texts.bookId, bible_texts.chapterNumber, bible_texts.verseNumber)
         : await baseQuery.orderBy(
-            bible_texts.bookId,
-            bible_texts.chapterNumber,
-            bible_texts.verseNumber
-          );
+          bible_texts.bookId,
+          bible_texts.chapterNumber,
+          bible_texts.verseNumber
+        );
     return ok(verses);
   } catch (error) {
     logger.error({

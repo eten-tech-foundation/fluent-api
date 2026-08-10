@@ -127,6 +127,13 @@
       "when": 1786083177788,
       "tag": "0017_add_languages_unique_code_and_widen_names",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786357628914,
+      "tag": "0018_add_project_last_activity",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,5 @@
+import { db } from '@/db';
+import * as projectsService from '@/domains/projects/projects.service';
 import { ok } from '@/lib/types';
 
 import type {
@@ -43,7 +45,15 @@ export async function updateTranslatedVerse(id: number, input: UpdateTranslatedV
 }
 
 export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
-  const result = await translatedVersesRepo.upsert(input);
+  const result = await db.transaction(async (tx) => {
+    const upserted = await translatedVersesRepo.upsert(input, tx);
+    if (!upserted.ok) return upserted;
+    // Update the last activity timestamp for the associated project when a translated verse is upserted
+    await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
+
+    return upserted;
+  });
+
   if (!result.ok) return result;
   return ok(toTranslatedVerseResponse(result.data));
 }
