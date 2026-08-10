@@ -9,21 +9,35 @@ async function backfillProjectLastActivity() {
 
     const result = await db.execute(sql`
       UPDATE projects p
-      SET last_activity_at = activity.max_ts
+      SET last_activity_at = CASE
+        WHEN p.last_activity_at IS NULL OR activity.max_ts > p.last_activity_at THEN activity.max_ts
+        ELSE p.last_activity_at
+      END
       FROM (
         SELECT
           pu.project_id AS project_id,
-          GREATEST(
-            COALESCE(MAX(ca.updated_at), 'epoch'::timestamp),
-            COALESCE(MAX(tv.updated_at), 'epoch'::timestamp)
+          MAX(
+            GREATEST(
+              COALESCE(ca_agg.max_updated_at, 'epoch'::timestamp),
+              COALESCE(tv_agg.max_updated_at, 'epoch'::timestamp)
+            )
           ) AS max_ts
         FROM project_units pu
-        LEFT JOIN chapter_assignments ca ON ca.project_unit_id = pu.id
-        LEFT JOIN translated_verses tv ON tv.project_unit_id = pu.id
+        LEFT JOIN (
+          SELECT project_unit_id, MAX(updated_at) AS max_updated_at
+          FROM chapter_assignments
+          GROUP BY project_unit_id
+        ) ca_agg ON ca_agg.project_unit_id = pu.id
+        LEFT JOIN (
+          SELECT project_unit_id, MAX(updated_at) AS max_updated_at
+          FROM translated_verses
+          GROUP BY project_unit_id
+        ) tv_agg ON tv_agg.project_unit_id = pu.id
         GROUP BY pu.project_id
       ) AS activity
       WHERE p.id = activity.project_id
-        AND activity.max_ts > 'epoch'::timestamp;
+        AND activity.max_ts > 'epoch'::timestamp
+        AND (p.last_activity_at IS NULL OR activity.max_ts > p.last_activity_at);
     `);
 
     // postgres-js exposes affected-row count via `.count` for non-RETURNING

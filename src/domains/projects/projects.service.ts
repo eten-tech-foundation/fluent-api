@@ -44,7 +44,7 @@ export async function touchProjectActivity(
       message: 'Failed to resolve project for last-activity update',
       context: { projectUnitId, error: result.error },
     });
-    return;
+    throw new Error(`Failed to resolve project for activity update: ${String(result.error)}`);
   }
 
   await repo.touchLastActivity(result.data.projectId, tx);
