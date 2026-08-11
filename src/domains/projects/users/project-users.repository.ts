@@ -155,7 +155,6 @@ export async function addProjectUsers(
           roleId,
         }))
       )
-      .onConflictDoNothing()
       .returning({
         projectId: user_roles.projectId,
         userId: user_roles.userId,
