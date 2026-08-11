@@ -36,15 +36,6 @@ import { z } from '@hono/zod-openapi';
  */
 export const TtsFormatSchema = z.enum(['ogg-opus', 'mp3']);
 
-/**
- * Reserved synthesis-time pacing slot (T11). Carried in the protocol from day
- * one because "the protocol is much harder to change than the frontend
- * presentation"; v1 fluent-web never sends a non-null value.
- */
-export const TtsPacingSchema = z.object({
-  mode: z.string().optional(),
-});
-
 export const TtsGenerateRequestSchema = z
   .object({
     // Non-empty is enforced here so a trivially-invalid request never costs a
@@ -69,10 +60,15 @@ export const TtsGenerateRequestSchema = z
       description: 'ISO 639-3 language hint, sent whenever the caller knows it (T18). Advisory.',
       example: 'eng',
     }),
-    pacing: TtsPacingSchema.nullish().openapi({
-      description: 'Reserved protocol slot for future synthesis-time pacing (T11). v1 sends null.',
-    }),
   })
+  // There is no `pacing` field. T11 reserved one for a future synthesis-time
+  // cadence option; it was removed on 2026-08-11, before anything shipped,
+  // because it had no defined values, no UI, no provider parameter and no
+  // testable behavior — fluent-ai could only have guessed at what to do with a
+  // non-null value. Since `.strict()` below makes the ADDITIVE direction the
+  // safe one, a real pacing field costs one coordinated change whenever someone
+  // actually implements cadence. Playback speed remains client `playbackRate`.
+  //
   // `.strict()` — an unknown field is a client bug worth surfacing as
   // TTS_INVALID_REQUEST rather than silently dropping. This is safe against
   // forward evolution because a NEW field would be added here (and to
