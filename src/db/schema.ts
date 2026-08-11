@@ -346,6 +346,30 @@ export const bible_texts = pgTable(
 );
 
 // ─── Verse structural markers (#263; fluent-web#314) ─────────────────────────
+// The paragraph-level markers a verse may open with. An allowlist rather than a
+// pattern: the export emits a stored value verbatim as `\<marker>`, so anything
+// outside this set — a verse or chapter marker (`v`, `c`), an identification
+// marker (`id`, `h`, `mt`) or an unknown identifier — would put a structurally
+// invalid line into the USFM. This is the whole USFM 3.x body-text set, so every
+// paragraph the editor can legitimately author round-trips; introduction markers
+// (`ip`, `io1`, …) are absent because they precede \c 1 and cannot open inside a
+// verse.
+// prettier-ignore
+export const USFM_PARAGRAPH_MARKERS = [
+  // Prose
+  'p', 'm', 'po', 'pr', 'cls', 'pmo', 'pm', 'pmc', 'pmr', 'pi', 'pi1', 'pi2', 'pi3',
+  'mi', 'nb', 'pc', 'ph', 'ph1', 'ph2', 'ph3', 'b',
+  // Poetry
+  'q', 'q1', 'q2', 'q3', 'q4', 'qr', 'qc', 'qa', 'qm', 'qm1', 'qm2', 'qm3', 'qd',
+  // Lists
+  'lh', 'li', 'li1', 'li2', 'li3', 'li4', 'lf', 'lim', 'lim1', 'lim2', 'lim3', 'lim4',
+  // Headings and titles, which open a paragraph of their own before the verse
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
+  // Tables and explicit page breaks
+  'tr', 'pb',
+] as const;
+
 // USJ paragraph context carried per verse row. `paragraphs` lists where new
 // paragraphs open inside this verse's content: offset 0 means the verse itself
 // opens a paragraph; a mid-text offset splits the verse across two paragraphs.
@@ -356,9 +380,10 @@ export const verseMarkersSchema = z
     paragraphs: z
       .array(
         z.object({
-          // USFM paragraph-level marker (p, m, q1, pi2, …). Pattern-limited so a
-          // stored value can never smuggle USFM syntax into the export.
-          marker: z.string().regex(/^[a-z][a-z0-9]{0,9}$/),
+          // Allowlisted USFM paragraph marker (p, m, q1, pi2, …), so a stored
+          // value can neither smuggle USFM syntax into the export nor stand in
+          // for a structural marker the export has to own.
+          marker: z.enum(USFM_PARAGRAPH_MARKERS),
           // Character offset into the verse's content where the paragraph opens.
           offset: z.number().int().min(0),
         })

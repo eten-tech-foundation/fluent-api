@@ -14,20 +14,38 @@ const BASE_ROW = {
 
 describe('verseMarkersSchema', () => {
   it('accepts a paragraph opening at the verse start', () => {
-    expect(
-      verseMarkersSchema.parse({ paragraphs: [{ marker: 'p', offset: 0 }] })
-    ).toEqual({ paragraphs: [{ marker: 'p', offset: 0 }] });
+    expect(verseMarkersSchema.parse({ paragraphs: [{ marker: 'p', offset: 0 }] })).toEqual({
+      paragraphs: [{ marker: 'p', offset: 0 }],
+    });
   });
 
   it('accepts null (legacy rows carry no markers)', () => {
     expect(verseMarkersSchema.parse(null)).toBeNull();
   });
 
+  it('accepts every kind of paragraph the editor can author', () => {
+    for (const marker of ['p', 'm', 'q1', 'pi2', 's1', 'li1', 'b'] as const) {
+      expect(verseMarkersSchema.safeParse({ paragraphs: [{ marker, offset: 0 }] }).success).toBe(
+        true
+      );
+    }
+  });
+
   it('rejects a marker that could smuggle USFM syntax into the export', () => {
     for (const marker of ['p\nfake', 'p\\v', 'P', 'q-1', '']) {
-      expect(
-        verseMarkersSchema.safeParse({ paragraphs: [{ marker, offset: 0 }] }).success
-      ).toBe(false);
+      expect(verseMarkersSchema.safeParse({ paragraphs: [{ marker, offset: 0 }] }).success).toBe(
+        false
+      );
+    }
+  });
+
+  it('rejects markers the export owns itself, and unknown identifiers', () => {
+    // `v` and `c` would emit a bare `\v`/`\c` with no number ahead of the real
+    // one; `id`/`h`/`mt` belong to the file header. None are paragraphs.
+    for (const marker of ['v', 'c', 'id', 'h', 'mt', 'zz9']) {
+      expect(verseMarkersSchema.safeParse({ paragraphs: [{ marker, offset: 0 }] }).success).toBe(
+        false
+      );
     }
   });
 
