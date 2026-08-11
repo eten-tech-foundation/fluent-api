@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getUserByEmail } from '@/domains/users/users.service';
-import env from '@/env';
 import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
 import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
@@ -216,30 +215,19 @@ describe('pOST /ai/tts/generate', () => {
     expect('format' in forwarded).toBe(false);
   });
 
-  it('accepts text exactly at the configured maximum', async () => {
+  it('does not judge text length — a long body is forwarded, not rejected (T27)', async () => {
     asAuthenticatedUser(true);
     (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
-    const res = await postGenerate({ text: 'a'.repeat(env.TTS_MAX_TEXT_LENGTH) });
+    // Far beyond fluent-ai's default 20k tripwire. This proxy must still forward
+    // it: fluent-ai owns the limit and holds the only copy of the number, so a
+    // cap here would be a second value that has to agree with the first.
+    const text = 'a'.repeat(50_000);
+    const res = await postGenerate({ text });
 
     expect(res.status).toBe(200);
-    expect(generateTtsAudio).toHaveBeenCalledOnce();
-  });
-
-  it('rejects text one character over the maximum, and names the maximum', async () => {
-    asAuthenticatedUser(true);
-
-    const actualLength = env.TTS_MAX_TEXT_LENGTH + 1;
-    const res = await postGenerate({ text: 'a'.repeat(actualLength) });
-
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as any;
-    expect(json.code).toBe('TTS_TEXT_TOO_LONG');
-    // A bare "too long" is unactionable — the caller cannot know what to trim to.
-    expect(json.error).toContain(String(env.TTS_MAX_TEXT_LENGTH));
-    expect(json.details).toEqual({ maxLength: env.TTS_MAX_TEXT_LENGTH, actualLength });
-    // Enforced at the edge: the oversized payload never reached fluent-ai.
-    expect(generateTtsAudio).not.toHaveBeenCalled();
+    const [forwarded] = (generateTtsAudio as any).mock.calls[0];
+    expect(forwarded.text).toHaveLength(50_000);
   });
 
   it('rejects empty text as an invalid request, distinctly from too-long', async () => {
