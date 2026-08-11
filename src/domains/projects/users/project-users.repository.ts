@@ -3,7 +3,14 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { chapter_assignments, project_units, projects, user_roles, users } from '@/db/schema';
+import {
+  chapter_assignments,
+  project_units,
+  projects,
+  roles,
+  user_roles,
+  users,
+} from '@/db/schema';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { handleConstraintError } from '@/lib/db-errors';
@@ -33,10 +40,12 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
         userId: user_roles.userId,
         displayName: users.username,
         roleID: user_roles.roleId,
+        roleName: roles.name,
         createdAt: user_roles.createdAt,
       })
       .from(user_roles)
       .innerJoin(users, eq(user_roles.userId, users.id))
+      .innerJoin(roles, eq(roles.id, user_roles.roleId))
       .where(
         and(
           // Include project-pinned grants for this project OR org-wide grants for the project's org.
@@ -96,9 +105,18 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
 export async function addProjectUsers(
   projectId: number,
   userIds: number[],
-  roleId: number
+  roleId: number,
+  roleName: string
 ): Promise<
-  Result<{ projectId: number; userId: number; roleId: number; createdAt: Date | null }[]>
+  Result<
+    {
+      projectId: number;
+      userId: number;
+      roleId: number;
+      roleName: string;
+      createdAt: Date | null;
+    }[]
+  >
 > {
   if (userIds.length === 0) return ok([]);
   try {
@@ -145,7 +163,7 @@ export async function addProjectUsers(
         createdAt: user_roles.createdAt,
       });
 
-    return ok(inserted as any);
+    return ok(inserted.map((r) => ({ ...r, roleName })) as any);
   } catch (error) {
     const constraintResult = handleConstraintError(error);
     if (!constraintResult.ok && constraintResult.error.code === ErrorCode.DUPLICATE) {
@@ -245,8 +263,17 @@ export async function getProjectUserRole(
 export async function updateProjectUserRole(
   projectId: number,
   userId: number,
-  roleId: number
-): Promise<Result<{ projectId: number; userId: number; roleId: number; createdAt: Date | null }>> {
+  roleId: number,
+  roleName: string
+): Promise<
+  Result<{
+    projectId: number;
+    userId: number;
+    roleId: number;
+    roleName: string;
+    createdAt: Date | null;
+  }>
+> {
   try {
     // Validate that the provided roleId is one of the three project-level roles
     const [pmId, ptId, poId] = await Promise.all([
@@ -271,7 +298,7 @@ export async function updateProjectUserRole(
       });
 
     if (updated) {
-      return ok(updated as any);
+      return ok({ ...updated, roleName } as any);
     }
 
     // If no project-pinned row exists, check if the user is a member of the project
@@ -318,10 +345,10 @@ export async function updateProjectUserRole(
         .limit(1);
 
       if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
-      return ok(existingRow as any);
+      return ok({ ...existingRow, roleName } as any);
     }
 
-    return ok(inserted as any);
+    return ok({ ...inserted, roleName } as any);
   } catch (error) {
     logger.error({
       cause: error,

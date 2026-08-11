@@ -6,6 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
+import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -114,9 +115,10 @@ const addProjectUsersRoute = createRoute({
 
 server.openapi(addProjectUsersRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const { userIds, roleId } = c.req.valid('json');
+  const { userIds, roleName } = c.req.valid('json');
 
-  const result = await projectUsersService.addProjectUsers(projectId, userIds, roleId);
+  const roleId = await getRoleId(roleName);
+  const result = await projectUsersService.addProjectUsers(projectId, userIds, roleId, roleName);
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
@@ -216,14 +218,16 @@ const updateProjectUserRoleRoute = createRoute({
 
 server.openapi(updateProjectUserRoleRoute, async (c) => {
   const { projectId, userId } = c.req.valid('param');
-  const { roleId } = c.req.valid('json');
+  const { roleName } = c.req.valid('json');
   const caller = c.get('user')!;
 
+  const roleId = await getRoleId(roleName);
   const result = await projectUsersService.updateProjectUserRole(
     caller.id,
     projectId,
     userId,
-    roleId
+    roleId,
+    roleName
   );
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
 

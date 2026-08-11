@@ -8,6 +8,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
+import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
 import {
@@ -145,11 +146,12 @@ server.openapi(createUserRoute, async (c) => {
     try {
       const { grantRole } = await import('@/domains/user-roles/user-roles.service');
 
+      const roleId = await getRoleId(requestData.roleName);
       const grantResult = await grantRole({
         userId: result.data.id,
         orgId: requestData.orgId,
         projectId: requestData.projectId ?? null,
-        roleId: requestData.roleId,
+        roleId,
         createdBy: currentUser.id,
       });
       if (!grantResult.ok) {
@@ -237,9 +239,10 @@ const createUserWithInvitationRoute = createRoute({
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
-  const { email, username, orgId, projectId, roleId, orgName, inviterName } = c.req.valid('json');
+  const { email, username, orgId, projectId, roleName, orgName, inviterName } = c.req.valid('json');
   const caller = c.get('user')!;
   const normalizedEmail = email.toLowerCase();
+  const { getRoleId } = await import('@/domains/user-roles/user-roles.service');
 
   // Check if the user already exists in the system
   const existingUserResult = await userService.getUserByEmail(normalizedEmail);
@@ -247,6 +250,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
   if (existingUserResult.ok) {
     // ── EXISTING USER PATH ────────────────────────────────────────────────────
     // User already has a Fluent account — grant access and send login-link email.
+    const roleId = await getRoleId(roleName);
     const result = await inviteExistingUserToOrg({
       existingUser: existingUserResult.data,
       orgId,
@@ -262,6 +266,7 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
 
   // ── NEW USER PATH ─────────────────────────────────────────────────────────
   // User doesn't exist yet — create account and send magic link invitation.
+  const roleId = await getRoleId(roleName);
   const result = await createUserWithInvitation(
     { email: normalizedEmail, username, orgId, projectId, roleId, status: 'invited' },
     c.req.raw.headers
@@ -567,11 +572,11 @@ server.openapi(updateActiveOrgRoute, async (c) => {
       .where(eq(schema.authSession.id, session.session.id));
 
     await tx
+      // eslint-disable-next-line max-lines
       .update(schema.users)
       .set({ lastActiveOrgId: orgId })
       .where(eq(schema.users.id, currentUser.id));
   });
 
   return c.body(null, HttpStatusCodes.OK);
-  // eslint-disable-next-line max-lines
 });

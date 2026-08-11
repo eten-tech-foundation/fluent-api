@@ -7,7 +7,12 @@ export function getProjectUsers(projectId: number) {
   return repo.getProjectUsers(projectId);
 }
 
-export async function addProjectUsers(projectId: number, userIds: number[], roleId: number) {
+export async function addProjectUsers(
+  projectId: number,
+  userIds: number[],
+  roleId: number,
+  roleName: string
+) {
   const usersResult = await usersService.getUsersByIds(userIds);
   if (!usersResult.ok) return err(ErrorCode.INTERNAL_ERROR);
 
@@ -15,7 +20,7 @@ export async function addProjectUsers(projectId: number, userIds: number[], role
   const missingId = userIds.find((id) => !foundIds.has(id));
   if (missingId) return err(ErrorCode.USER_NOT_FOUND);
 
-  const insertResult = await repo.addProjectUsers(projectId, userIds, roleId);
+  const insertResult = await repo.addProjectUsers(projectId, userIds, roleId, roleName);
   if (!insertResult.ok) return insertResult;
 
   const userMap = new Map(usersResult.data.map((u) => [u.id, u]));
@@ -25,6 +30,7 @@ export async function addProjectUsers(projectId: number, userIds: number[], role
       ...row,
       displayName: userMap.get(row.userId)!.username,
       roleID: row.roleId,
+      roleName: row.roleName,
     }))
   );
 }
@@ -41,7 +47,8 @@ export async function updateProjectUserRole(
   callerId: number,
   projectId: number,
   userId: number,
-  roleId: number
+  roleId: number,
+  roleName: string
 ) {
   if (callerId === userId) {
     return err(ErrorCode.FORBIDDEN);
@@ -51,7 +58,7 @@ export async function updateProjectUserRole(
   if (!userResult.ok) return err(ErrorCode.INTERNAL_ERROR);
   if (userResult.data.length === 0) return err(ErrorCode.USER_NOT_FOUND);
 
-  const result = await repo.updateProjectUserRole(projectId, userId, roleId);
+  const result = await repo.updateProjectUserRole(projectId, userId, roleId, roleName);
   if (!result.ok) return result;
 
   const targetUser = userResult.data[0];
@@ -60,5 +67,6 @@ export async function updateProjectUserRole(
     ...result.data,
     displayName: targetUser.username,
     roleID: result.data.roleId,
+    roleName: result.data.roleName,
   });
 }

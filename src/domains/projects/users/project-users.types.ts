@@ -5,6 +5,7 @@ export const projectUserResponseSchema = z.object({
   userId: z.number().int(),
   displayName: z.string(),
   roleID: z.number().int(),
+  roleName: z.string(),
   createdAt: z.union([z.date(), z.string()]).nullable(),
 });
 
@@ -37,11 +38,11 @@ export const removeProjectUserParamSchema = z.object({
 
 export const addProjectUserSchema = z.object({
   userIds: z.array(z.number().int().positive()).min(1, 'At least one user ID is required'),
-  roleId: z.number().int().positive(),
+  roleName: z.string().min(1),
 });
 
 export const updateProjectUserRoleBodySchema = z.object({
-  roleId: z.number().int().positive(),
+  roleName: z.string().min(1),
 });
 
 // Domain types inferred from zod

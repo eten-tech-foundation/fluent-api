@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -10,6 +10,7 @@ import {
   project_unit_bible_books,
   project_units,
   projects,
+  roles,
   user_roles,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
@@ -102,7 +103,8 @@ export async function findByOrgIdsOrProjectIds(
 export async function getByUserId(
   userId: number,
   orgId?: number,
-  updatedAfter?: Date
+  updatedAfter?: Date,
+  roleName?: string
 ): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
     let query = baseJoinQuery()
@@ -111,20 +113,36 @@ export async function getByUserId(
         and(
           eq(user_roles.userId, userId),
           or(
+            // Explicit project-level grant — always counts.
             eq(user_roles.projectId, projects.id),
+            // Org-level grant — only counts for roles other than 'Org Member'.
             and(eq(user_roles.orgId, projects.organization), isNull(user_roles.projectId))
           )
         )
       )
+      .innerJoin(roles, eq(roles.id, user_roles.roleId))
       .$dynamic();
 
     const conditions = [];
     if (orgId !== undefined) conditions.push(eq(projects.organization, orgId));
     if (updatedAfter) conditions.push(gt(projects.updatedAt, updatedAfter));
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
+    // When a specific role is requested, only return projects where
+    // the user holds that exact role.
+    if (roleName) {
+      conditions.push(eq(roles.name, roleName));
     }
+
+    conditions.push(
+      or(
+        // Project-scoped grant — role name doesn't matter.
+        eq(user_roles.projectId, projects.id),
+        // Org-scoped grant — must NOT be the plain 'Org Member' anchor role.
+        and(isNull(user_roles.projectId), ne(roles.name, 'Org Member'))
+      )
+    );
+
+    query = query.where(and(...conditions));
 
     const rawProjects = await query;
 

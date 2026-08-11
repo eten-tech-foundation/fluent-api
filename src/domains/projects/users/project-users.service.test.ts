@@ -26,6 +26,7 @@ describe('project-users service', () => {
   describe('addProjectUsers', () => {
     const projectId = 1;
     const roleId = 3;
+    const roleName = 'Project Translator';
     const userIds = [10, 20];
     const mockUsers = [
       { id: 10, username: 'alice' },
@@ -41,7 +42,7 @@ describe('project-users service', () => {
         ok([{ id: 10, username: 'alice' }] as any)
       );
 
-      const result = await addProjectUsers(projectId, [10, 99], roleId);
+      const result = await addProjectUsers(projectId, [10, 99], roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.USER_NOT_FOUND);
@@ -51,7 +52,7 @@ describe('project-users service', () => {
     it('returns INTERNAL_ERROR if user lookup fails', async () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
-      const result = await addProjectUsers(projectId, userIds, roleId);
+      const result = await addProjectUsers(projectId, userIds, roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
@@ -62,7 +63,7 @@ describe('project-users service', () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok(mockUsers as any));
       vi.mocked(repo.addProjectUsers).mockResolvedValue(err(ErrorCode.NOT_FOUND));
 
-      const result = await addProjectUsers(projectId, userIds, roleId);
+      const result = await addProjectUsers(projectId, userIds, roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.NOT_FOUND);
@@ -72,32 +73,48 @@ describe('project-users service', () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok(mockUsers as any));
       vi.mocked(repo.addProjectUsers).mockResolvedValue(
         ok([
-          { projectId, userId: 10, roleId, createdAt: null },
-          { projectId, userId: 20, roleId, createdAt: null },
+          { projectId, userId: 10, roleId, roleName, createdAt: null },
+          { projectId, userId: 20, roleId, roleName, createdAt: null },
         ])
       );
 
-      await addProjectUsers(projectId, userIds, roleId);
+      await addProjectUsers(projectId, userIds, roleId, roleName);
 
-      expect(repo.addProjectUsers).toHaveBeenCalledWith(projectId, userIds, roleId);
+      expect(repo.addProjectUsers).toHaveBeenCalledWith(projectId, userIds, roleId, roleName);
     });
 
     it('returns enriched user records with displayName and roleID on success', async () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok(mockUsers as any));
       vi.mocked(repo.addProjectUsers).mockResolvedValue(
         ok([
-          { projectId, userId: 10, roleId, createdAt: null },
-          { projectId, userId: 20, roleId, createdAt: null },
+          { projectId, userId: 10, roleId, roleName, createdAt: null },
+          { projectId, userId: 20, roleId, roleName, createdAt: null },
         ])
       );
 
-      const result = await addProjectUsers(projectId, userIds, roleId);
+      const result = await addProjectUsers(projectId, userIds, roleId, roleName);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toEqual([
-          { projectId, userId: 10, roleId, createdAt: null, displayName: 'alice', roleID: roleId },
-          { projectId, userId: 20, roleId, createdAt: null, displayName: 'bob', roleID: roleId },
+          {
+            projectId,
+            userId: 10,
+            roleId,
+            roleName,
+            createdAt: null,
+            displayName: 'alice',
+            roleID: roleId,
+          },
+          {
+            projectId,
+            userId: 20,
+            roleId,
+            roleName,
+            createdAt: null,
+            displayName: 'bob',
+            roleID: roleId,
+          },
         ]);
       }
     });
@@ -108,10 +125,11 @@ describe('project-users service', () => {
     const projectId = 1;
     const userId = 10;
     const roleId = 3;
+    const roleName = 'Project Translator';
     const mockUser = { id: 10, username: 'alice' };
 
     it('returns FORBIDDEN if the caller tries to change their own role', async () => {
-      const result = await updateProjectUserRole(userId, projectId, userId, roleId);
+      const result = await updateProjectUserRole(userId, projectId, userId, roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.FORBIDDEN);
@@ -121,7 +139,7 @@ describe('project-users service', () => {
     it('returns USER_NOT_FOUND if the target userId does not exist', async () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([]));
 
-      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.USER_NOT_FOUND);
@@ -132,7 +150,7 @@ describe('project-users service', () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([mockUser] as any));
       vi.mocked(repo.updateProjectUserRole).mockResolvedValue(err(ErrorCode.USER_NOT_IN_PROJECT));
 
-      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId, roleName);
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.USER_NOT_IN_PROJECT);
@@ -141,10 +159,10 @@ describe('project-users service', () => {
     it('returns updated and enriched user record on success', async () => {
       vi.mocked(usersService.getUsersByIds).mockResolvedValue(ok([mockUser] as any));
       vi.mocked(repo.updateProjectUserRole).mockResolvedValue(
-        ok({ projectId, userId, roleId, createdAt: null })
+        ok({ projectId, userId, roleId, roleName, createdAt: null })
       );
 
-      const result = await updateProjectUserRole(callerId, projectId, userId, roleId);
+      const result = await updateProjectUserRole(callerId, projectId, userId, roleId, roleName);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -152,12 +170,13 @@ describe('project-users service', () => {
           projectId,
           userId,
           roleId,
+          roleName,
           createdAt: null,
           displayName: 'alice',
           roleID: roleId,
         });
       }
-      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(projectId, userId, roleId);
+      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(projectId, userId, roleId, roleName);
     });
   });
 });

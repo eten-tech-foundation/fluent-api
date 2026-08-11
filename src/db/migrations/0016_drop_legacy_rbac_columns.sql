@@ -18,20 +18,18 @@ ON CONFLICT DO NOTHING;--> statement-breakpoint
 INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
 SELECT u."id", u."organization", NULL, r."id", u."id"
 FROM "users" u
-JOIN "roles" r ON u."role" = r."id"
-WHERE r."name" <> 'SuperAdmin'
-ON CONFLICT DO NOTHING;--> statement-breakpoint
-INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
-SELECT pu."user_id", u."organization", pu."project_id", r."id", pu."user_id"
-FROM "project_users" pu
-JOIN "users" u ON u."id" = pu."user_id"
-JOIN "roles" r ON r."name" = 'Project Translator'
-ON CONFLICT DO NOTHING;--> statement-breakpoint
-INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
-SELECT u."id", u."organization", NULL, r."id", u."id"
-FROM "users" u
 JOIN "roles" r ON r."name" = 'Org Member'
 WHERE u."organization" IS NOT NULL
+ON CONFLICT DO NOTHING;--> statement-breakpoint
+INSERT INTO "user_roles" ("user_id", "org_id", "project_id", "role_id", "created_by")
+SELECT 
+  pu."user_id", 
+  u."organization", 
+  pu."project_id", 
+  u."role", 
+  pu."user_id"
+FROM "project_users" pu
+JOIN "users" u ON u."id" = pu."user_id"
 ON CONFLICT DO NOTHING;--> statement-breakpoint
 ALTER TABLE "users" DROP CONSTRAINT "users_role_roles_id_fk";--> statement-breakpoint
 ALTER TABLE "users" DROP CONSTRAINT "users_organization_organizations_id_fk";--> statement-breakpoint
