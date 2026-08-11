@@ -7,7 +7,6 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import type { AppEnv } from '@/server/context.types';
 
-import env from '@/env';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -37,12 +36,13 @@ const errorResponseSchema = z.object({
 });
 
 // ─── Fluent error codes owned by this route ───────────────────────────────────
-// These are TTS-specific 400s named in §7.1. They are string literals rather
-// than additions to the shared `ErrorCode` enum because that enum drives a
-// code→HTTP-status map, and both of these are plain 400s raised (and shaped) at
-// this one call site; adding them there would imply a domain-wide meaning they
-// do not have.
-const TTS_TEXT_TOO_LONG = 'TTS_TEXT_TOO_LONG';
+// A TTS-specific 400 named in §7.1. It is a string literal rather than an
+// addition to the shared `ErrorCode` enum because that enum drives a
+// code→HTTP-status map, and this is a plain 400 raised (and shaped) at this one
+// call site; adding it there would imply a domain-wide meaning it does not have.
+//
+// `TTS_TEXT_TOO_LONG` used to live here too. It moved to fluent-ai with the
+// limit itself (T27, 2026-08-11): this proxy validates SHAPE, not size.
 const TTS_INVALID_REQUEST = 'TTS_INVALID_REQUEST';
 
 /**
@@ -107,7 +107,7 @@ const ttsGenerateRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       errorResponseSchema,
-      'TTS_INVALID_REQUEST (malformed/empty) or TTS_TEXT_TOO_LONG (over TTS_MAX_TEXT_LENGTH, which the message names)'
+      'TTS_INVALID_REQUEST — the body was malformed or `text` was empty. Length is fluent-ai’s to judge (T27).'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -136,22 +136,14 @@ server.openapi(
   async (c) => {
     const body = c.req.valid('json');
 
-    // The length TRIPWIRE (T14 / §7.1) — deliberately enforced here at the edge
-    // so an oversized payload never costs a round-trip to fluent-ai. The
-    // response NAMES the configured maximum: a caller that hit a 20k tripwire
-    // cannot act on "too long" alone. Distinct code from a schema violation,
-    // because the two mean different things to a client.
-    if (body.text.length > env.TTS_MAX_TEXT_LENGTH) {
-      return c.json(
-        {
-          error: `Text exceeds the maximum synthesizable length of ${env.TTS_MAX_TEXT_LENGTH} characters`,
-          code: TTS_TEXT_TOO_LONG,
-          details: { maxLength: env.TTS_MAX_TEXT_LENGTH, actualLength: body.text.length },
-        } as never,
-        HttpStatusCodes.BAD_REQUEST
-      );
-    }
-
+    // No length check here on purpose (T27, operator decision 2026-08-11): the
+    // tripwire lives in fluent-ai, which holds the only copy of the number. Two
+    // services with a same-named limit that must agree is a drift bug waiting to
+    // happen — set them differently and the effective limit silently becomes
+    // whichever one nobody edited. The cost is that an oversized body travels
+    // one internal hop before rejection, which is nil: this route has already
+    // parsed and buffered it to validate shape, and fluent-ai rejects before any
+    // provider call, so nothing is billed.
     const result = await generateTtsAudio(body);
 
     if (!result.ok) {

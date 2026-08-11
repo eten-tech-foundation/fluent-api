@@ -154,7 +154,6 @@ const EnvBaseSchema = z.object({
   // Note that Gemini's own ceilings (an 8,192-token input cap) sit BELOW this
   // tripwire for dense non-Latin text, so such an input fails later, at
   // synthesis, through the normal provider-failure path rather than here (§7.1).
-  TTS_MAX_TEXT_LENGTH: z.coerce.number().int().positive().default(20_000),
 
   // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
   // Base URL of the Aquifer API (no trailing slash). Defaults to production.
