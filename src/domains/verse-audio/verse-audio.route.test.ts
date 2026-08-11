@@ -118,6 +118,22 @@ describe('verse-audio routes', () => {
       expect(res.status).toBe(401);
     });
 
+    it('returns 404 when caller lacks access to the target project', async () => {
+      asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
+      (findGrantsByUserId as any).mockResolvedValue({
+        ok: true,
+        data: [{ orgId: 1, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }],
+      });
+      const resolveIsProjectMember = (
+        await import('@/domains/projects/users/project-users.service')
+      ).resolveIsProjectMember;
+      vi.mocked(resolveIsProjectMember).mockResolvedValueOnce(false);
+
+      const res = await server.request('/verse-audio/1/10', { method: 'GET' });
+      expect(res.status).toBe(404);
+      expect(verseAudioService.getRecording).not.toHaveBeenCalled();
+    });
+
     it('returns 200 with recording metadata on success', async () => {
       asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
       (verseAudioService.getRecording as any).mockResolvedValue({

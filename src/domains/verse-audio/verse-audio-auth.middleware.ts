@@ -33,7 +33,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
         ? Number(c.req.param('projectUnitId'))
         : Number(c.req.query('projectUnitId'));
 
-    if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
@@ -58,7 +58,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
       c.set('projectAuthContext', { isProjectMember });
     } else {
       const bibleTextId = Number(c.req.param('bibleTextId'));
-      if (!bibleTextId || Number.isNaN(bibleTextId)) {
+      if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
         return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
       }
 
