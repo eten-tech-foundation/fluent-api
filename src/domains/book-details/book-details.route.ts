@@ -11,7 +11,11 @@ import { server } from '@/server/server';
 
 import { requireProjectUnitAccess } from '../usfm/usfm-auth.middleware';
 import * as bookDetailsService from './book-details.service';
-import { bookDetailsListSchema, bookDetailsSchema, updateBookDetailsSchema } from './book-details.types';
+import {
+  bookDetailsListSchema,
+  bookDetailsSchema,
+  updateBookDetailsSchema,
+} from './book-details.types';
 
 const projectUnitIdParam = z.object({
   projectUnitId: z.coerce.number().openapi({
@@ -59,7 +63,7 @@ const listBookDetailsRoute = createRoute({
   },
   summary: 'List book details for a project unit',
   description:
-    'Returns the running header (\\h) and book title (\\mt1) authored for each book in the unit. Null fields fall back to the book display name in the USFM export.',
+    'Returns the running header (\\h) and book title (\\mt) authored for each book in the unit. Null fields fall back to the book display name in the USFM export.',
 });
 
 server.openapi(listBookDetailsRoute, async (c) => {
@@ -127,7 +131,7 @@ const updateBookDetailsRoute = createRoute({
   },
   summary: 'Update the running header and book title of a book',
   description:
-    'Sets the USFM \\h and/or \\mt1 for one book of the unit. Sending null or an empty string clears a field back to the display-name fallback.',
+    'Sets the USFM \\h and/or \\mt for one book of the unit. Sending null or an empty string clears a field back to the display-name fallback.',
 });
 
 server.openapi(updateBookDetailsRoute, async (c) => {

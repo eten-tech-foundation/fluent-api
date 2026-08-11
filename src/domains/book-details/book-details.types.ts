@@ -4,10 +4,17 @@ import { z } from '@hono/zod-openapi';
 // Each becomes one plain line in the export (\h or \mt), so a value can never
 // carry marker syntax or line breaks. An empty or whitespace-only string clears
 // the field back to null, which means "fall back to the book's display name".
+// The rejected ranges are the Unicode control (Cc) and line/paragraph separator
+// (Zl, Zp) categories, written out as literal ranges rather than \p{…} escapes so
+// the pattern published in the OpenAPI document means the same thing to a
+// consumer validating without the unicode flag.
+// eslint-disable-next-line no-control-regex -- rejecting them is the point
+const BOOK_FIELD_PATTERN = /^[^\u0000-\u001F\u007F-\u009F\u2028\u2029\\]*$/;
+
 const bookFieldSchema = z
   .string()
   .max(200)
-  .regex(/^[^\\\n\r]*$/, 'must not contain backslashes or line breaks')
+  .regex(BOOK_FIELD_PATTERN, 'must not contain backslashes, control characters or line breaks')
   .transform((value) => (value.trim() === '' ? null : value.trim()))
   .nullable();
 
@@ -18,7 +25,7 @@ export const updateBookDetailsSchema = z
       example: 'Gênesis',
     }),
     bookTitle: bookFieldSchema.optional().openapi({
-      description: 'USFM \\mt1 book title. Empty or null falls back to the book display name.',
+      description: 'USFM \\mt book title. Empty or null falls back to the book display name.',
       example: 'O Primeiro Livro de Moisés',
     }),
   })
