@@ -92,6 +92,17 @@ export async function generateTtsAudio(
 
   const rawBody = await response.text();
 
+  // KNOWN FLATTENING, accepted rather than overlooked. Every non-2xx becomes
+  // AI_SERVICE_UNAVAILABLE, so fluent-ai's own 4xx codes do not reach the
+  // browser -- notably `TTS_TEXT_TOO_LONG`, which since T27 (2026-08-11) is
+  // raised there rather than here. Two reasons this is acceptable today: the
+  // only text this feature can submit is already-published source scripture
+  // chosen by the app, so an oversized request is very nearly unreachable; and
+  // fluent-web presents any generate failure as one toast regardless of code.
+  // Relaying an upstream status/code/details faithfully would mean widening the
+  // shared `Result` error shape, which reaches well past this feature -- so it
+  // is the change to make deliberately, if a caller ever needs to tell "your
+  // text is too long" from "the service is down".
   if (!response.ok) {
     return aiError(ErrorCode.AI_SERVICE_UNAVAILABLE, `fluent-ai returned HTTP ${response.status}`);
   }

@@ -39,13 +39,15 @@ export const TtsFormatSchema = z.enum(['ogg-opus', 'mp3']);
 export const TtsGenerateRequestSchema = z
   .object({
     // Non-empty is enforced here so a trivially-invalid request never costs a
-    // round-trip to fluent-ai. The MAXIMUM length is deliberately NOT expressed
-    // as a Zod `.max()`: the tripwire is env-configurable and its rejection must
-    // name the configured maximum in a distinct error code
-    // (400 TTS_TEXT_TOO_LONG vs 400 TTS_INVALID_REQUEST), which a schema
-    // violation cannot express. See the route handler.
+    // round-trip to fluent-ai. There is no `.max()`, and no maximum anywhere in
+    // this service: length is fluent-ai's business, not this proxy's (T27,
+    // 2026-08-11). It owns the tripwire, the configured number and the
+    // `TTS_TEXT_TOO_LONG` rejection, so there is exactly one value and it cannot
+    // drift. Do not re-add a cap here "just to be safe" — a second number that
+    // must agree with the first is the bug this arrangement removes.
     text: z.string().min(1).openapi({
-      description: 'Exact visible text to recite. Rejected beyond TTS_MAX_TEXT_LENGTH.',
+      description:
+        'Exact visible text to recite. fluent-ai rejects text beyond its configured maximum.',
       example: 'In the beginning God created the heavens and the earth.',
     }),
     voice: z.string().min(1).optional().openapi({
