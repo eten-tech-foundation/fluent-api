@@ -15,8 +15,8 @@ import { TtsGenerateResponseSchema } from './tts.types';
  * The shared helper is bound to fluent-ai's `ToolJobResponse` envelope: it
  * requires `job_id`/`tool`/`status`/`created_at`, and — decisively — it
  * RECONSTRUCTS the response object field by field before returning it. Any field
- * outside that envelope (such as `audioUrl`) would be silently dropped. The TTS
- * contract is not a tool-job: `generate` returns `{ audioUrl }` synchronously
+ * outside that envelope (such as `audio_url`) would be silently dropped. The TTS
+ * contract is not a tool-job: `generate` returns `{ audio_url }` synchronously
  * with no job envelope at all. So this module makes its own thin call and keeps
  * the parsed body intact (§12.2 "passes the response body through unmodified").
  * The one thing it DOES reuse is `buildToolUrl`, so the FLUENT_AI_API_PREFIX
@@ -25,7 +25,7 @@ import { TtsGenerateResponseSchema } from './tts.types';
  * ── The mirrored route tail is load-bearing (§7.1) ───────────────────────────
  * fluent-ai's tails are `tts/generate` and `tts/audio/{hash}.wav`; fluent-api
  * exposes them as `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav`. Because
- * `audioUrl` is sibling-relative, the browser resolves it against the fluent-api
+ * `audio_url` is sibling-relative, the browser resolves it against the fluent-api
  * URL it actually called. If these two paths ever stop being siblings under one
  * prefix, resolution breaks — on BOTH services.
  */
@@ -42,7 +42,7 @@ function aiError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok:
  * `POST tts/generate` — authorize + record the synthesis recipe upstream.
  *
  * No audio is produced by this call (T8): fluent-ai writes an immutable request
- * sidecar and returns the `audioUrl`, and generation is deferred to the first
+ * sidecar and returns the `audio_url`, and generation is deferred to the first
  * `get-audio`. That is why prefetching is nearly free and why this call is safe
  * to repeat — the sidecar PUT is conditional, so repeats are idempotent.
  */
@@ -70,7 +70,7 @@ export async function generateTtsAudio(
         'Content-Type': 'application/json',
         'X-API-Key': env.FLUENT_AI_KEY,
       },
-      // Forwarded as validated: `voice`/`format`/`langCode`/`pacing` are relayed
+      // Forwarded as validated: `voice`/`format`/`lang_code`/`pacing` are relayed
       // untouched, and an omitted `format` STAYS omitted so fluent-ai resolves
       // TTS_DEFAULT_FORMAT before hashing (§7.1).
       body: JSON.stringify(request),
@@ -106,14 +106,14 @@ export async function generateTtsAudio(
     );
   }
 
-  // Validates that `audioUrl` is present without stripping anything else —
+  // Validates that `audio_url` is present without stripping anything else —
   // the schema is `.passthrough()` precisely so a field fluent-ai adds later
   // reaches the browser instead of dying here.
   const result = TtsGenerateResponseSchema.safeParse(parsed);
   if (!result.success) {
     return aiError(
       ErrorCode.AI_SERVICE_UNAVAILABLE,
-      'malformed generate response from fluent-ai (missing audioUrl)'
+      'malformed generate response from fluent-ai (missing audio_url)'
     );
   }
 
