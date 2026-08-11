@@ -1,8 +1,12 @@
 import 'dotenv/config';
 
-import { cleanupExpiredFiles, initializeFileStorage } from '@/lib/file-storage';
+import {
+  deleteExpiredExports,
+  initializeBlobStorage,
+  isBlobStorageConfigured,
+} from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
 
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
@@ -46,17 +50,19 @@ async function startWorker() {
   try {
     logger.info('Starting pg-boss worker in WebJob');
 
-    await initializeFileStorage();
-    logger.info('File storage initialized');
+    if (isBlobStorageConfigured()) {
+      await initializeBlobStorage();
+    } else {
+      // Without storage the worker cannot persist results; every job would
+      // fail its retries. Refuse to start so the misconfiguration is loud.
+      throw new Error(
+        'Cloudflare R2 credentials (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY) are required for the export worker'
+      );
+    }
 
     const boss = await initializeQueue();
 
-    await boss.createQueue(QUEUE_NAMES.USFM_EXPORT, {
-      retryLimit: 3,
-      retryDelay: 60,
-      retryBackoff: true,
-      expireInSeconds: 3600,
-    });
+    await ensureExportQueues(boss);
 
     await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
       policy: 'exclusive',
@@ -72,7 +78,7 @@ async function startWorker() {
     logger.info('Worker started and listening for jobs');
 
     const cleanupInterval = setInterval(() => {
-      cleanupExpiredFiles().catch((error) => {
+      deleteExpiredExports().catch((error) => {
         logger.error('Cleanup task failed', { error });
       });
     }, 3600000);
@@ -86,10 +92,8 @@ async function startWorker() {
               ? workerMetrics.totalProcessingTime / workerMetrics.jobsProcessed
               : 0;
 
-          const rawStats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
-          const stats = rawStats as any;
-
-          const queueSize = (stats?.created ?? 0) + (stats?.retry ?? 0) + (stats?.active ?? 0);
+          const stats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
+          const queueSize = stats.queuedCount + stats.activeCount + stats.deferredCount;
 
           logger.info('Worker heartbeat', {
             queueName: QUEUE_NAMES.USFM_EXPORT,

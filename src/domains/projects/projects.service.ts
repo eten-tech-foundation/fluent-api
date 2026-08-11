@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 
-import type { AppPolicyUser, Result } from '@/lib/types';
+import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { pericope_sets } from '@/db/schema';
@@ -55,6 +55,24 @@ export function deleteProject(id: number) {
 
 export function getProjectIdByUnitId(projectUnitId: number) {
   return repo.getProjectIdByUnitId(projectUnitId);
+}
+
+// This function is used to update the last activity timestamp for a project when a chapter assignment is created or updated. It retrieves the project ID associated with the given project unit ID and then updates the last activity timestamp in the database.
+export async function touchProjectActivity(
+  projectUnitId: number,
+  tx: DbTransaction
+): Promise<void> {
+  const result = await repo.getProjectIdByUnitId(projectUnitId, tx);
+
+  if (!result.ok) {
+    logger.error({
+      message: 'Failed to resolve project for last-activity update',
+      context: { projectUnitId, error: result.error },
+    });
+    throw new Error(`Failed to resolve project for activity update: ${String(result.error)}`);
+  }
+
+  await repo.touchLastActivity(result.data.projectId, tx);
 }
 
 export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {

@@ -6,10 +6,11 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import type { USFMExportJob } from '@/lib/queue';
 
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectService from '@/domains/projects/projects.service';
-import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
-import { fileExists, getExportFile } from '@/lib/file-storage';
+import {
+  generateExportDownloadUrl,
+  getExportBlobInfo,
+  isBlobStorageConfigured,
+} from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { authenticateUser } from '@/middlewares/role-auth';
@@ -137,6 +138,14 @@ const exportProjectUSFMAsyncRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.ACCEPTED]: jsonContent(exportAsyncResponseSchema, 'Export job queued'),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      errorSchema,
+      'An identical export is already queued or running'
+    ),
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
+      errorSchema,
+      'Async export storage is not configured'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema('Project not found'),
       'Project not found'
@@ -188,16 +197,20 @@ const downloadExportRoute = createRoute({
     params: filenameParam,
   },
   responses: {
-    [HttpStatusCodes.OK]: {
-      description: 'ZIP file download',
-      content: {
-        'application/zip': {
-          schema: { type: 'string', format: 'binary' },
-        },
-      },
+    [HttpStatusCodes.MOVED_TEMPORARILY]: {
+      description: 'Redirect to a short-lived presigned download URL for the export ZIP',
+      headers: z.object({
+        Location: z.string().openapi({
+          description: 'Presigned object URL, valid for a few minutes',
+        }),
+      }),
     },
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'File not found or expired'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Invalid filename'),
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
+      errorSchema,
+      'Async export storage is not configured'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -206,6 +219,7 @@ const downloadExportRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'User account is inactive'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
   },
 });
 
@@ -355,28 +369,44 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
       }
     }
 
+    if (!isBlobStorageConfigured()) {
+      return c.json(
+        { error: 'Async export is not available', details: 'Export storage is not configured' },
+        HttpStatusCodes.SERVICE_UNAVAILABLE
+      );
+    }
+
     const boss = await getQueue();
+    const user = c.get('user')!;
 
     const jobData: USFMExportJob = {
       projectUnitId,
       bookIds,
-      requestedBy: 'api-user',
+      requestedBy: user.id,
     };
+
+    // Collapse duplicate requests: while an identical export (same unit + book
+    // selection) from the same requester is queued or running, boss.send returns
+    // null instead of a new job.
+    const singletonKey = `usfm-export:${user.id}:${projectUnitId}:${
+      bookIds ? [...bookIds].sort((a, b) => a - b).join('-') : 'all'
+    }`;
 
     const jobId = await boss.send(QUEUE_NAMES.USFM_EXPORT, jobData, {
       retryLimit: 3,
       retryDelay: 60,
-      expireInSeconds: 3600,
+      expireInSeconds: 600,
+      singletonKey,
     });
 
     if (!jobId) {
-      logger.error('Failed to queue USFM export - no job ID returned', { projectUnitId });
+      logger.info('Duplicate USFM export request collapsed', { projectUnitId, singletonKey });
       return c.json(
         {
-          error: 'Failed to queue export',
-          details: 'No job ID from queue',
+          error: 'An identical export is already queued or running',
+          details: 'Wait for the current export to finish, then request again',
         },
-        HttpStatusCodes.INTERNAL_SERVER_ERROR
+        HttpStatusCodes.CONFLICT
       );
     }
 
@@ -411,7 +441,10 @@ server.openapi(getJobStatusRoute, async (c) => {
     const boss = await getQueue();
     const job = await boss.getJobById(QUEUE_NAMES.USFM_EXPORT, jobId);
 
-    if (!job) {
+    // Jobs are visible only to their requester; respond 404 (not 403) for
+    // anyone else so job ids cannot be enumerated.
+    const user = c.get('user')!;
+    if (!job || (job.data as USFMExportJob).requestedBy !== user.id) {
       return c.json(
         {
           error: 'Job not found',
@@ -419,29 +452,6 @@ server.openapi(getJobStatusRoute, async (c) => {
         },
         HttpStatusCodes.NOT_FOUND
       );
-    }
-
-    const user = c.get('user')!;
-    const projectUnitId = Number((job.data as Record<string, any>)?.projectUnitId);
-    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
-      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-    if (!unitResult.ok) {
-      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
-    if (!projectResult.ok) {
-      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
-    const policyUser = { id: user.id, grants: user.grants };
-
-    if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-      return c.json({ error: 'Job not found' }, HttpStatusCodes.NOT_FOUND);
     }
 
     return c.json(
@@ -472,61 +482,35 @@ server.openapi(getJobStatusRoute, async (c) => {
 
 server.openapi(downloadExportRoute, async (c) => {
   const { filename } = c.req.valid('param');
-  const user = c.get('user')!;
 
   try {
-    const match = filename.match(/^export-([a-f0-9-]+)\.zip$/i);
-    if (!match) {
+    if (!isBlobStorageConfigured()) {
+      return c.json(
+        { error: 'Async export is not available', details: 'Export storage is not configured' },
+        HttpStatusCodes.SERVICE_UNAVAILABLE
+      );
+    }
+
+    const info = await getExportBlobInfo(filename);
+    if (!info) {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const jobId = match[1];
-    const boss = await getQueue();
-    const job = await boss.getJobById(QUEUE_NAMES.USFM_EXPORT, jobId);
-    if (!job) {
+    // Exports are downloadable only by the user who requested them; 404 (not
+    // 403) so filenames cannot be probed for existence.
+    const user = c.get('user')!;
+    if (info.metadata.requestedby !== String(user.id)) {
       return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const projectUnitId = Number((job.data as Record<string, any>)?.projectUnitId);
-    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
-      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-    if (!unitResult.ok) {
-      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
-    if (!projectResult.ok) {
-      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
-    const policyUser = { id: user.id, grants: user.grants };
-
-    if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const exists = await fileExists(filename);
-    if (!exists) {
-      return c.json({ error: 'File not found or expired' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    const fileBuffer = await getExportFile(filename);
-
-    logger.info('File downloaded', { filename, sizeBytes: fileBuffer.length });
-
-    return new Response(fileBuffer as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'no-cache',
-      },
+    const downloadUrl = await generateExportDownloadUrl(filename, info.createdOn);
+    logger.info('Export download redirect issued', {
+      filename,
+      requestedBy: user.id,
+      sizeBytes: info.contentLength,
     });
+
+    return c.redirect(downloadUrl, HttpStatusCodes.MOVED_TEMPORARILY);
   } catch (error) {
     logger.error('File download failed', { filename, error });
     return c.json({ error: 'Failed to download file' }, HttpStatusCodes.INTERNAL_SERVER_ERROR);

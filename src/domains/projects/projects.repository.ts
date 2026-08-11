@@ -241,9 +241,17 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
-export async function getProjectIdByUnitId(projectUnitId: number): Promise<Result<ProjectUnitRef>> {
+export async function touchLastActivity(projectId: number, tx: DbTransaction): Promise<void> {
+  await tx.update(projects).set({ lastActivityAt: new Date() }).where(eq(projects.id, projectId));
+}
+
+export async function getProjectIdByUnitId(
+  projectUnitId: number,
+  tx?: DbTransaction
+): Promise<Result<ProjectUnitRef>> {
   try {
-    const [unit] = await db
+    const conn = tx ?? db;
+    const [unit] = await conn
       .select({ projectId: project_units.projectId })
       .from(project_units)
       .where(eq(project_units.id, projectUnitId))

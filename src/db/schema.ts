@@ -13,6 +13,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -160,9 +161,9 @@ export const users = pgTable('users', {
 
 export const languages = pgTable('languages', {
   id: serial('id').primaryKey(),
-  langName: varchar('lang_name', { length: 100 }).notNull(),
-  langNameLocalized: varchar('lang_name_localized', { length: 100 }),
-  langCodeIso6393: varchar('lang_code_iso_639_3', { length: 3 }),
+  langName: varchar('lang_name', { length: 255 }).notNull(),
+  langNameLocalized: varchar('lang_name_localized', { length: 255 }),
+  langCodeIso6393: varchar('lang_code_iso_639_3', { length: 3 }).unique(),
   scriptDirection: scriptDirectionEnum('script_direction').default('ltr'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -206,6 +207,7 @@ export const projects = pgTable('projects', {
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
   // Nullable — existing projects have no pericope set; new projects may select one
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
+  lastActivityAt: timestamp('last_activity_at'),
 });
 
 export const bibles = pgTable('bibles', {
@@ -357,6 +359,66 @@ export const translated_verses = pgTable(
   },
   (table) => [
     uniqueIndex('uq_translated_verse_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+  ]
+);
+
+/**
+ * Every object this API writes to cloud storage, so a row can always be traced
+ * back to bytes that need reclaiming.
+ *
+ * Postgres cannot delete an object in a bucket, so cascades alone can never keep
+ * storage clean: dropping a project unit cascades its recordings away and would
+ * silently strand their audio. Rows here are therefore NOT cascade-deleted —
+ * when the owning recording disappears, this row survives as the marker the
+ * reclaim sweep uses to delete the object and stamp deletedAt.
+ *
+ * Chosen over a DB trigger writing a tombstone queue (reviewer call on PR #224):
+ * triggers are invisible from application code, which rots without a dedicated
+ * DBA.
+ */
+export const storage_objects = pgTable(
+  'storage_objects',
+  {
+    id: serial('id').primaryKey(),
+    bucket: varchar('bucket').notNull(),
+    key: varchar('key').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    /** Set once the object has actually been removed from the bucket. */
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_storage_object_bucket_key').on(table.bucket, table.key),
+    index('idx_storage_objects_unreclaimed').on(table.deletedAt),
+  ]
+);
+
+export const verse_audio_recordings = pgTable(
+  'verse_audio_recordings',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id),
+    uploadedBy: integer('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    // Deliberately no cascade: the storage row must outlive the recording so the
+    // sweep can still find and delete the object it points at.
+    storageObjectId: integer('storage_object_id').references(() => storage_objects.id),
+    contentType: varchar('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: real('duration_seconds'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
   ]
 );
 
@@ -762,6 +824,7 @@ export const insertProjectsSchema = createInsertSchema(projects, {
     id: true,
     createdAt: true,
     updatedAt: true,
+    lastActivityAt: true,
   });
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
