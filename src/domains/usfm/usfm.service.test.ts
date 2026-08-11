@@ -4,7 +4,10 @@ import type { VerseData } from './usfm.types';
 
 import { createUSFMStreamForBook } from './usfm.service';
 
-async function renderUSFM(verses: VerseData[], book?: Parameters<typeof createUSFMStreamForBook>[1]) {
+async function renderUSFM(
+  verses: VerseData[],
+  book?: Parameters<typeof createUSFMStreamForBook>[1]
+) {
   const chunks: string[] = [];
   for await (const chunk of createUSFMStreamForBook(verses, book)) {
     chunks.push(String(chunk));
@@ -119,13 +122,16 @@ describe('createUSFMStreamForBook', () => {
   });
 
   it('renders an untranslated verse with an opening marker without inventing text', async () => {
+    // A non-default marker, so the assertion fails if the stored marker is
+    // ignored and the chapter falls back to its hardcoded \p.
     const usfm = await renderUSFM([
       verse({
         translatedContent: null,
-        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
       }),
     ]);
 
-    expect(usfm).toContain('\\c 1\n\\p\n\\v 1 \n');
+    expect(usfm).toContain('\\c 1\n\\q1\n\\v 1 \n');
+    expect(usfm).not.toContain('\\p');
   });
 });
