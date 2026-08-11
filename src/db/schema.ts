@@ -302,6 +302,10 @@ export const project_unit_bible_books = pgTable('project_unit_bible_books', {
   bookId: integer('book_id')
     .notNull()
     .references(() => books.id),
+  // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
+  // Null falls back to the book's display name in the export, as before.
+  runningHeader: varchar('running_header'),
+  bookTitle: varchar('book_title'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -341,6 +345,42 @@ export const bible_texts = pgTable(
   ]
 );
 
+// ─── Verse structural markers (#263; fluent-web#314) ─────────────────────────
+// USJ paragraph context carried per verse row. `paragraphs` lists where new
+// paragraphs open inside this verse's content: offset 0 means the verse itself
+// opens a paragraph; a mid-text offset splits the verse across two paragraphs.
+// Null/absent = legacy row = no structure known; the USFM export then falls
+// back to a single \p per chapter, exactly as before this column existed.
+export const verseMarkersSchema = z
+  .object({
+    paragraphs: z
+      .array(
+        z.object({
+          // USFM paragraph-level marker (p, m, q1, pi2, …). Pattern-limited so a
+          // stored value can never smuggle USFM syntax into the export.
+          marker: z.string().regex(/^[a-z][a-z0-9]{0,9}$/),
+          // Character offset into the verse's content where the paragraph opens.
+          offset: z.number().int().min(0),
+        })
+      )
+      .min(1)
+      .max(20)
+      .superRefine((paragraphs, ctx) => {
+        for (let i = 1; i < paragraphs.length; i++) {
+          if (paragraphs[i].offset <= paragraphs[i - 1].offset) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'paragraph offsets must be strictly increasing',
+            });
+            break;
+          }
+        }
+      }),
+  })
+  .nullable();
+
+export type VerseMarkers = z.infer<typeof verseMarkersSchema>;
+
 export const translated_verses = pgTable(
   'translated_verses',
   {
@@ -349,6 +389,8 @@ export const translated_verses = pgTable(
       .notNull()
       .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
     content: varchar('content').notNull(),
+    // Structural context for this verse (#263). Nullable: legacy rows carry none.
+    markers: jsonb('markers').$type<z.infer<typeof verseMarkersSchema>>(),
     bibleTextId: integer('bible_text_id')
       .notNull()
       .references(() => bible_texts.id),
@@ -896,11 +938,14 @@ export const insertBibleTextsSchema = createInsertSchema(bible_texts, {
     updatedAt: true,
   });
 
-export const insertTranslatedVersesSchema = createInsertSchema(translated_verses, {
+// Base object kept separate: the patch schema needs `.partial()`, which the
+// refined insert schema (a ZodEffects) no longer exposes.
+const insertTranslatedVersesBaseSchema = createInsertSchema(translated_verses, {
   projectUnitId: (schema) => schema.int(),
   content: (schema) => schema.min(0),
   bibleTextId: (schema) => schema.int(),
   assignedUserId: (schema) => schema.int().optional(),
+  markers: () => verseMarkersSchema.optional(),
 })
   .required({
     projectUnitId: true,
@@ -912,6 +957,23 @@ export const insertTranslatedVersesSchema = createInsertSchema(translated_verses
     createdAt: true,
     updatedAt: true,
   });
+
+export const insertTranslatedVersesSchema = insertTranslatedVersesBaseSchema.superRefine(
+  (row, ctx) => {
+    // A paragraph can only open inside the verse's own text. Offset 0 is always
+    // fine (the verse opens a paragraph, even while still empty).
+    for (const paragraph of row.markers?.paragraphs ?? []) {
+      if (paragraph.offset !== 0 && paragraph.offset >= row.content.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['markers', 'paragraphs'],
+          message: 'paragraph offset lies beyond the verse content',
+        });
+        break;
+      }
+    }
+  }
+);
 
 export const insertChapterAssignmentsSchema = createInsertSchema(chapter_assignments, {
   projectUnitId: (schema) => schema.int(),
@@ -1078,7 +1140,7 @@ export const patchBibleBooksSchema = insertBibleBooksSchema.partial();
 export const patchProjectUnitsSchema = insertProjectUnitsSchema.partial();
 export const patchProjectUnitBibleBooksSchema = insertProjectUnitBibleBooksSchema.partial();
 export const patchBibleTextsSchema = insertBibleTextsSchema.partial();
-export const patchTranslatedVersesSchema = insertTranslatedVersesSchema.partial();
+export const patchTranslatedVersesSchema = insertTranslatedVersesBaseSchema.partial();
 export const patchChapterAssignmentsSchema = insertChapterAssignmentsSchema.partial();
 export const patchChapterAssignmentSnapshotsSchema =
   insertChapterAssignmentSnapshotsSchema.partial();

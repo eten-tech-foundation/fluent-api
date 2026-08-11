@@ -6,7 +6,7 @@ import type { Result } from '@/lib/types';
 import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
-import type { ExportResult, VerseData } from './usfm.types';
+import type { BookFields, ExportResult, VerseData } from './usfm.types';
 
 import * as repo from './usfm.repository';
 
@@ -24,7 +24,7 @@ export function getAvailableBooksForExport(projectUnitId: number) {
   return repo.getAvailableBooksForExport(projectUnitId);
 }
 
-export function createUSFMStreamForBook(verses: VerseData[]): Readable {
+export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields): Readable {
   if (verses.length === 0) {
     return Readable.from([]);
   }
@@ -33,17 +33,44 @@ export function createUSFMStreamForBook(verses: VerseData[]): Readable {
 
   async function* generateUSFMChunks() {
     yield `\\id ${bookCode}\n`;
-    yield `\\h ${bookName}\n`;
-    yield `\\mt ${bookName}\n`;
+    yield `\\h ${book?.runningHeader ?? bookName}\n`;
+    yield `\\mt ${book?.bookTitle ?? bookName}\n`;
 
     let currentChapter: number | null = null;
 
     for (const verse of verses) {
+      const content = verse.translatedContent ?? '';
+      // Stored paragraph starts for this verse, defensively bounded: offsets past the
+      // content are dropped rather than corrupting the output. Offset 0 (the verse
+      // opens a paragraph) is valid even while the verse is still empty.
+      const paragraphs = (verse.markers?.paragraphs ?? []).filter(
+        (p) => p.offset === 0 || p.offset < content.length
+      );
+      const opening = paragraphs.find((p) => p.offset === 0);
+
       if (currentChapter !== verse.chapterNumber) {
-        yield `\\c ${verse.chapterNumber}\n\\p\n`;
         currentChapter = verse.chapterNumber;
+        // Rows predating the markers column carry none, so every chapter still opens
+        // with the single default \\p those exports always had.
+        yield opening ? `\\c ${verse.chapterNumber}\n` : `\\c ${verse.chapterNumber}\n\\p\n`;
       }
-      yield `\\v ${verse.verseNumber} ${verse.translatedContent ?? ''}\n`;
+
+      if (opening) {
+        yield `\\${opening.marker}\n`;
+      }
+
+      // A mid-text offset splits the verse across paragraphs: the text continues
+      // after the marker without a new \\v, which is exactly how USFM writes it.
+      let text = '';
+      let cursor = 0;
+      for (const paragraph of paragraphs) {
+        if (paragraph.offset === 0) continue;
+        text += `${content.slice(cursor, paragraph.offset)}\n\\${paragraph.marker}\n`;
+        cursor = paragraph.offset;
+      }
+      text += content.slice(cursor);
+
+      yield `\\v ${verse.verseNumber} ${text}\n`;
     }
 
     yield '\n';
@@ -129,7 +156,7 @@ export async function createUSFMZipStreamAsync(
           continue;
         }
 
-        const bookStream = createUSFMStreamForBook(verses);
+        const bookStream = createUSFMStreamForBook(verses, book);
         archive.append(bookStream, { name: `${book.bookCode}.usfm` });
 
         await new Promise((resolve) => process.nextTick(resolve));

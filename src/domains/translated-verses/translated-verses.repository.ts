@@ -25,6 +25,7 @@ export async function getById(
         id: translated_verses.id,
         projectUnitId: translated_verses.projectUnitId,
         content: translated_verses.content,
+      markers: translated_verses.markers,
         bibleTextId: translated_verses.bibleTextId,
         assignedUserId: translated_verses.assignedUserId,
         createdAt: translated_verses.createdAt,
@@ -117,6 +118,7 @@ export async function upsert(
         target: [translated_verses.projectUnitId, translated_verses.bibleTextId],
         set: {
           content: sql`excluded.content`,
+          markers: sql`excluded.markers`,
           assignedUserId: sql`excluded.assigned_user_id`,
         },
       })
@@ -157,6 +159,7 @@ export async function list(
         id: translated_verses.id,
         projectUnitId: translated_verses.projectUnitId,
         content: translated_verses.content,
+      markers: translated_verses.markers,
         bibleTextId: translated_verses.bibleTextId,
         assignedUserId: translated_verses.assignedUserId,
         createdAt: translated_verses.createdAt,
