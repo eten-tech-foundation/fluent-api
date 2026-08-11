@@ -25,7 +25,7 @@ import { TtsGenerateRequestSchema, TtsGenerateResponseSchema } from './tts.types
  *
  * ⚠️ The two paths below MUST remain siblings under one prefix, mirroring
  * fluent-ai's own tails (`tts/generate`, `tts/audio/{hash}.wav`), because
- * `audioUrl` is sibling-relative and the browser resolves it against the URL it
+ * `audio_url` is sibling-relative and the browser resolves it against the URL it
  * called. This is a stated contract requirement (§7.1), not a naming style.
  */
 
@@ -103,7 +103,7 @@ const ttsGenerateRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       TtsGenerateResponseSchema,
-      'Synthesis authorized. `audioUrl` is a sibling-relative reference — resolve it against the request URL, do not concatenate a base.'
+      'Synthesis authorized. `audio_url` is a sibling-relative reference — resolve it against the request URL, do not concatenate a base.'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       errorResponseSchema,
@@ -127,8 +127,8 @@ const ttsGenerateRoute = createRoute({
     'Proxies to fluent-ai. NO audio is synthesized by this call (T8): fluent-ai records an ' +
     'immutable request sidecar and returns the audio URL, and generation happens lazily on the ' +
     'first GET of that URL — so prefetching is nearly free and repeat calls are idempotent. ' +
-    'The response body is passed through unmodified; in particular `audioUrl` is never rewritten. ' +
-    'There is deliberately no durationMs (§6.2).',
+    'The response body is passed through unmodified; in particular `audio_url` is never rewritten. ' +
+    'There is deliberately no duration field (§6.2).',
 });
 
 server.openapi(
@@ -161,7 +161,7 @@ server.openapi(
       );
     }
 
-    // Passed through verbatim (§7.1/§12.2): the sibling-relative `audioUrl` only
+    // Passed through verbatim (§7.1/§12.2): the sibling-relative `audio_url` only
     // resolves correctly if fluent-api leaves it exactly as fluent-ai wrote it.
     // Cast because the schema is `.passthrough()` — the extra keys it is built to
     // preserve are by definition not statically known.

@@ -152,7 +152,7 @@ describe('tTS proxy authorization', () => {
     expect(PERMISSIONS.TTS_USE).toBe('project:view');
 
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audioUrl: 'x' } });
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'x' } });
 
     await postGenerate(VALID_BODY);
 
@@ -169,7 +169,7 @@ describe('pOST /ai/tts/generate', () => {
     // schema is `.passthrough()` so it must survive the proxy; a `.strict()` or
     // default-stripping schema would silently eat it.
     const upstream = {
-      audioUrl: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav',
+      audio_url: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav',
       someFutureField: { nested: true },
     };
     (generateTtsAudio as any).mockResolvedValue({ ok: true, data: upstream });
@@ -180,23 +180,23 @@ describe('pOST /ai/tts/generate', () => {
     await expect(res.json()).resolves.toEqual(upstream);
   });
 
-  it('never rewrites the sibling-relative audioUrl into an absolute URL', async () => {
+  it('never rewrites the sibling-relative audio_url into an absolute URL', async () => {
     asAuthenticatedUser(true);
     const relative = 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav';
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audioUrl: relative } });
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: relative } });
 
     const res = await postGenerate(VALID_BODY);
-    const json = (await res.json()) as { audioUrl: string };
+    const json = (await res.json()) as { audio_url: string };
 
     // Byte-identical: the browser resolves this against the URL it called, so any
     // "helpful" absolutizing here breaks resolution (§7.1).
-    expect(json.audioUrl).toBe(relative);
+    expect(json.audio_url).toBe(relative);
   });
 
   it('forwards the validated request to the service without enrichment (T6)', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audioUrl: 'a.wav' } });
-    const body = { text: 'hello', voice: 'en-US-Standard-A', langCode: 'eng' };
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
+    const body = { text: 'hello', voice: 'en-US-Standard-A', lang_code: 'eng' };
 
     await postGenerate(body);
 
@@ -206,7 +206,7 @@ describe('pOST /ai/tts/generate', () => {
 
   it('leaves an omitted format omitted so fluent-ai resolves its own default', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audioUrl: 'a.wav' } });
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
     await postGenerate({ text: 'hello' });
 
@@ -218,7 +218,7 @@ describe('pOST /ai/tts/generate', () => {
 
   it('accepts text exactly at the configured maximum', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audioUrl: 'a.wav' } });
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
     const res = await postGenerate({ text: 'a'.repeat(env.TTS_MAX_TEXT_LENGTH) });
 
