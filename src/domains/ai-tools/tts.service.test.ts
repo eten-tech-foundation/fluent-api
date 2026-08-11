@@ -149,7 +149,7 @@ describe('fetchTtsAudio', () => {
 });
 
 describe('generateTtsAudio', () => {
-  const OK_BODY = { audioUrl: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav' };
+  const OK_BODY = { audio_url: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav' };
 
   function jsonResponse(body: unknown, status = 200) {
     return new Response(JSON.stringify(body), {
@@ -166,7 +166,7 @@ describe('generateTtsAudio', () => {
     const options = fetchOptions();
     expect(options.method).toBe('POST');
     expect((options.headers as Record<string, string>)['X-API-Key']).toBeTruthy();
-    // Sibling of the audio tail — `audioUrl` is relative and resolves against it.
+    // Sibling of the audio tail — `audio_url` is relative and resolves against it.
     expect(fetchUrl()).toContain('tts/generate');
     expect(JSON.parse(options.body as string)).toEqual({ text: 'hello' });
   });
@@ -197,7 +197,7 @@ describe('generateTtsAudio', () => {
     expect('format' in sent).toBe(false);
   });
 
-  it('fails when the response is missing audioUrl', async () => {
+  it('fails when the response is missing audio_url', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ notTheField: true }));
 
     const result = await generateTtsAudio({ text: 'hello' });

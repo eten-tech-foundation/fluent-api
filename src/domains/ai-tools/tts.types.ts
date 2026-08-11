@@ -3,13 +3,21 @@ import { z } from '@hono/zod-openapi';
 /**
  * Wire schemas for the Source-TTS proxy routes (proposal §7.1).
  *
- * ── camelCase here, unlike its ai-tools sibling ──────────────────────────────
+ * ── snake_case here, exactly like its ai-tools sibling ───────────────────────
  * `ai-tools.types.ts` uses snake_case because it mirrors Greek-Room's Python
- * field names verbatim (decision D8). The TTS contract is NOT that: it was
- * specified camelCase (`langCode`, `audioUrl`) in §7.1 and is consumed that way
- * by fluent-web's already-shipped engine (`features/tts/tts.types.ts`), so
- * camelCase here is the contract, not an oversight. Do not "harmonize" these two
- * files — they mirror two different upstream conventions on purpose.
+ * field names verbatim (decision D8), and fluent-web then mirrors them again.
+ * TTS follows the same rule for the same reason: fluent-ai is a Python service,
+ * so `lang_code` and `audio_url` travel verbatim from fluent-ai through this
+ * proxy to the browser. §7.1 originally specified camelCase; that was corrected
+ * during implementation (see the 2026-08-11 note in the proposal) because
+ * camelCase would have required this proxy to TRANSLATE the response body, which
+ * §12.2 forbids it from touching at all — and because two opposite conventions
+ * at one service boundary is the worse outcome. Keep these two files aligned.
+ *
+ * Note the seam this does NOT cross: fluent-web's `features/tts/tts.types.ts`
+ * stays camelCase, because those types hold DERIVED values (its `audioUrl` is
+ * the absolutized URL, not the relative reference sent here) and serve a future
+ * browser-local engine that has no wire at all.
  *
  * ── The backend knows nothing about scripture (T6) ───────────────────────────
  * There is no verse, chapter, project or bible in this contract — only text.
@@ -57,7 +65,7 @@ export const TtsGenerateRequestSchema = z
       description:
         'Compressed format to produce. Omitted by default so fluent-ai resolves TTS_DEFAULT_FORMAT.',
     }),
-    langCode: z.string().min(1).optional().openapi({
+    lang_code: z.string().min(1).optional().openapi({
       description: 'ISO 639-3 language hint, sent whenever the caller knows it (T18). Advisory.',
       example: 'eng',
     }),
@@ -76,7 +84,7 @@ export type TtsGenerateRequest = z.infer<typeof TtsGenerateRequestSchema>;
 /**
  * `generate` success body (§7.1).
  *
- * ⚠️ `audioUrl` is a SIBLING-RELATIVE reference (e.g. `audio/9f2ac1d4….wav`)
+ * ⚠️ `audio_url` is a SIBLING-RELATIVE reference (e.g. `audio/9f2ac1d4….wav`)
  * that the browser resolves against the URL it actually called. fluent-api must
  * pass it through BYTE-IDENTICALLY — never absolutize, rewrite, or prefix it.
  * That is the whole reason `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav`
@@ -84,13 +92,13 @@ export type TtsGenerateRequest = z.infer<typeof TtsGenerateRequestSchema>;
  * (`/tts/generate`, `/tts/audio/{hash}.wav`). Break the mirror and resolution
  * silently lands on a 404.
  *
- * There is deliberately NO `durationMs`: a streaming first listen has no
+ * There is deliberately NO duration field: a streaming first listen has no
  * knowable duration, and once compressed the container header carries the exact
  * value for free (T22 / §6.2). Do not add it back.
  */
 export const TtsGenerateResponseSchema = z
   .object({
-    audioUrl: z.string().min(1).openapi({
+    audio_url: z.string().min(1).openapi({
       description:
         'URL reference to the audio, resolved against the request URL. Sibling-relative when fluent-ai references itself.',
       example: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav',
