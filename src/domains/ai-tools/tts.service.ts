@@ -70,7 +70,7 @@ export async function generateTtsAudio(
         'Content-Type': 'application/json',
         'X-API-Key': env.FLUENT_AI_KEY,
       },
-      // Forwarded as validated: `voice`/`format`/`lang_code`/`pacing` are relayed
+      // Forwarded as validated: `voice`/`format`/`lang_code` are relayed
       // untouched, and an omitted `format` STAYS omitted so fluent-ai resolves
       // TTS_DEFAULT_FORMAT before hashing (§7.1).
       body: JSON.stringify(request),
