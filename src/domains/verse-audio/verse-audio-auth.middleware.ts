@@ -48,10 +48,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
         return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
       }
 
-      const isProjectMember = await resolveIsProjectMember(
-        unitResult.data.projectId,
-        user.id
-      );
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
       if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
         return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
