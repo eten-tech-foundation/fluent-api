@@ -127,7 +127,11 @@ const getBulkBibleTextsRoute = createRoute({
     [HttpStatusCodes.TOO_MANY_REQUESTS]: {
       ...jsonContent(
         createMessageObjectSchema('Too many requests'),
-        'Rate limit exceeded (20 requests per minute per client IP)'
+        // Read from env, not written out: the limits are deployment-configurable, so a fixed
+        // number here would describe whatever the defaults happened to be when this was written.
+        `Rate limit exceeded (${env.RATE_LIMIT_BULK_TEXTS_MAX} requests per ${
+          env.RATE_LIMIT_BULK_TEXTS_WINDOW_MS / 1000
+        }s per client IP)`
       ),
       headers: z.object({
         'Retry-After': z.string().openapi({
