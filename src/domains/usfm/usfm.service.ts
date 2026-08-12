@@ -47,16 +47,25 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
         (p) => p.offset === 0 || p.offset < content.length
       );
       const opening = paragraphs.find((p) => p.offset === 0);
+      const isChapterStart = currentChapter !== verse.chapterNumber;
 
-      if (currentChapter !== verse.chapterNumber) {
+      if (isChapterStart) {
         currentChapter = verse.chapterNumber;
-        // Rows predating the markers column carry none, so every chapter still opens
-        // with the single default \\p those exports always had.
-        yield opening ? `\\c ${verse.chapterNumber}\n` : `\\c ${verse.chapterNumber}\n\\p\n`;
+        yield `\\c ${verse.chapterNumber}\n`;
+      }
+
+      // Heading blocks sit before the verse, and before its paragraph marker: a heading is a
+      // block of its own, so the verse that follows still needs a paragraph to live in.
+      for (const heading of verse.markers?.headings ?? []) {
+        yield `\\${heading.marker} ${heading.text}\n`;
       }
 
       if (opening) {
         yield `\\${opening.marker}\n`;
+      } else if (isChapterStart) {
+        // Rows predating the markers column carry none, so every chapter still opens with the
+        // single default \\p those exports always had.
+        yield '\\p\n';
       }
 
       // A mid-text offset splits the verse across paragraphs: the text continues
