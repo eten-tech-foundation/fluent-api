@@ -569,6 +569,7 @@ server.openapi(updateActiveOrgRoute, async (c) => {
     return c.json(
       { message: 'User does not belong to this organization' },
       HttpStatusCodes.FORBIDDEN
+    // eslint-disable-next-line max-lines
     );
   }
 
@@ -580,7 +581,6 @@ server.openapi(updateActiveOrgRoute, async (c) => {
       .where(eq(schema.authSession.id, session.session.id));
 
     await tx
-      // eslint-disable-next-line max-lines
       .update(schema.users)
       .set({ lastActiveOrgId: orgId })
       .where(eq(schema.users.id, currentUser.id));
