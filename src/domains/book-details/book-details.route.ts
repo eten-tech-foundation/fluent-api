@@ -9,7 +9,7 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import { requireProjectUnitAccess } from '../usfm/usfm-auth.middleware';
+import { requireBookDetailsAccess } from './book-details-auth.middleware';
 import * as bookDetailsService from './book-details.service';
 import {
   bookDetailsListSchema,
@@ -34,7 +34,7 @@ const listBookDetailsRoute = createRoute({
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.PROJECT_VIEW),
-    requireProjectUnitAccess(),
+    requireBookDetailsAccess(),
   ] as const,
   request: {
     params: projectUnitIdParam,
@@ -86,7 +86,7 @@ const updateBookDetailsRoute = createRoute({
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.CONTENT_UPDATE),
-    requireProjectUnitAccess(),
+    requireBookDetailsAccess(),
   ] as const,
   request: {
     params: projectUnitIdParam.extend({
