@@ -136,7 +136,7 @@ server.openapi(createUserRoute, async (c) => {
   const requestData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  const result = await userService.createUser(requestData);
+  const result = await userService.createUser({ ...requestData, createdBy: currentUser.id });
   if (!result.ok) {
     return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
@@ -268,7 +268,15 @@ server.openapi(createUserWithInvitationRoute, async (c) => {
   // User doesn't exist yet — create account and send magic link invitation.
   const roleId = await getRoleId(roleName);
   const result = await createUserWithInvitation(
-    { email: normalizedEmail, username, orgId, projectId, roleId, status: 'invited' },
+    {
+      email: normalizedEmail,
+      username,
+      orgId,
+      projectId,
+      roleId,
+      status: 'invited',
+      createdBy: caller.id,
+    },
     c.req.raw.headers
   );
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);

@@ -103,6 +103,7 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
 }
 
 export async function addProjectUsers(
+  createdBy: number | null,
   projectId: number,
   userIds: number[],
   roleId: number,
@@ -153,6 +154,7 @@ export async function addProjectUsers(
           userId,
           orgId: project.organization,
           roleId,
+          createdBy,
         }))
       )
       .returning({
@@ -260,6 +262,7 @@ export async function getProjectUserRole(
 }
 
 export async function updateProjectUserRole(
+  createdBy: number | null,
   projectId: number,
   userId: number,
   roleId: number,
@@ -322,6 +325,7 @@ export async function updateProjectUserRole(
         orgId: project.organization,
         projectId,
         roleId,
+        createdBy,
       })
       .onConflictDoNothing()
       .returning({

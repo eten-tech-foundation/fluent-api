@@ -8,6 +8,7 @@ export function getProjectUsers(projectId: number) {
 }
 
 export async function addProjectUsers(
+  createdBy: number,
   projectId: number,
   userIds: number[],
   roleId: number,
@@ -20,7 +21,7 @@ export async function addProjectUsers(
   const missingId = userIds.find((id) => !foundIds.has(id));
   if (missingId) return err(ErrorCode.USER_NOT_FOUND);
 
-  const insertResult = await repo.addProjectUsers(projectId, userIds, roleId, roleName);
+  const insertResult = await repo.addProjectUsers(createdBy, projectId, userIds, roleId, roleName);
   if (!insertResult.ok) return insertResult;
 
   const userMap = new Map(usersResult.data.map((u) => [u.id, u]));
@@ -44,13 +45,13 @@ export function resolveIsProjectMember(projectId: number, userId: number) {
 }
 
 export async function updateProjectUserRole(
-  callerId: number,
+  createdBy: number,
   projectId: number,
   userId: number,
   roleId: number,
   roleName: string
 ) {
-  if (callerId === userId) {
+  if (createdBy === userId) {
     return err(ErrorCode.FORBIDDEN);
   }
 
@@ -58,7 +59,7 @@ export async function updateProjectUserRole(
   if (!userResult.ok) return err(ErrorCode.INTERNAL_ERROR);
   if (userResult.data.length === 0) return err(ErrorCode.USER_NOT_FOUND);
 
-  const result = await repo.updateProjectUserRole(projectId, userId, roleId, roleName);
+  const result = await repo.updateProjectUserRole(createdBy, projectId, userId, roleId, roleName);
   if (!result.ok) return result;
 
   const targetUser = userResult.data[0];

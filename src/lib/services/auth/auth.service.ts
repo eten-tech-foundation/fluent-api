@@ -22,6 +22,7 @@ export interface InviteUserInput extends CreateUserInput {
   orgId: number;
   projectId?: number | null;
   roleId: number;
+  createdBy: number | null;
 }
 
 /**
@@ -73,12 +74,9 @@ export async function createUserWithInvitation(
   try {
     const scopedOrgId = normalizedInput.orgId;
     const scopedProjectId = normalizedInput.projectId ?? null;
+    const inviterCreatedBy = normalizedInput.createdBy ?? null;
 
-    const inviteResult = await inviteUserToOrg(
-      dbResult.data.id,
-      scopedOrgId,
-      dbResult.data.createdBy ?? null
-    );
+    const inviteResult = await inviteUserToOrg(dbResult.data.id, scopedOrgId, inviterCreatedBy);
     if (!inviteResult.ok) {
       await db.delete(schema.users).where(eq(schema.users.id, dbResult.data.id));
       await db.delete(schema.authUser).where(eq(schema.authUser.id, authUserId));
@@ -96,7 +94,7 @@ export async function createUserWithInvitation(
       orgId: scopedOrgId,
       projectId: scopedProjectId,
       roleId: normalizedInput.roleId,
-      createdBy: dbResult.data.createdBy ?? null,
+      createdBy: inviterCreatedBy,
     });
 
     if (!grantResult.ok) {
