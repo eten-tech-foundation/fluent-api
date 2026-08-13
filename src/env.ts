@@ -119,7 +119,16 @@ const EnvBaseSchema = z.object({
   // Base URL of the Aquifer API (no trailing slash). Defaults to production.
   AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
   // Server-held Aquifer API key — never expose to mobile/web clients.
-  AQUIFER_API_KEY: z.string().min(1),
+  // Optional like R2 credentials: unset/blank boots fine; translation-resources
+  // routes return AQUIFER_SERVICE_UNAVAILABLE (502) until a key is configured.
+  AQUIFER_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    }),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated

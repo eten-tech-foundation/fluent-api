@@ -1,20 +1,27 @@
 import { z } from '@hono/zod-openapi';
 
-/** Aquifer resource grouping / type codes used in search and details. */
-export const aquiferResourceTypeSchema = z.enum([
+const KNOWN_RESOURCE_TYPES = [
   'None',
   'Guide',
   'Dictionary',
   'StudyNotes',
   'Images',
   'Videos',
-]);
+] as const;
 
-export type AquiferResourceType = z.infer<typeof aquiferResourceTypeSchema>;
+const KNOWN_MEDIA_TYPES = ['None', 'Text', 'Audio', 'Video', 'Image'] as const;
 
-export const aquiferResourceMediaTypeSchema = z.enum(['None', 'Text', 'Audio', 'Video', 'Image']);
+/**
+ * Accept known Aquifer enums; fall back to the raw string for unknown upstream
+ * values so search payloads are not rejected on Aquifer drift.
+ */
+export const aquiferResourceTypeSchema = z.union([z.enum(KNOWN_RESOURCE_TYPES), z.string()]);
 
-export type AquiferResourceMediaType = z.infer<typeof aquiferResourceMediaTypeSchema>;
+export type AquiferResourceType = (typeof KNOWN_RESOURCE_TYPES)[number] | string;
+
+export const aquiferResourceMediaTypeSchema = z.union([z.enum(KNOWN_MEDIA_TYPES), z.string()]);
+
+export type AquiferResourceMediaType = (typeof KNOWN_MEDIA_TYPES)[number] | string;
 
 export const aquiferResourceSearchItemSchema = z.object({
   id: z.number().int(),
@@ -25,8 +32,8 @@ export const aquiferResourceSearchItemSchema = z.object({
   grouping: z.object({
     type: aquiferResourceTypeSchema,
     name: z.string(),
-    collectionTitle: z.string(),
-    collectionCode: z.string(),
+    collectionTitle: z.string().optional(),
+    collectionCode: z.string().optional(),
   }),
 });
 

@@ -185,7 +185,7 @@ describe('translation-resources routes', () => {
       });
     });
 
-    it('returns 502 when Aquifer search fails', async () => {
+    it('returns 502 with a generic message when Aquifer search fails', async () => {
       asAuthenticatedUser();
       asProjectMember();
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(
@@ -222,11 +222,12 @@ describe('translation-resources routes', () => {
       const res = await server.request(QUESTIONS_PATH, { method: 'GET' });
 
       expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
     });
   });
 
   describe('gET images', () => {
-    it('returns image items with urls', async () => {
+    it('returns image items with urls and omits fabricated thumbnailUrl', async () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = {
@@ -261,8 +262,94 @@ describe('translation-resources routes', () => {
             title: 'Faith',
             localizedName: 'Faith',
             url: 'https://cdn.example/map.jpg',
-            thumbnailUrl: 'https://cdn.example/map.jpg',
             size: 1200,
+          },
+        ],
+      });
+    });
+
+    it('discovers url and size inside array-wrapped Aquifer content', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const imageHit = {
+        ...searchHit,
+        id: 56,
+        mediaType: 'Image' as const,
+        grouping: {
+          type: 'Images' as const,
+          name: 'Images',
+          collectionTitle: 'Images',
+          collectionCode: 'Images',
+        },
+      };
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 56,
+          name: 'map',
+          localizedName: 'Map',
+          content: [{ url: 'https://cdn.example/wrapped.jpg', size: 44 }],
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        items: [
+          {
+            id: 56,
+            title: 'Faith',
+            localizedName: 'Faith',
+            url: 'https://cdn.example/wrapped.jpg',
+            size: 44,
+          },
+        ],
+      });
+    });
+
+    it('includes thumbnailUrl only when Aquifer provides one', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const imageHit = {
+        ...searchHit,
+        id: 57,
+        mediaType: 'Image' as const,
+        grouping: {
+          type: 'Images' as const,
+          name: 'Images',
+          collectionTitle: 'Images',
+          collectionCode: 'Images',
+        },
+      };
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 57,
+          name: 'map',
+          localizedName: 'Map',
+          content: {
+            url: 'https://cdn.example/full.jpg',
+            thumbnailUrl: 'https://cdn.example/thumb.jpg',
+            size: 9,
+          },
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        items: [
+          {
+            id: 57,
+            title: 'Faith',
+            localizedName: 'Faith',
+            url: 'https://cdn.example/full.jpg',
+            thumbnailUrl: 'https://cdn.example/thumb.jpg',
+            size: 9,
           },
         ],
       });
@@ -294,12 +381,13 @@ describe('translation-resources routes', () => {
         sourceLanguageCode: 'eng',
         items: [],
         totalBytes: 0,
+        truncated: false,
       });
       // TN, TW, TQ, StudyNotes, Images
       expect(aquiferClient.searchAllResources).toHaveBeenCalledTimes(5);
     });
 
-    it('returns hydrated manifest items with sizes', async () => {
+    it('returns hydrated manifest items without serializedContent by default', async () => {
       asAuthenticatedUser();
       asProjectMember();
       vi.mocked(aquiferClient.searchAllResources)
@@ -312,6 +400,7 @@ describe('translation-resources routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.projectId).toBe(10);
+      expect(body.truncated).toBe(false);
       expect(body.items).toHaveLength(1);
       expect(body.items[0]).toMatchObject({
         id: 'aquifer-101-text',
@@ -327,6 +416,21 @@ describe('translation-resources routes', () => {
       });
       expect(body.items[0].bytesTotal).toBeGreaterThan(0);
       expect(body.totalBytes).toBe(body.items[0].bytesTotal);
+      expect(body.items[0].serializedContent).toBeUndefined();
+    });
+
+    it('includes serializedContent when includeContent=true', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      vi.mocked(aquiferClient.searchAllResources)
+        .mockResolvedValueOnce(ok([searchHit]))
+        .mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
+
+      const res = await server.request(`${MANIFEST_PATH}&includeContent=true`, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
       expect(typeof body.items[0].serializedContent).toBe('string');
     });
 
@@ -340,6 +444,7 @@ describe('translation-resources routes', () => {
       const res = await server.request(MANIFEST_PATH, { method: 'GET' });
 
       expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
     });
   });
 });

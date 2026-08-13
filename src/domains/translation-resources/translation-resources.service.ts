@@ -23,6 +23,16 @@ export const AQUIFER_RESOURCE_COLLECTIONS = {
   translationQuestions: 'UWTranslationQuestions',
 } as const;
 
+/** Parallel getResource calls when hydrating search hits. */
+const HYDRATE_CONCURRENCY = 5;
+/** Max hydrated items kept per MANIFEST_SEARCH_CONFIGS entry. */
+const MAX_MANIFEST_ITEMS_PER_CONFIG = 100;
+/**
+ * Aquifer end-verse window for chapter-range searches. Chapters never exceed
+ * this verse count; mirrors fluent-mobile Prepare Offline (1–200).
+ */
+const CHAPTER_RANGE_END_VERSE = 200;
+
 interface ResourceSearchConfig {
   tier: 1 | 2 | 3;
   resourceName: string;
@@ -87,6 +97,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function firstStringField(value: unknown, fieldName: string): string | undefined {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = firstStringField(child, fieldName);
+      if (found) return found;
+    }
+    return undefined;
+  }
   if (!isRecord(value)) return undefined;
   const direct = value[fieldName];
   if (typeof direct === 'string' && direct.length > 0) {
@@ -100,6 +117,13 @@ function firstStringField(value: unknown, fieldName: string): string | undefined
 }
 
 function firstNumberField(value: unknown, fieldName: string): number | undefined {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = firstNumberField(child, fieldName);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
   if (!isRecord(value)) return undefined;
   const direct = value[fieldName];
   if (typeof direct === 'number') {
@@ -139,23 +163,57 @@ function mediaFallbackExt(mediaType: AquiferResourceMediaType): string {
   return 'json';
 }
 
+/**
+ * Map items with a fixed concurrency pool. First failure short-circuits workers
+ * and is returned; successful slots keep their original order.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<Result<R>>
+): Promise<Result<R[]>> {
+  if (items.length === 0) return ok([]);
+
+  const out: R[] = Array.from({ length: items.length });
+  let nextIndex = 0;
+  let failure: Extract<Result<never>, { ok: false }> | undefined;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      if (failure) return;
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+
+      const result = await mapper(items[current]!);
+      if (!result.ok) {
+        failure = result;
+        return;
+      }
+      out[current] = result.data;
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  if (failure) return failure;
+  return ok(out);
+}
+
 async function hydrateTextItems(
   searchItems: AquiferResourceSearchItem[]
 ): Promise<Result<Array<{ id: number; name: string; localizedName: string; content: unknown }>>> {
-  const items: Array<{ id: number; name: string; localizedName: string; content: unknown }> = [];
-
-  for (const hit of searchItems) {
+  return mapWithConcurrency(searchItems, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
-    items.push({
+    return ok({
       id: hit.id,
       name: hit.name,
       localizedName: hit.localizedName,
       content: details.data.content,
     });
-  }
-
-  return ok(items);
+  });
 }
 
 async function searchVerseCollection(
@@ -223,21 +281,26 @@ export async function getTranslationImages(
   });
   if (!search.ok) return search;
 
-  const items: TranslationImagesResponse['items'] = [];
-  for (const hit of search.data) {
+  const hydrated = await mapWithConcurrency(search.data, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
+    return ok({ hit, details: details.data });
+  });
+  if (!hydrated.ok) return hydrated;
 
-    const url = firstStringField(details.data.content, 'url');
+  const items: TranslationImagesResponse['items'] = [];
+  for (const { hit, details } of hydrated.data) {
+    const url = firstStringField(details.content, 'url');
     if (!url) continue;
 
-    const size = firstNumberField(details.data.content, 'size');
+    const size = firstNumberField(details.content, 'size');
+    const thumbnailUrl = firstStringField(details.content, 'thumbnailUrl');
     items.push({
       id: hit.id,
       title: hit.localizedName || hit.name,
       localizedName: hit.localizedName || hit.name,
       url,
-      thumbnailUrl: url,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
       size,
     });
   }
@@ -251,8 +314,9 @@ function buildManifestItem(params: {
   details: AquiferResourceDetails;
   languageCode: string;
   range: ChapterRange;
+  includeContent: boolean;
 }): PrepareOfflineManifestItem {
-  const { config, searchItem, details, languageCode, range } = params;
+  const { config, searchItem, details, languageCode, range, includeContent } = params;
   const kind = kindForMediaType(searchItem.mediaType);
   const sourceUrl = kind === 'text' ? undefined : firstStringField(details.content, 'url');
   const serialized = kind === 'text' ? jsonByteLength(details) : undefined;
@@ -277,7 +341,7 @@ function buildManifestItem(params: {
     endChapter: range.endChapter,
     collectionCode: config.collectionCode ?? searchItem.grouping.collectionCode,
     resourceType: config.resourceType ?? searchItem.grouping.type,
-    serializedContent: serialized?.json,
+    ...(includeContent && serialized ? { serializedContent: serialized.json } : {}),
   };
 }
 
@@ -291,10 +355,19 @@ export async function getPrepareOfflineManifest(params: {
   bookCode: string;
   startChapter: number;
   endChapter: number;
+  includeContent?: boolean;
 }): Promise<Result<PrepareOfflineManifestResponse>> {
-  const { projectId, languageCode, bookCode, startChapter, endChapter } = params;
+  const {
+    projectId,
+    languageCode,
+    bookCode,
+    startChapter,
+    endChapter,
+    includeContent = false,
+  } = params;
   const range: ChapterRange = { bookCode, startChapter, endChapter };
   const items: PrepareOfflineManifestItem[] = [];
+  let truncated = false;
 
   for (const config of MANIFEST_SEARCH_CONFIGS) {
     const search = await searchAllResources({
@@ -302,24 +375,34 @@ export async function getPrepareOfflineManifest(params: {
       startChapter,
       endChapter,
       startVerse: 1,
-      endVerse: 200,
+      endVerse: CHAPTER_RANGE_END_VERSE,
       languageCode,
       resourceCollectionCode: config.collectionCode,
       resourceType: config.resourceType,
     });
     if (!search.ok) return search;
 
-    for (const searchItem of search.data) {
+    if (search.data.length > MAX_MANIFEST_ITEMS_PER_CONFIG) {
+      truncated = true;
+    }
+    const capped = search.data.slice(0, MAX_MANIFEST_ITEMS_PER_CONFIG);
+
+    const hydrated = await mapWithConcurrency(capped, HYDRATE_CONCURRENCY, async (searchItem) => {
       const details = await getResource(searchItem.id);
       if (!details.ok) return details;
+      return ok({ searchItem, details: details.data });
+    });
+    if (!hydrated.ok) return hydrated;
 
+    for (const { searchItem, details } of hydrated.data) {
       items.push(
         buildManifestItem({
           config,
           searchItem,
-          details: details.data,
+          details,
           languageCode,
           range,
+          includeContent,
         })
       );
     }
@@ -332,5 +415,6 @@ export async function getPrepareOfflineManifest(params: {
     sourceLanguageCode: languageCode,
     items,
     totalBytes,
+    truncated,
   });
 }

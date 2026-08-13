@@ -55,6 +55,15 @@ export const manifestQuerySchema = languageCodeQuerySchema.extend({
     .int()
     .positive()
     .openapi({ param: { name: 'endChapter', in: 'query' } }),
+  includeContent: z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((value) => value === 'true' || value === '1')
+    .openapi({
+      param: { name: 'includeContent', in: 'query' },
+      description:
+        'When true, include serializedContent (full TipTap JSON) on text items. Default omits bodies and returns bytesTotal only.',
+    }),
 });
 
 // ─── Online response items ───────────────────────────────────────────────────
@@ -145,6 +154,9 @@ export const prepareOfflineManifestResponseSchema = z
     sourceLanguageCode: z.string(),
     items: z.array(prepareOfflineManifestItemSchema),
     totalBytes: z.number().int().nonnegative(),
+    truncated: z.boolean().openapi({
+      description: 'True when one or more resource configs exceeded the per-config hydration cap',
+    }),
   })
   .openapi('PrepareOfflineResourceManifest');
 

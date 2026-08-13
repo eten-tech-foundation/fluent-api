@@ -12,6 +12,8 @@ import type {
 import { aquiferResourceDetailsSchema, aquiferResourceSearchResponseSchema } from './aquifer.types';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** Hard cap on search pagination to avoid unbounded Aquifer fan-out. */
+const MAX_SEARCH_PAGES = 20;
 
 function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok: false }> {
   const base = ErrorMessages[code];
@@ -19,6 +21,10 @@ function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, 
     ok: false,
     error: { code, message: detail ? `${base}: ${detail}` : base },
   };
+}
+
+export function isAquiferConfigured(): boolean {
+  return Boolean(env.AQUIFER_API_KEY?.trim());
 }
 
 function buildUrl(path: string, query?: URLSearchParams): string {
@@ -53,20 +59,26 @@ async function aquiferGet<T>(
   query?: URLSearchParams,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<Result<T>> {
+  if (!isAquiferConfigured()) {
+    return aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, 'AQUIFER_API_KEY is not configured');
+  }
+
   const url = buildUrl(path, query);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  let rawBody: string;
   let response: Response;
   try {
     response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'api-key': env.AQUIFER_API_KEY,
+        'api-key': env.AQUIFER_API_KEY!,
       },
       signal: controller.signal,
     });
+    rawBody = await response.text();
   } catch (error) {
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (isAbort) {
@@ -80,8 +92,6 @@ async function aquiferGet<T>(
   } finally {
     clearTimeout(timeoutId);
   }
-
-  const rawBody = await response.text();
 
   if (!response.ok) {
     return aquiferError(
@@ -142,6 +152,7 @@ export async function getResource(contentId: number): Promise<Result<AquiferReso
 
 /**
  * Paginate search until all items for the range are collected (or Aquifer errors).
+ * Stops early on empty page, short page, total count reached, or MAX_SEARCH_PAGES.
  */
 export async function searchAllResources(
   params: Omit<AquiferSearchResourcesParams, 'limit' | 'offset'>
@@ -150,12 +161,16 @@ export async function searchAllResources(
   let offset = 0;
   const limit = 100;
 
-  while (true) {
+  for (let pageIndex = 0; pageIndex < MAX_SEARCH_PAGES; pageIndex += 1) {
     const page = await searchResources({ ...params, limit, offset });
     if (!page.ok) return page;
 
     allItems.push(...page.data.items);
-    if (allItems.length >= page.data.totalItemCount || page.data.items.length === 0) {
+    if (
+      allItems.length >= page.data.totalItemCount ||
+      page.data.items.length === 0 ||
+      page.data.items.length < limit
+    ) {
       break;
     }
     offset += limit;

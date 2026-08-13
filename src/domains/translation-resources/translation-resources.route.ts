@@ -1,13 +1,17 @@
+import type { Context } from 'hono';
+
 import { createRoute } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import type { AppBindings, AppError } from '@/lib/types';
+
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
-import { getHttpStatus } from '@/lib/types';
+import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -43,6 +47,20 @@ const internalErrorResponse = jsonContent(
   createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
   'Internal server error'
 );
+
+function aquiferErrorResponse(c: Context<AppBindings>, error: AppError) {
+  if (error.code === ErrorCode.AQUIFER_SERVICE_UNAVAILABLE) {
+    c.get('logger').error(
+      { aquiferError: error.message, code: error.code },
+      'Aquifer upstream failure'
+    );
+    return c.json(
+      { message: ErrorMessages[ErrorCode.AQUIFER_SERVICE_UNAVAILABLE] },
+      getHttpStatus(error) as never
+    );
+  }
+  return c.json({ message: error.message }, getHttpStatus(error) as never);
+}
 
 // ─── GET /projects/{projectId}/translation-resources/notes/{bookCode}/{chapter}/{verse}
 
@@ -85,7 +103,7 @@ server.openapi(getNotesRoute, async (c) => {
     languageCode,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  return aquiferErrorResponse(c, result.error);
 });
 
 // ─── GET .../questions/{bookCode}/{chapter}/{verse}
@@ -129,7 +147,7 @@ server.openapi(getQuestionsRoute, async (c) => {
     languageCode,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  return aquiferErrorResponse(c, result.error);
 });
 
 // ─── GET .../images/{bookCode}/{chapter}/{verse}
@@ -173,7 +191,7 @@ server.openapi(getImagesRoute, async (c) => {
     languageCode,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  return aquiferErrorResponse(c, result.error);
 });
 
 // ─── GET .../manifest
@@ -189,7 +207,7 @@ const getManifestRoute = createRoute({
   ] as const,
   summary: 'Prepare Offline resource manifest for a chapter range',
   description:
-    'Returns Aquifer-backed download metadata (ids, sizes, URLs, TipTap serialization for text) for TN, TW, TQ, StudyNotes, and Images across a book chapter range. Empty items when none exist.',
+    'Returns Aquifer-backed download metadata (ids, sizes, URLs) for TN, TW, TQ, StudyNotes, and Images across a book chapter range. Text bodies are omitted unless includeContent=true. Empty items when none exist.',
   request: {
     params: projectIdParamSchema,
     query: manifestQuerySchema,
@@ -209,14 +227,15 @@ const getManifestRoute = createRoute({
 
 server.openapi(getManifestRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const { languageCode, bookCode, startChapter, endChapter } = c.req.valid('query');
+  const { languageCode, bookCode, startChapter, endChapter, includeContent } = c.req.valid('query');
   const result = await translationResourcesService.getPrepareOfflineManifest({
     projectId,
     languageCode,
     bookCode,
     startChapter,
     endChapter,
+    includeContent,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  return aquiferErrorResponse(c, result.error);
 });

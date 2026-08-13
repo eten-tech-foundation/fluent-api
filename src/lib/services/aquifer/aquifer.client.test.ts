@@ -162,17 +162,23 @@ describe('aquifer.client', () => {
 
   describe('searchAllResources', () => {
     it('paginates until all items are collected', async () => {
+      const page1Items = Array.from({ length: 100 }, (_, index) => ({
+        ...searchItem,
+        id: index + 1,
+        name: `item-${index + 1}`,
+        localizedName: `Item ${index + 1}`,
+      }));
       const page1 = {
-        totalItemCount: 2,
-        returnedItemCount: 1,
+        totalItemCount: 101,
+        returnedItemCount: 100,
         offset: 0,
-        items: [searchItem],
+        items: page1Items,
       };
       const page2 = {
-        totalItemCount: 2,
+        totalItemCount: 101,
         returnedItemCount: 1,
         offset: 100,
-        items: [{ ...searchItem, id: 102, name: 'hope', localizedName: 'Hope' }],
+        items: [{ ...searchItem, id: 101, name: 'last', localizedName: 'Last' }],
       };
 
       vi.spyOn(globalThis, 'fetch')
@@ -191,10 +197,33 @@ describe('aquifer.client', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(2);
-        expect(result.data.map((i) => i.id)).toEqual([101, 102]);
+        expect(result.data).toHaveLength(101);
+        expect(result.data.at(-1)?.id).toBe(101);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops pagination when a short page is returned', async () => {
+      const shortPage = {
+        totalItemCount: 500,
+        returnedItemCount: 1,
+        offset: 0,
+        items: [searchItem],
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(shortPage));
+
+      const result = await searchAllResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toHaveLength(1);
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
   });
 });
