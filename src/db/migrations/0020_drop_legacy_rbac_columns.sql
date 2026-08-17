@@ -27,7 +27,7 @@ SELECT
   p."organization", 
   pu."project_id", 
   u."role", 
-  NULL
+  u."created_by"
 FROM "project_users" pu
 JOIN "users" u ON u."id" = pu."user_id"
 JOIN "projects" p ON p."id" = pu."project_id"
@@ -38,9 +38,10 @@ SELECT
   p."organization",
   p."id",
   r."id",
-  NULL
+  u."created_by"
 FROM "projects" p
 JOIN "roles" r ON r."name" = 'Project Manager'
+JOIN "users" u ON u."id" = p."created_by"
 WHERE p."created_by" IS NOT NULL
 ON CONFLICT DO NOTHING;--> statement-breakpoint
 ALTER TABLE "users" DROP CONSTRAINT "users_role_roles_id_fk";--> statement-breakpoint
