@@ -60,6 +60,31 @@ describe('server Route Handlers', () => {
     vi.clearAllMocks();
   });
 
+  // ─── CORS exposed headers ──────────────────────────────────────────────────
+
+  describe('cORS exposed response headers', () => {
+    /**
+     * `Retry-After` is not a CORS-safelisted response header, so a
+     * cross-origin browser hides it from JS unless it is named here. The
+     * source-TTS client reads it to pace its admission backoff (§6.1/§9.2);
+     * without the exposure it silently used its fallback instead, making the
+     * service's `TTS_RETRY_AFTER_SECONDS` inert for every browser. Found in
+     * Firefox — httpx and every mocked test read the header fine.
+     */
+    it('exposes Retry-After so the browser can read a 503 backoff', async () => {
+      const res = await server.request('/health', {
+        headers: { Origin: 'http://localhost:5173' },
+      });
+
+      const exposed = (res.headers.get('access-control-expose-headers') ?? '')
+        .split(',')
+        .map((header) => header.trim().toLowerCase());
+
+      expect(exposed).toContain('retry-after');
+      expect(exposed).toContain('set-auth-token');
+    });
+  });
+
   // ─── POST /api/auth/forget-password ────────────────────────────────────────
 
   describe('pOST /api/auth/forget-password', () => {
