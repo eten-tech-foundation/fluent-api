@@ -375,8 +375,37 @@ export const USFM_PARAGRAPH_MARKERS = [
 // opens a paragraph; a mid-text offset splits the verse across two paragraphs.
 // Null/absent = legacy row = no structure known; the USFM export then falls
 // back to a single \p per chapter, exactly as before this column existed.
+/**
+ * Markers that open a heading block: a paragraph of their own, carrying their own words, sitting
+ * before the verse that follows. A strict subset of USFM_PARAGRAPH_MARKERS — body-text markers are
+ * excluded so a caller cannot store the verse's own prose as a heading and lose it from the row.
+ */
+export const USFM_HEADING_MARKERS = [
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
+] as const;
+
+/**
+ * One heading block emitted before the verse. `text` is the heading's own words, which no
+ * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
+ * text, and a heading belongs to no verse (fluent-web#397).
+ */
+const verseHeadingSchema = z.object({
+  marker: z.enum(USFM_HEADING_MARKERS),
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    // The value is written straight into the USFM stream, so it can carry neither a marker
+    // escape nor a line break.
+    .max(300)
+    .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
+});
+
 export const verseMarkersSchema = z
   .object({
+    /** Heading blocks emitted before this verse, in order. */
+    headings: z.array(verseHeadingSchema).min(1).max(4).optional(),
     paragraphs: z
       .array(
         z.object({
@@ -390,7 +419,9 @@ export const verseMarkersSchema = z
       )
       .min(1)
       .max(20)
+      .optional()
       .superRefine((paragraphs, ctx) => {
+        if (!paragraphs) return;
         for (let i = 1; i < paragraphs.length; i++) {
           if (paragraphs[i].offset <= paragraphs[i - 1].offset) {
             ctx.addIssue({
@@ -401,6 +432,9 @@ export const verseMarkersSchema = z
           }
         }
       }),
+  })
+  .refine((markers) => markers.headings !== undefined || markers.paragraphs !== undefined, {
+    message: 'markers must carry headings, paragraphs, or both; use null for no structure',
   })
   .nullable();
 

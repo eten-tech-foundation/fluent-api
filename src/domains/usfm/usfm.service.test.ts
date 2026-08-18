@@ -134,4 +134,59 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toContain('\\c 1\n\\q1\n\\v 1 \n');
     expect(usfm).not.toContain('\\p');
   });
+
+  it('emits a heading block before the verse it precedes', async () => {
+    const usfm = await renderUSFM([
+      verse({
+        markers: {
+          headings: [{ marker: 's1', text: 'The Creation' }],
+          paragraphs: [{ marker: 'p', offset: 0 }],
+        },
+      }),
+    ]);
+
+    expect(usfm).toContain('\\c 1\n\\s1 The Creation\n\\p\n\\v 1 In the beginning.\n');
+  });
+
+  it('emits several headings in the order they were stored', async () => {
+    const usfm = await renderUSFM([
+      verse({
+        markers: {
+          headings: [
+            { marker: 'ms1', text: 'Book One' },
+            { marker: 's1', text: 'The Creation' },
+          ],
+        },
+      }),
+    ]);
+
+    expect(usfm).toContain('\\ms1 Book One\n\\s1 The Creation\n');
+  });
+
+  it('keeps the chapter default paragraph when a heading opens the chapter', async () => {
+    // The heading is not a paragraph: the verse after it still needs one.
+    const usfm = await renderUSFM([
+      verse({ markers: { headings: [{ marker: 's1', text: 'The Creation' }] } }),
+    ]);
+
+    expect(usfm).toContain('\\c 1\n\\s1 The Creation\n\\p\n\\v 1 In the beginning.\n');
+  });
+
+  it('puts a mid-chapter heading before that verse, not at the chapter top', async () => {
+    const usfm = await renderUSFM([
+      verse({ verseNumber: 1 }),
+      verse({
+        verseNumber: 2,
+        translatedContent: 'Second verse.',
+        markers: {
+          headings: [{ marker: 's1', text: 'A Later Section' }],
+          paragraphs: [{ marker: 'p', offset: 0 }],
+        },
+      }),
+    ]);
+
+    expect(usfm).toContain(
+      '\\v 1 In the beginning.\n\\s1 A Later Section\n\\p\n\\v 2 Second verse.\n'
+    );
+  });
 });
