@@ -381,8 +381,27 @@ export const USFM_PARAGRAPH_MARKERS = [
  * excluded so a caller cannot store the verse's own prose as a heading and lose it from the row.
  */
 export const USFM_HEADING_MARKERS = [
-  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
-  'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
+  's',
+  's1',
+  's2',
+  's3',
+  's4',
+  'sr',
+  'r',
+  'd',
+  'sp',
+  'sd',
+  'sd1',
+  'sd2',
+  'sd3',
+  'sd4',
+  'ms',
+  'ms1',
+  'ms2',
+  'ms3',
+  'mr',
+  'cd',
+  'cl',
 ] as const;
 
 /**

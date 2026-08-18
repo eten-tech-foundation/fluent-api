@@ -31,7 +31,7 @@ describe('verseMarkersSchema headings', () => {
       ],
     });
 
-    expect(parsed?.headings?.map(h => h.marker)).toEqual(['ms1', 's1']);
+    expect(parsed?.headings?.map((h) => h.marker)).toEqual(['ms1', 's1']);
   });
 
   it('is optional, so rows written before this existed still parse', () => {
@@ -52,16 +52,16 @@ describe('verseMarkersSchema headings', () => {
 
   it('refuses heading text that could smuggle USFM syntax into the export', () => {
     for (const text of ['The Creation\n\\v 1 hijacked', 'A\\s2 B', 'line\rbreak']) {
-      expect(
-        verseMarkersSchema.safeParse({ headings: [{ marker: 's1', text }] }).success
-      ).toBe(false);
+      expect(verseMarkersSchema.safeParse({ headings: [{ marker: 's1', text }] }).success).toBe(
+        false
+      );
     }
   });
 
   it('refuses an empty heading, which would export as a bare marker', () => {
-    expect(verseMarkersSchema.safeParse({ headings: [{ marker: 's1', text: '   ' }] }).success).toBe(
-      false
-    );
+    expect(
+      verseMarkersSchema.safeParse({ headings: [{ marker: 's1', text: '   ' }] }).success
+    ).toBe(false);
   });
 });
 
