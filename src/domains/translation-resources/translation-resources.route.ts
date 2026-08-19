@@ -27,6 +27,10 @@ import {
   verseResourceParamSchema,
 } from './translation-resources.types';
 
+const badRequestResponse = jsonContent(
+  createMessageObjectSchema('Bad Request'),
+  'Invalid request parameters'
+);
 const unauthorizedResponse = jsonContent(
   createMessageObjectSchema('Unauthorized'),
   'Authentication required'
@@ -85,6 +89,7 @@ const getNotesRoute = createRoute({
       translationNotesResponseSchema,
       'Translation Notes for the verse'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
     [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
     [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
@@ -129,6 +134,7 @@ const getQuestionsRoute = createRoute({
       translationQuestionsResponseSchema,
       'Translation Questions for the verse'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
     [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
     [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
@@ -173,6 +179,7 @@ const getImagesRoute = createRoute({
       translationImagesResponseSchema,
       'Images & Maps for the verse'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
     [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
     [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
@@ -207,7 +214,7 @@ const getManifestRoute = createRoute({
   ] as const,
   summary: 'Prepare Offline resource manifest for a chapter range',
   description:
-    'Returns Aquifer-backed download metadata (ids, sizes, URLs) for TN, TW, TQ, StudyNotes, and Images across a book chapter range. Text bodies are omitted unless includeContent=true. Empty items when none exist.',
+    'Returns Aquifer-backed download metadata (ids, sizes, URLs) for TN, TW, TQ, StudyNotes, and Images across a book chapter range (max 20 chapters; endChapter must be >= startChapter). Text bodies are omitted unless includeContent=true. Empty items when none exist.',
   request: {
     params: projectIdParamSchema,
     query: manifestQuerySchema,
@@ -217,6 +224,7 @@ const getManifestRoute = createRoute({
       prepareOfflineManifestResponseSchema,
       'Prepare Offline resource manifest'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
     [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
     [HttpStatusCodes.NOT_FOUND]: notFoundResponse,

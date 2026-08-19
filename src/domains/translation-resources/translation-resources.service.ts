@@ -164,8 +164,10 @@ function mediaFallbackExt(mediaType: AquiferResourceMediaType): string {
 }
 
 /**
- * Map items with a fixed concurrency pool. First failure short-circuits workers
- * and is returned; successful slots keep their original order.
+ * Map items with a fixed concurrency pool. Individual mapper failures are
+ * skipped so one bad Aquifer content id cannot drop the rest of the section.
+ * If every item fails, the first failure is returned so the route can 502
+ * instead of looking like an empty collection.
  */
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -174,31 +176,35 @@ async function mapWithConcurrency<T, R>(
 ): Promise<Result<R[]>> {
   if (items.length === 0) return ok([]);
 
-  const out: R[] = Array.from({ length: items.length });
+  const slots: Array<Result<R> | undefined> = Array.from({ length: items.length });
   let nextIndex = 0;
-  let failure: Extract<Result<never>, { ok: false }> | undefined;
 
   async function worker(): Promise<void> {
     while (true) {
-      if (failure) return;
       const current = nextIndex;
       nextIndex += 1;
       if (current >= items.length) return;
-
-      const result = await mapper(items[current]!);
-      if (!result.ok) {
-        failure = result;
-        return;
-      }
-      out[current] = result.data;
+      slots[current] = await mapper(items[current]!);
     }
   }
 
   const workerCount = Math.min(concurrency, items.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
-  if (failure) return failure;
-  return ok(out);
+  const successes: R[] = [];
+  let firstFailure: Extract<Result<never>, { ok: false }> | undefined;
+  for (const slot of slots) {
+    if (!slot) continue;
+    if (slot.ok) successes.push(slot.data);
+    else firstFailure ??= slot;
+  }
+
+  if (successes.length === 0 && firstFailure) return firstFailure;
+  return ok(successes);
+}
+
+function firstAssetUrl(content: unknown): string | undefined {
+  return firstStringField(content, 'url') ?? firstStringField(content, 'href');
 }
 
 async function hydrateTextItems(
@@ -290,7 +296,7 @@ export async function getTranslationImages(
 
   const items: TranslationImagesResponse['items'] = [];
   for (const { hit, details } of hydrated.data) {
-    const url = firstStringField(details.content, 'url');
+    const url = firstAssetUrl(details.content);
     if (!url) continue;
 
     const size = firstNumberField(details.content, 'size');
@@ -318,7 +324,7 @@ function buildManifestItem(params: {
 }): PrepareOfflineManifestItem {
   const { config, searchItem, details, languageCode, range, includeContent } = params;
   const kind = kindForMediaType(searchItem.mediaType);
-  const sourceUrl = kind === 'text' ? undefined : firstStringField(details.content, 'url');
+  const sourceUrl = kind === 'text' ? undefined : firstAssetUrl(details.content);
   const serialized = kind === 'text' ? jsonByteLength(details) : undefined;
   const bytesTotal =
     kind === 'text' ? (serialized?.bytes ?? 0) : (firstNumberField(details.content, 'size') ?? 0);

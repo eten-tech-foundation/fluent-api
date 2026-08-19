@@ -197,6 +197,53 @@ describe('translation-resources routes', () => {
       expect(res.status).toBe(502);
       expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
     });
+
+    it('returns remaining notes when one content id fails to hydrate', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = [
+        { ...searchHit, id: 1, name: 'one', localizedName: 'One' },
+        { ...searchHit, id: 2, name: 'two', localizedName: 'Two' },
+        { ...searchHit, id: 3, name: 'three', localizedName: 'Three' },
+      ];
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) => {
+        if (id === 2) return err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        return ok({ ...textDetails, id, name: String(id), localizedName: String(id) });
+      });
+
+      const res = await server.request(NOTES_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.items.map((item: { id: number }) => item.id)).toEqual([1, 3]);
+    });
+
+    it('returns 400 for an unknown bookCode instead of calling Aquifer', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+
+      const res = await server.request(
+        '/projects/10/translation-resources/notes/XYZ/14/1?languageCode=eng',
+        { method: 'GET' }
+      );
+
+      expect(res.status).toBe(400);
+      expect(aquiferClient.searchAllResources).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for an invalid languageCode', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+
+      const res = await server.request(
+        '/projects/10/translation-resources/notes/MRK/14/1?languageCode=not-a-language',
+        { method: 'GET' }
+      );
+
+      expect(res.status).toBe(400);
+      expect(aquiferClient.searchAllResources).not.toHaveBeenCalled();
+    });
   });
 
   describe('gET questions', () => {
@@ -263,6 +310,47 @@ describe('translation-resources routes', () => {
             localizedName: 'Faith',
             url: 'https://cdn.example/map.jpg',
             size: 1200,
+          },
+        ],
+      });
+    });
+
+    it('discovers url from href when Aquifer omits url', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const imageHit = {
+        ...searchHit,
+        id: 58,
+        mediaType: 'Image' as const,
+        grouping: {
+          type: 'Images' as const,
+          name: 'Images',
+          collectionTitle: 'Images',
+          collectionCode: 'Images',
+        },
+      };
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 58,
+          name: 'map',
+          localizedName: 'Map',
+          content: { href: 'https://cdn.example/href.jpg', size: 88 },
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        items: [
+          {
+            id: 58,
+            title: 'Faith',
+            localizedName: 'Faith',
+            url: 'https://cdn.example/href.jpg',
+            size: 88,
           },
         ],
       });
@@ -445,6 +533,32 @@ describe('translation-resources routes', () => {
 
       expect(res.status).toBe(502);
       expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
+    });
+
+    it('returns 400 when endChapter is before startChapter', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+
+      const res = await server.request(
+        '/projects/10/translation-resources/manifest?languageCode=eng&bookCode=MRK&startChapter=150&endChapter=1',
+        { method: 'GET' }
+      );
+
+      expect(res.status).toBe(400);
+      expect(aquiferClient.searchAllResources).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when the chapter span exceeds the cap', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+
+      const res = await server.request(
+        '/projects/10/translation-resources/manifest?languageCode=eng&bookCode=PSA&startChapter=1&endChapter=150',
+        { method: 'GET' }
+      );
+
+      expect(res.status).toBe(400);
+      expect(aquiferClient.searchAllResources).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,88 @@
 import { z } from '@hono/zod-openapi';
 
+/** Canonical USFM book codes (same set as `src/db/seeds/data/books.json`). */
+export const USFM_BOOK_CODES = [
+  'GEN',
+  'EXO',
+  'LEV',
+  'NUM',
+  'DEU',
+  'JOS',
+  'JDG',
+  'RUT',
+  '1SA',
+  '2SA',
+  '1KI',
+  '2KI',
+  '1CH',
+  '2CH',
+  'EZR',
+  'NEH',
+  'EST',
+  'JOB',
+  'PSA',
+  'PRO',
+  'ECC',
+  'SNG',
+  'ISA',
+  'JER',
+  'LAM',
+  'EZK',
+  'DAN',
+  'HOS',
+  'JOL',
+  'AMO',
+  'OBA',
+  'JON',
+  'MIC',
+  'NAM',
+  'HAB',
+  'ZEP',
+  'HAG',
+  'ZEC',
+  'MAL',
+  'MAT',
+  'MRK',
+  'LUK',
+  'JHN',
+  'ACT',
+  'ROM',
+  '1CO',
+  '2CO',
+  'GAL',
+  'EPH',
+  'PHP',
+  'COL',
+  '1TH',
+  '2TH',
+  '1TI',
+  '2TI',
+  'TIT',
+  'PHM',
+  'HEB',
+  'JAS',
+  '1PE',
+  '2PE',
+  '1JN',
+  '2JN',
+  '3JN',
+  'JUD',
+  'REV',
+] as const;
+
+export type UsfmBookCode = (typeof USFM_BOOK_CODES)[number];
+
+const usfmBookCodeTuple = USFM_BOOK_CODES as unknown as [UsfmBookCode, ...UsfmBookCode[]];
+
+export const usfmBookCodeSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.toUpperCase())
+  .pipe(z.enum(usfmBookCodeTuple));
+
+/** Max chapters in one Prepare Offline manifest request (shared Aquifer key). */
+export const MAX_MANIFEST_CHAPTER_SPAN = 20;
+
 // ─── Path / query params ─────────────────────────────────────────────────────
 
 export const projectIdParamSchema = z.object({
@@ -11,10 +94,7 @@ export const projectIdParamSchema = z.object({
 });
 
 export const verseResourceParamSchema = projectIdParamSchema.extend({
-  bookCode: z
-    .string()
-    .min(1)
-    .openapi({ param: { name: 'bookCode', in: 'path' } }),
+  bookCode: usfmBookCodeSchema.openapi({ param: { name: 'bookCode', in: 'path' } }),
   chapter: z.coerce
     .number()
     .int()
@@ -30,41 +110,58 @@ export const verseResourceParamSchema = projectIdParamSchema.extend({
 export const languageCodeQuerySchema = z.object({
   languageCode: z
     .string()
-    .min(1)
+    .trim()
+    .regex(/^[a-z]{2,3}$/i, 'languageCode must be a 2–3 letter ISO language code')
+    .transform((value) => value.toLowerCase())
     .openapi({
       param: { name: 'languageCode', in: 'query' },
-      description: 'Aquifer language code (e.g. eng)',
+      description: 'Aquifer ISO language code (e.g. eng). Not the project source language.',
     }),
 });
 
-export const manifestQuerySchema = languageCodeQuerySchema.extend({
-  bookCode: z
-    .string()
-    .min(1)
-    .openapi({
+export const manifestQuerySchema = languageCodeQuerySchema
+  .extend({
+    bookCode: usfmBookCodeSchema.openapi({
       param: { name: 'bookCode', in: 'query' },
       description: 'USFM book code (e.g. MRK)',
     }),
-  startChapter: z.coerce
-    .number()
-    .int()
-    .positive()
-    .openapi({ param: { name: 'startChapter', in: 'query' } }),
-  endChapter: z.coerce
-    .number()
-    .int()
-    .positive()
-    .openapi({ param: { name: 'endChapter', in: 'query' } }),
-  includeContent: z
-    .enum(['true', 'false', '1', '0'])
-    .optional()
-    .transform((value) => value === 'true' || value === '1')
-    .openapi({
-      param: { name: 'includeContent', in: 'query' },
-      description:
-        'When true, include serializedContent (full TipTap JSON) on text items. Default omits bodies and returns bytesTotal only.',
-    }),
-});
+    startChapter: z.coerce
+      .number()
+      .int()
+      .positive()
+      .openapi({ param: { name: 'startChapter', in: 'query' } }),
+    endChapter: z.coerce
+      .number()
+      .int()
+      .positive()
+      .openapi({ param: { name: 'endChapter', in: 'query' } }),
+    includeContent: z
+      .enum(['true', 'false', '1', '0'])
+      .optional()
+      .transform((value) => value === 'true' || value === '1')
+      .openapi({
+        param: { name: 'includeContent', in: 'query' },
+        description:
+          'When true, include serializedContent (full TipTap JSON) on text items. Default omits bodies and returns bytesTotal only.',
+      }),
+  })
+  .superRefine((value, ctx) => {
+    if (value.endChapter < value.startChapter) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endChapter'],
+        message: 'endChapter must be greater than or equal to startChapter',
+      });
+    }
+    const span = value.endChapter - value.startChapter + 1;
+    if (span > MAX_MANIFEST_CHAPTER_SPAN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endChapter'],
+        message: `Chapter range cannot exceed ${MAX_MANIFEST_CHAPTER_SPAN} chapters`,
+      });
+    }
+  });
 
 // ─── Online response items ───────────────────────────────────────────────────
 
@@ -151,7 +248,10 @@ export const prepareOfflineManifestItemSchema = z
 export const prepareOfflineManifestResponseSchema = z
   .object({
     projectId: z.number().int(),
-    sourceLanguageCode: z.string(),
+    sourceLanguageCode: z.string().openapi({
+      description:
+        'Aquifer language the manifest was built for (the languageCode query param), not project.source_language',
+    }),
     items: z.array(prepareOfflineManifestItemSchema),
     totalBytes: z.number().int().nonnegative(),
     truncated: z.boolean().openapi({
