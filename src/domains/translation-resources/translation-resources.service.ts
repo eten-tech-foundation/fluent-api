@@ -96,42 +96,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function firstStringField(value: unknown, fieldName: string): string | undefined {
+type ExtractedAquiferAsset = {
+  url: string;
+  size?: number;
+  thumbnailUrl?: string;
+};
+
+function ownString(record: Record<string, unknown>, fieldName: string): string | undefined {
+  const value = record[fieldName];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Read url/href, size, and thumbnailUrl from a single Aquifer asset record.
+ * Nested sibling records must not contribute mixed fields.
+ */
+function readAssetFromRecord(record: Record<string, unknown>): ExtractedAquiferAsset | undefined {
+  const url = ownString(record, 'url') ?? ownString(record, 'href');
+  if (!url) return undefined;
+  const size = typeof record.size === 'number' ? record.size : undefined;
+  const thumbnailUrl = ownString(record, 'thumbnailUrl');
+  return {
+    url,
+    ...(size !== undefined ? { size } : {}),
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
+  };
+}
+
+function extractAquiferAsset(value: unknown): ExtractedAquiferAsset | undefined {
   if (Array.isArray(value)) {
     for (const child of value) {
-      const found = firstStringField(child, fieldName);
+      const found = extractAquiferAsset(child);
       if (found) return found;
     }
     return undefined;
   }
   if (!isRecord(value)) return undefined;
-  const direct = value[fieldName];
-  if (typeof direct === 'string' && direct.length > 0) {
-    return direct;
-  }
+  const own = readAssetFromRecord(value);
+  if (own) return own;
   for (const child of Object.values(value)) {
-    const found = firstStringField(child, fieldName);
+    const found = extractAquiferAsset(child);
     if (found) return found;
-  }
-  return undefined;
-}
-
-function firstNumberField(value: unknown, fieldName: string): number | undefined {
-  if (Array.isArray(value)) {
-    for (const child of value) {
-      const found = firstNumberField(child, fieldName);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-  if (!isRecord(value)) return undefined;
-  const direct = value[fieldName];
-  if (typeof direct === 'number') {
-    return direct;
-  }
-  for (const child of Object.values(value)) {
-    const found = firstNumberField(child, fieldName);
-    if (found !== undefined) return found;
   }
   return undefined;
 }
@@ -201,10 +206,6 @@ async function mapWithConcurrency<T, R>(
 
   if (successes.length === 0 && firstFailure) return firstFailure;
   return ok(successes);
-}
-
-function firstAssetUrl(content: unknown): string | undefined {
-  return firstStringField(content, 'url') ?? firstStringField(content, 'href');
 }
 
 async function hydrateTextItems(
@@ -296,18 +297,16 @@ export async function getTranslationImages(
 
   const items: TranslationImagesResponse['items'] = [];
   for (const { hit, details } of hydrated.data) {
-    const url = firstAssetUrl(details.content);
-    if (!url) continue;
+    const asset = extractAquiferAsset(details.content);
+    if (!asset) continue;
 
-    const size = firstNumberField(details.content, 'size');
-    const thumbnailUrl = firstStringField(details.content, 'thumbnailUrl');
     items.push({
       id: hit.id,
       title: hit.localizedName || hit.name,
       localizedName: hit.localizedName || hit.name,
-      url,
-      ...(thumbnailUrl ? { thumbnailUrl } : {}),
-      size,
+      url: asset.url,
+      ...(asset.thumbnailUrl ? { thumbnailUrl: asset.thumbnailUrl } : {}),
+      size: asset.size,
     });
   }
 
@@ -324,10 +323,10 @@ function buildManifestItem(params: {
 }): PrepareOfflineManifestItem {
   const { config, searchItem, details, languageCode, range, includeContent } = params;
   const kind = kindForMediaType(searchItem.mediaType);
-  const sourceUrl = kind === 'text' ? undefined : firstAssetUrl(details.content);
-  const serialized = kind === 'text' ? jsonByteLength(details) : undefined;
-  const bytesTotal =
-    kind === 'text' ? (serialized?.bytes ?? 0) : (firstNumberField(details.content, 'size') ?? 0);
+  const asset = kind === 'text' ? undefined : extractAquiferAsset(details.content);
+  const sourceUrl = asset?.url;
+  const serialized = kind === 'text' ? jsonByteLength(details.content) : undefined;
+  const bytesTotal = kind === 'text' ? (serialized?.bytes ?? 0) : (asset?.size ?? 0);
 
   return {
     id: `aquifer-${searchItem.id}-${kind}`,

@@ -397,6 +397,53 @@ describe('translation-resources routes', () => {
       });
     });
 
+    it('does not mix url, size, or thumbnailUrl from unrelated nested assets', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const imageHit = {
+        ...searchHit,
+        id: 59,
+        mediaType: 'Image' as const,
+        grouping: {
+          type: 'Images' as const,
+          name: 'Images',
+          collectionTitle: 'Images',
+          collectionCode: 'Images',
+        },
+      };
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 59,
+          name: 'map',
+          localizedName: 'Map',
+          content: {
+            url: 'https://cdn.example/real.jpg',
+            nested: {
+              url: 'https://other.example/wrong.jpg',
+              size: 1,
+              thumbnailUrl: 'https://other.example/t.jpg',
+            },
+          },
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        items: [
+          {
+            id: 59,
+            title: 'Faith',
+            localizedName: 'Faith',
+            url: 'https://cdn.example/real.jpg',
+          },
+        ],
+      });
+    });
+
     it('includes thumbnailUrl only when Aquifer provides one', async () => {
       asAuthenticatedUser();
       asProjectMember();
@@ -520,6 +567,11 @@ describe('translation-resources routes', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(typeof body.items[0].serializedContent).toBe('string');
+      const parsedContent = JSON.parse(body.items[0].serializedContent);
+      expect(parsedContent).toEqual(textDetails.content);
+      expect(body.items[0].bytesTotal).toBe(
+        new TextEncoder().encode(body.items[0].serializedContent).byteLength
+      );
     });
 
     it('returns 502 when Aquifer fails mid-manifest', async () => {

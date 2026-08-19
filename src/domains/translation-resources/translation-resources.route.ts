@@ -1,17 +1,13 @@
-import type { Context } from 'hono';
-
 import { createRoute } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import type { AppBindings, AppError } from '@/lib/types';
-
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
+import { aquiferErrorResponse } from '@/lib/services/aquifer/aquifer.errors';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -51,20 +47,6 @@ const internalErrorResponse = jsonContent(
   createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
   'Internal server error'
 );
-
-function aquiferErrorResponse(c: Context<AppBindings>, error: AppError) {
-  if (error.code === ErrorCode.AQUIFER_SERVICE_UNAVAILABLE) {
-    c.get('logger').error(
-      { aquiferError: error.message, code: error.code },
-      'Aquifer upstream failure'
-    );
-    return c.json(
-      { message: ErrorMessages[ErrorCode.AQUIFER_SERVICE_UNAVAILABLE] },
-      getHttpStatus(error) as never
-    );
-  }
-  return c.json({ message: error.message }, getHttpStatus(error) as never);
-}
 
 // ─── GET /projects/{projectId}/translation-resources/notes/{bookCode}/{chapter}/{verse}
 
