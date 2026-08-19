@@ -78,6 +78,8 @@ export const ErrorCode = {
   // AI-tools (fluent-ai) integration errors — both map to HTTP 502 (see §10.1)
   AI_SERVICE_UNAVAILABLE: 'AI_SERVICE_UNAVAILABLE',
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
+  // Aquifer (translation resources) upstream errors → HTTP 502
+  AQUIFER_SERVICE_UNAVAILABLE: 'AQUIFER_SERVICE_UNAVAILABLE',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
@@ -121,6 +123,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   EMAIL_SERVICE_ERROR: 'Email service error',
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
+  AQUIFER_SERVICE_UNAVAILABLE: 'Aquifer service is unavailable',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
 };
@@ -134,6 +137,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   // AI-tools upstream failures surface as 502 Bad Gateway (see §10.1)
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
+  AQUIFER_SERVICE_UNAVAILABLE: 502,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
