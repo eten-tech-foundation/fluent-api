@@ -107,6 +107,20 @@ const textDetails = {
   language: { id: 1, code: 'eng', displayName: 'English', scriptDirection: 'LTR' },
 };
 
+function imageSearchHit(id: number) {
+  return {
+    ...searchHit,
+    id,
+    mediaType: 'Image' as const,
+    grouping: {
+      type: 'Images' as const,
+      name: 'Images',
+      collectionTitle: 'Images',
+      collectionCode: 'Images',
+    },
+  };
+}
+
 describe('translation-resources routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -277,17 +291,7 @@ describe('translation-resources routes', () => {
     it('returns image items with urls and omits fabricated thumbnailUrl', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      const imageHit = {
-        ...searchHit,
-        id: 55,
-        mediaType: 'Image' as const,
-        grouping: {
-          type: 'Images' as const,
-          name: 'Images',
-          collectionTitle: 'Images',
-          collectionCode: 'Images',
-        },
-      };
+      const imageHit = imageSearchHit(55);
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
@@ -318,17 +322,7 @@ describe('translation-resources routes', () => {
     it('discovers url from href when Aquifer omits url', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      const imageHit = {
-        ...searchHit,
-        id: 58,
-        mediaType: 'Image' as const,
-        grouping: {
-          type: 'Images' as const,
-          name: 'Images',
-          collectionTitle: 'Images',
-          collectionCode: 'Images',
-        },
-      };
+      const imageHit = imageSearchHit(58);
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
@@ -359,17 +353,7 @@ describe('translation-resources routes', () => {
     it('discovers url and size inside array-wrapped Aquifer content', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      const imageHit = {
-        ...searchHit,
-        id: 56,
-        mediaType: 'Image' as const,
-        grouping: {
-          type: 'Images' as const,
-          name: 'Images',
-          collectionTitle: 'Images',
-          collectionCode: 'Images',
-        },
-      };
+      const imageHit = imageSearchHit(56);
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
@@ -400,17 +384,7 @@ describe('translation-resources routes', () => {
     it('does not mix url, size, or thumbnailUrl from unrelated nested assets', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      const imageHit = {
-        ...searchHit,
-        id: 59,
-        mediaType: 'Image' as const,
-        grouping: {
-          type: 'Images' as const,
-          name: 'Images',
-          collectionTitle: 'Images',
-          collectionCode: 'Images',
-        },
-      };
+      const imageHit = imageSearchHit(59);
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
@@ -447,17 +421,7 @@ describe('translation-resources routes', () => {
     it('includes thumbnailUrl only when Aquifer provides one', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      const imageHit = {
-        ...searchHit,
-        id: 57,
-        mediaType: 'Image' as const,
-        grouping: {
-          type: 'Images' as const,
-          name: 'Images',
-          collectionTitle: 'Images',
-          collectionCode: 'Images',
-        },
-      };
+      const imageHit = imageSearchHit(57);
       vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({

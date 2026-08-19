@@ -96,11 +96,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-type ExtractedAquiferAsset = {
+interface ExtractedAquiferAsset {
   url: string;
   size?: number;
   thumbnailUrl?: string;
-};
+}
 
 function ownString(record: Record<string, unknown>, fieldName: string): string | undefined {
   const value = record[fieldName];
