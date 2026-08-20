@@ -12,7 +12,7 @@ describe('dblSyncWorker', () => {
     vi.clearAllMocks();
   });
 
-  it('schedules the cron job and handles execution lifecycle', async () => {
+  it('registers the on-demand worker and handles execution lifecycle', async () => {
     const mockBoss = {
       schedule: vi.fn().mockResolvedValue(undefined),
       work: vi.fn().mockResolvedValue(undefined),
@@ -20,7 +20,6 @@ describe('dblSyncWorker', () => {
 
     await registerDblSyncWorker(mockBoss);
 
-    expect(mockBoss.schedule).toHaveBeenCalledWith('dbl-sync', '0 0 * * 0');
     expect(mockBoss.work).toHaveBeenCalledWith('dbl-sync', expect.any(Function));
 
     const handler = mockBoss.work.mock.calls[0][1];
