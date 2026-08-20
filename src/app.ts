@@ -27,6 +27,7 @@ import '@/domains/ai-suggestions/ai-suggestions.route';
 import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
 import '@/domains/pericopes/pericopes.route';
+import '@/domains/translation-resources/translation-resources.route';
 import '@/domains/self/settings/self-settings.route';
 configureOpenAPI(server);
 
