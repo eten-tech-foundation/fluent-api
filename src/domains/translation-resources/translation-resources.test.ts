@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
+import { PERMISSIONS } from '@/lib/permissions';
 import * as aquiferClient from '@/lib/services/aquifer/aquifer.client';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 import '@/domains/translation-resources/translation-resources.route';
@@ -17,9 +18,16 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([{ activeOrgId: 1 }]),
+  };
+  return {
+    db: { select: vi.fn(() => mockQueryBuilder), insert: vi.fn(), update: vi.fn() },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -29,8 +37,8 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
 
 vi.mock('@/domains/projects/projects.service', () => ({
@@ -75,7 +83,16 @@ function asAuthenticatedUser(overrides: Partial<typeof APP_USER> = {}, grantedPe
     user: { email: user.email },
   });
   (getUserByEmail as any).mockResolvedValue(ok(user));
-  (roleHasPermission as any).mockResolvedValue(grantedPermission);
+  // orgId/projectId intentionally don't match MOCK_PROJECT: this grant satisfies the
+  // route-level requirePermission gate without blanket-authorizing project access, so
+  // ProjectPolicy.read still falls through to the isProjectMember check in tests below.
+  (findGrantsByUserId as any).mockResolvedValue(
+    ok(
+      grantedPermission
+        ? [{ orgId: 999, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }]
+        : []
+    )
+  );
 }
 
 function asProjectMember() {
