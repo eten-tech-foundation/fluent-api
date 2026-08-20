@@ -131,7 +131,7 @@ const EnvBaseSchema = z.object({
     }),
 
   // ── API.Bible (DBL) Integration ──────────────────────────────────────
-  DBL_API_BASE_URL: z.string().url().default('https://api.scripture.api.bible/v1'),
+  DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
   DBL_API_KEY: z.string().min(1),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────

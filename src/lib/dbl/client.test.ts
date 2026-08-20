@@ -4,7 +4,7 @@ import { DblClient } from './client';
 
 vi.mock('../../env', () => ({
   default: {
-    DBL_API_BASE_URL: 'https://api.scripture.api.bible/v1',
+    DBL_API_BASE_URL: 'https://rest.api.bible/v1',
     DBL_API_KEY: 'test-key',
   },
 }));
@@ -55,7 +55,7 @@ describe('dblClient', () => {
     expect(bibles.length).toBe(1);
     expect(bibles[0].abbreviation).toBe('KJV');
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'https://api.scripture.api.bible/v1/bibles',
+      'https://rest.api.bible/v1/bibles',
       expect.objectContaining({
         headers: { 'api-key': 'test-key', 'Content-Type': 'application/json' },
       })

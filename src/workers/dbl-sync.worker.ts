@@ -1,5 +1,6 @@
 import type { PgBoss } from 'pg-boss';
 
+import env from '../env';
 import { logger } from '../lib/logger';
 import { ingestDblBibles } from './ingest-bibles';
 
@@ -19,8 +20,7 @@ export const QUEUE_DBL_SYNC = 'dbl-sync';
  * but do not fail the job.
  */
 export async function registerDblSyncWorker(boss: PgBoss) {
-  // Schedule the cron: minute(0) hour(0) dom(*) month(*) dow(0=Sunday)
-  await boss.schedule(QUEUE_DBL_SYNC, '0 0 * * 0');
+  // To trigger it manually, send a job to this queue: await boss.send(QUEUE_DBL_SYNC, {});
 
   await boss.work(QUEUE_DBL_SYNC, async (jobs) => {
     // pg-boss v9+ passes an array of Job objects; extract the first one.
