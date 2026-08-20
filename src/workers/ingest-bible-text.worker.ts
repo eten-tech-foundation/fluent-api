@@ -4,9 +4,9 @@ import type { DblIngestTextJob } from '../lib/queue';
 
 import { db } from '../db';
 import { bible_texts } from '../db/schema';
-import { DblClient } from '../lib/dbl/client';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
+import { dblClient } from '../lib/services/dbl/dbl.client';
 
 /**
  * Registers the on-demand Bible text ingestion worker with pg-boss.
@@ -30,13 +30,12 @@ import { QUEUE_NAMES } from '../lib/queue';
  *   same job for already-ingested content is a harmless no-op.
  */
 export async function registerDblIngestTextWorker(boss: PgBoss) {
-  const handler = async (jobs: any) => {
-    // pg-boss v9+ passes an array of Job objects; extract the first one.
+  const handler = async (
+    jobs: { id?: string; data: DblIngestTextJob }[] | { id?: string; data: DblIngestTextJob }
+  ) => {
     const job = Array.isArray(jobs) ? jobs[0] : jobs;
-    const { bibleId, bookCodes } = job.data as DblIngestTextJob;
+    const { bibleId, bookCodes } = job.data;
     logger.info(`Starting on-demand text ingestion (Job ID: ${job.id})`, { bibleId, bookCodes });
-
-    const client = new DblClient();
 
     // Resolve the internal Bible record to get its DBL externalId.
     const bible = await db.query.bibles.findFirst({
@@ -46,6 +45,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
     if (!bible || !bible.externalId) {
       throw new Error(`Bible not found or missing externalId for bibleId: ${bibleId}`);
     }
+    const externalId = bible.externalId;
 
     for (const code of bookCodes) {
       logger.info(`Fetching chapters for book ${code}`);
@@ -56,7 +56,12 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
       });
       if (!dbBook) continue;
 
-      const chapters = await client.getChapters(bible.externalId, code);
+      const chaptersResult = await dblClient.getChapters(externalId, code);
+      if (!chaptersResult.ok) {
+        logger.error(`Failed to fetch chapters for book ${code}`, { error: chaptersResult.error });
+        continue;
+      }
+      const chapters = chaptersResult.data;
 
       for (const chapter of chapters) {
         // API.Bible returns an 'intro' pseudo-chapter for some Bibles;
@@ -64,22 +69,36 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
         if (chapter.number === 'intro') continue;
 
         try {
-          const verses = await client.getVerses(bible.externalId, chapter.id);
+          const versesResult = await dblClient.getVerses(externalId, chapter.id);
+          if (!versesResult.ok) {
+            throw new Error(`Failed to fetch verses: ${versesResult.error.message}`);
+          }
+          const verseMetadata = versesResult.data;
 
-          const values = verses.map((v) => {
-            // Verse IDs follow the format "BOOK.CHAPTER.VERSE" (e.g. "GEN.1.1").
-            // Some IDs may include ranges ("GEN.1.1-2") or sub-verses ("GEN.1.1a");
-            // parseInt handles these gracefully by extracting the leading integer.
+          const values: any[] = [];
+
+          // Fetch the actual text for each verse in parallel (batched if necessary, but chapters are small enough)
+          const versePromises = verseMetadata.map(async (v) => {
+            const textResult = await dblClient.getVerse(externalId, v.id, { contentType: 'text' });
+
+            let text = '';
+            if (textResult.ok && typeof textResult.data.content === 'string') {
+              text = textResult.data.content;
+            }
+
             const parts = v.id.split('.');
             const verseNumber = parts.length === 3 ? Number.parseInt(parts[2], 10) : 0;
+
             return {
               bibleId,
               bookId: dbBook.id,
               chapterNumber: Number.parseInt(chapter.number, 10) || 0,
               verseNumber,
-              text: v.text || '', // Fallback to empty string if API omits text
+              text: text || '', // Fallback to empty string if API omits text
             };
           });
+
+          values.push(...(await Promise.all(versePromises)));
 
           if (values.length > 0) {
             // Idempotent insert: duplicate (bible, book, chapter, verse) tuples

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -70,6 +70,73 @@ export async function remove(id: number): Promise<Result<void>> {
     return ok(undefined);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to delete bible', context: { id } });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+// ─── DBL sync ──────────────────────────────────────────────────────────────
+
+const UPSERT_CHUNK_SIZE = 1000;
+
+export interface DblBibleUpsertInput {
+  languageId: number;
+  name: string;
+  abbreviation: string;
+  provider: 'dbl';
+  externalId: string;
+}
+
+export interface DblBibleUpsertSummary {
+  inserted: number;
+  updated: number;
+}
+
+/**
+ * Upserts bibles keyed on `abbreviation` (matches the DB's unique constraint
+ * on that column). Uses DBL as the authoritative source for the name and
+ * language association if a conflict occurs.
+ */
+export async function upsertFromDbl(
+  rows: DblBibleUpsertInput[]
+): Promise<Result<DblBibleUpsertSummary>> {
+  if (rows.length === 0) return ok({ inserted: 0, updated: 0 });
+
+  try {
+    let inserted = 0;
+    let updated = 0;
+
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < rows.length; i += UPSERT_CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + UPSERT_CHUNK_SIZE);
+        const written = await tx
+          .insert(bibles)
+          .values(chunk)
+          .onConflictDoUpdate({
+            target: bibles.abbreviation,
+            set: {
+              name: sql`excluded.name`,
+              languageId: sql`excluded.language_id`,
+              provider: sql`excluded.provider`,
+              externalId: sql`excluded.external_id`,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({ wasInsert: sql<boolean>`(xmax = 0)` });
+
+        for (const row of written) {
+          if (row.wasInsert) inserted++;
+          else updated++;
+        }
+      }
+    });
+
+    return ok({ inserted, updated });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to upsert bibles from DBL',
+      context: { rowCount: rows.length },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

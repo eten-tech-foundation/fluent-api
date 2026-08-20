@@ -1,10 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { registerDblSyncWorker } from './dbl-sync.worker';
-import * as ingestModule from './ingest-bibles';
+import * as bibleSyncModule from '@/domains/bibles/sync/dbl-bible-sync';
+import * as bookSyncModule from '@/domains/books/sync/dbl-book-sync';
+import * as languageSyncModule from '@/domains/languages/sync/dbl-language-sync';
+import { ok } from '@/lib/types';
 
-vi.mock('./ingest-bibles', () => ({
-  ingestDblBibles: vi.fn(),
+import { registerDblSyncWorker } from './dbl-sync.worker';
+
+vi.mock('@/domains/languages/sync/dbl-language-sync', () => ({
+  syncLanguagesFromDbl: vi.fn(),
+}));
+
+vi.mock('@/domains/bibles/sync/dbl-bible-sync', () => ({
+  syncBiblesFromDbl: vi.fn(),
+}));
+
+vi.mock('@/domains/books/sync/dbl-book-sync', () => ({
+  syncBooksFromDbl: vi.fn(),
 }));
 
 describe('dblSyncWorker', () => {
@@ -14,7 +26,6 @@ describe('dblSyncWorker', () => {
 
   it('registers the on-demand worker and handles execution lifecycle', async () => {
     const mockBoss = {
-      schedule: vi.fn().mockResolvedValue(undefined),
       work: vi.fn().mockResolvedValue(undefined),
     } as any;
 
@@ -24,11 +35,19 @@ describe('dblSyncWorker', () => {
 
     const handler = mockBoss.work.mock.calls[0][1];
 
-    vi.mocked(ingestModule.ingestDblBibles).mockResolvedValueOnce(undefined);
-    await handler({ id: 'job-1' });
-    expect(ingestModule.ingestDblBibles).toHaveBeenCalledTimes(1);
+    vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce(ok({} as any));
+    vi.mocked(bibleSyncModule.syncBiblesFromDbl).mockResolvedValueOnce(ok({} as any));
+    vi.mocked(bookSyncModule.syncBooksFromDbl).mockResolvedValueOnce(ok({} as any));
 
-    vi.mocked(ingestModule.ingestDblBibles).mockRejectedValueOnce(new Error('Sync failed'));
+    await handler({ id: 'job-1' });
+    expect(languageSyncModule.syncLanguagesFromDbl).toHaveBeenCalledTimes(1);
+    expect(bibleSyncModule.syncBiblesFromDbl).toHaveBeenCalledTimes(1);
+    expect(bookSyncModule.syncBooksFromDbl).toHaveBeenCalledTimes(1);
+
+    vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce({
+      ok: false,
+      error: { message: 'Sync failed' } as any,
+    });
     await expect(handler({ id: 'job-2' })).rejects.toThrow('Sync failed');
   });
 });

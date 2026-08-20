@@ -18,14 +18,15 @@ vi.mock('../db', () => ({
   },
 }));
 
-const mockDblClientInstance = {
+const mockDblClientInstance = vi.hoisted(() => ({
   getChapters: vi.fn(),
   getVerses: vi.fn(),
-};
+  getVerse: vi.fn(),
+}));
 
-vi.mock('../lib/dbl/client', () => {
+vi.mock('../lib/services/dbl/dbl.client', () => {
   return {
-    DblClient: vi.fn(() => mockDblClientInstance),
+    dblClient: mockDblClientInstance,
   };
 });
 
@@ -59,15 +60,20 @@ describe('dblIngestTextWorker', () => {
     } as any);
     vi.mocked(db.query.books.findFirst).mockResolvedValue({ id: 1, code: 'GEN' } as any);
 
-    mockDblClientInstance.getChapters.mockResolvedValue([
-      { id: 'GEN.1', number: '1' } as any,
-      { id: 'GEN.2', number: '2' } as any,
-    ]);
+    mockDblClientInstance.getChapters.mockResolvedValue({
+      ok: true,
+      data: [{ id: 'GEN.1', number: '1' } as any, { id: 'GEN.2', number: '2' } as any],
+    });
 
     // Simulate error on chapter 1, but chapter 2 succeeds
     mockDblClientInstance.getVerses
-      .mockRejectedValueOnce(new Error('Network error on chapter 1'))
-      .mockResolvedValueOnce([{ id: 'GEN.2.1', text: 'Verse 1', reference: 'Gen 2:1' } as any]);
+      .mockResolvedValueOnce({ ok: false, error: new Error('Network error on chapter 1') })
+      .mockResolvedValueOnce({ ok: true, data: [{ id: 'GEN.2.1', reference: 'Gen 2:1' } as any] });
+
+    mockDblClientInstance.getVerse.mockResolvedValue({
+      ok: true,
+      data: { content: 'Verse 1' } as any,
+    });
 
     await handler({ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-1' });
 
