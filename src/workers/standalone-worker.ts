@@ -11,6 +11,8 @@ import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/l
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerAiTriggerWorker } from './ai-trigger.worker';
+import { registerDblSyncWorker } from './dbl-sync.worker';
+import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
 import { registerUSFMExportWorker } from './usfm-export.worker';
 
 interface WorkerMetrics {
@@ -74,6 +76,8 @@ async function startWorker() {
 
     await registerUSFMExportWorker(boss, metricsHooks);
     await registerAiTriggerWorker(boss, metricsHooks);
+    await registerDblSyncWorker(boss);
+    await registerDblIngestTextWorker(boss);
 
     logger.info('Worker started and listening for jobs');
 

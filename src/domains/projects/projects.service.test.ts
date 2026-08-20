@@ -15,9 +15,38 @@ import {
 } from './projects.service';
 
 const mockTx = { _isMockTx: true };
-vi.mock('@/db', () => ({
-  db: {
-    transaction: vi.fn(),
+
+vi.mock('@/db', () => {
+  const createChainableMock = (resolvedValue: any) => {
+    const chainable = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      then: (resolve: any) => resolve(resolvedValue),
+    };
+    return vi.fn(() => chainable);
+  };
+
+  return {
+    db: {
+      transaction: vi.fn(),
+      selectDistinct: createChainableMock([]),
+      select: createChainableMock([]),
+      query: {
+        books: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+    },
+  };
+});
+
+vi.mock('@/lib/queue', () => ({
+  getQueue: vi.fn(),
+  QUEUE_NAMES: {
+    DBL_INGEST_TEXT: 'dbl-ingest-text',
+    DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
   },
 }));
 
@@ -143,6 +172,10 @@ describe('projects service', () => {
         [1, 2],
         mockTx
       );
+
+      // Verify that the db queries for the queue logic were called (since we didn't mock exact responses, they just run)
+      expect(db.selectDistinct).toHaveBeenCalled();
+      expect(db.query.books.findMany).toHaveBeenCalled();
 
       expect(result).toEqual(ok(mockProject));
     });
