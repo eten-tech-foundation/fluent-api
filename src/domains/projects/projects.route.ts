@@ -86,10 +86,31 @@ const createProjectRoute = createRoute({
     // Solo-workflow: users with zero orgs are allowed through without a PROJECT_CREATE grant.
     // The handler detects this and provisions a personal org before creating the project.
     // Users who already belong to an org must still have PROJECT_CREATE scoped to that org.
-    (c: any, next: any) => {
+    //
+    // TEMP: Project Managers are project-pinned (orgId+projectId) so the normal org-level
+    // authorize() check (which requires projectId=null) would deny them. Until the proper
+    // Org Manager workflow is in place, we also accept any grant that carries PROJECT_CREATE
+    // within the matching org regardless of projectId. Remove this bypass once the upcoming
+    // org-manager task is merged and QA has full org-manager accounts.
+    async (c: any, next: any) => {
       const user = c.get('user');
       const hasAnyOrg = user?.grants?.some((g: any) => g.orgId !== null);
       if (!hasAnyOrg) return next(); // zero-org solo path — skip permission gate
+
+      // TEMP: also allow project-pinned grants (e.g. Project Manager) that carry PROJECT_CREATE
+      // within the org specified in the request body.
+      const body = await c.req.raw
+        .clone()
+        .json()
+        .catch(() => ({}));
+      const orgId = Number(body?.orgId ?? body?.organization);
+      if (Number.isFinite(orgId)) {
+        const hasCreateInOrg = user?.grants?.some(
+          (g: any) => g.orgId === orgId && g.permissions?.has(PERMISSIONS.PROJECT_CREATE)
+        );
+        if (hasCreateInOrg) return next();
+      }
+
       return requirePermission(PERMISSIONS.PROJECT_CREATE, orgFromBody)(c, next);
     },
   ] as const,
