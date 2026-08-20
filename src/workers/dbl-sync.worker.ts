@@ -1,6 +1,5 @@
 import type { PgBoss } from 'pg-boss';
 
-import env from '../env';
 import { logger } from '../lib/logger';
 import { ingestDblBibles } from './ingest-bibles';
 
