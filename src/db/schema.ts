@@ -22,6 +22,7 @@ import {
 import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
+export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
 export const projectStatusEnum = pgEnum('project_status', [
   'not_started',
   'in_progress',
@@ -219,6 +220,8 @@ export const bibles = pgTable('bibles', {
     .references(() => languages.id),
   name: varchar('name', { length: 255 }).notNull().unique(),
   abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
+  provider: bibleProviderEnum('provider').notNull().default('dbl'),
+  externalId: varchar('external_id', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -227,7 +230,7 @@ export const bibles = pgTable('bibles', {
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),
-  code: varchar('code', { length: 50 }).notNull(),
+  code: varchar('code', { length: 50 }).notNull().unique(),
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
 });
 
@@ -267,18 +270,29 @@ export const pericope_verses = pgTable(
   ]
 );
 
-export const bible_books = pgTable('bible_books', {
-  bibleId: integer('bible_id')
-    .notNull()
-    .references(() => bibles.id),
-  bookId: integer('book_id')
-    .notNull()
-    .references(() => books.id),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+/**
+ * Junction table linking Bibles to their constituent Books.
+ *
+ * A composite unique index on (bible_id, book_id) prevents duplicate
+ * associations and enables the ingestion pipeline's `onConflictDoNothing()`
+ * to correctly detect existing links during re-sync.
+ */
+export const bible_books = pgTable(
+  'bible_books',
+  {
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex('idx_bible_books_bible_book').on(table.bibleId, table.bookId)]
+);
 
 export const project_units = pgTable('project_units', {
   id: serial('id').primaryKey(),
@@ -332,7 +346,7 @@ export const bible_texts = pgTable(
       table.bookId,
       table.chapterNumber
     ),
-    index('idx_bible_texts_bible_book_chapter_verse').on(
+    uniqueIndex('idx_bible_texts_bible_book_chapter_verse').on(
       table.bibleId,
       table.bookId,
       table.chapterNumber,

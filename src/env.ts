@@ -130,6 +130,10 @@ const EnvBaseSchema = z.object({
       return trimmed === '' ? undefined : trimmed;
     }),
 
+  // ── API.Bible (DBL) Integration ──────────────────────────────────────
+  DBL_API_BASE_URL: z.string().url().default('https://api.scripture.api.bible/v1'),
+  DBL_API_KEY: z.string().min(1),
+
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
   // EN_FEATURE_ prefix. Each flag is declared explicitly here (proposal D2) so
