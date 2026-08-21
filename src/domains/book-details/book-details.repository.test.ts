@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/db';
 import { ErrorCode } from '@/lib/types';
 
-import { update } from './book-details.repository';
+import { BOOK_DETAILS_PROJECTION, update } from './book-details.repository';
+import { bookDetailsSchema } from './book-details.types';
 
 // The sparse `set` object is the one thing in this domain a copy-paste slip could
 // break invisibly: an omitted field still typechecks (every member is optional),
@@ -120,5 +121,26 @@ describe('book-details repository update()', () => {
     expect(setCalls[0]).toEqual({});
     expect(result.ok).toBe(false);
     expect(result.ok ? null : result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
+  });
+});
+
+describe('book-details repository projection', () => {
+  it('selects exactly the fields the response schema declares', () => {
+    // The declared-versus-actual half of the contract whose other half lives in
+    // book-details.types.test.ts. BOOK_DETAILS_PROJECTION is what the rows are
+    // really built from; bookDetailsSchema is what the OpenAPI document promises
+    // fluent-web. Nothing joins them: `ok(rows)` and `c.json(result.data)` both
+    // pass variables rather than object literals, so TS's excess-property check
+    // never applies, and `BookDetails` is inferred from the schema — narrowing the
+    // schema narrows the very type the projection is measured against, so a
+    // dropped field keeps compiling on both sides. Key-set equality is the join.
+    //
+    // Deliberately two-way. A field added to the projection and forgotten in the
+    // schema would be served but undeclared, so the generated client never sees
+    // it; a field added to the schema and forgotten here would be declared but
+    // never sent, so the client reads undefined from a field it believes required.
+    expect(Object.keys(BOOK_DETAILS_PROJECTION).sort()).toEqual(
+      Object.keys(bookDetailsSchema.shape).sort()
+    );
   });
 });

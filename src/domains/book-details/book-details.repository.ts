@@ -15,8 +15,13 @@ import { BOOK_DETAIL_FIELDS } from './book-details.types';
  * Shared so the list and the read-back of an update cannot drift apart: a field
  * added to one projection and forgotten in the other is invisible to tsc, since
  * both feed the same `BookDetails` shape only by convention.
+ *
+ * Exported for the same reason it is shared. This is the actual 200 payload shape;
+ * `bookDetailsSchema` is the shape the OpenAPI document declares, and nothing at
+ * runtime or compile time checks one against the other. The key-set assertion in
+ * book-details.repository.test.ts is what does (#275 review).
  */
-const BOOK_DETAILS_PROJECTION = {
+export const BOOK_DETAILS_PROJECTION = {
   bookId: project_unit_bible_books.bookId,
   bookCode: books.code,
   bookName: books.eng_display_name,

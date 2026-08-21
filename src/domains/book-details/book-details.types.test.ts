@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { BookDetails } from './book-details.types';
+
 import {
   BOOK_DETAIL_FIELDS,
   bookDetailsSchema,
@@ -103,23 +105,51 @@ describe('updateBookDetailsSchema', () => {
 });
 
 describe('bookDetailsSchema', () => {
-  // The response half is a hand-written object, independent of the request schema:
-  // the handler passes a variable to `c.json` so TS's excess-property check does
-  // not apply, and @hono/zod-openapi does not validate responses. Nothing but this
-  // test catches a field added to the request and forgotten in the response.
-  const row = {
+  // This schema is the 200 body of both routes and the only written description of
+  // it. @hono/zod-openapi publishes it into the OpenAPI document that fluent-web
+  // generates its client from, but never validates a response against it, so the
+  // declared shape and the shape the repository actually returns are joined by
+  // nothing but convention. This block is that join (#275 review).
+  //
+  // All five writable fields populated rather than mostly null, so a field missing
+  // from the parsed output is a visible hole instead of a null that reads the same
+  // either way. Typed as `BookDetails` on purpose: as an annotated object literal
+  // it also puts tsc's excess-property check behind the same contract.
+  const row: BookDetails = {
     bookId: 1,
     bookCode: 'GEN',
     bookName: 'Genesis',
-    runningHeader: null,
-    bookTitle: null,
-    tocLongName: null,
+    runningHeader: 'Gênesis',
+    bookTitle: 'O Primeiro Livro de Moisés',
+    tocLongName: 'Gênesis',
     tocShortName: 'Gênesis',
     tocAbbreviation: 'Gn',
   };
 
-  it('carries every field', () => {
-    expect(bookDetailsSchema.safeParse(row).success).toBe(true);
+  it('round-trips the whole payload, so no field can be dropped from the declared 200 shape', () => {
+    // Equality on the parsed output, not `.success`, which is what the previous
+    // form of this test asserted and why it pinned nothing. zod objects strip
+    // unknown keys, so removing a field from the schema leaves this fixture
+    // parsing happily — it just comes back one field lighter, which is precisely
+    // the silent narrowing that would break the generated client.
+    //
+    // Measured before writing this: with `tocAbbreviation` deleted from the schema,
+    // all 31 tests in this domain still passed, and the only complaint anywhere in
+    // the repo came from tsc, about an object literal in book-details.route.test.ts
+    // — a test fixture. No production code noticed at all.
+    const parsed = bookDetailsSchema.parse(row);
+
+    expect(parsed).toEqual(row);
+  });
+
+  it('declares every writable field in the response, not only in the request', () => {
+    // The request and response schemas are written out separately, so a sixth
+    // field added to BOOK_DETAIL_FIELDS and wired into the PATCH body can be
+    // forgotten here. The round-trip above would not catch that on its own: its
+    // fixture is hand-written, so it would simply not mention the new field either.
+    for (const field of BOOK_DETAIL_FIELDS) {
+      expect(Object.keys(bookDetailsSchema.shape)).toContain(field);
+    }
   });
 
   it('requires the TOC fields to be present, not optional', () => {
