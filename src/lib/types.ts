@@ -5,16 +5,15 @@ import type { Schema } from 'hono';
 import type { PinoLogger } from 'hono-pino';
 
 import type * as schema from '@/db/schema';
+import type { Permission } from '@/lib/permissions';
 
 // ─── App user (session context) ───────────────────────────────────────────────
 
 export interface User {
   id: number;
   email: string;
-  role: number;
-  roleName: string;
-  organization: number;
   status: 'invited' | 'verified' | 'inactive';
+  grants: Grant[];
   [key: string]: any;
 }
 
@@ -26,6 +25,7 @@ export interface AppBindings {
     user?: User;
     session?: any; // BetterAuth session
     requestId: string;
+    activeOrgId?: number | null;
   };
 }
 
@@ -174,13 +174,25 @@ export interface AppError {
   code: ErrorCode;
 }
 
+/** One authorization grant, flattened to its effective permissions. */
+export interface Grant {
+  orgId: number | null;
+  projectId: number | null;
+  permissions: ReadonlySet<Permission>;
+}
+
+/** The scope an action is evaluated against. */
+export interface AuthScope {
+  orgId?: number | null;
+  projectId?: number | null;
+}
+
 /**
  * Shared identity for authorization policies across all domains.
  */
 export interface AppPolicyUser {
   id: number;
-  roleName: string;
-  organization: number;
+  grants: Grant[];
 }
 
 // ─── Result type + factories ──────────────────────────────────────────────────

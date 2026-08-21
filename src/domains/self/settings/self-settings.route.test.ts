@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
 import { server } from '@/server/server';
 
 import type { UserSettingsRow } from './self-settings.repository';
@@ -18,9 +18,22 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([]),
+    returning: vi.fn().mockResolvedValue([]),
+  };
+  return {
+    db: {
+      select: vi.fn(() => mockQueryBuilder),
+      insert: vi.fn(() => mockQueryBuilder),
+      update: vi.fn(() => mockQueryBuilder),
+      delete: vi.fn(() => mockQueryBuilder),
+    },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -30,9 +43,11 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
+
+// Removed permissions.service mock
 
 // In-memory repository so the service logic (full-replace, `.catch({})`
 // normalization, toResponse, user isolation) is genuinely exercised. Tests can
@@ -79,7 +94,7 @@ function authenticateAs(user: typeof USER_A) {
     user: { email: user.email },
   });
   (getUserByEmail as any).mockResolvedValue({ ok: true, data: user });
-  (roleHasPermission as any).mockResolvedValue(true);
+  (findGrantsByUserId as any).mockResolvedValue({ ok: true, data: [] });
 }
 
 function getSettings() {

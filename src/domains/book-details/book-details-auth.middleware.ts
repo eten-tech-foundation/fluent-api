@@ -25,9 +25,7 @@ export function requireBookDetailsAccess(paramName = 'projectUnitId') {
     const user = c.get('user')!;
     const policyUser = {
       id: user.id,
-      role: user.role,
-      roleName: user.roleName,
-      organization: user.organization,
+      grants: user.grants,
     };
 
     const projectUnitId = Number(c.req.param(paramName));
@@ -45,11 +43,7 @@ export function requireBookDetailsAccess(paramName = 'projectUnitId') {
       return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const isProjectMember = await resolveIsProjectMember(
-      unitResult.data.projectId,
-      user.id,
-      user.roleName
-    );
+    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
     if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
       return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);

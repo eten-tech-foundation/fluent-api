@@ -31,9 +31,7 @@ export function requireTranslatedVerseAccess(
     const user = c.get('user')!;
     const policyUser = {
       id: user.id,
-      role: user.role,
-      roleName: user.roleName,
-      organization: user.organization,
+      grants: user.grants,
     };
 
     let projectUnitId: number | undefined;
@@ -74,11 +72,7 @@ export function requireTranslatedVerseAccess(
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
-      const isProjectMember = await resolveIsProjectMember(
-        unitResult.data.projectId,
-        user.id,
-        user.roleName
-      );
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
       if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
@@ -103,7 +97,7 @@ export function requireTranslatedVerseAccess(
 
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
       const isProjectMember = unitResult.ok
-        ? await resolveIsProjectMember(unitResult.data.projectId, user.id, user.roleName)
+        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
         : false;
 
       if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember)) {

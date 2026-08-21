@@ -6,7 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertBiblesSchema, patchBiblesSchema } from '@/db/schema';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, denyUntilAdminRole } from '@/middlewares/role-auth';
+import { authenticateUser, requireSuperAdmin } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as bibleService from './bibles.service';
@@ -132,7 +132,7 @@ const createBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'post',
   path: '/bibles',
-  middleware: [authenticateUser, denyUntilAdminRole()] as const,
+  middleware: [authenticateUser, requireSuperAdmin] as const,
   request: {
     body: jsonContentRequired(insertBiblesSchema, 'The bible to create'),
   },
@@ -174,7 +174,7 @@ const updateBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'patch',
   path: '/bibles/{id}',
-  middleware: [authenticateUser, denyUntilAdminRole()] as const,
+  middleware: [authenticateUser, requireSuperAdmin] as const,
   request: {
     params: idParam,
     body: jsonContentRequired(patchBiblesSchema, 'The bible data to update'),
@@ -219,7 +219,7 @@ const deleteBibleRoute = createRoute({
   tags: ['Bibles'],
   method: 'delete',
   path: '/bibles/{id}',
-  middleware: [authenticateUser, denyUntilAdminRole()] as const,
+  middleware: [authenticateUser, requireSuperAdmin] as const,
   request: { params: idParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Bible deleted successfully' },

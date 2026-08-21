@@ -1,6 +1,6 @@
 {
-  "id": "373c84c1-f36c-473f-8301-8ee8aade37a1",
-  "prevId": "133226b1-9fb9-478f-9b5f-81f634419882",
+  "id": "6d02d91a-51bb-4b2e-9536-bcd71cb8c527",
+  "prevId": "08f874fa-f65d-4a33-bd55-dade0f0ef5c8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -602,6 +602,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "active_org_id": {
+          "name": "active_org_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -613,6 +619,15 @@
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "auth_session_active_org_id_organizations_id_fk": {
+          "name": "auth_session_active_org_id_organizations_id_fk",
+          "tableFrom": "auth_session",
+          "tableTo": "organizations",
+          "columnsFrom": ["active_org_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -1555,13 +1570,13 @@
         },
         "lang_name": {
           "name": "lang_name",
-          "type": "varchar(255)",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true
         },
         "lang_name_localized": {
           "name": "lang_name_localized",
-          "type": "varchar(255)",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": false
         },
@@ -1597,13 +1612,7 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "languages_lang_code_iso_639_3_unique": {
-          "name": "languages_lang_code_iso_639_3_unique",
-          "nullsNotDistinct": false,
-          "columns": ["lang_code_iso_639_3"]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1930,18 +1939,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "running_header": {
-          "name": "running_header",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "book_title": {
-          "name": "book_title",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2050,93 +2047,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.project_users": {
-      "name": "project_users",
-      "schema": "",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_project_users_project": {
-          "name": "idx_project_users_project",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_project_users_user": {
-          "name": "idx_project_users_user",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_users_project_id_projects_id_fk": {
-          "name": "project_users_project_id_projects_id_fk",
-          "tableFrom": "project_users",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "project_users_user_id_users_id_fk": {
-          "name": "project_users_user_id_users_id_fk",
-          "tableFrom": "project_users",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {
-        "project_users_project_id_user_id_pk": {
-          "name": "project_users_project_id_user_id_pk",
-          "columns": ["project_id", "user_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.projects": {
       "name": "projects",
       "schema": "",
@@ -2216,12 +2126,6 @@
         "pericope_set_id": {
           "name": "pericope_set_id",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_activity_at": {
-          "name": "last_activity_at",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         }
@@ -2304,23 +2208,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "idx_role_permissions_role": {
-          "name": "idx_role_permissions_role",
-          "columns": [
-            {
-              "expression": "role_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "role_permissions_role_id_roles_id_fk": {
           "name": "role_permissions_role_id_roles_id_fk",
@@ -2397,87 +2285,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.storage_objects": {
-      "name": "storage_objects",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "bucket": {
-          "name": "bucket",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "key": {
-          "name": "key",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "uq_storage_object_bucket_key": {
-          "name": "uq_storage_object_bucket_key",
-          "columns": [
-            {
-              "expression": "bucket",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_storage_objects_unreclaimed": {
-          "name": "idx_storage_objects_unreclaimed",
-          "columns": [
-            {
-              "expression": "deleted_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.translated_verses": {
       "name": "translated_verses",
       "schema": "",
@@ -2499,12 +2306,6 @@
           "type": "varchar",
           "primaryKey": false,
           "notNull": true
-        },
-        "markers": {
-          "name": "markers",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "bible_text_id": {
           "name": "bible_text_id",
@@ -2677,6 +2478,194 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.user_roles": {
+      "name": "user_roles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_user_role_grant": {
+          "name": "uq_user_role_grant",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "COALESCE(\"org_id\", -1)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "COALESCE(\"project_id\", -1)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_user_roles_user": {
+          "name": "idx_user_roles_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_user_roles_org": {
+          "name": "idx_user_roles_org",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_user_roles_project": {
+          "name": "idx_user_roles_project",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "user_roles_user_id_users_id_fk": {
+          "name": "user_roles_user_id_users_id_fk",
+          "tableFrom": "user_roles",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_roles_org_id_organizations_id_fk": {
+          "name": "user_roles_org_id_organizations_id_fk",
+          "tableFrom": "user_roles",
+          "tableTo": "organizations",
+          "columnsFrom": ["org_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_roles_project_id_projects_id_fk": {
+          "name": "user_roles_project_id_projects_id_fk",
+          "tableFrom": "user_roles",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_roles_role_id_roles_id_fk": {
+          "name": "user_roles_role_id_roles_id_fk",
+          "tableFrom": "user_roles",
+          "tableTo": "roles",
+          "columnsFrom": ["role_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "user_roles_created_by_users_id_fk": {
+          "name": "user_roles_created_by_users_id_fk",
+          "tableFrom": "user_roles",
+          "tableTo": "users",
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.user_settings": {
       "name": "user_settings",
       "schema": "",
@@ -2766,18 +2755,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "role": {
-          "name": "role",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organization": {
-          "name": "organization",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
         "status": {
           "name": "status",
           "type": "user_status",
@@ -2785,6 +2762,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'invited'"
+        },
+        "last_active_org_id": {
+          "name": "last_active_org_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_by": {
           "name": "created_by",
@@ -2818,20 +2801,11 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "users_role_roles_id_fk": {
-          "name": "users_role_roles_id_fk",
-          "tableFrom": "users",
-          "tableTo": "roles",
-          "columnsFrom": ["role"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "users_organization_organizations_id_fk": {
-          "name": "users_organization_organizations_id_fk",
+        "users_last_active_org_id_organizations_id_fk": {
+          "name": "users_last_active_org_id_organizations_id_fk",
           "tableFrom": "users",
           "tableTo": "organizations",
-          "columnsFrom": ["organization"],
+          "columnsFrom": ["last_active_org_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -2859,140 +2833,6 @@
           "columns": ["email"]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.verse_audio_recordings": {
-      "name": "verse_audio_recordings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_unit_id": {
-          "name": "project_unit_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bible_text_id": {
-          "name": "bible_text_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "uploaded_by": {
-          "name": "uploaded_by",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "storage_object_id": {
-          "name": "storage_object_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "content_type": {
-          "name": "content_type",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size_bytes": {
-          "name": "size_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "duration_seconds": {
-          "name": "duration_seconds",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uq_verse_audio_per_bible_text": {
-          "name": "uq_verse_audio_per_bible_text",
-          "columns": [
-            {
-              "expression": "project_unit_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "bible_text_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "verse_audio_recordings_project_unit_id_project_units_id_fk": {
-          "name": "verse_audio_recordings_project_unit_id_project_units_id_fk",
-          "tableFrom": "verse_audio_recordings",
-          "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "verse_audio_recordings_bible_text_id_bible_texts_id_fk": {
-          "name": "verse_audio_recordings_bible_text_id_bible_texts_id_fk",
-          "tableFrom": "verse_audio_recordings",
-          "tableTo": "bible_texts",
-          "columnsFrom": ["bible_text_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "verse_audio_recordings_uploaded_by_users_id_fk": {
-          "name": "verse_audio_recordings_uploaded_by_users_id_fk",
-          "tableFrom": "verse_audio_recordings",
-          "tableTo": "users",
-          "columnsFrom": ["uploaded_by"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "verse_audio_recordings_storage_object_id_storage_objects_id_fk": {
-          "name": "verse_audio_recordings_storage_object_id_storage_objects_id_fk",
-          "tableFrom": "verse_audio_recordings",
-          "tableTo": "storage_objects",
-          "columnsFrom": ["storage_object_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

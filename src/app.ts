@@ -21,6 +21,7 @@ import '@/domains/usfm/usfm.route';
 import '@/domains/book-details/book-details.route';
 import '@/domains/chapter-assignments/editor-state/user-chapter-assignment-editor-state.route';
 import '@/domains/projects/users/project-users.route';
+import '@/domains/organizations/users/org-users.route';
 import '@/domains/users/projects/user-projects.route';
 import '@/domains/chapter-assignments/presence/chapter-assignments-presence.route';
 import '@/domains/ai-suggestions/ai-suggestions.route';

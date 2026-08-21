@@ -7,9 +7,8 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
-import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireVerseAudioAccess } from './verse-audio-auth.middleware';
@@ -77,7 +76,6 @@ const uploadVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
     bodyLimit({
       maxSize: MAX_AUDIO_BYTES,
@@ -168,7 +166,6 @@ const getVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_VIEW),
     requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
@@ -213,7 +210,6 @@ const listVerseAudioRoute = createRoute({
   path: '/verse-audio',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.PROJECT_VIEW),
     requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.QUERY),
   ] as const,
   request: {
@@ -266,7 +262,6 @@ const deleteVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
