@@ -107,11 +107,10 @@ server.openapi(deleteProjectChapterAssignmentsRoute, async (c) => {
   const project = c.get('project')!;
   const policyUser = {
     id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
+    grants: currentUser.grants,
   };
 
-  if (!ChapterAssignmentPolicy.deleteAll(policyUser, project.organization)) {
+  if (!ChapterAssignmentPolicy.deleteAll(policyUser, project.organization, project.id)) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }
 
@@ -213,11 +212,10 @@ server.openapi(assignAllRoute, async (c) => {
   const project = c.get('project')!;
   const policyUser = {
     id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
+    grants: currentUser.grants,
   };
 
-  if (!ChapterAssignmentPolicy.assignAll(policyUser, project.organization)) {
+  if (!ChapterAssignmentPolicy.assignAll(policyUser, project.organization, project.id)) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }
 
@@ -283,11 +281,10 @@ server.openapi(assignSelectedRoute, async (c) => {
 
   const policyUser = {
     id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
+    grants: currentUser.grants,
   };
 
-  if (!ChapterAssignmentPolicy.assignAll(policyUser, project.organization)) {
+  if (!ChapterAssignmentPolicy.assignAll(policyUser, project.organization, project.id)) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }
 
