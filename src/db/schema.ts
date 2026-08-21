@@ -304,6 +304,14 @@ export const project_unit_bible_books = pgTable('project_unit_bible_books', {
   // Null falls back to the book's display name in the export, as before.
   runningHeader: varchar('running_header'),
   bookTitle: varchar('book_title'),
+  // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
+  // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
+  // have no display-name fallback — a null or blank value omits the line from the
+  // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
+  // which is how the dialog drives the main title without ever rewriting book_title.
+  tocLongName: varchar('toc_long_name'),
+  tocShortName: varchar('toc_short_name'),
+  tocAbbreviation: varchar('toc_abbreviation'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()

@@ -81,6 +81,9 @@ export async function getProjectBooks(
         bookName: books.eng_display_name,
         runningHeader: project_unit_bible_books.runningHeader,
         bookTitle: project_unit_bible_books.bookTitle,
+        tocLongName: project_unit_bible_books.tocLongName,
+        tocShortName: project_unit_bible_books.tocShortName,
+        tocAbbreviation: project_unit_bible_books.tocAbbreviation,
       })
       .from(project_unit_bible_books)
       .innerJoin(books, eq(project_unit_bible_books.bookId, books.id))

@@ -17,6 +17,12 @@ export interface VerseData {
 export interface BookFields {
   runningHeader: string | null;
   bookTitle: string | null;
+  /** \toc1 long name; omitted from the export when null or blank. */
+  tocLongName: string | null;
+  /** \toc2 short name; also supplies \mt, and \h when that is unset. */
+  tocShortName: string | null;
+  /** \toc3 abbreviation; omitted from the export when null or blank. */
+  tocAbbreviation: string | null;
 }
 
 export interface BookInfo extends BookFields {
