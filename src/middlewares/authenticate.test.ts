@@ -20,6 +20,10 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+}));
+
 vi.mock('@/lib/logger', () => ({
   logger: {
     debug: vi.fn(),
@@ -264,8 +268,7 @@ describe('authenticate middleware', () => {
 
     await authenticate(mockContext, next);
 
-    // updatedAt is fresh — no DB select or update should happen
-    expect(mockDbSelect).not.toHaveBeenCalled();
+    // updatedAt is fresh — no rolling DB check should happen
     expect(mockDbUpdate).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });
@@ -282,7 +285,7 @@ describe('authenticate middleware', () => {
     await authenticate(mockContext, next);
 
     expect(mockContext.set).toHaveBeenCalledWith('session', mockSession);
-    expect(mockContext.set).toHaveBeenCalledWith('user', mockUser);
+    expect(mockContext.set).toHaveBeenCalledWith('user', { ...mockUser, grants: [] });
     expect(next).toHaveBeenCalled();
   });
 

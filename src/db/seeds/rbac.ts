@@ -10,8 +10,12 @@ const PERMISSION_DEFINITIONS = [
   { name: PERMISSIONS.PROJECT_CREATE, description: 'Create new projects' },
   { name: PERMISSIONS.PROJECT_UPDATE, description: 'Update existing projects' },
   { name: PERMISSIONS.PROJECT_DELETE, description: 'Delete projects' },
-  { name: PERMISSIONS.CONTENT_ASSIGN, description: 'Assign chapter assignment' },
+  { name: PERMISSIONS.CONTENT_VIEW, description: 'View chapter assignment content' },
+  { name: PERMISSIONS.CONTENT_ASSIGN, description: 'Assign chapter assignments' },
   { name: PERMISSIONS.CONTENT_UPDATE, description: 'Update chapter assignment content' },
+  { name: PERMISSIONS.MEMBERSHIP_REVOKE, description: 'Revoke user memberships' },
+  { name: PERMISSIONS.ROLE_ASSIGN_PROJECT, description: 'Assign project-level roles' },
+  { name: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, description: 'Assign org manager role' },
   { name: PERMISSIONS.USER_VIEW, description: 'View user profiles' },
   { name: PERMISSIONS.USER_CREATE, description: 'Create new users' },
   { name: PERMISSIONS.USER_UPDATE, description: 'Update user profiles' },
@@ -19,20 +23,48 @@ const PERMISSION_DEFINITIONS = [
 ];
 
 const ROLE_PERMISSION_MAP = [
+  // ── SuperAdmin: every permission ──────────────────────────────────────
+  ...Object.values(PERMISSIONS).map((p) => ({ roleName: ROLES.SUPER_ADMIN, permissionName: p })),
+
+  // ── Org Manager: manage projects + users within an org ───────────────────────
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_VIEW },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_CREATE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_UPDATE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.PROJECT_DELETE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.CONTENT_VIEW },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.CONTENT_ASSIGN },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.CONTENT_UPDATE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.MEMBERSHIP_REVOKE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_PROJECT },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.USER_VIEW },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.USER_CREATE },
+  { roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.USER_UPDATE },
+
+  // ── Project Manager: full project control ─────────────────────────────
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.PROJECT_VIEW },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.PROJECT_CREATE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.PROJECT_UPDATE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.PROJECT_DELETE },
+  { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_VIEW },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_ASSIGN },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_UPDATE },
+  { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.MEMBERSHIP_REVOKE },
+  { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_PROJECT },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_VIEW },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_CREATE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_UPDATE },
-  { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_DELETE },
-  { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.PROJECT_VIEW },
-  { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.CONTENT_UPDATE },
-  { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.USER_VIEW },
-  { roleName: ROLES.TRANSLATOR, permissionName: PERMISSIONS.USER_UPDATE },
+
+  // ── Translator: view + draft/edit assigned content ────────────────────
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.PROJECT_VIEW },
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.CONTENT_VIEW },
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.CONTENT_UPDATE },
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.USER_VIEW },
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.USER_UPDATE },
+
+  // ── Observer: read-only access to project and content ─────────────────
+  { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.PROJECT_VIEW },
+  { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.CONTENT_VIEW },
+  { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.USER_VIEW },
 ];
 
 export async function seedRbac() {

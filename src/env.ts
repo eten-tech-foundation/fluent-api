@@ -131,6 +131,21 @@ const EnvBaseSchema = z.object({
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
+  // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
+  // Base URL of the Aquifer API (no trailing slash). Defaults to production.
+  AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
+  // Server-held Aquifer API key — never expose to mobile/web clients.
+  // Optional like R2 credentials: unset/blank boots fine; translation-resources
+  // routes return AQUIFER_SERVICE_UNAVAILABLE (502) until a key is configured.
+  AQUIFER_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    }),
+
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
   // EN_FEATURE_ prefix. Each flag is declared explicitly here (proposal D2) so

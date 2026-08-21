@@ -44,15 +44,15 @@ export function getChapterAssignment(id: number) {
 // Fetch a chapter assignment with auth context for middleware policy evaluation.
 export function getChapterAssignmentWithAuthContext(
   id: number,
-  userId: number,
-  roleName: string
+  userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
-  return repo.findByIdWithAuthContext(id, userId, roleName);
+  return repo.findByIdWithAuthContext(id, userId);
 }
 
 export function getAssignmentsProgress(
   filters: {
     projectId?: number;
+    orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
     status?: ChapterAssignmentStatus;
