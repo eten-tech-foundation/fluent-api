@@ -44,6 +44,10 @@ export const chapterStatusEnum = pgEnum('chapter_status', [
   'complete',
 ]);
 export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_checker']);
+export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status', [
+  'clean',
+  'conflict',
+]);
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull().unique(),
@@ -544,6 +548,11 @@ export const storage_objects = pgTable(
   ]
 );
 
+/**
+ * One row per recorded unit (project unit + bible text). Active-take blob
+ * metadata stays denormalized here for the happy path; conflict history and
+ * non-active takes live on verse_audio_takes.
+ */
 export const verse_audio_recordings = pgTable(
   'verse_audio_recordings',
   {
@@ -563,6 +572,14 @@ export const verse_audio_recordings = pgTable(
     contentType: varchar('content_type').notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     durationSeconds: real('duration_seconds'),
+    /** Monotonic token clients send as baseVersionToken on upload. */
+    versionToken: integer('version_token').notNull().default(1),
+    conflictStatus: verseAudioConflictStatusEnum('conflict_status').notNull().default('clean'),
+    /** Canonical take while clean; during conflict still points at the prior active take. */
+    // eslint-disable-next-line ts/no-use-before-define -- circular FK with verse_audio_takes.recordingId
+    activeTakeId: integer('active_take_id').references((): AnyPgColumn => verse_audio_takes.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -571,6 +588,41 @@ export const verse_audio_recordings = pgTable(
   },
   (table) => [
     uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+  ]
+);
+
+/**
+ * Individual audio takes for a recorded unit. Multiple rows per unit when
+ * offline sync diverges (conflict) or after successive re-recordings.
+ *
+ * Storage objects are deliberately not cascade-deleted: the reclaim sweep uses
+ * the surviving storage_objects row to delete bucket bytes.
+ */
+export const verse_audio_takes = pgTable(
+  'verse_audio_takes',
+  {
+    id: serial('id').primaryKey(),
+    recordingId: integer('recording_id')
+      .notNull()
+      .references(() => verse_audio_recordings.id, { onDelete: 'cascade' }),
+    uploadedBy: integer('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    storageObjectId: integer('storage_object_id').references(() => storage_objects.id),
+    contentType: varchar('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: real('duration_seconds'),
+    /** SHA-256 hex of the audio bytes — suppresses false conflicts on retry. */
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index('idx_verse_audio_takes_recording').on(table.recordingId),
+    uniqueIndex('uq_verse_audio_take_content_hash').on(table.recordingId, table.contentHash),
   ]
 );
 

@@ -1,3 +1,7 @@
+import type { Buffer } from 'node:buffer';
+
+import { createHash } from 'node:crypto';
+
 import type { Result } from '@/lib/types';
 
 import env from '@/env';
@@ -12,23 +16,136 @@ import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
+  ResolveConflictInput,
   UploadRecordingInput,
   VerseAudioRecord,
+  VerseAudioTakeRecord,
+  VerseAudioTakeWithUrl,
   VerseAudioWithUrl,
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
-import { ALLOWED_AUDIO_CONTENT_TYPES } from './verse-audio.types';
+import { ALLOWED_AUDIO_CONTENT_TYPES, VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-async function withUrl(record: VerseAudioRecord): Promise<VerseAudioWithUrl> {
-  const { storageObjectId: _internal, ...response } = record;
+function contentHashOf(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+function toIso(date: Date): string {
+  return date.toISOString();
+}
+
+async function downloadUrlForStorageObjectId(
+  storageObjectId: number | null,
+  fallbackKey: string
+): Promise<string> {
+  if (storageObjectId !== null) {
+    const storage = await storageRepo.getById(storageObjectId);
+    if (storage.ok) {
+      return generateAudioDownloadUrl(storage.data.key);
+    }
+  }
+  return generateAudioDownloadUrl(fallbackKey);
+}
+
+async function takeWithUrl(
+  take: VerseAudioTakeRecord,
+  projectUnitId: number,
+  bibleTextId: number
+): Promise<VerseAudioTakeWithUrl> {
+  const fallbackKey = audioBlobName(projectUnitId, bibleTextId, take.contentHash);
   return {
-    ...response,
-    downloadUrl: await generateAudioDownloadUrl(
-      audioBlobName(record.projectUnitId, record.bibleTextId)
-    ),
+    id: take.id,
+    uploadedBy: take.uploadedBy,
+    contentType: take.contentType,
+    sizeBytes: take.sizeBytes,
+    durationSeconds: take.durationSeconds,
+    contentHash: take.contentHash,
+    downloadUrl: await downloadUrlForStorageObjectId(take.storageObjectId, fallbackKey),
+    createdAt: toIso(take.createdAt),
+    updatedAt: toIso(take.updatedAt),
   };
+}
+
+async function withTakesAndUrl(
+  record: VerseAudioRecord,
+  takes: VerseAudioTakeRecord[]
+): Promise<VerseAudioWithUrl> {
+  const takeViews = await Promise.all(
+    takes.map((take) => takeWithUrl(take, record.projectUnitId, record.bibleTextId))
+  );
+
+  const active =
+    takeViews.find((t) => t.id === record.activeTakeId) ?? takeViews[takeViews.length - 1];
+
+  const fallbackKey = audioBlobName(
+    record.projectUnitId,
+    record.bibleTextId,
+    active?.contentHash ?? 'missing'
+  );
+
+  return {
+    id: record.id,
+    projectUnitId: record.projectUnitId,
+    bibleTextId: record.bibleTextId,
+    uploadedBy: record.uploadedBy,
+    contentType: record.contentType,
+    sizeBytes: record.sizeBytes,
+    durationSeconds: record.durationSeconds,
+    versionToken: record.versionToken,
+    conflictStatus: record.conflictStatus,
+    activeTakeId: record.activeTakeId,
+    verseNumber: record.verseNumber,
+    downloadUrl: await downloadUrlForStorageObjectId(record.storageObjectId, fallbackKey),
+    takes: takeViews,
+    createdAt: toIso(record.createdAt),
+    updatedAt: toIso(record.updatedAt),
+  };
+}
+
+async function loadUnitResponse(
+  projectUnitId: number,
+  bibleTextId: number
+): Promise<Result<VerseAudioWithUrl>> {
+  const recording = await repo.get(projectUnitId, bibleTextId);
+  if (!recording.ok) {
+    return recording;
+  }
+
+  const takes = await repo.listTakesForRecording(recording.data.id);
+  if (!takes.ok) {
+    return takes;
+  }
+
+  return ok(await withTakesAndUrl(recording.data, takes.data));
+}
+
+async function storeTakeBytes(
+  projectUnitId: number,
+  bibleTextId: number,
+  contentHash: string,
+  data: Buffer,
+  contentType: string
+): Promise<Result<{ storageObjectId: number; key: string }>> {
+  const key = audioBlobName(projectUnitId, bibleTextId, contentHash);
+  const claim = await storageRepo.claim(audioBucket(), key);
+  if (!claim.ok) {
+    return claim;
+  }
+
+  try {
+    await uploadVerseAudio(key, data, contentType);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to upload verse audio object',
+      context: { key, contentType, sizeBytes: data.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+
+  return ok({ storageObjectId: claim.data.id, key });
 }
 
 export async function uploadRecording(
@@ -41,68 +158,207 @@ export async function uploadRecording(
     return err(ErrorCode.EMPTY_AUDIO_FILE);
   }
 
-  const key = audioBlobName(input.projectUnitId, input.bibleTextId);
+  const contentHash = contentHashOf(input.data);
+  const durationSeconds = input.durationSeconds ?? null;
+  const existing = await repo.get(input.projectUnitId, input.bibleTextId);
 
-  // Claim the storage row BEFORE writing the object: if the write succeeds but
-  // this process dies before the metadata row lands, the claim is already there
-  // and the reclaim sweep can free the bytes. A claim with no object behind it
-  // is harmless — deleting a missing key is a no-op on R2.
-  const claim = await storageRepo.claim(audioBucket(), key);
-  if (!claim.ok) {
-    return claim;
+  if (!existing.ok && existing.error.code !== ErrorCode.VERSE_AUDIO_NOT_FOUND) {
+    return existing;
   }
 
-  // Object next, metadata row last. The key is deterministic, so a re-recording
-  // overwrites in place and the next successful upload heals any stale row.
-  try {
-    await uploadVerseAudio(key, input.data, input.contentType);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to upload verse audio object',
-      context: { key, contentType: input.contentType, sizeBytes: input.data.length },
+  // First recording for this unit — create clean unit + take.
+  if (!existing.ok) {
+    const stored = await storeTakeBytes(
+      input.projectUnitId,
+      input.bibleTextId,
+      contentHash,
+      input.data,
+      input.contentType
+    );
+    if (!stored.ok) {
+      return stored;
+    }
+
+    // Insert unit first (activeTakeId null), then take, then point activeTakeId.
+    const created = await repo.upsert({
+      projectUnitId: input.projectUnitId,
+      bibleTextId: input.bibleTextId,
+      uploadedBy: input.uploadedBy,
+      storageObjectId: stored.data.storageObjectId,
+      contentType: input.contentType,
+      sizeBytes: input.data.length,
+      durationSeconds,
+      versionToken: 1,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      activeTakeId: null,
     });
-    return err(ErrorCode.INTERNAL_ERROR);
+    if (!created.ok) {
+      return created;
+    }
+
+    const take = await repo.insertTake({
+      recordingId: created.data.id,
+      uploadedBy: input.uploadedBy,
+      storageObjectId: stored.data.storageObjectId,
+      contentType: input.contentType,
+      sizeBytes: input.data.length,
+      durationSeconds,
+      contentHash,
+    });
+    if (!take.ok) {
+      return take;
+    }
+
+    const linked = await repo.updateRecordingState(created.data.id, {
+      activeTakeId: take.data.id,
+    });
+    if (!linked.ok) {
+      return linked;
+    }
+
+    return loadUnitResponse(input.projectUnitId, input.bibleTextId);
   }
 
-  const result = await repo.upsert({
-    projectUnitId: input.projectUnitId,
-    bibleTextId: input.bibleTextId,
+  const unit = existing.data;
+
+  // Idempotent retry: identical bytes already stored for this unit.
+  const duplicate = await repo.findTakeByContentHash(unit.id, contentHash);
+  if (!duplicate.ok) {
+    return duplicate;
+  }
+  if (duplicate.data) {
+    return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+  }
+
+  const baseMatches =
+    input.baseVersionToken !== undefined && input.baseVersionToken === unit.versionToken;
+
+  const stored = await storeTakeBytes(
+    input.projectUnitId,
+    input.bibleTextId,
+    contentHash,
+    input.data,
+    input.contentType
+  );
+  if (!stored.ok) {
+    return stored;
+  }
+
+  const take = await repo.insertTake({
+    recordingId: unit.id,
     uploadedBy: input.uploadedBy,
-    storageObjectId: claim.data.id,
+    storageObjectId: stored.data.storageObjectId,
     contentType: input.contentType,
     sizeBytes: input.data.length,
-    durationSeconds: input.durationSeconds ?? null,
+    durationSeconds,
+    contentHash,
   });
-
-  if (!result.ok) {
-    return result;
+  if (!take.ok) {
+    return take;
   }
 
-  return ok(await withUrl(result.data));
+  const nextVersion = unit.versionToken + 1;
+
+  if (baseMatches) {
+    // Happy path: advance version and make this take active (clears conflict).
+    const updated = await repo.updateRecordingState(unit.id, {
+      uploadedBy: input.uploadedBy,
+      storageObjectId: stored.data.storageObjectId,
+      contentType: input.contentType,
+      sizeBytes: input.data.length,
+      durationSeconds,
+      versionToken: nextVersion,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      activeTakeId: take.data.id,
+    });
+    if (!updated.ok) {
+      return updated;
+    }
+  } else {
+    // Stale or missing base: keep prior active take, mark conflict, still bump token.
+    const updated = await repo.updateRecordingState(unit.id, {
+      versionToken: nextVersion,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+    });
+    if (!updated.ok) {
+      return updated;
+    }
+  }
+
+  return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }
 
 export async function getRecording(
   projectUnitId: number,
   bibleTextId: number
 ): Promise<Result<VerseAudioWithUrl>> {
-  const result = await repo.get(projectUnitId, bibleTextId);
-  if (!result.ok) {
-    return result;
-  }
-  return ok(await withUrl(result.data));
+  return loadUnitResponse(projectUnitId, bibleTextId);
 }
 
 export async function listChapterRecordings(
   projectUnitId: number,
   bookId: number,
   chapterNumber: number
-): Promise<Result<VerseAudioWithUrl[]>> {
+): Promise<Result<{ items: VerseAudioWithUrl[]; hasConflict: boolean }>> {
   const result = await repo.listByChapter(projectUnitId, bookId, chapterNumber);
   if (!result.ok) {
     return result;
   }
-  return ok(await Promise.all(result.data.map((recording) => withUrl(recording))));
+
+  const takes = await repo.listTakesByRecordingIds(result.data.map((r) => r.id));
+  if (!takes.ok) {
+    return takes;
+  }
+
+  const takesByRecording = new Map<number, VerseAudioTakeRecord[]>();
+  for (const take of takes.data) {
+    const list = takesByRecording.get(take.recordingId) ?? [];
+    list.push(take);
+    takesByRecording.set(take.recordingId, list);
+  }
+
+  const items = await Promise.all(
+    result.data.map((record) => withTakesAndUrl(record, takesByRecording.get(record.id) ?? []))
+  );
+
+  const hasConflict = items.some(
+    (item) => item.conflictStatus === VERSE_AUDIO_CONFLICT_STATUS.CONFLICT
+  );
+
+  return ok({ items, hasConflict });
+}
+
+export async function resolveConflict(
+  input: ResolveConflictInput
+): Promise<Result<VerseAudioWithUrl>> {
+  const recording = await repo.get(input.projectUnitId, input.bibleTextId);
+  if (!recording.ok) {
+    return recording;
+  }
+
+  const take = await repo.getTakeById(input.takeId);
+  if (!take.ok) {
+    return take;
+  }
+  if (take.data.recordingId !== recording.data.id) {
+    return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+  }
+
+  const updated = await repo.updateRecordingState(recording.data.id, {
+    uploadedBy: take.data.uploadedBy,
+    storageObjectId: take.data.storageObjectId ?? undefined,
+    contentType: take.data.contentType,
+    sizeBytes: take.data.sizeBytes,
+    durationSeconds: take.data.durationSeconds,
+    activeTakeId: take.data.id,
+    conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+    versionToken: recording.data.versionToken + 1,
+  });
+  if (!updated.ok) {
+    return updated;
+  }
+
+  return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }
 
 export async function deleteRecording(
@@ -114,30 +370,40 @@ export async function deleteRecording(
     return existing;
   }
 
-  // Row first, bytes second. If the row write fails nothing has been destroyed
-  // and the caller can retry; if the object delete then fails, the row is
-  // already gone so the storage row is an orphan and the sweep collects it.
-  // (Deleting bytes first would strand a recording pointing at nothing, which
-  // no amount of sweeping can repair.)
+  const takes = await repo.listTakesForRecording(existing.data.id);
+  if (!takes.ok) {
+    return takes;
+  }
+
+  // Row first (cascades takes), bytes second. If the row write fails nothing has
+  // been destroyed and the caller can retry; if an object delete then fails, the
+  // storage row is an orphan and the sweep collects it.
   const removed = await repo.remove(projectUnitId, bibleTextId);
   if (!removed.ok) {
     return removed;
   }
 
-  const key = audioBlobName(projectUnitId, bibleTextId);
-  try {
-    await deleteVerseAudio(key);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Verse audio object delete failed; left for the reclaim sweep',
-      context: { key },
-    });
-    return ok(undefined);
-  }
+  for (const take of takes.data) {
+    if (take.storageObjectId === null) {
+      continue;
+    }
+    const storage = await storageRepo.getById(take.storageObjectId);
+    const key = storage.ok
+      ? storage.data.key
+      : audioBlobName(projectUnitId, bibleTextId, take.contentHash);
 
-  if (existing.data.storageObjectId !== null) {
-    await storageRepo.markDeleted(existing.data.storageObjectId);
+    try {
+      await deleteVerseAudio(key);
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Verse audio object delete failed; left for the reclaim sweep',
+        context: { key },
+      });
+      continue;
+    }
+
+    await storageRepo.markDeleted(take.storageObjectId);
   }
 
   return ok(undefined);
@@ -177,4 +443,13 @@ export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
     logger.info('Reclaimed orphaned verse audio objects', { reclaimed });
   }
   return ok(reclaimed);
+}
+
+/** Used by chapter-assignment progress enrichment. */
+export async function chapterHasConflict(
+  projectUnitId: number,
+  bookId: number,
+  chapterNumber: number
+): Promise<Result<boolean>> {
+  return repo.chapterHasConflict(projectUnitId, bookId, chapterNumber);
 }

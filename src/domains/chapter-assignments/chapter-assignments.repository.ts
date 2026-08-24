@@ -445,6 +445,15 @@ export async function findAssignmentsProgress(
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
         claimConflictUserId: chapter_assignments.claimConflictUserId,
+        hasConflict: sql<boolean>`EXISTS (
+          SELECT 1
+          FROM verse_audio_recordings var
+          INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
+          WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
+            AND bt.book_id = ${chapter_assignments.bookId}
+            AND bt.chapter_number = ${chapter_assignments.chapterNumber}
+            AND var.conflict_status = 'conflict'
+        )`.mapWith(Boolean),
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

@@ -82,6 +82,7 @@ vi.mock('./verse-audio.service', () => ({
   uploadRecording: vi.fn(),
   getRecording: vi.fn(),
   listChapterRecordings: vi.fn(),
+  resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
 }));
 
@@ -149,11 +150,14 @@ describe('verse-audio routes', () => {
   });
 
   describe('get /verse-audio (chapter list)', () => {
-    it('returns 200 with chapter items', async () => {
+    it('returns 200 with chapter items and hasConflict rollup', async () => {
       asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
       (verseAudioService.listChapterRecordings as any).mockResolvedValue({
         ok: true,
-        data: [{ id: 1, verseNumber: 1, downloadUrl: 'http://example.com/v1.mp3' }],
+        data: {
+          items: [{ id: 1, verseNumber: 1, downloadUrl: 'http://example.com/v1.mp3' }],
+          hasConflict: false,
+        },
       });
 
       const res = await server.request('/verse-audio?projectUnitId=1&bookId=1&chapterNumber=1', {
@@ -162,6 +166,7 @@ describe('verse-audio routes', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.items).toHaveLength(1);
+      expect(json.hasConflict).toBe(false);
     });
   });
 

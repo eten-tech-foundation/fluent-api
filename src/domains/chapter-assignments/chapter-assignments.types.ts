@@ -75,6 +75,8 @@ export interface ChapterAssignmentProgressInfo {
   isAiEnabled: boolean;
   hasClaimConflict: boolean;
   claimConflictUserId: number | null;
+  /** Chapter-level rollup: any verse/pericope unit has unresolved audio take conflict. */
+  hasConflict: boolean;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────

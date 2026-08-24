@@ -58,6 +58,7 @@ export const ErrorCode = {
   BIBLE_BOOK_NOT_FOUND: 'BIBLE_BOOK_NOT_FOUND',
   TRANSLATED_VERSE_NOT_FOUND: 'TRANSLATED_VERSE_NOT_FOUND',
   VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
+  VERSE_AUDIO_TAKE_NOT_FOUND: 'VERSE_AUDIO_TAKE_NOT_FOUND',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -110,6 +111,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   BIBLE_BOOK_NOT_FOUND: 'Bible book not found',
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
   VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
+  VERSE_AUDIO_TAKE_NOT_FOUND: 'Verse audio take not found',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
@@ -172,6 +174,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   BIBLE_BOOK_NOT_FOUND: 404,
   TRANSLATED_VERSE_NOT_FOUND: 404,
   VERSE_AUDIO_NOT_FOUND: 404,
+  VERSE_AUDIO_TAKE_NOT_FOUND: 404,
   UNSUPPORTED_AUDIO_TYPE: 400,
   EMPTY_AUDIO_FILE: 400,
 };

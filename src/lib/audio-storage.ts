@@ -66,9 +66,16 @@ export function audioBucket(): string {
   return bucket;
 }
 
-/** Deterministic object key — replacement overwrites in place, never orphans. */
-export function audioBlobName(projectUnitId: number, bibleTextId: number): string {
-  return `unit-${projectUnitId}/text-${bibleTextId}`;
+/**
+ * Object key for a take. Include contentHash so retries of the same bytes claim
+ * the same storage row, and conflicting takes never overwrite each other.
+ */
+export function audioBlobName(
+  projectUnitId: number,
+  bibleTextId: number,
+  contentHash: string
+): string {
+  return `unit-${projectUnitId}/text-${bibleTextId}/${contentHash}`;
 }
 
 /**

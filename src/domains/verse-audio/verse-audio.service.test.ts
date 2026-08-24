@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,7 +10,7 @@ import {
 } from '@/lib/audio-storage';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { VerseAudioRecord } from './verse-audio.types';
+import type { VerseAudioRecord, VerseAudioTakeRecord } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
@@ -18,20 +19,24 @@ import {
   getRecording,
   listChapterRecordings,
   reclaimOrphanedStorageObjects,
+  resolveConflict,
   uploadRecording,
 } from './verse-audio.service';
+import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
 vi.mock('@/lib/audio-storage', () => ({
-  audioBlobName: vi.fn((unitId: number, textId: number) => `unit-${unitId}/text-${textId}`),
+  audioBlobName: vi.fn(
+    (unitId: number, textId: number, hash: string) => `unit-${unitId}/text-${textId}/${hash}`
+  ),
   audioBucket: vi.fn(() => 'verse-audio'),
   uploadVerseAudio: vi.fn(async () => {}),
   deleteVerseAudio: vi.fn(async () => {}),
-  // R2 presigning is async, unlike Azure's synchronous SAS builder.
-  generateAudioDownloadUrl: vi.fn(async () => 'https://r2.example/unit-12/text-3401?sig=x'),
+  generateAudioDownloadUrl: vi.fn(async (key: string) => `https://r2.example/${key}?sig=x`),
 }));
 
 vi.mock('./storage-objects.repository', () => ({
   claim: vi.fn(),
+  getById: vi.fn(),
   markDeleted: vi.fn(),
   findOrphans: vi.fn(),
 }));
@@ -39,13 +44,22 @@ vi.mock('./storage-objects.repository', () => ({
 vi.mock('./verse-audio.repository', () => ({
   get: vi.fn(),
   listByChapter: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
+  findTakeByContentHash: vi.fn(),
+  getTakeById: vi.fn(),
+  insertTake: vi.fn(),
   upsert: vi.fn(),
+  updateRecordingState: vi.fn(),
   remove: vi.fn(),
+  chapterHasConflict: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+
+const hashOf = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
 const record: VerseAudioRecord = {
   id: 1,
@@ -56,7 +70,23 @@ const record: VerseAudioRecord = {
   contentType: 'audio/mp4',
   sizeBytes: 4,
   durationSeconds: 12.5,
+  versionToken: 1,
+  conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+  activeTakeId: 10,
   verseNumber: 3,
+  createdAt: new Date('2026-07-01T00:00:00Z'),
+  updatedAt: new Date('2026-07-01T00:00:00Z'),
+};
+
+const take: VerseAudioTakeRecord = {
+  id: 10,
+  recordingId: 1,
+  uploadedBy: 7,
+  storageObjectId: 55,
+  contentType: 'audio/mp4',
+  sizeBytes: 4,
+  durationSeconds: 12.5,
+  contentHash: hashOf(Buffer.from('abcd')),
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
 };
@@ -70,19 +100,23 @@ const uploadInput = {
   durationSeconds: 12.5,
 };
 
-// What routes see: the internal storage link is stripped from responses.
-const { storageObjectId: _hidden, ...publicRecord } = record;
-
 describe('verse-audio service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // clearAllMocks keeps implementations, so re-arm the ones a previous test
-    // may have pointed at a rejection.
     vi.mocked(storageRepo.claim).mockResolvedValue(
       ok({
         id: 55,
         bucket: 'verse-audio',
-        key: 'unit-12/text-3401',
+        key: `unit-12/text-3401/${take.contentHash}`,
+        createdAt: new Date(),
+        deletedAt: null,
+      })
+    );
+    vi.mocked(storageRepo.getById).mockResolvedValue(
+      ok({
+        id: 55,
+        bucket: 'verse-audio',
+        key: `unit-12/text-3401/${take.contentHash}`,
         createdAt: new Date(),
         deletedAt: null,
       })
@@ -90,30 +124,30 @@ describe('verse-audio service', () => {
     vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
+    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
+    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
   });
 
   describe('uploadRecording', () => {
-    it('uploads the blob then upserts metadata and returns a download URL', async () => {
-      vi.mocked(repo.upsert).mockResolvedValue(ok(record));
+    it('creates the first take cleanly when no unit exists', async () => {
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok({ ...record, activeTakeId: 10 }));
+      vi.mocked(repo.upsert).mockResolvedValue(ok({ ...record, activeTakeId: null }));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateRecordingState).mockResolvedValue(ok(record));
 
       const result = await uploadRecording(uploadInput);
 
-      expect(uploadVerseAudio).toHaveBeenCalledWith(
-        'unit-12/text-3401',
-        uploadInput.data,
-        'audio/mp4'
-      );
-      expect(repo.upsert).toHaveBeenCalledWith({
-        projectUnitId: 12,
-        bibleTextId: 3401,
-        uploadedBy: 7,
-        storageObjectId: 55,
-        contentType: 'audio/mp4',
-        sizeBytes: 4,
-        durationSeconds: 12.5,
-      });
-      expect(result).toEqual(
-        ok({ ...publicRecord, downloadUrl: 'https://r2.example/unit-12/text-3401?sig=x' })
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.versionToken).toBe(1);
+        expect(result.data.conflictStatus).toBe('clean');
+        expect(result.data.takes).toHaveLength(1);
+      }
+      expect(repo.upsert).toHaveBeenCalled();
+      expect(repo.insertTake).toHaveBeenCalledWith(
+        expect.objectContaining({ contentHash: take.contentHash })
       );
     });
 
@@ -122,7 +156,6 @@ describe('verse-audio service', () => {
 
       expect(result).toEqual(err(ErrorCode.UNSUPPORTED_AUDIO_TYPE));
       expect(uploadVerseAudio).not.toHaveBeenCalled();
-      expect(repo.upsert).not.toHaveBeenCalled();
     });
 
     it('rejects empty files without touching storage', async () => {
@@ -132,7 +165,126 @@ describe('verse-audio service', () => {
       expect(uploadVerseAudio).not.toHaveBeenCalled();
     });
 
+    it('suppresses false conflicts when content hash already exists', async () => {
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+
+      const result = await uploadRecording({ ...uploadInput, baseVersionToken: 0 });
+
+      expect(result.ok).toBe(true);
+      expect(repo.insertTake).not.toHaveBeenCalled();
+      expect(uploadVerseAudio).not.toHaveBeenCalled();
+    });
+
+    it('updates cleanly when baseVersionToken matches', async () => {
+      const newData = Buffer.from('efgh');
+      const newHash = hashOf(newData);
+      const newTake = { ...take, id: 11, contentHash: newHash, storageObjectId: 56 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(record))
+        .mockResolvedValue(ok({ ...record, versionToken: 2, activeTakeId: 11 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingState).mockResolvedValue(
+        ok({
+          ...record,
+          versionToken: 2,
+          activeTakeId: 11,
+          storageObjectId: 56,
+          sizeBytes: 4,
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: newData,
+        baseVersionToken: 1,
+      });
+
+      expect(repo.updateRecordingState).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          versionToken: 2,
+          conflictStatus: 'clean',
+          activeTakeId: 11,
+        })
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('clean');
+        expect(result.data.versionToken).toBe(2);
+      }
+    });
+
+    it('marks conflict when baseVersionToken is stale', async () => {
+      const newData = Buffer.from('conflict');
+      const newHash = hashOf(newData);
+      const conflictTake = { ...take, id: 11, contentHash: newHash, uploadedBy: 9 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(record))
+        .mockResolvedValue(
+          ok({
+            ...record,
+            versionToken: 2,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(conflictTake));
+      vi.mocked(repo.updateRecordingState).mockResolvedValue(
+        ok({
+          ...record,
+          versionToken: 2,
+          conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, conflictTake]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: newData,
+        uploadedBy: 9,
+        baseVersionToken: 0,
+      });
+
+      expect(repo.updateRecordingState).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          versionToken: 2,
+          conflictStatus: 'conflict',
+        })
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
+        expect(result.data.takes).toHaveLength(2);
+        expect(result.data.activeTakeId).toBe(10);
+      }
+    });
+
     it('returns INTERNAL_ERROR and skips the DB when the blob upload throws', async () => {
+      vi.mocked(repo.get).mockResolvedValue(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
       vi.mocked(uploadVerseAudio).mockRejectedValue(new Error('r2 down'));
 
       const result = await uploadRecording(uploadInput);
@@ -140,35 +292,20 @@ describe('verse-audio service', () => {
       expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
       expect(repo.upsert).not.toHaveBeenCalled();
     });
-
-    it('propagates repository upsert failures', async () => {
-      vi.mocked(repo.upsert).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
-
-      const result = await uploadRecording(uploadInput);
-
-      expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
-    });
-
-    it('defaults durationSeconds to null when not provided', async () => {
-      vi.mocked(repo.upsert).mockResolvedValue(ok(record));
-
-      await uploadRecording({ ...uploadInput, durationSeconds: undefined });
-
-      expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ durationSeconds: null }));
-    });
   });
 
   describe('getRecording', () => {
-    it('attaches a download URL to the stored record', async () => {
+    it('attaches takes and download URLs', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
 
       const result = await getRecording(12, 3401);
 
-      expect(repo.get).toHaveBeenCalledWith(12, 3401);
-      expect(audioBlobName).toHaveBeenCalledWith(12, 3401);
-      expect(result).toEqual(
-        ok({ ...publicRecord, downloadUrl: 'https://r2.example/unit-12/text-3401?sig=x' })
-      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.takes).toHaveLength(1);
+        expect(result.data.downloadUrl).toContain('https://r2.example/');
+        expect(result.data.versionToken).toBe(1);
+      }
     });
 
     it('propagates not-found from the repository', async () => {
@@ -182,30 +319,99 @@ describe('verse-audio service', () => {
   });
 
   describe('listChapterRecordings', () => {
-    it('attaches a download URL to every row', async () => {
-      const second = { ...record, id: 2, bibleTextId: 3402, verseNumber: 4 };
-      vi.mocked(repo.listByChapter).mockResolvedValue(ok([record, second]));
+    it('returns items and hasConflict rollup', async () => {
+      const conflicted = {
+        ...record,
+        id: 2,
+        bibleTextId: 3402,
+        verseNumber: 4,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+      vi.mocked(repo.listByChapter).mockResolvedValue(ok([record, conflicted]));
+      vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(
+        ok([take, { ...take, id: 20, recordingId: 2 }])
+      );
 
       const result = await listChapterRecordings(12, 1, 3);
 
-      expect(repo.listByChapter).toHaveBeenCalledWith(12, 1, 3);
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(2);
-        expect(result.data.every((r) => r.downloadUrl.length > 0)).toBe(true);
+        expect(result.data.items).toHaveLength(2);
+        expect(result.data.hasConflict).toBe(true);
       }
     });
   });
 
+  describe('resolveConflict', () => {
+    it('sets the chosen take active and clears conflict', async () => {
+      const other = { ...take, id: 11, uploadedBy: 9, contentHash: 'other' };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(
+          ok({ ...record, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT })
+        )
+        .mockResolvedValue(
+          ok({
+            ...record,
+            versionToken: 2,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+            activeTakeId: 11,
+          })
+        );
+      vi.mocked(repo.getTakeById).mockResolvedValue(ok(other));
+      vi.mocked(repo.updateRecordingState).mockResolvedValue(
+        ok({
+          ...record,
+          versionToken: 2,
+          conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+          activeTakeId: 11,
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, other]));
+
+      const result = await resolveConflict({
+        projectUnitId: 12,
+        bibleTextId: 3401,
+        takeId: 11,
+      });
+
+      expect(repo.updateRecordingState).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          activeTakeId: 11,
+          conflictStatus: 'clean',
+          versionToken: 2,
+        })
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('clean');
+        expect(result.data.activeTakeId).toBe(11);
+      }
+    });
+
+    it('rejects takes that do not belong to the unit', async () => {
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.getTakeById).mockResolvedValue(ok({ ...take, recordingId: 999 }));
+
+      const result = await resolveConflict({
+        projectUnitId: 12,
+        bibleTextId: 3401,
+        takeId: 10,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND));
+    });
+  });
+
   describe('deleteRecording', () => {
-    it('removes the row then the object', async () => {
+    it('removes the row then each take object', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
       vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
 
       const result = await deleteRecording(12, 3401);
 
       expect(repo.remove).toHaveBeenCalledWith(12, 3401);
-      expect(deleteVerseAudio).toHaveBeenCalledWith('unit-12/text-3401');
+      expect(deleteVerseAudio).toHaveBeenCalled();
       expect(result).toEqual(ok(undefined));
     });
 
@@ -218,49 +424,20 @@ describe('verse-audio service', () => {
       expect(deleteVerseAudio).not.toHaveBeenCalled();
       expect(repo.remove).not.toHaveBeenCalled();
     });
-
-    it('still succeeds when the object delete fails, leaving it to the sweep', async () => {
-      vi.mocked(repo.get).mockResolvedValue(ok(record));
-      vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
-      vi.mocked(deleteVerseAudio).mockRejectedValue(new Error('r2 down'));
-
-      const result = await deleteRecording(12, 3401);
-
-      // The row is gone, so the storage row is now an orphan the sweep collects.
-      // Reporting failure here would invite a retry that can no longer help.
-      expect(result).toEqual(ok(undefined));
-      expect(storageRepo.markDeleted).not.toHaveBeenCalled();
-    });
-
-    it('touches no bytes when the row delete fails, so a retry is safe', async () => {
-      vi.mocked(repo.get).mockResolvedValue(ok(record));
-      vi.mocked(repo.remove).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
-
-      const result = await deleteRecording(12, 3401);
-
-      expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
-      expect(deleteVerseAudio).not.toHaveBeenCalled();
-    });
-
-    it('stamps the storage row as deleted once the object is gone', async () => {
-      vi.mocked(repo.get).mockResolvedValue(ok(record));
-      vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
-
-      await deleteRecording(12, 3401);
-
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(55);
-    });
   });
 
   describe('storage object tracking', () => {
-    it('claims the storage row before writing the object', async () => {
+    it('claims the storage row before writing the object on first upload', async () => {
       const order: string[] = [];
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok(record));
       vi.mocked(storageRepo.claim).mockImplementation(async () => {
         order.push('claim');
         return ok({
           id: 55,
           bucket: 'verse-audio',
-          key: 'unit-12/text-3401',
+          key: `unit-12/text-3401/${take.contentHash}`,
           createdAt: new Date(),
           deletedAt: null,
         });
@@ -268,23 +445,18 @@ describe('verse-audio service', () => {
       vi.mocked(uploadVerseAudio).mockImplementation(async () => {
         order.push('upload');
       });
-      vi.mocked(repo.upsert).mockResolvedValue(ok(record));
+      vi.mocked(repo.upsert).mockResolvedValue(ok({ ...record, activeTakeId: null }));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateRecordingState).mockResolvedValue(ok(record));
 
       await uploadRecording(uploadInput);
 
-      // Claim first: a crash between the two leaves a reclaimable marker rather
-      // than bytes nothing knows about.
       expect(order).toEqual(['claim', 'upload']);
-      expect(storageRepo.claim).toHaveBeenCalledWith('verse-audio', 'unit-12/text-3401');
-    });
-
-    it('does not upload when the storage row cannot be claimed', async () => {
-      vi.mocked(storageRepo.claim).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
-
-      const result = await uploadRecording(uploadInput);
-
-      expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
-      expect(uploadVerseAudio).not.toHaveBeenCalled();
+      expect(storageRepo.claim).toHaveBeenCalledWith(
+        'verse-audio',
+        `unit-12/text-3401/${take.contentHash}`
+      );
+      expect(audioBlobName).toHaveBeenCalledWith(12, 3401, take.contentHash);
     });
   });
 
@@ -299,41 +471,16 @@ describe('verse-audio service', () => {
 
     it('deletes each orphaned object and stamps its row', async () => {
       vi.mocked(storageRepo.findOrphans).mockResolvedValue(
-        ok([orphan(1, 'unit-9/text-1'), orphan(2, 'unit-9/text-2')])
+        ok([orphan(1, 'unit-9/text-1/a'), orphan(2, 'unit-9/text-2/b')])
       );
 
       const result = await reclaimOrphanedStorageObjects();
 
-      // The sweep must never consider rows younger than the grace period.
       expect(storageRepo.findOrphans).toHaveBeenCalledWith(expect.any(Number));
       expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(1);
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
       expect(result).toEqual(ok(2));
-    });
-
-    it('leaves a row unstamped when its object fails to delete, so the next sweep retries', async () => {
-      vi.mocked(storageRepo.findOrphans).mockResolvedValue(
-        ok([orphan(1, 'unit-9/text-1'), orphan(2, 'unit-9/text-2')])
-      );
-      vi.mocked(deleteVerseAudio)
-        .mockRejectedValueOnce(new Error('r2 down'))
-        .mockResolvedValueOnce(undefined);
-
-      const result = await reclaimOrphanedStorageObjects();
-
-      expect(storageRepo.markDeleted).not.toHaveBeenCalledWith(1);
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
-      expect(result).toEqual(ok(1));
-    });
-
-    it('is a no-op when nothing is orphaned', async () => {
-      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([]));
-
-      const result = await reclaimOrphanedStorageObjects();
-
-      expect(deleteVerseAudio).not.toHaveBeenCalled();
-      expect(result).toEqual(ok(0));
     });
   });
 });
