@@ -49,8 +49,10 @@ vi.mock('./verse-audio.repository', () => ({
   findTakeByContentHash: vi.fn(),
   getTakeById: vi.fn(),
   insertTake: vi.fn(),
-  upsert: vi.fn(),
+  insertRecording: vi.fn(),
   updateRecordingState: vi.fn(),
+  updateRecordingStateIfVersion: vi.fn(),
+  markConflictPreservingActive: vi.fn(),
   remove: vi.fn(),
   chapterHasConflict: vi.fn(),
 }));
@@ -133,9 +135,11 @@ describe('verse-audio service', () => {
       vi.mocked(repo.get)
         .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
         .mockResolvedValue(ok({ ...record, activeTakeId: 10 }));
-      vi.mocked(repo.upsert).mockResolvedValue(ok({ ...record, activeTakeId: null }));
+      vi.mocked(repo.insertRecording).mockResolvedValue(ok({ ...record, activeTakeId: null }));
       vi.mocked(repo.insertTake).mockResolvedValue(ok(take));
-      vi.mocked(repo.updateRecordingState).mockResolvedValue(ok(record));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record })
+      );
 
       const result = await uploadRecording(uploadInput);
 
@@ -145,7 +149,7 @@ describe('verse-audio service', () => {
         expect(result.data.conflictStatus).toBe('clean');
         expect(result.data.takes).toHaveLength(1);
       }
-      expect(repo.upsert).toHaveBeenCalled();
+      expect(repo.insertRecording).toHaveBeenCalled();
       expect(repo.insertTake).toHaveBeenCalledWith(
         expect.objectContaining({ contentHash: take.contentHash })
       );
@@ -195,13 +199,16 @@ describe('verse-audio service', () => {
         })
       );
       vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
-      vi.mocked(repo.updateRecordingState).mockResolvedValue(
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({
-          ...record,
-          versionToken: 2,
-          activeTakeId: 11,
-          storageObjectId: 56,
-          sizeBytes: 4,
+          applied: true,
+          record: {
+            ...record,
+            versionToken: 2,
+            activeTakeId: 11,
+            storageObjectId: 56,
+            sizeBytes: 4,
+          },
         })
       );
       vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
@@ -212,7 +219,8 @@ describe('verse-audio service', () => {
         baseVersionToken: 1,
       });
 
-      expect(repo.updateRecordingState).toHaveBeenCalledWith(
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
+        1,
         1,
         expect.objectContaining({
           versionToken: 2,
@@ -252,11 +260,14 @@ describe('verse-audio service', () => {
         })
       );
       vi.mocked(repo.insertTake).mockResolvedValue(ok(conflictTake));
-      vi.mocked(repo.updateRecordingState).mockResolvedValue(
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({
-          ...record,
-          versionToken: 2,
-          conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          applied: true,
+          record: {
+            ...record,
+            versionToken: 2,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          },
         })
       );
       vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, conflictTake]));
@@ -268,7 +279,8 @@ describe('verse-audio service', () => {
         baseVersionToken: 0,
       });
 
-      expect(repo.updateRecordingState).toHaveBeenCalledWith(
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
+        1,
         1,
         expect.objectContaining({
           versionToken: 2,
@@ -290,7 +302,7 @@ describe('verse-audio service', () => {
       const result = await uploadRecording(uploadInput);
 
       expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
-      expect(repo.upsert).not.toHaveBeenCalled();
+      expect(repo.insertRecording).not.toHaveBeenCalled();
     });
   });
 
@@ -405,13 +417,41 @@ describe('verse-audio service', () => {
 
   describe('deleteRecording', () => {
     it('removes the row then each take object', async () => {
+      const secondTake: VerseAudioTakeRecord = {
+        ...take,
+        id: 11,
+        contentHash: 'second-hash',
+        storageObjectId: 56,
+      };
       vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, secondTake]));
       vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
+      vi.mocked(storageRepo.getById)
+        .mockResolvedValueOnce(
+          ok({
+            id: 55,
+            bucket: 'verse-audio',
+            key: `unit-12/text-3401/${take.contentHash}`,
+            createdAt: new Date(),
+            deletedAt: null,
+          })
+        )
+        .mockResolvedValueOnce(
+          ok({
+            id: 56,
+            bucket: 'verse-audio',
+            key: 'unit-12/text-3401/second-hash',
+            createdAt: new Date(),
+            deletedAt: null,
+          })
+        );
 
       const result = await deleteRecording(12, 3401);
 
       expect(repo.remove).toHaveBeenCalledWith(12, 3401);
-      expect(deleteVerseAudio).toHaveBeenCalled();
+      expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
+      expect(deleteVerseAudio).toHaveBeenNthCalledWith(1, `unit-12/text-3401/${take.contentHash}`);
+      expect(deleteVerseAudio).toHaveBeenNthCalledWith(2, 'unit-12/text-3401/second-hash');
       expect(result).toEqual(ok(undefined));
     });
 
@@ -445,9 +485,11 @@ describe('verse-audio service', () => {
       vi.mocked(uploadVerseAudio).mockImplementation(async () => {
         order.push('upload');
       });
-      vi.mocked(repo.upsert).mockResolvedValue(ok({ ...record, activeTakeId: null }));
+      vi.mocked(repo.insertRecording).mockResolvedValue(ok({ ...record, activeTakeId: null }));
       vi.mocked(repo.insertTake).mockResolvedValue(ok(take));
-      vi.mocked(repo.updateRecordingState).mockResolvedValue(ok(record));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record })
+      );
 
       await uploadRecording(uploadInput);
 

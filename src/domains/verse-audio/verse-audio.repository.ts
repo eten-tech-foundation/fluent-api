@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -184,8 +184,27 @@ export async function getTakeById(takeId: number): Promise<Result<VerseAudioTake
 
 export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAudioTakeRecord>> {
   try {
-    const [row] = await db.insert(verse_audio_takes).values(input).returning();
-    return ok(row);
+    const [row] = await db
+      .insert(verse_audio_takes)
+      .values(input)
+      .onConflictDoNothing({
+        target: [verse_audio_takes.recordingId, verse_audio_takes.contentHash],
+      })
+      .returning();
+
+    if (row) {
+      return ok(row);
+    }
+
+    // Concurrent insert of the same content hash — return the existing take.
+    const existing = await findTakeByContentHash(input.recordingId, input.contentHash);
+    if (!existing.ok) {
+      return existing;
+    }
+    if (!existing.data) {
+      return err(ErrorCode.INTERNAL_ERROR);
+    }
+    return ok(existing.data);
   } catch (error) {
     logger.error({
       cause: error,
@@ -196,55 +215,59 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
   }
 }
 
-export async function upsert(input: UpsertVerseAudioInput): Promise<Result<VerseAudioRecord>> {
+/**
+ * Insert-only unit create. On a concurrent first-upload race, reloads the
+ * winner instead of overwriting its metadata / version token.
+ */
+export async function insertRecording(
+  input: UpsertVerseAudioInput
+): Promise<Result<VerseAudioRecord>> {
   try {
     const [row] = await db
       .insert(verse_audio_recordings)
       .values(input)
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: [verse_audio_recordings.projectUnitId, verse_audio_recordings.bibleTextId],
-        set: {
-          uploadedBy: sql`excluded.uploaded_by`,
-          storageObjectId: sql`excluded.storage_object_id`,
-          contentType: sql`excluded.content_type`,
-          sizeBytes: sql`excluded.size_bytes`,
-          durationSeconds: sql`excluded.duration_seconds`,
-          versionToken: sql`excluded.version_token`,
-          conflictStatus: sql`excluded.conflict_status`,
-          activeTakeId: sql`excluded.active_take_id`,
-          updatedAt: new Date(),
-        },
       })
       .returning();
+
+    if (!row) {
+      const existing = await get(input.projectUnitId, input.bibleTextId);
+      if (!existing.ok) {
+        return existing;
+      }
+      return ok(existing.data);
+    }
 
     const result = await get(row.projectUnitId, row.bibleTextId);
     if (!result.ok) {
       return err(ErrorCode.INTERNAL_ERROR);
     }
-
     return ok(result.data);
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to upsert verse audio recording',
+      message: 'Failed to insert verse audio recording',
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
 
+export interface RecordingStatePatch {
+  uploadedBy?: number;
+  storageObjectId?: number;
+  contentType?: string;
+  sizeBytes?: number;
+  durationSeconds?: number | null;
+  versionToken?: number;
+  conflictStatus?: VerseAudioConflictStatus;
+  activeTakeId?: number | null;
+}
+
 export async function updateRecordingState(
   recordingId: number,
-  patch: {
-    uploadedBy?: number;
-    storageObjectId?: number;
-    contentType?: string;
-    sizeBytes?: number;
-    durationSeconds?: number | null;
-    versionToken?: number;
-    conflictStatus?: VerseAudioConflictStatus;
-    activeTakeId?: number | null;
-  }
+  patch: RecordingStatePatch
 ): Promise<Result<VerseAudioRecord>> {
   try {
     const [row] = await db
@@ -268,6 +291,80 @@ export async function updateRecordingState(
       cause: error,
       message: 'Failed to update verse audio recording state',
       context: { recordingId, patch },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Compare-and-swap update keyed by the observed versionToken. `applied: false`
+ * means another writer advanced the version — do not overwrite the newer state.
+ */
+export async function updateRecordingStateIfVersion(
+  recordingId: number,
+  expectedVersionToken: number,
+  patch: RecordingStatePatch
+): Promise<Result<{ applied: boolean; record: VerseAudioRecord | null }>> {
+  try {
+    const [row] = await db
+      .update(verse_audio_recordings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(verse_audio_recordings.id, recordingId),
+          eq(verse_audio_recordings.versionToken, expectedVersionToken)
+        )
+      )
+      .returning();
+
+    if (!row) {
+      return ok({ applied: false, record: null });
+    }
+
+    const result = await get(row.projectUnitId, row.bibleTextId);
+    if (!result.ok) {
+      return err(ErrorCode.INTERNAL_ERROR);
+    }
+
+    return ok({ applied: true, record: result.data });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to conditionally update verse audio recording state',
+      context: { recordingId, expectedVersionToken, patch },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** Flag conflict without touching versionToken / active take (CAS-miss path). */
+export async function markConflictPreservingActive(
+  recordingId: number
+): Promise<Result<VerseAudioRecord>> {
+  try {
+    const [row] = await db
+      .update(verse_audio_recordings)
+      .set({
+        conflictStatus: 'conflict',
+        updatedAt: new Date(),
+      })
+      .where(eq(verse_audio_recordings.id, recordingId))
+      .returning();
+
+    if (!row) {
+      return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+    }
+
+    const result = await get(row.projectUnitId, row.bibleTextId);
+    if (!result.ok) {
+      return err(ErrorCode.INTERNAL_ERROR);
+    }
+    return ok(result.data);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to mark verse audio conflict',
+      context: { recordingId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

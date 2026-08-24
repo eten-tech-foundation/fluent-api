@@ -450,6 +450,7 @@ export async function findAssignmentsProgress(
           FROM verse_audio_recordings var
           INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
           WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
+            AND bt.bible_id = ${chapter_assignments.bibleId}
             AND bt.book_id = ${chapter_assignments.bookId}
             AND bt.chapter_number = ${chapter_assignments.chapterNumber}
             AND var.conflict_status = 'conflict'

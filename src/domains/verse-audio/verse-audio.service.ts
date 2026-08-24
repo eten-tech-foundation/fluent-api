@@ -179,8 +179,8 @@ export async function uploadRecording(
       return stored;
     }
 
-    // Insert unit first (activeTakeId null), then take, then point activeTakeId.
-    const created = await repo.upsert({
+    // Insert-only: concurrent first-upload races reload the winner, never overwrite.
+    const created = await repo.insertRecording({
       projectUnitId: input.projectUnitId,
       bibleTextId: input.bibleTextId,
       uploadedBy: input.uploadedBy,
@@ -209,11 +209,32 @@ export async function uploadRecording(
       return take;
     }
 
-    const linked = await repo.updateRecordingState(created.data.id, {
+    // If another writer already finished this unit, keep their active take and
+    // surface our take as a conflict instead of clobbering version state.
+    if (created.data.activeTakeId !== null || created.data.versionToken !== 1) {
+      const marked = await repo.markConflictPreservingActive(created.data.id);
+      if (!marked.ok) {
+        return marked;
+      }
+      return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+    }
+
+    const linked = await repo.updateRecordingStateIfVersion(created.data.id, 1, {
       activeTakeId: take.data.id,
+      uploadedBy: input.uploadedBy,
+      storageObjectId: stored.data.storageObjectId,
+      contentType: input.contentType,
+      sizeBytes: input.data.length,
+      durationSeconds,
     });
     if (!linked.ok) {
       return linked;
+    }
+    if (!linked.data.applied) {
+      const marked = await repo.markConflictPreservingActive(created.data.id);
+      if (!marked.ok) {
+        return marked;
+      }
     }
 
     return loadUnitResponse(input.projectUnitId, input.bibleTextId);
@@ -258,10 +279,11 @@ export async function uploadRecording(
   }
 
   const nextVersion = unit.versionToken + 1;
+  const observedVersion = unit.versionToken;
 
   if (baseMatches) {
     // Happy path: advance version and make this take active (clears conflict).
-    const updated = await repo.updateRecordingState(unit.id, {
+    const updated = await repo.updateRecordingStateIfVersion(unit.id, observedVersion, {
       uploadedBy: input.uploadedBy,
       storageObjectId: stored.data.storageObjectId,
       contentType: input.contentType,
@@ -274,14 +296,27 @@ export async function uploadRecording(
     if (!updated.ok) {
       return updated;
     }
+    if (!updated.data.applied) {
+      // Newer state won the race — keep our take, flag conflict, don't clobber.
+      const marked = await repo.markConflictPreservingActive(unit.id);
+      if (!marked.ok) {
+        return marked;
+      }
+    }
   } else {
     // Stale or missing base: keep prior active take, mark conflict, still bump token.
-    const updated = await repo.updateRecordingState(unit.id, {
+    const updated = await repo.updateRecordingStateIfVersion(unit.id, observedVersion, {
       versionToken: nextVersion,
       conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
     });
     if (!updated.ok) {
       return updated;
+    }
+    if (!updated.data.applied) {
+      const marked = await repo.markConflictPreservingActive(unit.id);
+      if (!marked.ok) {
+        return marked;
+      }
     }
   }
 
