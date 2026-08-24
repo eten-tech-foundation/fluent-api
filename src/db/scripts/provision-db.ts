@@ -158,6 +158,7 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     const roleAiReader = await ident(sql, 'role_ai_reader');
     const rolePgbossUser = await ident(sql, 'role_pgboss_user');
     const roleMigrations = await ident(sql, 'role_migrations');
+    const migrationsLoginRole = await ident(sql, 'migrations');
 
     // role_web_data: full DML on public
     await sql.unsafe(`GRANT USAGE ON SCHEMA public TO ${roleWebData}`);
@@ -252,20 +253,21 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
         `GRANT ALL PRIVILEGES ON TABLES TO ${roleMigrations}`
     );
 
-    // ── Default privileges for the migrations role as creator ──────────────
-    // Drizzle kit runs as the migrations role; tables it creates also need
-    // runtime grants, which ALTER DEFAULT PRIVILEGES FOR ROLE db_admin does
-    // not cover.  These grants mirror the db_admin defaults for public schema.
+    // ── Default privileges for the migrations login user as creator ─────────
+    // Drizzle kit connects as the `migrations` login role; tables it creates
+    // inherit default privileges for creator `migrations`, which
+    // `FOR ROLE db_admin` does not cover. These grants mirror db_admin defaults
+    // for public schema.
     await sql.unsafe(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationsLoginRole} IN SCHEMA public ` +
         `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${roleWebData}`
     );
     await sql.unsafe(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationsLoginRole} IN SCHEMA public ` +
         `GRANT USAGE, SELECT ON SEQUENCES TO ${roleWebData}`
     );
     await sql.unsafe(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationsLoginRole} IN SCHEMA public ` +
         `GRANT SELECT ON TABLES TO ${roleAiReader}`
     );
 
