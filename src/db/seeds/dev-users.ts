@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { RoleName } from '@/lib/roles';
 
 import { db } from '@/db';
-import { authAccount, authUser, organizations, roles, users } from '@/db/schema';
+import { authAccount, authUser, organizations, roles, user_roles, users } from '@/db/schema';
 import { ROLES } from '@/lib/roles';
 
 interface DevUserConfig {
@@ -28,13 +28,13 @@ export async function seedDevUsers() {
       email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
       password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
       username: 'translator',
-      roleName: ROLES.TRANSLATOR,
+      roleName: ROLES.PROJECT_TRANSLATOR,
     },
     {
       email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
       password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
       username: 'translator2',
-      roleName: ROLES.TRANSLATOR,
+      roleName: ROLES.PROJECT_TRANSLATOR,
     },
   ];
 
@@ -113,15 +113,25 @@ export async function seedDevUsers() {
         updatedAt: new Date(),
       });
 
-      await tx.insert(users).values({
-        username: config.username,
-        email: config.email,
-        firstName: config.username,
-        lastName: '(Dev)',
-        role: roleId,
-        organization: defaultOrg.id,
-        status: 'verified',
-        authUserId,
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          username: config.username,
+          email: config.email,
+          firstName: config.username,
+          lastName: '(Dev)',
+          status: 'verified',
+          authUserId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning({ id: users.id });
+
+      await tx.insert(user_roles).values({
+        userId: newUser.id,
+        orgId: defaultOrg.id,
+        roleId,
+        createdBy: newUser.id,
         createdAt: new Date(),
         updatedAt: new Date(),
       });

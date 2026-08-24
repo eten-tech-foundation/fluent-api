@@ -26,19 +26,14 @@ const NOT_FOUND_MESSAGE = ErrorMessages.VERSE_AUDIO_NOT_FOUND;
 export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseAudioIdSource) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get('user')!;
-    const policyUser = {
-      id: user.id,
-      role: user.role,
-      roleName: user.roleName,
-      organization: user.organization,
-    };
+    const policyUser = { id: user.id, grants: user.grants };
 
     const projectUnitId =
       source === VERSE_AUDIO_ID_SOURCES.PARAMS
         ? Number(c.req.param('projectUnitId'))
         : Number(c.req.query('projectUnitId'));
 
-    if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
@@ -53,11 +48,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
         return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
       }
 
-      const isProjectMember = await resolveIsProjectMember(
-        unitResult.data.projectId,
-        user.id,
-        user.roleName
-      );
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
       if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
         return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
@@ -67,7 +58,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
       c.set('projectAuthContext', { isProjectMember });
     } else {
       const bibleTextId = Number(c.req.param('bibleTextId'));
-      if (!bibleTextId || Number.isNaN(bibleTextId)) {
+      if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
         return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
       }
 
@@ -85,7 +76,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
 
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
       const isProjectMember = unitResult.ok
-        ? await resolveIsProjectMember(unitResult.data.projectId, user.id, user.roleName)
+        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
         : false;
 
       if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember)) {

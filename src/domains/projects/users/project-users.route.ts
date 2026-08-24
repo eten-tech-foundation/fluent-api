@@ -6,6 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
+import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -17,6 +18,7 @@ import {
   projectIdParamSchema,
   projectUserResponseSchema,
   removeProjectUserParamSchema,
+  updateProjectUserRoleBodySchema,
 } from './project-users.types';
 
 // ─── GET /projects/:projectId/users ──────────────────────────────────────────
@@ -113,9 +115,17 @@ const addProjectUsersRoute = createRoute({
 
 server.openapi(addProjectUsersRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const { userIds } = c.req.valid('json');
+  const { userIds, roleName } = c.req.valid('json');
+  const caller = c.get('user')!;
 
-  const result = await projectUsersService.addProjectUsers(projectId, userIds);
+  const roleId = await getRoleId(roleName);
+  const result = await projectUsersService.addProjectUsers(
+    caller.id,
+    projectId,
+    userIds,
+    roleId,
+    roleName
+  );
   if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
@@ -137,12 +147,8 @@ const removeProjectUserRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: {
-      description: 'User successfully removed from project',
+      description: 'User successfully removed from project. Any active assignments were cleared.',
     },
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
-      createMessageObjectSchema('Bad Request'),
-      'User still has content assigned'
-    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -162,7 +168,7 @@ const removeProjectUserRoute = createRoute({
   },
   summary: 'Remove user from project',
   description:
-    'Removes a user from the project. Fails if the user still has assigned content. Manager only.',
+    'Removes a user from the project, auto-clearing any active chapter assignments. Manager only.',
 });
 
 server.openapi(removeProjectUserRoute, async (c) => {
@@ -170,6 +176,67 @@ server.openapi(removeProjectUserRoute, async (c) => {
 
   const result = await projectUsersService.removeProjectUser(projectId, userId);
   if (result.ok) return c.body(null, HttpStatusCodes.NO_CONTENT);
+
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── PATCH /projects/:projectId/users/:userId ────────────────────────────────
+
+const updateProjectUserRoleRoute = createRoute({
+  tags: ['Projects - Users'],
+  method: 'patch',
+  path: '/projects/{projectId}/users/{userId}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
+  request: {
+    params: removeProjectUserParamSchema,
+    body: jsonContentRequired(updateProjectUserRoleBodySchema, 'New role for the project user'),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(projectUserResponseSchema, 'User role successfully updated'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid input or role'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Manager access required or self-update attempted'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'Project, User, or Role not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'Update user role in project',
+  description:
+    "Updates a project member's role. Manager only. Project Managers may not change their own role.",
+});
+
+server.openapi(updateProjectUserRoleRoute, async (c) => {
+  const { projectId, userId } = c.req.valid('param');
+  const { roleName } = c.req.valid('json');
+  const caller = c.get('user')!;
+
+  const roleId = await getRoleId(roleName);
+  const result = await projectUsersService.updateProjectUserRole(
+    caller.id,
+    projectId,
+    userId,
+    roleId,
+    roleName
+  );
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

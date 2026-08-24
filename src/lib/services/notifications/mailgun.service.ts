@@ -114,3 +114,53 @@ export async function sendEmail({ to, subject, html }: GenericEmailData): Promis
     console.error('Failed to send email:', error);
   }
 }
+
+// ─── Existing user org invite email ───────────────────────────────────────────
+
+export interface ExistingUserOrgInviteEmailData {
+  email: string;
+  firstName?: string | null;
+  inviterName?: string | null;
+  orgName?: string | null;
+  loginUrl: string;
+}
+
+export async function sendExistingUserOrgInviteEmail(
+  data: ExistingUserOrgInviteEmailData
+): Promise<void> {
+  const greeting = data.firstName ? `Hi ${data.firstName},` : 'Hi there,';
+  const inviterLine = data.inviterName
+    ? `${data.inviterName} has added you to`
+    : 'You have been added to';
+  const orgLabel = data.orgName ? `<strong>${data.orgName}</strong>` : 'an organisation';
+
+  await sendEmail({
+    to: data.email,
+    subject: `You've been added to ${data.orgName ?? 'Fluent'}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <div style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); padding: 40px; text-align: center; color: white; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">You've been added to ${data.orgName ?? 'Fluent'}!</h1>
+        </div>
+        <div style="padding: 40px; background: white; border-radius: 0 0 8px 8px;">
+          <p style="font-size: 18px; color: #374151;">${greeting}</p>
+          <p style="font-size: 16px; color: #4b5563; line-height: 1.5;">
+            ${inviterLine} ${orgLabel} on Fluent.
+            You can log in with your existing account to get started:
+          </p>
+          <div style="text-align: center; margin: 40px 0;">
+            <a href="${data.loginUrl}"
+               style="background: #6366f1; color: white; padding: 16px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; display: inline-block;">
+              Log In
+            </a>
+          </div>
+          <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
+          <p style="font-size: 14px; color: #6b7280;">
+            If you weren't expecting this, you can safely ignore this email.
+          </p>
+          <p style="font-size: 12px; color: #9ca3af; text-align: center;">— The Fluent Team</p>
+        </div>
+      </div>
+    `,
+  });
+}
