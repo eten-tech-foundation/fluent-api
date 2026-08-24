@@ -75,6 +75,10 @@ export function requireChapterAssignmentAccess(
           ctx.isProjectMember
         );
         break;
+
+      case CHAPTER_ASSIGNMENT_ACTIONS.CLAIM:
+        allowed = ChapterAssignmentPolicy.claim(policyUser, policyAssignment);
+        break;
     }
 
     if (!allowed) {

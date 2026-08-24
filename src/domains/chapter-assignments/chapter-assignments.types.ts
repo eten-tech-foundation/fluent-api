@@ -11,6 +11,7 @@ export const CHAPTER_ASSIGNMENT_ACTIONS = {
   DELETE: 'delete',
   IS_PARTICIPANT: 'isParticipant',
   TOGGLE_AI: 'toggleAi',
+  CLAIM: 'claim',
 } as const;
 
 export type ChapterAssignmentAction =
@@ -69,6 +70,7 @@ export interface ChapterAssignmentProgressInfo {
   createdAt: Date | null;
   updatedAt: Date | null;
   isAiEnabled: boolean;
+  hasClaimConflict: boolean;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -88,6 +90,7 @@ export interface UpdateChapterAssignmentRequestData {
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
   isAiEnabled?: boolean;
+  hasClaimConflict?: boolean;
 }
 
 export const updateChapterAssignmentAiStatusSchema = z.object({
@@ -113,6 +116,7 @@ export const chapterAssignmentResponseSchema = z.object({
     )
     .optional(),
   submittedTime: z.date().nullable().optional(),
+  hasClaimConflict: z.boolean().optional(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
 });

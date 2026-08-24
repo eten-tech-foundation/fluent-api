@@ -127,4 +127,34 @@ export const ChapterAssignmentPolicy = {
     // A participant in the editor is exactly anyone who currently has edit rights.
     return this.edit(user, assignment, isProjectMember);
   },
+
+  claim(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+
+    // Managers (content:assign) assign via PATCH .../:id, not via claim.
+    if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) return false;
+
+    // Translators have content:update without content:assign.
+    if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) return false;
+
+    // Same translator retrying their own claim (e.g. offline reconnect) — service
+    // returns idempotently without duplicating history.
+    if (assignment.assignedUserId === user.id) {
+      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
+    }
+
+    // Another translator already claimed (race loser or offline sync). Service
+    // flags hasClaimConflict and returns 200 — never 404 for concurrency.
+    if (assignment.assignedUserId != null) {
+      return (
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
+        assignment.peerCheckerId == null
+      );
+    }
+
+    return (
+      assignment.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED &&
+      assignment.assignedUserId == null
+    );
+  },
 };

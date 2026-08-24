@@ -25,6 +25,7 @@ export interface UserChapterAssignment {
   peerCheckerId: number | null;
   updatedAt: string | null;
   isAiEnabled: boolean;
+  hasClaimConflict: boolean;
 }
 
 // ─── API response schema ──────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   peerCheckerId: z.number().int().nullable(),
   updatedAt: z.string().nullable(),
   isAiEnabled: z.boolean(),
+  hasClaimConflict: z.boolean(),
 });
 
 export const userChapterAssignmentsByUserResponseSchema = z.object({
@@ -76,6 +78,7 @@ export const memberChapterAssignmentResponseSchema = z.object({
   submittedTime: z.date().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  hasClaimConflict: z.boolean(),
 });
 
 export const memberChapterAssignmentsResponseSchema = z.object({

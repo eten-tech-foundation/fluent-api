@@ -36,6 +36,7 @@ const makeProgressInfo = (
   createdAt: null,
   updatedAt: null,
   isAiEnabled: false,
+  hasClaimConflict: false,
   ...over,
 });
 
@@ -56,5 +57,10 @@ describe('toResponse', () => {
   it('falls back to "" when the target ISO code is null', () => {
     const response = toResponse(makeProgressInfo({ targetLangCode: null }));
     expect(response.targetLangCode).toBe('');
+  });
+
+  it('propagates hasClaimConflict from repository progress rows', () => {
+    const response = toResponse(makeProgressInfo({ hasClaimConflict: true }));
+    expect(response.hasClaimConflict).toBe(true);
   });
 });

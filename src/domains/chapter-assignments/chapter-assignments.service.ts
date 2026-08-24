@@ -32,6 +32,7 @@ export function toChapterAssignmentResponse(
     peerCheckerId: record.peerCheckerId,
     status: record.status,
     submittedTime: record.submittedTime,
+    hasClaimConflict: record.hasClaimConflict,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -184,7 +185,11 @@ export async function updateChapterAssignment(
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
     const finalData = applyAutoTransition(current, data);
-    const updated = await repo.update(id, finalData, tx);
+    const updateData =
+      data.assignedUserId !== undefined
+        ? { ...finalData, hasClaimConflict: false }
+        : finalData;
+    const updated = await repo.update(id, updateData, tx);
     if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
     await recordStatusChange(tx, current, updated);
@@ -312,6 +317,43 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
 
 export function deleteChapterAssignment(id: number) {
   return repo.remove(id);
+}
+
+export async function claimChapterAssignment(id: number, userId: number) {
+  return db.transaction(async (tx) => {
+    try {
+      const { claimed, record } = await repo.claimIfUnassigned(id, userId, tx);
+
+      if (claimed && record) {
+        await repo.insertStatusHistory(tx, id, CHAPTER_ASSIGNMENT_STATUS.DRAFT);
+        await repo.insertUserAssignmentHistory(
+          tx,
+          id,
+          userId,
+          'drafter',
+          CHAPTER_ASSIGNMENT_STATUS.DRAFT
+        );
+        return ok(toChapterAssignmentResponse(record));
+      }
+
+      const current = await repo.findById(id, tx);
+      if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+      if (current.assignedUserId === userId) {
+        return ok(toChapterAssignmentResponse(current));
+      }
+
+      const flagged = await repo.flagClaimConflict(id, tx);
+      return ok(toChapterAssignmentResponse(flagged ?? current));
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'Failed to claim chapter assignment',
+        context: { id, userId },
+      });
+      return err(ErrorCode.INTERNAL_ERROR);
+    }
+  });
 }
 
 function applyAutoTransition(
