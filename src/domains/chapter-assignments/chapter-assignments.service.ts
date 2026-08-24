@@ -186,9 +186,7 @@ export async function updateChapterAssignment(
 
     const finalData = applyAutoTransition(current, data);
     const updateData =
-      data.assignedUserId !== undefined
-        ? { ...finalData, hasClaimConflict: false }
-        : finalData;
+      data.assignedUserId !== undefined ? { ...finalData, hasClaimConflict: false } : finalData;
     const updated = await repo.update(id, updateData, tx);
     if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 

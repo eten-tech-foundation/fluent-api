@@ -155,10 +155,7 @@ describe('claimChapterAssignment', () => {
 
     vi.mocked(repo.claimIfUnassigned).mockImplementation(async (_id, userId) => {
       await new Promise((resolve) => setImmediate(resolve));
-      if (
-        row.assignedUserId === null &&
-        row.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED
-      ) {
+      if (row.assignedUserId === null && row.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED) {
         row = {
           ...row,
           assignedUserId: userId,
@@ -185,9 +182,7 @@ describe('claimChapterAssignment', () => {
     expect(resultA.ok).toBe(true);
     expect(resultB.ok).toBe(true);
 
-    const winners = [resultA, resultB].filter(
-      (r) => r.ok && r.data.hasClaimConflict !== true
-    );
+    const winners = [resultA, resultB].filter((r) => r.ok && r.data.hasClaimConflict !== true);
     const losers = [resultA, resultB].filter((r) => r.ok && r.data.hasClaimConflict === true);
 
     expect(winners).toHaveLength(1);

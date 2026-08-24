@@ -57,14 +57,12 @@ vi.mock('@/domains/user-roles/user-roles.repository', () => ({
 }));
 
 vi.mock('./chapter-assignment-auth.middleware', () => ({
-  requireChapterAssignmentAccess: vi.fn(
-    () => async (c: any, next: any) => {
-      if (!allowClaimAccess.value) {
-        return c.json({ message: 'Chapter assignment not found' }, 404);
-      }
-      return next();
+  requireChapterAssignmentAccess: vi.fn(() => async (c: any, next: any) => {
+    if (!allowClaimAccess.value) {
+      return c.json({ message: 'Chapter assignment not found' }, 404);
     }
-  ),
+    return next();
+  }),
 }));
 
 vi.mock('./chapter-assignments.service', () => ({

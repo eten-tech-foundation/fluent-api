@@ -147,8 +147,7 @@ export const ChapterAssignmentPolicy = {
     // flags hasClaimConflict and returns 200 — never 404 for concurrency.
     if (assignment.assignedUserId != null) {
       return (
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
-        assignment.peerCheckerId == null
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT && assignment.peerCheckerId == null
       );
     }
 
