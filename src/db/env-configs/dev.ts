@@ -55,7 +55,8 @@ export const config: EnvConfig = {
     },
   ],
 
-  printCredentials: true,
+  // Avoid printing seed credentials to shared Dev server logs.
+  printCredentials: false,
 
   // ── DB-level provisioning (used by provision-db.ts only) ─────────────────
   provision: {

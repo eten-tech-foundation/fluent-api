@@ -26,8 +26,18 @@ export const config: EnvConfig = {
 
   seedUsers: [
     {
-      email: process.env.QA_PM_EMAIL ?? 'pm@qa.fluent.bible',
-      password: process.env.QA_PM_PASSWORD ?? 'CHANGE_ME_QA_PM_PW',
+      // QA_PM_EMAIL and QA_PM_PASSWORD must be set; no fallback to avoid
+      // accidentally seeding an account with a known placeholder password.
+      email: (() => {
+        const v = process.env.QA_PM_EMAIL;
+        if (!v) throw new Error('Missing required env var: QA_PM_EMAIL');
+        return v;
+      })(),
+      password: (() => {
+        const v = process.env.QA_PM_PASSWORD;
+        if (!v) throw new Error('Missing required env var: QA_PM_PASSWORD');
+        return v;
+      })(),
       username: 'qapm',
       role: 'project_manager',
     },

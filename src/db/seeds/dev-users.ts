@@ -72,27 +72,12 @@ export async function seedDevUsers(
     const hashedPassword = await hashPassword(seedUser.password);
 
     await db.transaction(async (tx) => {
+      // ── Resolve existing account or create a new one ─────────────────────
       const [existingAuthUser] = await tx
         .select({ id: authUser.id })
         .from(authUser)
         .where(eq(authUser.email, seedUser.email))
         .limit(1);
-
-      if (existingAuthUser) {
-        console.log(`Skipping ${seedUser.email} — already exists in auth_user.`);
-        return;
-      }
-
-      const [existingUserByEmail] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.email, seedUser.email))
-        .limit(1);
-
-      if (existingUserByEmail) {
-        console.log(`Skipping ${seedUser.email} — already exists in users.`);
-        return;
-      }
 
       const [existingUserByUsername] = await tx
         .select({ id: users.id })
@@ -100,70 +85,100 @@ export async function seedDevUsers(
         .where(eq(users.username, seedUser.username))
         .limit(1);
 
-      if (existingUserByUsername) {
-        console.log(`Skipping ${seedUser.username} — username already exists in users.`);
+      let appUserId: number;
+
+      if (existingAuthUser) {
+        // Account already exists — resolve the application user for role reconciliation.
+        const [existingAppUser] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, seedUser.email))
+          .limit(1);
+
+        if (!existingAppUser) {
+          console.log(`Skipping ${seedUser.email} — auth_user exists but no matching users row.`);
+          return;
+        }
+
+        appUserId = existingAppUser.id;
+        console.log(`User ${seedUser.email} already exists — reconciling roles.`);
+      } else if (existingUserByUsername) {
+        console.log(`Skipping ${seedUser.username} — username already taken by a different user.`);
         return;
-      }
-
-      await tx.insert(authUser).values({
-        id: authUserId,
-        email: seedUser.email,
-        name: seedUser.username,
-        emailVerified: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      await tx.insert(authAccount).values({
-        id: crypto.randomUUID(),
-        userId: authUserId,
-        accountId: seedUser.email,
-        providerId: 'credential',
-        password: hashedPassword,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      const [newUser] = await tx
-        .insert(users)
-        .values({
-          username: seedUser.username,
+      } else {
+        // Create new account.
+        await tx.insert(authUser).values({
+          id: authUserId,
           email: seedUser.email,
-          firstName: seedUser.username,
-          lastName: '(Dev)',
-          status: 'verified',
-          authUserId,
+          name: seedUser.username,
+          emailVerified: true,
           createdAt: new Date(),
           updatedAt: new Date(),
-        })
-        .returning({ id: users.id });
+        });
 
-      // Grant mandatory Org Member anchor role
-      await tx.insert(user_roles).values({
-        userId: newUser.id,
-        orgId: defaultOrg.id,
-        roleId: orgMemberRoleId,
-        createdBy: newUser.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+        await tx.insert(authAccount).values({
+          id: crypto.randomUUID(),
+          userId: authUserId,
+          accountId: seedUser.email,
+          providerId: 'credential',
+          password: hashedPassword,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
 
-      // If the user is designated as project_manager, grant org-wide Project Manager role
+        const [newUser] = await tx
+          .insert(users)
+          .values({
+            username: seedUser.username,
+            email: seedUser.email,
+            firstName: seedUser.username,
+            lastName: '(Dev)',
+            status: 'verified',
+            authUserId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning({ id: users.id });
+
+        appUserId = newUser.id;
+        console.log(`Created user: ${seedUser.email} (${seedUser.role})`);
+      }
+
+      // ── Reconcile required role grants ────────────────────────────────────
+      // Fetch existing role grants for this user in this org.
+      const existingGrants = await tx
+        .select({ roleId: user_roles.roleId })
+        .from(user_roles)
+        .where(eq(user_roles.userId, appUserId));
+
+      const grantedRoleIds = new Set(existingGrants.map((g) => g.roleId));
+
+      // Insert Org Member anchor role if missing.
+      if (!grantedRoleIds.has(orgMemberRoleId)) {
+        await tx.insert(user_roles).values({
+          userId: appUserId,
+          orgId: defaultOrg.id,
+          roleId: orgMemberRoleId,
+          createdBy: appUserId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+
+      // Insert Project Manager role if this user is designated as one and it is missing.
       if (seedUser.role === 'project_manager') {
         const pmRoleId = roleMap.get(ROLES.PROJECT_MANAGER);
-        if (pmRoleId) {
+        if (pmRoleId && !grantedRoleIds.has(pmRoleId)) {
           await tx.insert(user_roles).values({
-            userId: newUser.id,
+            userId: appUserId,
             orgId: defaultOrg.id,
             roleId: pmRoleId,
-            createdBy: newUser.id,
+            createdBy: appUserId,
             createdAt: new Date(),
             updatedAt: new Date(),
           });
         }
       }
-
-      console.log(`Created user: ${seedUser.email} (${seedUser.role})`);
     });
   }
 

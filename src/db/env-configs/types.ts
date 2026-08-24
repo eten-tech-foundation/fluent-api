@@ -44,9 +44,10 @@ export interface EnvConfig {
 
   /**
    * Optional explicit database URL.
-   * When set, `setup.ts` overwrites `process.env.DATABASE_URL` before any
-   * DB-dependent work runs, so you don't need to pre-set the env var.
-   * When absent, `DATABASE_URL` must already be set in the environment.
+   * Used by `setup.ts` **only when `process.env.DATABASE_URL` is absent** —
+   * it is never written back to `process.env`. If `DATABASE_URL` is already
+   * set in the environment it takes precedence over this value.
+   * When both are absent, `setup.ts` will exit with an error.
    */
   databaseUrl?: string;
 

@@ -48,16 +48,18 @@ You can configure database URLs and credentials in three different places depend
 
 ### Environment Variable Catalog
 
-| Variable Name            | Required By       | Description / Format                                    | Example Value                                              |
-| ------------------------ | ----------------- | ------------------------------------------------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`           | `setup.ts`        | Connection URL for application runtime & migrations     | `postgres://web_user:pass@localhost:5432/fluentdb`         |
-| `DEV_DATABASE_URL`       | `setup.ts` (Dev)  | Optional Dev-specific override URL                      | `postgres://postgres:pass@localhost:5432/fluent_dev`       |
-| `QA_DATABASE_URL`        | `setup.ts` (QA)   | Optional QA-specific override URL                       | `postgres://web_user:pass@qa-host:5432/fluentdb`           |
-| `BOOTSTRAP_DATABASE_URL` | `provision-db.ts` | Superuser / Admin URL to create roles & schemas         | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
-| `DB_ADMIN_PASSWORD`      | `provision-db.ts` | Password for the schema-owner `db_admin` role           | `SecretDbAdminPass123`                                     |
-| `MIGRATIONS_PASSWORD`    | `provision-db.ts` | Password for the DDL migration runner `migrations` user | `SecretMigrationsPass123`                                  |
-| `WEB_USER_PASSWORD`      | `provision-db.ts` | Password for the API runtime `web_user` account         | `SecretWebUserPass123`                                     |
-| `AI_USER_PASSWORD`       | `provision-db.ts` | Password for the AI service `ai_user` account           | `SecretAiUserPass123`                                      |
+| Variable Name            | Required By           | Description / Format                                                                 | Example Value                                              |
+| ------------------------ | --------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `DATABASE_URL`           | `setup.ts` (fallback) | Runtime connection URL (`web_user`). Used by `setup.ts` when no env-specific URL set | `postgres://web_user:pass@localhost:5432/fluentdb`         |
+| `DEV_DATABASE_URL`       | `setup.ts` (Dev)      | Dev migrations/seed connection (`migrations` role preferred for setup)               | `postgres://migrations:pass@localhost:5432/fluent_dev`     |
+| `QA_DATABASE_URL`        | `setup.ts` (QA)       | QA migrations/seed connection (`migrations` role preferred for setup)                | `postgres://migrations:pass@qa-host:5432/fluentdb`         |
+| `BOOTSTRAP_DATABASE_URL` | `provision-db.ts`     | Superuser / Admin URL to create roles & schemas                                      | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
+| `DB_ADMIN_PASSWORD`      | `provision-db.ts`     | Password for the schema-owner `db_admin` role                                        | `SecretDbAdminPass123`                                     |
+| `MIGRATIONS_PASSWORD`    | `provision-db.ts`     | Password for the DDL migration runner `migrations` user                              | `SecretMigrationsPass123`                                  |
+| `WEB_USER_PASSWORD`      | `provision-db.ts`     | Password for the API runtime `web_user` account                                      | `SecretWebUserPass123`                                     |
+| `AI_USER_PASSWORD`       | `provision-db.ts`     | Password for the AI service `ai_user` account                                        | `SecretAiUserPass123`                                      |
+
+> **Note:** Migrations require the `migrations` database role (DDL privileges). Use the `migrations` credentials in `DEV_DATABASE_URL` / `QA_DATABASE_URL` when running `db:setup`. The `web_user` credentials in `DATABASE_URL` are for the running API server only.
 
 ---
 

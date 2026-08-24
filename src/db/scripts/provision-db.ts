@@ -55,27 +55,41 @@ async function literal(sql: Sql, value: string): Promise<string> {
   return row.q as string;
 }
 
-/** CREATE or ALTER a role with LOGIN and a password. Idempotent. */
+/** CREATE or ALTER a role with LOGIN, a specific password, and only the requested extra options.
+ *  On ALTER, existing elevated attributes (SUPERUSER, CREATEDB, CREATEROLE) are explicitly cleared
+ *  unless requested in extraOptions. Idempotent. */
 async function upsertLoginRole(sql: Sql, roleName: string, password: string, extraOptions = '') {
   const roleIdent = await ident(sql, roleName);
   const pwLiteral = await literal(sql, password);
   const [row] =
     await sql`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${roleName}) AS exists`;
-  const verb = row.exists ? 'ALTER' : 'CREATE';
-  await sql.unsafe(`${verb} ROLE ${roleIdent} LOGIN PASSWORD ${pwLiteral} ${extraOptions}`.trim());
-  console.log(`  ${verb} ROLE ${roleName} (login)`);
+  if (row.exists) {
+    // Reconcile: reset LOGIN, password, and clear any unintended elevated attributes.
+    const clearAttrs = 'NOSUPERUSER NOCREATEDB NOREPLICATION NOBYPASSRLS';
+    await sql.unsafe(
+      `ALTER ROLE ${roleIdent} LOGIN PASSWORD ${pwLiteral} ${clearAttrs} ${extraOptions}`.trim()
+    );
+    console.log(`  ALTER ROLE ${roleName} (login — attributes reconciled)`);
+  } else {
+    await sql.unsafe(`CREATE ROLE ${roleIdent} LOGIN PASSWORD ${pwLiteral} ${extraOptions}`.trim());
+    console.log(`  CREATE ROLE ${roleName} (login)`);
+  }
 }
 
-/** CREATE a group role (no LOGIN) if it doesn't exist. Idempotent. */
+/** CREATE or ALTER a group role (NOLOGIN). Idempotent. */
 async function ensureGroupRole(sql: Sql, roleName: string) {
   const roleIdent = await ident(sql, roleName);
   const [row] =
     await sql`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${roleName}) AS exists`;
   if (!row.exists) {
-    await sql.unsafe(`CREATE ROLE ${roleIdent}`);
+    await sql.unsafe(`CREATE ROLE ${roleIdent} NOLOGIN`);
     console.log(`  CREATE ROLE ${roleName} (group)`);
   } else {
-    console.log(`  ROLE ${roleName} already exists — skipped`);
+    // Reconcile: ensure NOLOGIN and clear any unintended elevated attributes.
+    await sql.unsafe(
+      `ALTER ROLE ${roleIdent} NOLOGIN NOSUPERUSER NOCREATEDB NOREPLICATION NOBYPASSRLS`
+    );
+    console.log(`  ALTER ROLE ${roleName} (group — attributes reconciled)`);
   }
 }
 
@@ -238,6 +252,23 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
         `GRANT ALL PRIVILEGES ON TABLES TO ${roleMigrations}`
     );
 
+    // ── Default privileges for the migrations role as creator ──────────────
+    // Drizzle kit runs as the migrations role; tables it creates also need
+    // runtime grants, which ALTER DEFAULT PRIVILEGES FOR ROLE db_admin does
+    // not cover.  These grants mirror the db_admin defaults for public schema.
+    await sql.unsafe(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${roleWebData}`
+    );
+    await sql.unsafe(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+        `GRANT USAGE, SELECT ON SEQUENCES TO ${roleWebData}`
+    );
+    await sql.unsafe(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${roleMigrations} IN SCHEMA public ` +
+        `GRANT SELECT ON TABLES TO ${roleAiReader}`
+    );
+
     console.log('  Done.');
 
     console.log('\n╔═══════════════════════════════════════╗');
@@ -276,13 +307,28 @@ async function main() {
     process.exit(1);
   }
 
+  const required: Record<string, string | undefined> = {
+    DB_ADMIN_PASSWORD: process.env.DB_ADMIN_PASSWORD || config.provision?.dbAdminPassword,
+    MIGRATIONS_PASSWORD: process.env.MIGRATIONS_PASSWORD || config.provision?.migrationsPassword,
+    WEB_USER_PASSWORD: process.env.WEB_USER_PASSWORD || config.provision?.webUserPassword,
+    AI_USER_PASSWORD: process.env.AI_USER_PASSWORD || config.provision?.aiUserPassword,
+  };
+  const missing = Object.entries(required)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0) {
+    console.error(
+      `❌  Missing required password variable(s) for environment "${envName}":\n${missing.map((k) => `   • ${k}`).join('\n')}\n   Set them in your environment or .env file before provisioning.`
+    );
+    process.exit(1);
+  }
+
   const provisionConfig = {
     bootstrapDatabaseUrl,
-    dbAdminPassword: process.env.DB_ADMIN_PASSWORD || config.provision?.dbAdminPassword || '',
-    migrationsPassword:
-      process.env.MIGRATIONS_PASSWORD || config.provision?.migrationsPassword || '',
-    webUserPassword: process.env.WEB_USER_PASSWORD || config.provision?.webUserPassword || '',
-    aiUserPassword: process.env.AI_USER_PASSWORD || config.provision?.aiUserPassword || '',
+    dbAdminPassword: required.DB_ADMIN_PASSWORD!,
+    migrationsPassword: required.MIGRATIONS_PASSWORD!,
+    webUserPassword: required.WEB_USER_PASSWORD!,
+    aiUserPassword: required.AI_USER_PASSWORD!,
   };
 
   // Derive the database name from the bootstrapDatabaseUrl
