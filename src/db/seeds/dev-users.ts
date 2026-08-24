@@ -3,101 +3,112 @@ import { eq } from 'drizzle-orm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import type { RoleName } from '@/lib/roles';
+import type { SeedUser } from '@/db/env-configs/types';
 
 import { db } from '@/db';
 import { authAccount, authUser, organizations, roles, user_roles, users } from '@/db/schema';
 import { ROLES } from '@/lib/roles';
 
-interface DevUserConfig {
-  email: string;
-  password: string;
-  username: string;
-  roleName: RoleName;
-}
+// Re-export so callers that only import this module don't need env-configs/types.
+export type { SeedUser };
 
-export async function seedDevUsers() {
-  const DEV_USERS: DevUserConfig[] = [
-    {
-      email: process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local',
-      password: process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456',
-      username: 'devpm',
-      roleName: ROLES.PROJECT_MANAGER,
-    },
-    {
-      email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
-      password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
-      username: 'translator',
-      roleName: ROLES.PROJECT_TRANSLATOR,
-    },
-    {
-      email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
-      password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
-      username: 'translator2',
-      roleName: ROLES.PROJECT_TRANSLATOR,
-    },
-  ];
+/** Default users used when the seed is run standalone (CLI) without arguments. */
+const DEFAULT_SEED_USERS: SeedUser[] = [
+  {
+    email: process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local',
+    password: process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456',
+    username: 'devpm',
+    role: 'project_manager',
+  },
+  {
+    email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
+    password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
+    username: 'translator',
+    role: 'project_translator',
+  },
+  {
+    email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
+    password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
+    username: 'translator2',
+    role: 'project_translator',
+  },
+];
+
+/**
+ * Universal user seeding module for all environments (local, dev, qa).
+ *
+ * @param seedUsers - Users to create. Defaults to the 3-user local dev set.
+ * @param orgName   - Organisation these users belong to. Defaults to 'Fluent Dev'.
+ */
+export async function seedDevUsers(
+  seedUsers: SeedUser[] = DEFAULT_SEED_USERS,
+  orgName = 'Fluent Dev'
+) {
+  if (seedUsers.length === 0) {
+    console.log('No seed users configured — skipping.');
+    return;
+  }
 
   const [defaultOrg] = await db
     .select({ id: organizations.id })
     .from(organizations)
-    .where(eq(organizations.name, 'Fluent Dev'))
+    .where(eq(organizations.name, orgName))
     .limit(1);
 
   if (!defaultOrg) {
-    throw new Error('Default organization "Fluent Dev" not found. Run seedOrganizations first.');
+    throw new Error(`Organization "${orgName}" not found. Run seedOrganizations first.`);
   }
 
   const allRoles = await db.select({ id: roles.id, name: roles.name }).from(roles);
   const roleMap = new Map(allRoles.map((r) => [r.name, r.id]));
 
-  for (const config of DEV_USERS) {
-    const roleId = roleMap.get(config.roleName);
-    if (!roleId) {
-      throw new Error(`Role "${config.roleName}" not found. Run seedRoles first.`);
-    }
+  const orgMemberRoleId = roleMap.get(ROLES.ORG_MEMBER);
+  if (!orgMemberRoleId) {
+    throw new Error(`Role "${ROLES.ORG_MEMBER}" not found. Run seedRoles first.`);
+  }
 
+  for (const seedUser of seedUsers) {
     const authUserId = crypto.randomUUID();
-    const hashedPassword = await hashPassword(config.password);
+    const hashedPassword = await hashPassword(seedUser.password);
 
     await db.transaction(async (tx) => {
       const [existingAuthUser] = await tx
         .select({ id: authUser.id })
         .from(authUser)
-        .where(eq(authUser.email, config.email))
+        .where(eq(authUser.email, seedUser.email))
         .limit(1);
 
       if (existingAuthUser) {
-        console.log(`Skipping ${config.email} — already exists in auth_user.`);
+        console.log(`Skipping ${seedUser.email} — already exists in auth_user.`);
         return;
       }
 
       const [existingUserByEmail] = await tx
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.email, config.email))
+        .where(eq(users.email, seedUser.email))
         .limit(1);
 
       if (existingUserByEmail) {
-        console.log(`Skipping ${config.email} — already exists in users.`);
+        console.log(`Skipping ${seedUser.email} — already exists in users.`);
         return;
       }
 
       const [existingUserByUsername] = await tx
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.username, config.username))
+        .where(eq(users.username, seedUser.username))
         .limit(1);
 
       if (existingUserByUsername) {
-        console.log(`Skipping ${config.username} — username already exists in users.`);
+        console.log(`Skipping ${seedUser.username} — username already exists in users.`);
         return;
       }
 
       await tx.insert(authUser).values({
         id: authUserId,
-        email: config.email,
-        name: config.username,
+        email: seedUser.email,
+        name: seedUser.username,
         emailVerified: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -106,7 +117,7 @@ export async function seedDevUsers() {
       await tx.insert(authAccount).values({
         id: crypto.randomUUID(),
         userId: authUserId,
-        accountId: config.email,
+        accountId: seedUser.email,
         providerId: 'credential',
         password: hashedPassword,
         createdAt: new Date(),
@@ -116,9 +127,9 @@ export async function seedDevUsers() {
       const [newUser] = await tx
         .insert(users)
         .values({
-          username: config.username,
-          email: config.email,
-          firstName: config.username,
+          username: seedUser.username,
+          email: seedUser.email,
+          firstName: seedUser.username,
           lastName: '(Dev)',
           status: 'verified',
           authUserId,
@@ -127,21 +138,39 @@ export async function seedDevUsers() {
         })
         .returning({ id: users.id });
 
+      // Grant mandatory Org Member anchor role
       await tx.insert(user_roles).values({
         userId: newUser.id,
         orgId: defaultOrg.id,
-        roleId,
+        roleId: orgMemberRoleId,
         createdBy: newUser.id,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      console.log(`Created dev user: ${config.email} (${config.roleName})`);
+      // If the user is designated as project_manager, grant org-wide Project Manager role
+      if (seedUser.role === 'project_manager') {
+        const pmRoleId = roleMap.get(ROLES.PROJECT_MANAGER);
+        if (pmRoleId) {
+          await tx.insert(user_roles).values({
+            userId: newUser.id,
+            orgId: defaultOrg.id,
+            roleId: pmRoleId,
+            createdBy: newUser.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+      }
+
+      console.log(`Created user: ${seedUser.email} (${seedUser.role})`);
     });
   }
 
   console.log('Dev users seeded.');
 }
+
+export { seedDevUsers as seedUsers };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   seedDevUsers()

@@ -1,69 +1,154 @@
+/**
+ * src/db/scripts/setup.ts
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Environment-aware DB setup orchestrator.
+ *
+ * USAGE:
+ *   npm run db:setup            → local docker (SETUP_ENV defaults to 'local')
+ *   npm run db:setup:dev        → dev  (SETUP_ENV=dev)
+ *   npm run db:setup:qa         → qa   (SETUP_ENV=qa)
+ *
+ * The script:
+ *   1. Loads the env-config for the target environment.
+ *   2. Optionally overrides DATABASE_URL from the config (dev / qa).
+ *   3. Runs Drizzle migrations.
+ *   4. Seeds all reference data (org, roles, RBAC, languages, books, bibles,
+ *      bible texts, pericope sets) — identical across every environment.
+ *   5. Seeds the configured seed users.
+ *   6. Optionally prints credentials.
+ *
+ * All seed functions are dynamically imported AFTER the DATABASE_URL is set so
+ * the Drizzle client picks up the correct connection string regardless of
+ * which environment is targeted.
+ */
 import { execSync } from 'node:child_process';
 
-import { seedBibleTexts } from '@/db/seeds/bible-texts';
-import { seedBibles } from '@/db/seeds/bibles';
-import { seedBooks } from '@/db/seeds/books';
-import { seedDevUsers } from '@/db/seeds/dev-users';
-import { seedLanguages } from '@/db/seeds/languages';
-import { seedOrganizations } from '@/db/seeds/organizations';
-import { seedPericopeSets } from '@/db/seeds/pericope-sets';
-import { seedRbac } from '@/db/seeds/rbac';
-import { seedRoles } from '@/db/seeds/roles';
+import type { EnvConfig } from '@/db/env-configs/types';
+
+// ─── 1. Resolve the target environment ───────────────────────────────────────
+
+type EnvName = 'local' | 'dev' | 'qa';
+
+const VALID_ENVS: readonly EnvName[] = ['local', 'dev', 'qa'];
+
+function resolveEnvName(): EnvName {
+  const raw = process.env.SETUP_ENV ?? 'local';
+  if (!VALID_ENVS.includes(raw as EnvName)) {
+    console.error(`❌  Unknown SETUP_ENV="${raw}". Valid values: ${VALID_ENVS.join(', ')}`);
+    process.exit(1);
+  }
+  return raw as EnvName;
+}
+
+async function loadConfig(envName: EnvName): Promise<EnvConfig> {
+  // Dynamic import — the path is derived from the env name, so TypeScript
+  // can't statically analyse it; we cast the module type explicitly.
+  const mod = (await import(`@/db/env-configs/${envName}`)) as { config: EnvConfig };
+  return mod.config;
+}
+
+// ─── 2. Main ─────────────────────────────────────────────────────────────────
 
 async function setup() {
-  console.log('=== Fluent DB Setup ===\n');
+  const envName = resolveEnvName();
+  const config = await loadConfig(envName);
 
-  console.log('[1/10] Running migrations...');
-  execSync('npx drizzle-kit migrate', { stdio: 'inherit' });
+  console.log('╔═══════════════════════════════════════╗');
+  console.log(`║   Fluent DB Setup — ${config.label.padEnd(17)}║`);
+  console.log('╚═══════════════════════════════════════╝\n');
+
+  // ── Override / Resolve DATABASE_URL ───────────────────────────────────────
+  // Prioritise process.env.DATABASE_URL if set by environment / .env file.
+  // Fall back to config.databaseUrl if defined in the env-config.
+  if (process.env.DATABASE_URL) {
+    const masked = process.env.DATABASE_URL.replace(/:([^@]+)@/, ':****@');
+    console.log(`ℹ  Using DATABASE_URL from process.env: ${masked}\n`);
+  } else if (config.databaseUrl) {
+    process.env.DATABASE_URL = config.databaseUrl;
+    const masked = config.databaseUrl.replace(/:([^@]+)@/, ':****@');
+    console.log(`ℹ  Using DATABASE_URL from config fallback: ${masked}\n`);
+  }
+
+  // ── Migrations ────────────────────────────────────────────────────────────
+  console.log('[1/9] Running migrations...');
+  execSync('npx drizzle-kit migrate', {
+    stdio: 'inherit',
+    env: process.env,
+  });
   console.log('Migrations complete.\n');
 
-  console.log('[2/10] Seeding organizations...');
-  await seedOrganizations();
+  // ── Dynamic seed imports (pick up the DATABASE_URL set above) ─────────────
+  const [
+    { seedOrganizations },
+    { seedRoles },
+    { seedRbac },
+    { seedDevUsers },
+    { seedLanguages },
+    { seedBooks },
+    { seedBibles },
+    { seedBibleTexts },
+    { seedPericopeSets },
+  ] = await Promise.all([
+    import('@/db/seeds/organizations'),
+    import('@/db/seeds/roles'),
+    import('@/db/seeds/rbac'),
+    import('@/db/seeds/dev-users'),
+    import('@/db/seeds/languages'),
+    import('@/db/seeds/books'),
+    import('@/db/seeds/bibles'),
+    import('@/db/seeds/bible-texts'),
+    import('@/db/seeds/pericope-sets'),
+  ]);
+
+  // ── Reference / system data (same for every environment) ──────────────────
+  console.log('[2/9] Seeding organizations...');
+  await seedOrganizations(config.orgName);
   console.log('');
 
-  console.log('[3/10] Seeding roles...');
+  console.log('[3/9] Seeding roles...');
   await seedRoles();
   console.log('');
 
-  console.log('[4/10] Seeding RBAC...');
+  console.log('[4/9] Seeding RBAC...');
   await seedRbac();
   console.log('');
 
-  console.log('[5/10] Seeding dev users...');
-  await seedDevUsers();
+  // ── Seed users (env-specific) ─────────────────────────────────────────────
+  console.log(`[5/9] Seeding users (${config.seedUsers.length} configured)...`);
+  await seedDevUsers(config.seedUsers, config.orgName);
   console.log('');
 
-  console.log('[6/10] Seeding languages...');
+  // ── Bible reference data ───────────────────────────────────────────────────
+  console.log('[6/9] Seeding languages...');
   await seedLanguages();
   console.log('');
 
-  console.log('[7/10] Seeding books...');
+  console.log('[7/9] Seeding books...');
   await seedBooks();
   console.log('');
 
-  console.log('[8/10] Seeding bibles...');
+  console.log('[8/9] Seeding bibles...');
   await seedBibles();
   console.log('');
 
-  console.log('[9/10] Seeding bible texts...');
+  console.log('[9/9] Seeding bible texts and pericope sets...');
   await seedBibleTexts();
-  console.log('');
-
-  console.log('[10/10] Seeding pericope sets...');
   await seedPericopeSets();
   console.log('');
 
-  console.log('=== Setup complete ===');
-  const managerEmail = process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local';
-  const managerPassword = process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456';
-  const translatorEmail = process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local';
-  const translatorPassword = process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456';
-  const translator2Email = process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local';
-  const translator2Password = process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456';
+  // ── Summary ───────────────────────────────────────────────────────────────
+  console.log('╔═══════════════════════════════════════╗');
+  console.log('║           Setup complete ✓             ║');
+  console.log('╚═══════════════════════════════════════╝\n');
 
-  console.log(`Manager:    ${managerEmail} / ${managerPassword}`);
-  console.log(`Translator: ${translatorEmail} / ${translatorPassword}`);
-  console.log(`Translator2: ${translator2Email} / ${translator2Password}`);
+  if (config.printCredentials && config.seedUsers.length > 0) {
+    console.log('Seeded credentials:');
+    for (const u of config.seedUsers) {
+      console.log(`  [${u.role.padEnd(18)}]  ${u.email}  /  ${u.password}`);
+    }
+    console.log('');
+  }
+
   process.exit(0);
 }
 
