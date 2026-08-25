@@ -19,11 +19,30 @@ const MAX_LOGGED_BODY_CHARS = 300;
 /** Cap on zod issues echoed into logs. */
 const MAX_LOGGED_SCHEMA_ISSUES = 3;
 
+/** Secret-bearing fields an upstream might echo back into an error body. */
+const SECRET_FIELD_PATTERN =
+  /("?(?:api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|authorization)"?\s*[:=]\s*)("?)([^"',}\s]+)\2/gi;
+
+/**
+ * Strip credentials from anything we echo out of an upstream response. Bodies
+ * are third-party text: a length cap alone would not stop a secret from landing
+ * in logs. Applied centrally so every Aquifer error detail is covered.
+ */
+function redactSecrets(text: string): string {
+  let out = text.replace(SECRET_FIELD_PATTERN, '$1$2[redacted]$2');
+  out = out.replace(/\bBearer\s+[\w.~+/=-]+/gi, 'Bearer [redacted]');
+  const key = env.AQUIFER_API_KEY?.trim();
+  if (key && key.length >= 8) {
+    out = out.split(key).join('[redacted]');
+  }
+  return out;
+}
+
 function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok: false }> {
   const base = ErrorMessages[code];
   return {
     ok: false,
-    error: { code, message: detail ? `${base}: ${detail}` : base },
+    error: { code, message: detail ? `${base}: ${redactSecrets(detail)}` : base },
   };
 }
 
@@ -149,7 +168,9 @@ async function aquiferGet<T>(
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
     return fail(
-      `response payload failed schema validation — ${schemaIssueSummary(validated.error)}; ` +
+      `HTTP ${response.status} response payload failed schema validation ` +
+        `(content-type: ${response.headers.get('content-type') ?? 'none'}, ` +
+        `${rawBody.length} chars) — ${schemaIssueSummary(validated.error)}; ` +
         `body: ${bodySnippet(rawBody)}`
     );
   }
