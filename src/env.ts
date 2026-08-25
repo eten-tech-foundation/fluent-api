@@ -148,7 +148,7 @@ const EnvBaseSchema = z.object({
 
   // ── API.Bible (DBL) Integration ──────────────────────────────────────
   DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
-  DBL_API_KEY: z.string().min(1),
+  DBL_API_KEY: z.string().optional().default(''),
   // Per-request timeout (ms) for calls to the DBL/API.Bible client.
   DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 

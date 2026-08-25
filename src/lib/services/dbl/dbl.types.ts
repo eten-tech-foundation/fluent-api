@@ -121,19 +121,19 @@ export interface DblListBiblesParams {
 
 const dblChapterSummarySchema = z.object({
   id: z.string(),
-  bibleId: z.string(),
-  number: z.string(),
-  bookId: z.string(),
-  reference: z.string(),
+  bibleId: z.string().nullish(),
+  number: z.string().nullish(),
+  bookId: z.string().nullish(),
+  reference: z.string().nullish(),
 });
 export type DblChapterSummary = z.infer<typeof dblChapterSummarySchema>;
 
 export const dblBookSchema = z.object({
   id: z.string(),
-  bibleId: z.string(),
-  abbreviation: z.string(),
-  name: z.string(),
-  nameLong: z.string(),
+  bibleId: z.string().nullish(),
+  abbreviation: z.string().nullish(),
+  name: z.string().nullish(),
+  nameLong: z.string().nullish(),
   // Present only when `include-chapters` (or `include-chapters-and-sections`) is set.
   chapters: z.array(dblChapterSummarySchema).nullish(),
 });
@@ -152,8 +152,8 @@ export interface DblGetBookParams {
 
 const dblChapterNeighborSchema = z.object({
   id: z.string(),
-  bookId: z.string(),
-  number: z.string(),
+  bookId: z.string().nullish(),
+  number: z.coerce.string().nullish(),
 });
 
 /** `GET /bibles/{bibleId}/books/{bookId}/chapters` list-item shape (no content). */
@@ -163,12 +163,12 @@ export type DblChapterListItem = z.infer<typeof dblChapterListItemSchema>;
 /** `GET /bibles/{bibleId}/chapters/{chapterId}` shape — includes verse content. */
 export const dblChapterSchema = z.object({
   id: z.string(),
-  bibleId: z.string(),
-  number: z.string(),
-  bookId: z.string(),
+  bibleId: z.string().nullish(),
+  number: z.string().nullish(),
+  bookId: z.string().nullish(),
   /** Shape depends on the `content-type` query param — see DblContentType. */
   content: z.unknown(),
-  reference: z.string(),
+  reference: z.string().nullish(),
   verseCount: z.number().nullish(),
   next: dblChapterNeighborSchema.nullish(),
   previous: dblChapterNeighborSchema.nullish(),
@@ -176,21 +176,43 @@ export const dblChapterSchema = z.object({
 });
 export type DblChapter = z.infer<typeof dblChapterSchema>;
 
+export const dblTimecodeSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+  verseId: z.string(),
+});
+export type DblTimecode = z.infer<typeof dblTimecodeSchema>;
+
+/** `GET /audio-bibles/{audioBibleId}/chapters/{chapterId}` shape. */
+export const dblAudioChapterSchema = z.object({
+  id: z.string(),
+  bibleId: z.string().nullish(),
+  number: z.string().nullish(),
+  bookId: z.string().nullish(),
+  resourceUrl: z.string(),
+  timecodes: z.array(dblTimecodeSchema).nullish(),
+  expiresAt: z.coerce.number().nullish(),
+  reference: z.string().nullish(),
+  next: dblChapterNeighborSchema.nullish(),
+  previous: dblChapterNeighborSchema.nullish(),
+});
+export type DblAudioChapter = z.infer<typeof dblAudioChapterSchema>;
+
 // ─── Verses ────────────────────────────────────────────────────────────────
 
 const dblVerseNeighborSchema = z.object({
   id: z.string(),
-  bookId: z.string(),
+  bookId: z.string().nullish(),
 });
 
 /** `GET /bibles/{bibleId}/chapters/{chapterId}/verses` list-item shape (no content). */
 export const dblVerseListItemSchema = z.object({
   id: z.string(),
   orgId: z.string().nullish(),
-  bibleId: z.string(),
-  bookId: z.string(),
-  chapterId: z.string(),
-  reference: z.string(),
+  bibleId: z.string().nullish(),
+  bookId: z.string().nullish(),
+  chapterId: z.string().nullish(),
+  reference: z.string().nullish(),
 });
 export type DblVerseListItem = z.infer<typeof dblVerseListItemSchema>;
 
@@ -198,12 +220,12 @@ export type DblVerseListItem = z.infer<typeof dblVerseListItemSchema>;
 export const dblVerseSchema = z.object({
   id: z.string(),
   orgId: z.string().nullish(),
-  bibleId: z.string(),
-  bookId: z.string(),
-  chapterId: z.string(),
+  bibleId: z.string().nullish(),
+  bookId: z.string().nullish(),
+  chapterId: z.string().nullish(),
   /** Shape depends on the `content-type` query param — see DblContentType. */
   content: z.unknown(),
-  reference: z.string(),
+  reference: z.string().nullish(),
   verseCount: z.number().nullish(),
   copyright: z.string().nullish(),
   next: dblVerseNeighborSchema.nullish(),

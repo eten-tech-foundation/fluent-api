@@ -48,7 +48,7 @@ export async function syncBooksFromDbl(
 
       const rows: DblBookUpsertInput[] = booksResult.data.map((b) => ({
         code: b.id,
-        eng_display_name: b.name,
+        eng_display_name: b.name ?? '',
       }));
 
       const upsertResult = await booksRepository.upsertFromDbl(bible.id, rows);

@@ -1,9 +1,12 @@
 import type { PgBoss } from 'pg-boss';
 
+import { eq, sql } from 'drizzle-orm';
+
 import type { DblIngestTextJob } from '../lib/queue';
 
 import { db } from '../db';
-import { bible_texts } from '../db/schema';
+import { bible_texts, project_units } from '../db/schema';
+import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
 import { dblClient } from '../lib/services/dbl/dbl.client';
@@ -25,9 +28,9 @@ import { dblClient } from '../lib/services/dbl/dbl.client';
  *   routes to its retry/dead-letter machinery.
  *
  * Idempotency:
- * - Verse inserts use `onConflictDoNothing()` keyed on the composite unique
+ * - Verse inserts use `onConflictDoUpdate()` keyed on the composite unique
  *   index (bible_id, book_id, chapter_number, verse_number). Re-running the
- *   same job for already-ingested content is a harmless no-op.
+ *   same job overwrites verse text with the latest fetch from the API.
  */
 export async function registerDblIngestTextWorker(boss: PgBoss) {
   const handler = async (
@@ -75,15 +78,37 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
           }
           const verseMetadata = versesResult.data;
 
-          const values: any[] = [];
+          const values: Array<{
+            bibleId: number;
+            bookId: number;
+            chapterNumber: number;
+            verseNumber: number;
+            text: string;
+          }> = [];
 
-          // Fetch the actual text for each verse in parallel (batched if necessary, but chapters are small enough)
+          // Fetch the actual text for each verse in parallel
           const versePromises = verseMetadata.map(async (v) => {
-            const textResult = await dblClient.getVerse(externalId, v.id, { contentType: 'text' });
+            const textResult = await dblClient.getVerse(externalId, v.id, {
+              contentType: 'text',
+              includeNotes: false,
+              includeTitles: false,
+              includeChapterNumbers: false,
+              includeVerseNumbers: false,
+            });
 
             let text = '';
-            if (textResult.ok && typeof textResult.data.content === 'string') {
-              text = textResult.data.content;
+            if (textResult.ok && textResult.data.content) {
+              const rawContent =
+                typeof textResult.data.content === 'string'
+                  ? textResult.data.content
+                  : JSON.stringify(textResult.data.content);
+              text = rawContent
+                .replace(/\[\d+\]/g, '') // Strip embedded bracketed verse numbers like [1], [2]
+                .replace(/[<>«»]/g, '') // Strip USFM quote markers <, >, «, » as individual characters
+                .replace(/\s+/g, ' ') // Normalize spaces
+                .trim();
+            } else if (!textResult.ok) {
+              logger.warn(`Failed to fetch text for verse ${v.id}`, { error: textResult.error });
             }
 
             const parts = v.id.split('.');
@@ -92,18 +117,32 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
             return {
               bibleId,
               bookId: dbBook.id,
-              chapterNumber: Number.parseInt(chapter.number, 10) || 0,
+              chapterNumber: Number.parseInt(chapter.number ?? '', 10) || 0,
               verseNumber,
-              text: text || '', // Fallback to empty string if API omits text
+              text: text || '',
             };
           });
 
           values.push(...(await Promise.all(versePromises)));
 
           if (values.length > 0) {
-            // Idempotent insert: duplicate (bible, book, chapter, verse) tuples
-            // are silently skipped via the composite unique index.
-            await db.insert(bible_texts).values(values).onConflictDoNothing();
+            await db
+              .insert(bible_texts)
+              .values(values)
+              .onConflictDoUpdate({
+                target: [
+                  bible_texts.bibleId,
+                  bible_texts.bookId,
+                  bible_texts.chapterNumber,
+                  bible_texts.verseNumber,
+                ],
+                set: {
+                  text: sql`excluded.text`,
+                },
+              });
+            logger.info(
+              `Ingested chapter ${chapter.number} (${values.length} verses) for book ${code}`
+            );
           }
         } catch (error) {
           // Per-chapter error isolation: log and continue to the next chapter
@@ -114,10 +153,46 @@ export async function registerDblIngestTextWorker(boss: PgBoss) {
     }
 
     logger.info('On-demand text ingestion completed', { bibleId });
+
+    // Once text ingestion completes, ensure chapter assignments exist for the project unit
+    if (job.data.projectId && bookCodes.length > 0) {
+      try {
+        const projectUnits = await db
+          .select({ id: project_units.id })
+          .from(project_units)
+          .where(eq(project_units.projectId, job.data.projectId));
+
+        const bookIds = await db.query.books
+          .findMany({
+            where: (books, { inArray }) => inArray(books.code, bookCodes),
+          })
+          .then((res) => res.map((b) => b.id));
+
+        for (const pu of projectUnits) {
+          if (bookIds.length > 0) {
+            await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
+              pu.id,
+              bibleId,
+              bookIds
+            );
+            logger.info('Created chapter assignments for project unit after text ingestion', {
+              projectId: job.data.projectId,
+              projectUnitId: pu.id,
+              bookIds,
+            });
+          }
+        }
+      } catch (error) {
+        logger.error('Failed to create chapter assignments after text ingestion', { error });
+      }
+    }
   };
 
   // Register the same handler on both queues. pg-boss processes the priority
   // queue first due to the priority=10 value set during job creation.
+  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT);
+  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
+
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT, handler);
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY, handler);
 

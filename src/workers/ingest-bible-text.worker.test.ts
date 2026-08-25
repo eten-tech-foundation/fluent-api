@@ -8,12 +8,25 @@ vi.mock('../db', () => ({
   db: {
     query: {
       bibles: { findFirst: vi.fn() },
-      books: { findFirst: vi.fn() },
+      books: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
+        onConflictDoUpdate: vi.fn().mockResolvedValue(true),
         onConflictDoNothing: vi.fn().mockResolvedValue(true),
       })),
+    })),
+    select: vi.fn(() => ({
+      from: vi.fn(() => {
+        const queryChain: any = {
+          where: vi.fn().mockResolvedValue([]),
+          leftJoin: vi.fn(() => queryChain),
+          innerJoin: vi.fn(() => queryChain),
+          groupBy: vi.fn(() => queryChain),
+          as: vi.fn(() => queryChain),
+        };
+        return queryChain;
+      }),
     })),
   },
 }));
@@ -37,6 +50,7 @@ describe('dblIngestTextWorker', () => {
 
   it('registers handlers for both priority and background queues', async () => {
     const mockBoss = {
+      createQueue: vi.fn().mockResolvedValue(undefined),
       work: vi.fn().mockResolvedValue(undefined),
     } as any;
 
@@ -48,7 +62,7 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('handles partial download error recovery gracefully', async () => {
-    const mockBoss = { work: vi.fn() } as any;
+    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
     await registerDblIngestTextWorker(mockBoss);
 
     // Extract the handler

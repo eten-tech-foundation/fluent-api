@@ -76,7 +76,7 @@ export async function remove(id: number): Promise<Result<void>> {
 
 // ─── DBL sync ──────────────────────────────────────────────────────────────
 
-const UPSERT_CHUNK_SIZE = 1000;
+const UPSERT_CHUNK_SIZE = 100;
 
 export interface DblBibleUpsertInput {
   languageId: number;
@@ -118,7 +118,7 @@ export async function upsertFromDbl(
               languageId: sql`excluded.language_id`,
               provider: sql`excluded.provider`,
               externalId: sql`excluded.external_id`,
-              updatedAt: new Date(),
+              updatedAt: sql`now()`,
             },
           })
           .returning({ wasInsert: sql<boolean>`(xmax = 0)` });

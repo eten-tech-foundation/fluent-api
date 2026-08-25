@@ -6,23 +6,27 @@ import { syncLanguagesFromDbl } from '@/domains/languages/sync/dbl-language-sync
 
 import { logger } from '../lib/logger';
 
-/** Queue name for the weekly DBL catalogue sync job. */
+/** Queue name for the DBL catalogue sync job. */
 export const QUEUE_DBL_SYNC = 'dbl-sync';
 
 /**
  * Registers the DBL sync worker with pg-boss.
  *
- * This worker runs on a weekly cron schedule (Sunday midnight UTC) to keep
- * Fluent's local Bible catalogue in sync with the upstream DBL/API.Bible
- * catalogue. It orchestrates the domain syncs sequentially.
+ * (Note: The background schedule has been removed. If automated syncs are
+ * needed in the future, put the required cron schedule in the environment
+ * variables and configure it here, rather than hardcoding a Sunday schedule.)
  *
- * Error handling: `ingestDblBibles()` propagates errors for total failures,
- * which pg-boss catches and routes to its retry/dead-letter machinery.
- * Partial failures (some Bibles errored but others succeeded) are logged
- * but do not fail the job.
+ * When triggered, it orchestrates the domain syncs sequentially to keep
+ * Fluent's local Bible catalogue in sync with the upstream DBL/API.Bible
+ * catalogue.
+ *
+ * Error handling: each sync step (`syncLanguagesFromDbl`, `syncBiblesFromDbl`,
+ * `syncBooksFromDbl`) returns a Result; a failed step throws so pg-boss
+ * catches it and routes to its retry/dead-letter machinery.
  */
 export async function registerDblSyncWorker(boss: PgBoss) {
   // To trigger it manually, send a job to this queue: await boss.send(QUEUE_DBL_SYNC, {});
+  await boss.createQueue(QUEUE_DBL_SYNC);
 
   await boss.work(QUEUE_DBL_SYNC, async (jobs) => {
     const job = Array.isArray(jobs) ? jobs[0] : jobs;

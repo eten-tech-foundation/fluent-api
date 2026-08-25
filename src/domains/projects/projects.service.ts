@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bible_books, bible_texts, books, pericope_sets } from '@/db/schema';
+import { bible_texts, pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -147,27 +147,21 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
           .where(eq(bible_texts.bibleId, input.bibleId));
         const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
 
-        // 1. Get the requested books for the priority queue
+        // Get all available books for this Bible
+        const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
         const dbBooks = await db.query.books.findMany({
-          where: (books, { inArray }) => inArray(books.id, input.bookId),
+          where: (books, { inArray }) => inArray(books.id, validBookIds),
         });
+
         const priorityBookCodes = dbBooks
-          .filter((b) => !ingestedBookIds.includes(b.id))
+          .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
           .map((b) => b.code);
 
-        // 2. Get all remaining books in the bible for the background queue
-        const allBibleBooks = await db
-          .select({ code: books.code, id: books.id })
-          .from(bible_books)
-          .innerJoin(books, eq(bible_books.bookId, books.id))
-          .where(eq(bible_books.bibleId, input.bibleId));
-
-        // Filter out books already in the priority queue or already ingested
-        const remainingBookCodes = allBibleBooks
-          .filter((b) => !priorityBookCodes.includes(b.code) && !ingestedBookIds.includes(b.id))
+        const backgroundBookCodes = dbBooks
+          .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
           .map((b) => b.code);
 
-        // Enqueue Priority Job (Higher urgency)
+        // Enqueue priority ingestion for the exact requested books
         if (priorityBookCodes.length > 0) {
           await queue.send(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
@@ -177,23 +171,23 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
               bookCodes: priorityBookCodes,
             },
             { priority: 10 }
-          ); // pg-boss priority (higher is processed first)
-          logger.info('Enqueued PRIORITY text ingestion job', {
+          );
+          logger.info('Enqueued text ingestion job for requested books', {
             projectId: result.data.id,
-            bookCount: priorityBookCodes.length,
+            bookCodes: priorityBookCodes,
           });
         }
 
-        // Enqueue Background Job
-        if (remainingBookCodes.length > 0) {
+        // Enqueue background ingestion for the remaining books in the Bible
+        if (backgroundBookCodes.length > 0) {
           await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
             projectId: result.data.id,
             bibleId: input.bibleId,
-            bookCodes: remainingBookCodes,
+            bookCodes: backgroundBookCodes,
           });
-          logger.info('Enqueued BACKGROUND text ingestion job', {
+          logger.info('Enqueued text ingestion job for remaining books', {
             projectId: result.data.id,
-            bookCount: remainingBookCodes.length,
+            bookCodes: backgroundBookCodes,
           });
         }
       } catch (error) {

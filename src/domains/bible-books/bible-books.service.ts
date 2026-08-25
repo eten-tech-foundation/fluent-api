@@ -14,8 +14,8 @@ function toDetailResponse(record: BibleBookWithDetails): BibleBookDetailResponse
   return {
     bibleId: record.bibleId,
     bookId: record.bookId,
-    createdAt: record.createdAt?.toISOString() ?? null,
-    updatedAt: record.updatedAt?.toISOString() ?? null,
+    createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : null,
+    updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : null,
     book: {
       id: record.book.id,
       code: record.book.code,
@@ -32,8 +32,8 @@ function toResponse(record: BibleBook): BibleBookResponse {
   return {
     bibleId: record.bibleId,
     bookId: record.bookId,
-    createdAt: record.createdAt?.toISOString() ?? null,
-    updatedAt: record.updatedAt?.toISOString() ?? null,
+    createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : null,
+    updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : null,
   };
 }
 

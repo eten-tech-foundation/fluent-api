@@ -10,13 +10,15 @@ import type { DblBibleUpsertSummary } from '../bibles.repository';
 
 import { syncBiblesFromDbl } from './dbl-bible-sync';
 
-const { mockUpsertFromDbl, mockGetAllLanguages } = vi.hoisted(() => ({
+const { mockUpsertFromDbl, mockGetAllBibles, mockGetAllLanguages } = vi.hoisted(() => ({
   mockUpsertFromDbl: vi.fn(),
+  mockGetAllBibles: vi.fn(),
   mockGetAllLanguages: vi.fn(),
 }));
 
 vi.mock('../bibles.repository', () => ({
   upsertFromDbl: mockUpsertFromDbl,
+  getAll: mockGetAllBibles,
 }));
 
 vi.mock('@/domains/languages/languages.repository', () => ({
@@ -56,12 +58,14 @@ function fakeClient(bibles: DblBibleSummary[]): DblClient {
     getVerses: vi.fn(),
     getVerse: vi.fn(),
     getPassage: vi.fn(),
+    getAudioChapter: vi.fn(),
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockUpsertFromDbl.mockResolvedValue(ok({ inserted: 0, updated: 0 } as DblBibleUpsertSummary));
+  mockGetAllBibles.mockResolvedValue(ok([]));
   mockGetAllLanguages.mockResolvedValue(ok([{ id: 100, langCodeIso6393: 'eng' }] as Language[]));
 });
 

@@ -3,7 +3,6 @@ import type { Result } from '@/lib/types';
 
 import { normalizeIso6393Code } from '@/domains/languages/import/iso';
 import * as languagesRepository from '@/domains/languages/languages.repository';
-import { logger } from '@/lib/logger';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
 
 import type { DblBibleUpsertInput } from '../bibles.repository';
@@ -42,7 +41,18 @@ export async function syncBiblesFromDbl(
   }
 
   const rows: DblBibleUpsertInput[] = [];
+  const seenAbbreviations = new Set<string>();
+  const seenNames = new Set<string>();
   let skippedMissingLanguage = 0;
+
+  // Pre-populate with existing DB bibles to prevent collisions with seed/existing data
+  const existingResult = await biblesRepository.getAll();
+  if (existingResult.ok) {
+    for (const b of existingResult.data) {
+      if (b.abbreviation) seenAbbreviations.add(b.abbreviation.toLowerCase());
+      if (b.name) seenNames.add(b.name.toLowerCase());
+    }
+  }
 
   for (const bible of allBibles) {
     if (!bible.language) {
@@ -58,15 +68,37 @@ export async function syncBiblesFromDbl(
 
     const languageId = langCodeToId.get(code);
     if (!languageId) {
-      logger.warn(`Skipping Bible ${bible.abbreviation} - language ${code} not found in DB`);
       skippedMissingLanguage++;
       continue;
     }
 
+    const baseAbbrev = (bible.abbreviationLocal || bible.abbreviation || 'BIBLE').trim();
+    let abbrev = baseAbbrev;
+    let counter = 1;
+
+    while (seenAbbreviations.has(abbrev.toLowerCase())) {
+      abbrev = `${baseAbbrev}-${bible.id.slice(0, 6)}${counter > 1 ? `-${counter}` : ''}`;
+      counter++;
+    }
+    seenAbbreviations.add(abbrev.toLowerCase());
+
+    const baseName = (bible.name || bible.nameLocal || abbrev).trim();
+    let name = baseName;
+    counter = 1;
+
+    while (seenNames.has(name.toLowerCase())) {
+      name = `${baseName} (${abbrev})`;
+      if (seenNames.has(name.toLowerCase())) {
+        name = `${baseName} (${abbrev}-${counter})`;
+        counter++;
+      }
+    }
+    seenNames.add(name.toLowerCase());
+
     rows.push({
       languageId,
-      name: bible.name,
-      abbreviation: bible.abbreviationLocal || bible.abbreviation,
+      name,
+      abbreviation: abbrev,
       provider: 'dbl',
       externalId: bible.id,
     });

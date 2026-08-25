@@ -20,7 +20,7 @@ export async function getAll(): Promise<Result<Language[]>> {
 
 export async function getById(id: number): Promise<Result<Language>> {
   try {
-    const [language] = await db.select().from(languages).where(eq(languages.id, id));
+    const [language] = await db.select().from(languages).where(eq(languages.id, id)).limit(1);
 
     if (!language) return err(ErrorCode.LANGUAGE_NOT_FOUND);
     return ok(language);
@@ -56,8 +56,9 @@ export interface DblLanguageUpsertSummary {
 /**
  * Upserts languages keyed on `langCodeIso6393` (matches the DB's unique
  * constraint on that column): new codes are inserted as full rows; existing
- * codes only have NULL fields filled in from DBL via COALESCE — data that
- * is already present in the database is never overwritten.
+ * codes only have NULL fields filled in from DBL via COALESCE — core data that
+ * is already present in the database is never overwritten (though updatedAt is
+ * touched on conflict).
  * Rows with no `langCodeIso6393` are never touched by this path.
  */
 export async function upsertFromDbl(

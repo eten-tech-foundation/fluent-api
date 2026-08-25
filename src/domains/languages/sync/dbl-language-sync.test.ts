@@ -51,6 +51,7 @@ function fakeClient(bibles: DblBibleSummary[]): DblClient {
     getVerses: vi.fn(),
     getVerse: vi.fn(),
     getPassage: vi.fn(),
+    getAudioChapter: vi.fn(),
   };
 }
 
@@ -77,6 +78,7 @@ describe('syncLanguagesFromDbl', () => {
       getVerses: vi.fn(),
       getVerse: vi.fn(),
       getPassage: vi.fn(),
+      getAudioChapter: vi.fn(),
     };
 
     const result = await syncLanguagesFromDbl(client);

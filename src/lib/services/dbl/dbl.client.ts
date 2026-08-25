@@ -7,6 +7,7 @@ import { logger } from '@/lib/logger';
 import { ErrorCode, ErrorMessages } from '@/lib/types';
 
 import type {
+  DblAudioChapter,
   DblBible,
   DblBook,
   DblChapter,
@@ -21,6 +22,7 @@ import type {
 } from './dbl.types';
 
 import {
+  dblAudioChapterSchema,
   dblBibleSchema,
   dblBibleSummarySchema,
   dblBookSchema,
@@ -194,10 +196,13 @@ async function dblRequest<T>(
   const envelope = parsed as { data: unknown };
   const dataResult = dataSchema.safeParse(envelope.data);
   if (!dataResult.success) {
-    logger.error('DBL API response failed schema validation', {
-      path,
-      zodErrors: dataResult.error.issues,
-    });
+    logger.error(
+      `DBL API response failed schema validation for path [${path}]: ${JSON.stringify(dataResult.error.issues)}`,
+      {
+        path,
+        zodErrors: dataResult.error.issues,
+      }
+    );
     return dblError(ErrorCode.DBL_SERVICE_UNAVAILABLE, 'malformed response payload from DBL API');
   }
 
@@ -277,6 +282,12 @@ export interface DblClient {
     params?: DblContentQueryParams,
     options?: DblRequestOptions
   ) => Promise<Result<DblPassage>>;
+  /** GET /audio-bibles/{audioBibleId}/chapters/{chapterId} */
+  getAudioChapter: (
+    audioBibleId: string,
+    chapterId: string,
+    options?: DblRequestOptions
+  ) => Promise<Result<DblAudioChapter>>;
 }
 
 // ─── Factory ───────────────────────────────────────────────────────────────
@@ -383,6 +394,16 @@ export function createDblClient(config: DblClientConfig): DblClient {
         `bibles/${encodeURIComponent(bibleId)}/passages/${encodeURIComponent(passageId)}`,
         contentParamsToQuery(params),
         dblPassageSchema,
+        options
+      );
+    },
+
+    getAudioChapter(audioBibleId, chapterId, options) {
+      return dblRequest(
+        config,
+        `audio-bibles/${encodeURIComponent(audioBibleId)}/chapters/${encodeURIComponent(chapterId)}`,
+        {},
+        dblAudioChapterSchema,
         options
       );
     },
