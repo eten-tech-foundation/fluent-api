@@ -75,18 +75,17 @@ function schemaIssueSummary(error: unknown): string {
     .slice(0, MAX_LOGGED_SCHEMA_ISSUES)
     .map((i) => `${(i.path ?? []).join('.') || '<root>'}: ${i.message ?? 'invalid'}`)
     .join('; ');
-  const extra = issues.length > MAX_LOGGED_SCHEMA_ISSUES
-    ? ` (+${issues.length - MAX_LOGGED_SCHEMA_ISSUES} more)`
-    : '';
+  const extra =
+    issues.length > MAX_LOGGED_SCHEMA_ISSUES
+      ? ` (+${issues.length - MAX_LOGGED_SCHEMA_ISSUES} more)`
+      : '';
   return `${shown}${extra}`;
 }
 
 async function aquiferGet<T>(
   path: string,
   schema: {
-    safeParse: (
-      data: unknown
-    ) => { success: true; data: T } | { success: false; error?: unknown };
+    safeParse: (data: unknown) => { success: true; data: T } | { success: false; error?: unknown };
   },
   query?: URLSearchParams,
   timeoutMs = DEFAULT_TIMEOUT_MS
