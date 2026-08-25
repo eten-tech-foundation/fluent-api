@@ -100,6 +100,29 @@ describe('aquifer.client', () => {
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
         expect(result.error.message).toContain('HTTP 401');
+        // The upstream body carries the real reason — it must reach the log.
+        expect(result.error.message).toContain('bad key');
+        expect(result.error.message).toContain('/resources/search');
+      }
+    });
+
+    it('includes zod issue detail when the payload fails schema validation', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ totalItemCount: 'not-a-number', returnedItemCount: 0, offset: 0, items: [] })
+      );
+
+      const result = await searchResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('schema validation');
+        expect(result.error.message).toContain('totalItemCount');
       }
     });
 
