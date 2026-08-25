@@ -37,6 +37,7 @@ vi.mock('@/lib/audio-storage', () => ({
 vi.mock('./storage-objects.repository', () => ({
   claim: vi.fn(),
   getById: vi.fn(),
+  getByIds: vi.fn(),
   markDeleted: vi.fn(),
   findOrphans: vi.fn(),
 }));
@@ -122,6 +123,7 @@ describe('verse-audio service', () => {
         deletedAt: null,
       })
     );
+    vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
@@ -158,6 +160,21 @@ describe('verse-audio service', () => {
         expect.objectContaining({ activeTakeId: 10 }),
         { requireNullActiveTake: true }
       );
+    });
+
+    it('does not flag conflict when a concurrent first upload reloads the same active take', async () => {
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok(record));
+      // Race loser reloads the winner's already-linked unit.
+      vi.mocked(repo.insertRecording).mockResolvedValue(ok(record));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(take));
+
+      const result = await uploadRecording(uploadInput);
+
+      expect(result.ok).toBe(true);
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
     });
 
     it('rejects unsupported content types without touching storage', async () => {
@@ -422,6 +439,44 @@ describe('verse-audio service', () => {
         expect(result.data.downloadUrl).toContain('https://r2.example/');
         expect(result.data.versionToken).toBe(1);
       }
+      // Hash-keyed objects derive the blob name — no storage_objects round trip.
+      expect(storageRepo.getByIds).not.toHaveBeenCalled();
+      expect(storageRepo.getById).not.toHaveBeenCalled();
+      expect(generateAudioDownloadUrl).toHaveBeenCalledWith(
+        `unit-12/text-3401/${take.contentHash}`
+      );
+    });
+
+    it('looks up legacy storage keys in one batch when contentHash is a placeholder', async () => {
+      const legacyTake: VerseAudioTakeRecord = {
+        ...take,
+        contentHash: 'legacy-1',
+      };
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([legacyTake]));
+      vi.mocked(storageRepo.getByIds).mockResolvedValue(
+        ok([
+          {
+            id: 55,
+            bucket: 'verse-audio',
+            key: 'unit-12/text-3401',
+            createdAt: new Date(),
+            deletedAt: null,
+          },
+        ])
+      );
+
+      const result = await getRecording(12, 3401);
+
+      expect(storageRepo.getByIds).toHaveBeenCalledTimes(1);
+      expect(storageRepo.getByIds).toHaveBeenCalledWith([55]);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.downloadUrl).toBe('https://r2.example/unit-12/text-3401?sig=x');
+        expect(result.data.takes[0]?.downloadUrl).toBe(
+          'https://r2.example/unit-12/text-3401?sig=x'
+        );
+      }
     });
 
     it('propagates not-found from the repository', async () => {
@@ -454,6 +509,62 @@ describe('verse-audio service', () => {
       if (result.ok) {
         expect(result.data.items).toHaveLength(2);
         expect(result.data.hasConflict).toBe(true);
+      }
+      expect(storageRepo.getByIds).not.toHaveBeenCalled();
+    });
+
+    it('batches a single getByIds for legacy takes across the chapter', async () => {
+      const legacyA = { ...record, storageObjectId: 55 };
+      const legacyB = {
+        ...record,
+        id: 2,
+        bibleTextId: 3402,
+        verseNumber: 4,
+        storageObjectId: 66,
+        activeTakeId: 20,
+      };
+      const takeA: VerseAudioTakeRecord = { ...take, contentHash: 'legacy-1', storageObjectId: 55 };
+      const takeB: VerseAudioTakeRecord = {
+        ...take,
+        id: 20,
+        recordingId: 2,
+        contentHash: 'legacy-2',
+        storageObjectId: 66,
+      };
+      vi.mocked(repo.listByChapter).mockResolvedValue(ok([legacyA, legacyB]));
+      vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([takeA, takeB]));
+      vi.mocked(storageRepo.getByIds).mockResolvedValue(
+        ok([
+          {
+            id: 55,
+            bucket: 'verse-audio',
+            key: 'unit-12/text-3401',
+            createdAt: new Date(),
+            deletedAt: null,
+          },
+          {
+            id: 66,
+            bucket: 'verse-audio',
+            key: 'unit-12/text-3402',
+            createdAt: new Date(),
+            deletedAt: null,
+          },
+        ])
+      );
+
+      const result = await listChapterRecordings(12, 1, 3);
+
+      expect(storageRepo.getByIds).toHaveBeenCalledTimes(1);
+      expect(storageRepo.getByIds).toHaveBeenCalledWith([55, 66]);
+      expect(storageRepo.getById).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items[0]?.downloadUrl).toBe(
+          'https://r2.example/unit-12/text-3401?sig=x'
+        );
+        expect(result.data.items[1]?.downloadUrl).toBe(
+          'https://r2.example/unit-12/text-3402?sig=x'
+        );
       }
     });
   });

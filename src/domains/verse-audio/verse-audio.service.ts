@@ -28,6 +28,9 @@ import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
 import { ALLOWED_AUDIO_CONTENT_TYPES, VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
+/** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
+const LEGACY_CONTENT_HASH_PREFIX = 'legacy-';
+
 function contentHashOf(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
@@ -36,25 +39,83 @@ function toIso(date: Date): string {
   return date.toISOString();
 }
 
-async function downloadUrlForStorageObjectId(
+function isLegacyContentHash(contentHash: string): boolean {
+  return contentHash.startsWith(LEGACY_CONTENT_HASH_PREFIX);
+}
+
+/** Pre-hash object key (`unit-{id}/text-{id}`) used before contentHash entered the path. */
+function legacyBlobName(projectUnitId: number, bibleTextId: number): string {
+  return `unit-${projectUnitId}/text-${bibleTextId}`;
+}
+
+function fallbackBlobKey(projectUnitId: number, bibleTextId: number, contentHash: string): string {
+  return isLegacyContentHash(contentHash)
+    ? legacyBlobName(projectUnitId, bibleTextId)
+    : audioBlobName(projectUnitId, bibleTextId, contentHash);
+}
+
+async function storageKeysById(ids: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (ids.length === 0) {
+    return map;
+  }
+
+  const result = await storageRepo.getByIds(ids);
+  if (!result.ok) {
+    return map;
+  }
+  for (const row of result.data) {
+    map.set(row.id, row.key);
+  }
+  return map;
+}
+
+/**
+ * Modern takes use a deterministic hash-keyed blob name — no DB round trip.
+ * Legacy backfill rows still need storage_objects.key (old path without hash).
+ */
+function resolveDownloadUrl(
   storageObjectId: number | null,
-  fallbackKey: string
+  contentHash: string,
+  projectUnitId: number,
+  bibleTextId: number,
+  keysById: Map<number, string>
 ): Promise<string> {
-  if (storageObjectId !== null) {
-    const storage = await storageRepo.getById(storageObjectId);
-    if (storage.ok) {
-      return generateAudioDownloadUrl(storage.data.key);
+  if (isLegacyContentHash(contentHash) && storageObjectId !== null) {
+    const key = keysById.get(storageObjectId);
+    if (key) {
+      return generateAudioDownloadUrl(key);
     }
   }
-  return generateAudioDownloadUrl(fallbackKey);
+  return generateAudioDownloadUrl(fallbackBlobKey(projectUnitId, bibleTextId, contentHash));
+}
+
+function collectLegacyStorageObjectIds(
+  entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
+): number[] {
+  const ids = new Set<number>();
+  for (const { record, takes } of entries) {
+    for (const take of takes) {
+      if (isLegacyContentHash(take.contentHash) && take.storageObjectId !== null) {
+        ids.add(take.storageObjectId);
+      }
+    }
+
+    const active = takes.find((t) => t.id === record.activeTakeId) ?? takes[takes.length - 1];
+    const activeIsLegacy = active ? isLegacyContentHash(active.contentHash) : true;
+    if (activeIsLegacy && record.storageObjectId !== null) {
+      ids.add(record.storageObjectId);
+    }
+  }
+  return [...ids];
 }
 
 async function takeWithUrl(
   take: VerseAudioTakeRecord,
   projectUnitId: number,
-  bibleTextId: number
+  bibleTextId: number,
+  keysById: Map<number, string>
 ): Promise<VerseAudioTakeWithUrl> {
-  const fallbackKey = audioBlobName(projectUnitId, bibleTextId, take.contentHash);
   return {
     id: take.id,
     uploadedBy: take.uploadedBy,
@@ -62,7 +123,13 @@ async function takeWithUrl(
     sizeBytes: take.sizeBytes,
     durationSeconds: take.durationSeconds,
     contentHash: take.contentHash,
-    downloadUrl: await downloadUrlForStorageObjectId(take.storageObjectId, fallbackKey),
+    downloadUrl: await resolveDownloadUrl(
+      take.storageObjectId,
+      take.contentHash,
+      projectUnitId,
+      bibleTextId,
+      keysById
+    ),
     createdAt: toIso(take.createdAt),
     updatedAt: toIso(take.updatedAt),
   };
@@ -70,20 +137,17 @@ async function takeWithUrl(
 
 async function withTakesAndUrl(
   record: VerseAudioRecord,
-  takes: VerseAudioTakeRecord[]
+  takes: VerseAudioTakeRecord[],
+  keysById: Map<number, string>
 ): Promise<VerseAudioWithUrl> {
   const takeViews = await Promise.all(
-    takes.map((take) => takeWithUrl(take, record.projectUnitId, record.bibleTextId))
+    takes.map((take) => takeWithUrl(take, record.projectUnitId, record.bibleTextId, keysById))
   );
 
   const active =
     takeViews.find((t) => t.id === record.activeTakeId) ?? takeViews[takeViews.length - 1];
 
-  const fallbackKey = audioBlobName(
-    record.projectUnitId,
-    record.bibleTextId,
-    active?.contentHash ?? 'missing'
-  );
+  const activeHash = active?.contentHash ?? `${LEGACY_CONTENT_HASH_PREFIX}missing`;
 
   return {
     id: record.id,
@@ -97,11 +161,24 @@ async function withTakesAndUrl(
     conflictStatus: record.conflictStatus,
     activeTakeId: record.activeTakeId,
     verseNumber: record.verseNumber,
-    downloadUrl: await downloadUrlForStorageObjectId(record.storageObjectId, fallbackKey),
+    downloadUrl: await resolveDownloadUrl(
+      record.storageObjectId,
+      activeHash,
+      record.projectUnitId,
+      record.bibleTextId,
+      keysById
+    ),
     takes: takeViews,
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };
+}
+
+async function buildRecordingResponses(
+  entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
+): Promise<VerseAudioWithUrl[]> {
+  const keysById = await storageKeysById(collectLegacyStorageObjectIds(entries));
+  return Promise.all(entries.map(({ record, takes }) => withTakesAndUrl(record, takes, keysById)));
 }
 
 async function loadUnitResponse(
@@ -118,7 +195,11 @@ async function loadUnitResponse(
     return takes;
   }
 
-  return ok(await withTakesAndUrl(recording.data, takes.data));
+  const [response] = await buildRecordingResponses([{ record: recording.data, takes: takes.data }]);
+  if (!response) {
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+  return ok(response);
 }
 
 async function storeTakeBytes(
@@ -211,7 +292,11 @@ export async function uploadRecording(
 
     // If another writer already finished this unit, keep their active take and
     // surface our take as a conflict instead of clobbering version state.
+    // Identical bytes that reloaded the winner's own active take are idempotent.
     if (created.data.activeTakeId !== null || created.data.versionToken !== 1) {
+      if (take.data.id === created.data.activeTakeId) {
+        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+      }
       const marked = await repo.markConflictPreservingActive(created.data.id);
       if (!marked.ok) {
         return marked;
@@ -236,6 +321,11 @@ export async function uploadRecording(
       return linked;
     }
     if (!linked.data.applied) {
+      // Same-bytes race: winner already linked our take (via onConflictDoNothing).
+      const current = await repo.get(input.projectUnitId, input.bibleTextId);
+      if (current.ok && current.data.activeTakeId === take.data.id) {
+        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+      }
       const marked = await repo.markConflictPreservingActive(created.data.id);
       if (!marked.ok) {
         return marked;
@@ -384,8 +474,11 @@ export async function listChapterRecordings(
     takesByRecording.set(take.recordingId, list);
   }
 
-  const items = await Promise.all(
-    result.data.map((record) => withTakesAndUrl(record, takesByRecording.get(record.id) ?? []))
+  const items = await buildRecordingResponses(
+    result.data.map((record) => ({
+      record,
+      takes: takesByRecording.get(record.id) ?? [],
+    }))
   );
 
   const hasConflict = items.some(

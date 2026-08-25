@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -63,6 +63,29 @@ export async function getById(id: number): Promise<Result<StorageObjectRecord>> 
       cause: error,
       message: 'Failed to get storage object',
       context: { id },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** One round trip for many ids (chapter/unit URL assembly). Missing ids are omitted. */
+export async function getByIds(ids: number[]): Promise<Result<StorageObjectRecord[]>> {
+  if (ids.length === 0) {
+    return ok([]);
+  }
+
+  try {
+    const uniqueIds = [...new Set(ids)];
+    const rows = await db
+      .select()
+      .from(storage_objects)
+      .where(inArray(storage_objects.id, uniqueIds));
+    return ok(rows);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get storage objects by ids',
+      context: { ids },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
