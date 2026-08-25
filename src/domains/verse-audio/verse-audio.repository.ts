@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -256,13 +256,19 @@ export async function insertRecording(
 
 export interface RecordingStatePatch {
   uploadedBy?: number;
-  storageObjectId?: number;
+  /** Pass `null` to clear; omit (`undefined`) to leave unchanged. */
+  storageObjectId?: number | null;
   contentType?: string;
   sizeBytes?: number;
   durationSeconds?: number | null;
   versionToken?: number;
   conflictStatus?: VerseAudioConflictStatus;
   activeTakeId?: number | null;
+}
+
+export interface UpdateIfVersionOptions {
+  /** First-take link: only succeed while no active take is set yet. */
+  requireNullActiveTake?: boolean;
 }
 
 export async function updateRecordingState(
@@ -303,18 +309,22 @@ export async function updateRecordingState(
 export async function updateRecordingStateIfVersion(
   recordingId: number,
   expectedVersionToken: number,
-  patch: RecordingStatePatch
+  patch: RecordingStatePatch,
+  options?: UpdateIfVersionOptions
 ): Promise<Result<{ applied: boolean; record: VerseAudioRecord | null }>> {
   try {
+    const predicates = [
+      eq(verse_audio_recordings.id, recordingId),
+      eq(verse_audio_recordings.versionToken, expectedVersionToken),
+    ];
+    if (options?.requireNullActiveTake) {
+      predicates.push(isNull(verse_audio_recordings.activeTakeId));
+    }
+
     const [row] = await db
       .update(verse_audio_recordings)
       .set({ ...patch, updatedAt: new Date() })
-      .where(
-        and(
-          eq(verse_audio_recordings.id, recordingId),
-          eq(verse_audio_recordings.versionToken, expectedVersionToken)
-        )
-      )
+      .where(and(...predicates))
       .returning();
 
     if (!row) {
@@ -331,7 +341,7 @@ export async function updateRecordingStateIfVersion(
     logger.error({
       cause: error,
       message: 'Failed to conditionally update verse audio recording state',
-      context: { recordingId, expectedVersionToken, patch },
+      context: { recordingId, expectedVersionToken, patch, options },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -401,38 +411,4 @@ export async function listTakesForRecording(
   recordingId: number
 ): Promise<Result<VerseAudioTakeRecord[]>> {
   return listTakesByRecordingIds([recordingId]);
-}
-
-/**
- * Chapter-level conflict rollup: true when any unit in the chapter is in conflict.
- */
-export async function chapterHasConflict(
-  projectUnitId: number,
-  bookId: number,
-  chapterNumber: number
-): Promise<Result<boolean>> {
-  try {
-    const [row] = await db
-      .select({ id: verse_audio_recordings.id })
-      .from(verse_audio_recordings)
-      .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
-      .where(
-        and(
-          eq(verse_audio_recordings.projectUnitId, projectUnitId),
-          eq(bible_texts.bookId, bookId),
-          eq(bible_texts.chapterNumber, chapterNumber),
-          eq(verse_audio_recordings.conflictStatus, 'conflict')
-        )
-      )
-      .limit(1);
-
-    return ok(Boolean(row));
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to compute chapter verse-audio conflict rollup',
-      context: { projectUnitId, bookId, chapterNumber },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
 }

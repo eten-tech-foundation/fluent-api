@@ -100,7 +100,7 @@ const uploadVerseAudioRoute = createRoute({
             }),
             baseVersionToken: z.coerce.number().int().nonnegative().optional().openapi({
               description:
-                'Last-known unit versionToken. Matching token updates cleanly; stale/missing when a take already exists stores a conflicting take.',
+                'Last-known unit versionToken. Matching or omitted token updates the active take; a present-but-stale token keeps both takes and marks conflict.',
               example: 1,
             }),
           }),
@@ -126,7 +126,7 @@ const uploadVerseAudioRoute = createRoute({
   },
   summary: 'Upload an audio take for a verse',
   description:
-    'Versioned upload: send baseVersionToken from the client’s last sync. Matching base replaces the active take; stale/missing base keeps both takes and marks conflict. Identical contentHash retries are idempotent.',
+    'Versioned upload: send baseVersionToken from the client’s last sync. Matching or omitted base replaces the active take; a present-but-stale base keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh).',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
@@ -294,11 +294,15 @@ const resolveVerseAudioRoute = createRoute({
       createMessageObjectSchema('Bad request'),
       'Invalid parameters'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Version token changed concurrently; reload and retry'
+    ),
     ...commonErrorResponses,
   },
   summary: 'Resolve a verse-audio conflict by selecting the active take',
   description:
-    'Designates takeId as active, clears conflictStatus, and advances versionToken. Non-selected takes are retained.',
+    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. Non-selected takes are retained. Returns 409 if another writer advanced the token first.',
 });
 
 server.openapi(resolveVerseAudioRoute, async (c) => {

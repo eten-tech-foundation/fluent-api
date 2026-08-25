@@ -219,14 +219,19 @@ export async function uploadRecording(
       return loadUnitResponse(input.projectUnitId, input.bibleTextId);
     }
 
-    const linked = await repo.updateRecordingStateIfVersion(created.data.id, 1, {
-      activeTakeId: take.data.id,
-      uploadedBy: input.uploadedBy,
-      storageObjectId: stored.data.storageObjectId,
-      contentType: input.contentType,
-      sizeBytes: input.data.length,
-      durationSeconds,
-    });
+    const linked = await repo.updateRecordingStateIfVersion(
+      created.data.id,
+      1,
+      {
+        activeTakeId: take.data.id,
+        uploadedBy: input.uploadedBy,
+        storageObjectId: stored.data.storageObjectId,
+        contentType: input.contentType,
+        sizeBytes: input.data.length,
+        durationSeconds,
+      },
+      { requireNullActiveTake: true }
+    );
     if (!linked.ok) {
       return linked;
     }
@@ -242,17 +247,44 @@ export async function uploadRecording(
 
   const unit = existing.data;
 
-  // Idempotent retry: identical bytes already stored for this unit.
+  // Idempotent retry / intentional revert onto an existing take's bytes.
   const duplicate = await repo.findTakeByContentHash(unit.id, contentHash);
   if (!duplicate.ok) {
     return duplicate;
   }
+
+  // Absent token = legacy clients that still expect last-writer-wins replace.
+  // Present-but-wrong token = true conflict (offline stale base).
+  const baseMatches =
+    input.baseVersionToken === undefined || input.baseVersionToken === unit.versionToken;
+
   if (duplicate.data) {
+    if (duplicate.data.id === unit.activeTakeId || !baseMatches) {
+      return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+    }
+
+    // Same bytes as a non-active take with a fresh base — promote (revert).
+    const promoted = await repo.updateRecordingStateIfVersion(unit.id, unit.versionToken, {
+      uploadedBy: duplicate.data.uploadedBy,
+      storageObjectId: duplicate.data.storageObjectId,
+      contentType: duplicate.data.contentType,
+      sizeBytes: duplicate.data.sizeBytes,
+      durationSeconds: duplicate.data.durationSeconds,
+      versionToken: unit.versionToken + 1,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      activeTakeId: duplicate.data.id,
+    });
+    if (!promoted.ok) {
+      return promoted;
+    }
+    if (!promoted.data.applied) {
+      const marked = await repo.markConflictPreservingActive(unit.id);
+      if (!marked.ok) {
+        return marked;
+      }
+    }
     return loadUnitResponse(input.projectUnitId, input.bibleTextId);
   }
-
-  const baseMatches =
-    input.baseVersionToken !== undefined && input.baseVersionToken === unit.versionToken;
 
   const stored = await storeTakeBytes(
     input.projectUnitId,
@@ -304,7 +336,7 @@ export async function uploadRecording(
       }
     }
   } else {
-    // Stale or missing base: keep prior active take, mark conflict, still bump token.
+    // Stale base: keep prior active take, mark conflict, still bump token.
     const updated = await repo.updateRecordingStateIfVersion(unit.id, observedVersion, {
       versionToken: nextVersion,
       conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
@@ -379,18 +411,26 @@ export async function resolveConflict(
     return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
   }
 
-  const updated = await repo.updateRecordingState(recording.data.id, {
-    uploadedBy: take.data.uploadedBy,
-    storageObjectId: take.data.storageObjectId ?? undefined,
-    contentType: take.data.contentType,
-    sizeBytes: take.data.sizeBytes,
-    durationSeconds: take.data.durationSeconds,
-    activeTakeId: take.data.id,
-    conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
-    versionToken: recording.data.versionToken + 1,
-  });
+  const updated = await repo.updateRecordingStateIfVersion(
+    recording.data.id,
+    recording.data.versionToken,
+    {
+      uploadedBy: take.data.uploadedBy,
+      storageObjectId: take.data.storageObjectId,
+      contentType: take.data.contentType,
+      sizeBytes: take.data.sizeBytes,
+      durationSeconds: take.data.durationSeconds,
+      activeTakeId: take.data.id,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      versionToken: recording.data.versionToken + 1,
+    }
+  );
   if (!updated.ok) {
     return updated;
+  }
+  if (!updated.data.applied) {
+    // Concurrent upload advanced the token — client should reload and retry.
+    return err(ErrorCode.CONFLICT);
   }
 
   return loadUnitResponse(input.projectUnitId, input.bibleTextId);
@@ -478,13 +518,4 @@ export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
     logger.info('Reclaimed orphaned verse audio objects', { reclaimed });
   }
   return ok(reclaimed);
-}
-
-/** Used by chapter-assignment progress enrichment. */
-export async function chapterHasConflict(
-  projectUnitId: number,
-  bookId: number,
-  chapterNumber: number
-): Promise<Result<boolean>> {
-  return repo.chapterHasConflict(projectUnitId, bookId, chapterNumber);
 }
