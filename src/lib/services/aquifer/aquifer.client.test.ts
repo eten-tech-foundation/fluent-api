@@ -81,6 +81,8 @@ describe('aquifer.client', () => {
         method: 'GET',
         headers: expect.objectContaining({ 'api-key': env.AQUIFER_API_KEY }),
       });
+      // Bodyless GET: sending Content-Type makes Aquifer 400 on the empty body.
+      expect(init?.headers).not.toHaveProperty('Content-Type');
     });
 
     it('maps a non-2xx response to AQUIFER_SERVICE_UNAVAILABLE', async () => {

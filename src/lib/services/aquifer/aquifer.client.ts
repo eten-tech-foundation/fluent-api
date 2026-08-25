@@ -72,8 +72,9 @@ async function aquiferGet<T>(
   try {
     response = await fetch(url, {
       method: 'GET',
+      // No Content-Type: these are bodyless GETs, and declaring application/json
+      // makes Aquifer's deserializer reject the empty body with HTTP 400.
       headers: {
-        'Content-Type': 'application/json',
         'api-key': env.AQUIFER_API_KEY!,
       },
       signal: controller.signal,
