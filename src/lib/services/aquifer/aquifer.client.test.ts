@@ -81,6 +81,8 @@ describe('aquifer.client', () => {
         method: 'GET',
         headers: expect.objectContaining({ 'api-key': env.AQUIFER_API_KEY }),
       });
+      // Bodyless GET: sending Content-Type makes Aquifer 400 on the empty body.
+      expect(init?.headers).not.toHaveProperty('Content-Type');
     });
 
     it('maps a non-2xx response to AQUIFER_SERVICE_UNAVAILABLE', async () => {
@@ -98,6 +100,60 @@ describe('aquifer.client', () => {
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
         expect(result.error.message).toContain('HTTP 401');
+        // The upstream body carries the real reason — it must reach the log.
+        expect(result.error.message).toContain('bad key');
+        expect(result.error.message).toContain('/resources/search');
+      }
+    });
+
+    it('includes zod issue detail when the payload fails schema validation', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ totalItemCount: 'not-a-number', returnedItemCount: 0, offset: 0, items: [] })
+      );
+
+      const result = await searchResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('schema validation');
+        expect(result.error.message).toContain('totalItemCount');
+        // Same response metadata the invalid-JSON path reports.
+        expect(result.error.message).toContain('content-type: application/json');
+        expect(result.error.message).toContain('chars');
+      }
+    });
+
+    it('redacts credentials echoed back in an upstream error body', async () => {
+      const leakyBody = JSON.stringify({
+        message: 'rejected',
+        'api-key': 'sk-live-abcdef123456',
+        authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig',
+        echoedKey: env.AQUIFER_API_KEY,
+      });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(leakyBody, 500));
+
+      const result = await searchResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).not.toContain('sk-live-abcdef123456');
+        expect(result.error.message).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+        expect(result.error.message).not.toContain(env.AQUIFER_API_KEY);
+        expect(result.error.message).toContain('[redacted]');
+        // Non-secret diagnostic context must survive redaction.
+        expect(result.error.message).toContain('HTTP 500');
+        expect(result.error.message).toContain('rejected');
       }
     });
 
