@@ -318,8 +318,8 @@ export function deleteChapterAssignment(id: number) {
 }
 
 export async function claimChapterAssignment(id: number, userId: number) {
-  return db.transaction(async (tx) => {
-    try {
+  try {
+    return await db.transaction(async (tx) => {
       const { claimed, record } = await repo.claimIfUnassigned(id, userId, tx);
 
       if (claimed && record) {
@@ -343,15 +343,15 @@ export async function claimChapterAssignment(id: number, userId: number) {
 
       const flagged = await repo.flagClaimConflict(id, tx);
       return ok(toChapterAssignmentResponse(flagged ?? current));
-    } catch (error) {
-      logger.error({
-        cause: error,
-        message: 'Failed to claim chapter assignment',
-        context: { id, userId },
-      });
-      return err(ErrorCode.INTERNAL_ERROR);
-    }
-  });
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to claim chapter assignment',
+      context: { id, userId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 function applyAutoTransition(
