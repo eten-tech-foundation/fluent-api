@@ -240,10 +240,6 @@ const claimChapterAssignmentRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Not a translator, or chapter not claimable'
-    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Chapter assignment not found'
