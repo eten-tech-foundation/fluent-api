@@ -14,12 +14,35 @@ import { aquiferResourceDetailsSchema, aquiferResourceSearchResponseSchema } fro
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** Hard cap on search pagination to avoid unbounded Aquifer fan-out. */
 const MAX_SEARCH_PAGES = 20;
+/** Cap on upstream body text echoed into logs. */
+const MAX_LOGGED_BODY_CHARS = 300;
+/** Cap on zod issues echoed into logs. */
+const MAX_LOGGED_SCHEMA_ISSUES = 3;
+
+/** Secret-bearing fields an upstream might echo back into an error body. */
+const SECRET_FIELD_PATTERN =
+  /("?(?:api[-_]?key|token|access[-_]?token|refresh[-_]?token|secret|password|authorization)"?\s*[:=]\s*)("?)([^"',}\s]+)\2/gi;
+
+/**
+ * Strip credentials from anything we echo out of an upstream response. Bodies
+ * are third-party text: a length cap alone would not stop a secret from landing
+ * in logs. Applied centrally so every Aquifer error detail is covered.
+ */
+function redactSecrets(text: string): string {
+  let out = text.replace(SECRET_FIELD_PATTERN, '$1$2[redacted]$2');
+  out = out.replace(/\bBearer\s+[\w.~+/=-]+/gi, 'Bearer [redacted]');
+  const key = env.AQUIFER_API_KEY?.trim();
+  if (key && key.length >= 8) {
+    out = out.split(key).join('[redacted]');
+  }
+  return out;
+}
 
 function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok: false }> {
   const base = ErrorMessages[code];
   return {
     ok: false,
-    error: { code, message: detail ? `${base}: ${detail}` : base },
+    error: { code, message: detail ? `${base}: ${redactSecrets(detail)}` : base },
   };
 }
 
@@ -53,18 +76,50 @@ function safeJsonParse(text: string): unknown {
   }
 }
 
+/** Upstream bodies carry the real reason ("Invalid API key", serializer errors). */
+function bodySnippet(raw: string): string {
+  const trimmed = raw.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return '<empty body>';
+  return trimmed.length > MAX_LOGGED_BODY_CHARS
+    ? `${trimmed.slice(0, MAX_LOGGED_BODY_CHARS)}…[truncated]`
+    : trimmed;
+}
+
+/** First few zod issues, so schema drift names the offending field. */
+function schemaIssueSummary(error: unknown): string {
+  const issues = (error as { issues?: Array<{ path?: unknown[]; message?: string }> } | undefined)
+    ?.issues;
+  if (!Array.isArray(issues) || issues.length === 0) return 'no issue detail';
+  const shown = issues
+    .slice(0, MAX_LOGGED_SCHEMA_ISSUES)
+    .map((i) => `${(i.path ?? []).join('.') || '<root>'}: ${i.message ?? 'invalid'}`)
+    .join('; ');
+  const extra =
+    issues.length > MAX_LOGGED_SCHEMA_ISSUES
+      ? ` (+${issues.length - MAX_LOGGED_SCHEMA_ISSUES} more)`
+      : '';
+  return `${shown}${extra}`;
+}
+
 async function aquiferGet<T>(
   path: string,
-  schema: { safeParse: (data: unknown) => { success: true; data: T } | { success: false } },
+  schema: {
+    safeParse: (data: unknown) => { success: true; data: T } | { success: false; error?: unknown };
+  },
   query?: URLSearchParams,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<Result<T>> {
+  const target = query && query.toString() ? `${path}?${query.toString()}` : path;
+  const fail = (detail: string) =>
+    aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `GET ${target} — ${detail}`);
+
   if (!isAquiferConfigured()) {
-    return aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, 'AQUIFER_API_KEY is not configured');
+    return fail('AQUIFER_API_KEY is not configured');
   }
 
   const url = buildUrl(path, query);
   const controller = new AbortController();
+  const startedAt = Date.now();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let rawBody: string;
@@ -72,47 +127,51 @@ async function aquiferGet<T>(
   try {
     response = await fetch(url, {
       method: 'GET',
+      // No Content-Type: these are bodyless GETs, and declaring application/json
+      // makes Aquifer's deserializer reject the empty body with HTTP 400.
       headers: {
-        'Content-Type': 'application/json',
         'api-key': env.AQUIFER_API_KEY!,
       },
       signal: controller.signal,
     });
     rawBody = await response.text();
   } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (isAbort) {
-      return aquiferError(
-        ErrorCode.AQUIFER_SERVICE_UNAVAILABLE,
-        `request timed out after ${timeoutMs}ms`
-      );
+      return fail(`request timed out after ${timeoutMs}ms (elapsed ${elapsedMs}ms)`);
     }
-    const cause = error instanceof Error ? error.message : String(error);
-    return aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `Aquifer unreachable (${cause})`);
+    const cause = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    return fail(`Aquifer unreachable after ${elapsedMs}ms (${cause})`);
   } finally {
     clearTimeout(timeoutId);
   }
 
+  const elapsedMs = Date.now() - startedAt;
+
   if (!response.ok) {
-    return aquiferError(
-      ErrorCode.AQUIFER_SERVICE_UNAVAILABLE,
-      `Aquifer returned HTTP ${response.status}`
+    return fail(
+      `Aquifer returned HTTP ${response.status} ${response.statusText} in ${elapsedMs}ms; ` +
+        `upstream body: ${bodySnippet(rawBody)}`
     );
   }
 
   const parsed = rawBody.trim() ? safeJsonParse(rawBody) : {};
   if (parsed === undefined) {
-    return aquiferError(
-      ErrorCode.AQUIFER_SERVICE_UNAVAILABLE,
-      'malformed response from Aquifer (body was not valid JSON)'
+    return fail(
+      `HTTP ${response.status} but body was not valid JSON ` +
+        `(content-type: ${response.headers.get('content-type') ?? 'none'}, ` +
+        `${rawBody.length} chars): ${bodySnippet(rawBody)}`
     );
   }
 
   const validated = schema.safeParse(parsed);
   if (!validated.success) {
-    return aquiferError(
-      ErrorCode.AQUIFER_SERVICE_UNAVAILABLE,
-      'malformed response payload from Aquifer'
+    return fail(
+      `HTTP ${response.status} response payload failed schema validation ` +
+        `(content-type: ${response.headers.get('content-type') ?? 'none'}, ` +
+        `${rawBody.length} chars) — ${schemaIssueSummary(validated.error)}; ` +
+        `body: ${bodySnippet(rawBody)}`
     );
   }
 
