@@ -32,15 +32,15 @@ describe('dblSyncWorker', () => {
 
     await registerDblSyncWorker(mockBoss);
 
-    expect(mockBoss.work).toHaveBeenCalledWith('dbl-sync', expect.any(Function));
+    expect(mockBoss.work).toHaveBeenCalledWith('dbl-sync', { batchSize: 1 }, expect.any(Function));
 
-    const handler = mockBoss.work.mock.calls[0][1];
+    const handler = mockBoss.work.mock.calls[0][2];
 
     vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bibleSyncModule.syncBiblesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bookSyncModule.syncBooksFromDbl).mockResolvedValueOnce(ok({} as any));
 
-    await handler({ id: 'job-1' });
+    await handler([{ id: 'job-1' }]);
     expect(languageSyncModule.syncLanguagesFromDbl).toHaveBeenCalledTimes(1);
     expect(bibleSyncModule.syncBiblesFromDbl).toHaveBeenCalledTimes(1);
     expect(bookSyncModule.syncBooksFromDbl).toHaveBeenCalledTimes(1);
@@ -49,6 +49,6 @@ describe('dblSyncWorker', () => {
       ok: false,
       error: { message: 'Sync failed' } as any,
     });
-    await expect(handler({ id: 'job-2' })).rejects.toThrow('Sync failed');
+    await expect(handler([{ id: 'job-2' }])).rejects.toThrow('Sync failed');
   });
 });

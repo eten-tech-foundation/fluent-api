@@ -58,7 +58,7 @@ export function getProjectIdByUnitId(projectUnitId: number) {
   return repo.getProjectIdByUnitId(projectUnitId);
 }
 
-// This function is used to update the last activity timestamp for a project when a chapter assignment is created or updated. It retrieves the project ID associated with the given project unit ID and then updates the last activity timestamp in the database.
+// Update project activity timestamp on chapter assignment changes.
 export async function touchProjectActivity(
   projectUnitId: number,
   tx: DbTransaction

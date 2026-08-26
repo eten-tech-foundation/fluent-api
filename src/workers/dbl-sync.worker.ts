@@ -28,8 +28,8 @@ export async function registerDblSyncWorker(boss: PgBoss) {
   // To trigger it manually, send a job to this queue: await boss.send(QUEUE_DBL_SYNC, {});
   await boss.createQueue(QUEUE_DBL_SYNC);
 
-  await boss.work(QUEUE_DBL_SYNC, async (jobs) => {
-    const job = Array.isArray(jobs) ? jobs[0] : jobs;
+  await boss.work(QUEUE_DBL_SYNC, { batchSize: 1 }, async (jobs) => {
+    const job = jobs[0];
     const jobId = (job as { id?: string }).id ?? 'unknown';
     logger.info('Running scheduled DBL sync job', { jobId });
     try {

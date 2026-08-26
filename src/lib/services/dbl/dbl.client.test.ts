@@ -24,7 +24,6 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const bibleFixture = {
   id: '78a9f6124f344018-01',
-  dblId: 'dbl-id',
   abbreviation: 'NIV',
   abbreviationLocal: 'NIV',
   language: {
@@ -152,6 +151,20 @@ describe('createDblClient', () => {
     if (!result.ok) {
       expect(result.error.code).toBe(ErrorCode.DBL_SERVICE_UNAVAILABLE);
     }
+  });
+
+  it('logs the HTTP status and body on a non-2xx response, so 401s and 404s stay distinguishable in logs', async () => {
+    const { logger } = await import('@/lib/logger');
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as any);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ error: 'expired key' }, 401));
+    const client = createDblClient(configuredConfig());
+
+    await client.getBible(bibleFixture.id);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('401'),
+      expect.objectContaining({ status: 401, body: expect.stringContaining('expired key') })
+    );
   });
 
   it('maps a rejected fetch (network error) to DBL_SERVICE_UNAVAILABLE', async () => {

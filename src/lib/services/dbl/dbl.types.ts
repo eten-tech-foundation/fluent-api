@@ -80,7 +80,6 @@ const dblAudioBibleSummarySchema = z.object({
  */
 const dblBibleBaseSchema = z.object({
   id: z.string(),
-  dblId: z.string().nullish(),
   abbreviation: z.string(),
   abbreviationLocal: z.string(),
   language: dblLanguageSchema,

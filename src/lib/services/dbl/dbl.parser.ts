@@ -17,16 +17,19 @@ export function extractVersesFromText(
   const matches = Array.from(content.matchAll(regex));
 
   for (const match of matches) {
-    const verseNumString = match[1].split('-')[0];
-    const verseNumber = Number.parseInt(verseNumString, 10);
+    const verseNumParts = match[1].split('-');
+    const startVerse = Number.parseInt(verseNumParts[0], 10);
+    const endVerse = verseNumParts.length > 1 ? Number.parseInt(verseNumParts[1], 10) : startVerse;
 
     const text = match[2]
       .replace(/[<>«»]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    if (verseNumber > 0 && text.length > 0) {
-      verses.set(verseNumber, text);
+    if (startVerse > 0 && text.length > 0) {
+      for (let v = startVerse; v <= endVerse; v++) {
+        verses.set(v, text);
+      }
     }
   }
 

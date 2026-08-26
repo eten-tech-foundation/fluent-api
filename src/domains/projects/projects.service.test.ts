@@ -180,6 +180,38 @@ describe('projects service', () => {
       expect(result).toEqual(ok(mockProject));
     });
 
+    it('skips the ingest-queue lookup instead of crashing when no books are synced for the Bible yet', async () => {
+      const mockProject = { id: 100, name: 'New Project' } as any;
+      const mockUnit = { id: 200, projectId: 100 } as any;
+      const { logger } = await import('@/lib/logger');
+
+      // First call (input validation) sees the requested books as valid;
+      // second call (inside the enqueue block) comes back empty — e.g. the
+      // Bible's book-level DBL sync hasn't populated bible_books yet.
+      vi.mocked(repo.getValidBookIdsForBible)
+        .mockResolvedValueOnce([1, 2])
+        .mockResolvedValueOnce([]);
+      vi.mocked(repo.insertProjectRecord).mockResolvedValue(mockProject);
+      vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue(mockUnit);
+      vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
+        ok([])
+      );
+
+      const result = await createProject(mockInput as any);
+
+      // The project itself was created successfully — only the ingest-job
+      // lookup is skipped.
+      expect(result).toEqual(ok(mockProject));
+      expect(logger.warn).toHaveBeenCalledWith(
+        'No valid books found for Bible, skipping text ingestion',
+        expect.objectContaining({ bibleId: 10 })
+      );
+      // Must never reach the inArray(books.id, []) query — that's the crash
+      // this guard exists to prevent (`IN ()` is invalid Postgres syntax).
+      expect(db.query.books.findMany).not.toHaveBeenCalled();
+    });
+
     it('should return INVALID_BIBLE_BOOKS if any book is invalid', async () => {
       vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1]);
 

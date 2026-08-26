@@ -120,6 +120,25 @@ describe('syncBiblesFromDbl', () => {
     ]);
   });
 
+  it('resolves abbreviation collisions without hanging when the base abbreviation is at the column width', async () => {
+    mockUpsertFromDbl.mockResolvedValue(ok({ inserted: 2, updated: 0 }));
+    const longAbbrev = 'A'.repeat(55); // exceeds the 50-char DB column width
+    const client = fakeClient([
+      bible({ id: 'bible-one', langId: 'eng', abbreviationLocal: longAbbrev }),
+      bible({ id: 'bible-two', langId: 'eng', abbreviationLocal: longAbbrev }),
+    ]);
+
+    const result = await syncBiblesFromDbl(client);
+
+    expect(result.ok).toBe(true);
+    const rows = mockUpsertFromDbl.mock.calls[0]?.[0];
+    expect(rows).toHaveLength(2);
+    const [first, second] = rows;
+    expect(first.abbreviation).not.toBe(second.abbreviation);
+    expect(first.abbreviation.length).toBeLessThanOrEqual(50);
+    expect(second.abbreviation.length).toBeLessThanOrEqual(50);
+  });
+
   it('maps valid bibles to UpsertInput rows and calls upsertFromDbl', async () => {
     mockUpsertFromDbl.mockResolvedValue(ok({ inserted: 2, updated: 0 }));
     const client = fakeClient([
