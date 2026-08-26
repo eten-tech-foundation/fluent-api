@@ -17,11 +17,11 @@ import { extractVersesFromText } from '../lib/services/dbl/dbl.parser';
 
 /**
  * Ingests Bible text from API.Bible (DBL) via pg-boss jobs.
- * 
- * We fetch full chapters as plain text and parse verses via regex to avoid API rate limits 
- * (~1,189 calls vs ~31,000 calls per Bible). 
- * 
- * Failed chapters are skipped to isolate errors, and upserts are idempotent 
+ *
+ * We fetch full chapters as plain text and parse verses via regex to avoid API rate limits
+ * (~1,189 calls vs ~31,000 calls per Bible).
+ *
+ * Failed chapters are skipped to isolate errors, and upserts are idempotent
  * based on the unique index: (bible_id, book_id, chapter_number, verse_number).
  */
 export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: WorkerMetricsHooks) {

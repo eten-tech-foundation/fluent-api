@@ -97,7 +97,9 @@ async function startWorker() {
           const exportStats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
           const aiStats = await boss.getQueueStats(QUEUE_NAMES.AI_SUGGESTIONS);
           const ingestStats = await boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT);
-          const ingestPriorityStats = await boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
+          const ingestPriorityStats = await boss.getQueueStats(
+            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY
+          );
 
           const totalQueued =
             (exportStats?.queuedCount || 0) +

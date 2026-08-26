@@ -1,7 +1,7 @@
 /**
  * Parses a plain text chapter from API.Bible into a map of verses.
  * Expects `contentType: 'text'` and `includeVerseNumbers: true`.
- * 
+ *
  * Note: Drops pre-verse text and verse 0 (e.g. Psalm headings) intentionally,
  * as we only want raw scripture text.
  */
