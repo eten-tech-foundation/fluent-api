@@ -121,8 +121,8 @@ export const chapterAssignmentResponseSchema = z.object({
     )
     .optional(),
   submittedTime: z.date().nullable().optional(),
-  hasClaimConflict: z.boolean().optional(),
-  claimConflictUserId: z.number().int().nullable().optional(),
+  hasClaimConflict: z.boolean(),
+  claimConflictUserId: z.number().int().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
 });
