@@ -6,6 +6,8 @@ import { ErrorCode } from '@/lib/types';
 import type { ChapterAssignmentRecord } from './chapter-assignments.types';
 
 import * as repo from './chapter-assignments.repository';
+import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
+import * as projectsService from '@/domains/projects/projects.service';
 import {
   claimChapterAssignment,
   toChapterAssignmentResponse,
@@ -32,6 +34,7 @@ vi.mock('./chapter-assignments.repository', () => ({
 
 vi.mock('@/domains/projects/projects.service', () => ({
   touchProjectActivity: vi.fn(),
+  recordProjectAssignmentActivity: vi.fn(),
 }));
 
 vi.mock('@/domains/ai-suggestions/ai-suggestions.service', () => ({
@@ -94,6 +97,8 @@ describe('claimChapterAssignment', () => {
       CHAPTER_ASSIGNMENT_STATUS.DRAFT
     );
     expect(repo.flagClaimConflict).not.toHaveBeenCalled();
+    expect(aiSuggestionsService.handleChapterAssigned).toHaveBeenCalledWith(10, 1, 1, 1);
+    expect(projectsService.recordProjectAssignmentActivity).toHaveBeenCalledWith(10, mockTx);
   });
 
   it('is idempotent when the same user claims again', async () => {
@@ -115,6 +120,8 @@ describe('claimChapterAssignment', () => {
     expect(repo.insertStatusHistory).not.toHaveBeenCalled();
     expect(repo.insertUserAssignmentHistory).not.toHaveBeenCalled();
     expect(repo.flagClaimConflict).not.toHaveBeenCalled();
+    expect(aiSuggestionsService.handleChapterAssigned).not.toHaveBeenCalled();
+    expect(projectsService.recordProjectAssignmentActivity).not.toHaveBeenCalled();
   });
 
   it('flags conflict instead of error when another user already claimed', async () => {
@@ -138,6 +145,8 @@ describe('claimChapterAssignment', () => {
       expect(result.data.assignedUserId).toBe(7);
     }
     expect(repo.flagClaimConflict).toHaveBeenCalledWith(1, 5, mockTx);
+    expect(aiSuggestionsService.handleChapterAssigned).not.toHaveBeenCalled();
+    expect(projectsService.recordProjectAssignmentActivity).not.toHaveBeenCalled();
   });
 
   it('returns not found when the assignment does not exist after losing the race', async () => {

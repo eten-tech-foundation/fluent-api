@@ -322,7 +322,7 @@ export function deleteChapterAssignment(id: number) {
 
 export async function claimChapterAssignment(id: number, userId: number) {
   try {
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const { claimed, record } = await repo.claimIfUnassigned(id, userId, tx);
 
       if (claimed && record) {
@@ -334,19 +334,58 @@ export async function claimChapterAssignment(id: number, userId: number) {
           'drafter',
           CHAPTER_ASSIGNMENT_STATUS.DRAFT
         );
-        return ok(toChapterAssignmentResponse(record));
+        await projectsService.recordProjectAssignmentActivity(record.projectUnitId, tx);
+        return ok({
+          response: toChapterAssignmentResponse(record),
+          shouldTriggerAi: true,
+        });
       }
 
       const current = await repo.findById(id, tx);
       if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
       if (current.assignedUserId === userId) {
-        return ok(toChapterAssignmentResponse(current));
+        return ok({
+          response: toChapterAssignmentResponse(current),
+          shouldTriggerAi: false,
+        });
       }
 
       const flagged = await repo.flagClaimConflict(id, userId, tx);
-      return ok(toChapterAssignmentResponse(flagged ?? current));
+      return ok({
+        response: toChapterAssignmentResponse(flagged ?? current),
+        shouldTriggerAi: false,
+      });
     });
+
+    if (!result.ok) {
+      return result;
+    }
+
+    if (result.data.shouldTriggerAi) {
+      const assignment = result.data.response;
+      try {
+        await aiSuggestionsService.handleChapterAssigned(
+          assignment.projectUnitId,
+          assignment.bibleId,
+          assignment.bookId,
+          assignment.chapterNumber
+        );
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Failed to enqueue AI suggestions after chapter claim',
+          context: {
+            projectUnitId: assignment.projectUnitId,
+            bibleId: assignment.bibleId,
+            bookId: assignment.bookId,
+            chapterNumber: assignment.chapterNumber,
+          },
+        });
+      }
+    }
+
+    return ok(result.data.response);
   } catch (error) {
     logger.error({
       cause: error,
