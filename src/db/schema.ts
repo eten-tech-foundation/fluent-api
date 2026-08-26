@@ -211,20 +211,30 @@ export const projects = pgTable('projects', {
   lastActivityAt: timestamp('last_activity_at'),
 });
 
-export const bibles = pgTable('bibles', {
-  id: serial('id').primaryKey(),
-  languageId: integer('language_id')
-    .notNull()
-    .references(() => languages.id),
-  name: varchar('name', { length: 255 }).notNull().unique(),
-  abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
-  provider: bibleProviderEnum('provider').notNull().default('dbl'),
-  externalId: varchar('external_id', { length: 255 }),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const bibles = pgTable(
+  'bibles',
+  {
+    id: serial('id').primaryKey(),
+    languageId: integer('language_id')
+      .notNull()
+      .references(() => languages.id),
+    name: varchar('name', { length: 255 }).notNull().unique(),
+    abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
+    provider: bibleProviderEnum('provider').notNull().default('dbl'),
+    externalId: varchar('external_id', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // DBL identity: a given provider + externalId pair maps to exactly one row.
+    // Partial: only rows with a non-null externalId are covered (seed data has none).
+    uniqueIndex('idx_bibles_provider_external_id')
+      .on(table.provider, table.externalId)
+      .where(sql`${table.externalId} IS NOT NULL`),
+  ]
+);
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),

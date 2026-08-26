@@ -92,9 +92,9 @@ export interface DblBibleUpsertSummary {
 }
 
 /**
- * Upserts bibles keyed on `abbreviation` (matches the DB's unique constraint
- * on that column). Uses DBL as the authoritative source for the name and
- * language association if a conflict occurs.
+ * Upserts bibles keyed on `(provider, external_id)` — the natural identity
+ * for externally-sourced Bibles. Uses DBL as the authoritative source for
+ * the name, abbreviation, and language association if a conflict occurs.
  */
 export async function upsertFromDbl(
   rows: DblBibleUpsertInput[]
@@ -112,12 +112,12 @@ export async function upsertFromDbl(
           .insert(bibles)
           .values(chunk)
           .onConflictDoUpdate({
-            target: bibles.abbreviation,
+            target: [bibles.provider, bibles.externalId],
+            targetWhere: sql`${bibles.externalId} IS NOT NULL`,
             set: {
               name: sql`excluded.name`,
+              abbreviation: sql`excluded.abbreviation`,
               languageId: sql`excluded.language_id`,
-              provider: sql`excluded.provider`,
-              externalId: sql`excluded.external_id`,
               updatedAt: sql`now()`,
             },
           })

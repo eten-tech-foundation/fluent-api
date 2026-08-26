@@ -134,7 +134,7 @@ async function queueNextVersesForAssignment(
     const boss = await getQueue();
     const results = await Promise.all(
       jobs.map((job) =>
-        boss.send(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, job, {
+        boss.send(QUEUE_NAMES.AI_SUGGESTIONS, job, {
           // Deduplication key scoped to the exact verse. pgboss silently drops
           // a send() if a job with the same singletonKey is already pending or
           // running, returning null instead of a job ID.

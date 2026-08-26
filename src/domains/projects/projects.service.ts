@@ -149,6 +149,12 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
 
         // Get all available books for this Bible
         const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
+        if (validBookIds.length === 0) {
+          logger.warn('No valid books found for Bible, skipping text ingestion', {
+            bibleId: input.bibleId,
+          });
+          return result;
+        }
         const dbBooks = await db.query.books.findMany({
           where: (books, { inArray }) => inArray(books.id, validBookIds),
         });
@@ -157,9 +163,12 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
           .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
           .map((b) => b.code);
 
-        const backgroundBookCodes = dbBooks
-          .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
-          .map((b) => b.code);
+        // As per discussion: only pulling up selected books for now.
+        // Background ingestion of remaining Bible books is disabled until
+        // we have proper rate-limit budgeting and a clear product need.
+        // const backgroundBookCodes = dbBooks
+        //   .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
+        //   .map((b) => b.code);
 
         // Enqueue priority ingestion for the exact requested books
         if (priorityBookCodes.length > 0) {
@@ -178,18 +187,20 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
           });
         }
 
-        // Enqueue background ingestion for the remaining books in the Bible
-        if (backgroundBookCodes.length > 0) {
-          await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
-            projectId: result.data.id,
-            bibleId: input.bibleId,
-            bookCodes: backgroundBookCodes,
-          });
-          logger.info('Enqueued text ingestion job for remaining books', {
-            projectId: result.data.id,
-            bookCodes: backgroundBookCodes,
-          });
-        }
+        // As per discussion: only pulling up selected books for now.
+        // Uncomment the block below to enable background ingestion of
+        // remaining books in the Bible for future projects.
+        // if (backgroundBookCodes.length > 0) {
+        //   await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
+        //     projectId: result.data.id,
+        //     bibleId: input.bibleId,
+        //     bookCodes: backgroundBookCodes,
+        //   });
+        //   logger.info('Enqueued text ingestion job for remaining books', {
+        //     projectId: result.data.id,
+        //     bookCodes: backgroundBookCodes,
+        //   });
+        // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
       }

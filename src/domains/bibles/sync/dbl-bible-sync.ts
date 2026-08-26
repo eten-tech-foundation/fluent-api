@@ -45,12 +45,21 @@ export async function syncBiblesFromDbl(
   const seenNames = new Set<string>();
   let skippedMissingLanguage = 0;
 
-  // Pre-populate with existing DB bibles to prevent collisions with seed/existing data
+  // Pre-populate with existing DB bibles to prevent collisions with seed/existing data.
+  // Also build an externalId→existing-row map so we can reuse stored abbreviations
+  // for Bibles we've already synced (avoids ever-growing suffixes on re-sync).
   const existingResult = await biblesRepository.getAll();
-  if (existingResult.ok) {
-    for (const b of existingResult.data) {
-      if (b.abbreviation) seenAbbreviations.add(b.abbreviation.toLowerCase());
-      if (b.name) seenNames.add(b.name.toLowerCase());
+  if (!existingResult.ok) return existingResult;
+
+  const existingByExternalId = new Map<string, { abbreviation: string; name: string }>();
+  for (const b of existingResult.data) {
+    if (b.abbreviation) seenAbbreviations.add(b.abbreviation.toLowerCase());
+    if (b.name) seenNames.add(b.name.toLowerCase());
+    if (b.externalId && b.provider === 'dbl') {
+      existingByExternalId.set(b.externalId, {
+        abbreviation: b.abbreviation,
+        name: b.name,
+      });
     }
   }
 
@@ -72,12 +81,31 @@ export async function syncBiblesFromDbl(
       continue;
     }
 
-    const baseAbbrev = (bible.abbreviationLocal || bible.abbreviation || 'BIBLE').trim();
-    let abbrev = baseAbbrev;
+    // If this Bible was already synced, reuse its stored abbreviation and name
+    // to avoid regenerating collision suffixes on every re-sync.
+    const existing = existingByExternalId.get(bible.id);
+    if (existing) {
+      rows.push({
+        languageId,
+        name: existing.name,
+        abbreviation: existing.abbreviation,
+        provider: 'dbl',
+        externalId: bible.id,
+      });
+      continue;
+    }
+
+    const rawAbbrev = (bible.abbreviationLocal || bible.abbreviation || 'BIBLE').trim();
+    // Cap base at 40 chars to leave room for the collision suffix
+    const baseAbbrev = rawAbbrev.slice(0, 40);
+    let abbrev = rawAbbrev.slice(0, 50);
     let counter = 1;
 
     while (seenAbbreviations.has(abbrev.toLowerCase())) {
-      abbrev = `${baseAbbrev}-${bible.id.slice(0, 6)}${counter > 1 ? `-${counter}` : ''}`;
+      abbrev = `${baseAbbrev}-${bible.id.slice(0, 6)}${counter > 1 ? `-${counter}` : ''}`.slice(
+        0,
+        50
+      );
       counter++;
     }
     seenAbbreviations.add(abbrev.toLowerCase());

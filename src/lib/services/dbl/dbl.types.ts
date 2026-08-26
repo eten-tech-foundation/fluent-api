@@ -5,10 +5,10 @@ import { z } from '@hono/zod-openapi';
  * integration, surfaced through the API.Bible REST API
  * (https://docs.api.bible/).
  *
- * Scope note: this file covers only the read endpoints Fluent is expected to
- * need first — Bibles, Books, Chapters, Verses, and Passages. Sections,
- * Search, and Audio Bibles are intentionally NOT modeled yet; add them in a
- * follow-on ticket alongside the service/business logic that consumes them.
+ * Scope note: this file covers the read endpoints Fluent needs — Bibles,
+ * Books, Chapters, Verses, Passages, and Audio Bibles. Sections and Search
+ * are intentionally NOT modeled yet; add them in a follow-on ticket alongside
+ * the service/business logic that consumes them.
  *
  * camelCase throughout — this mirrors API.Bible's wire contract verbatim (it
  * already responds in camelCase), so no field renaming happens at this layer.

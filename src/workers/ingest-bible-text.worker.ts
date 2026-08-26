@@ -1,8 +1,9 @@
 import type { PgBoss } from 'pg-boss';
 
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 import type { DblIngestTextJob } from '../lib/queue';
+import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { db } from '../db';
 import { bible_texts, project_units } from '../db/schema';
@@ -10,186 +11,193 @@ import * as chapterAssignmentsService from '../domains/chapter-assignments/chapt
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
 import { dblClient } from '../lib/services/dbl/dbl.client';
+import { extractVersesFromText } from '../lib/services/dbl/dbl.parser';
+
+// ─── Worker ────────────────────────────────────────────────────────────────
 
 /**
- * Registers the on-demand Bible text ingestion worker with pg-boss.
- *
- * This worker handles two queues with the same handler:
- * - `DBL_INGEST_TEXT_PRIORITY`: Processes the specific books a user requested
- *   when creating a project. Uses pg-boss priority=10 so these run first.
- * - `DBL_INGEST_TEXT`: Processes the remaining books in the Bible as a
- *   background prefetch for future projects.
- *
- * Error handling:
- * - Per-chapter isolation: if a single chapter fails to download, the worker
- *   logs the error and continues to the next chapter. This prevents a
- *   transient network blip from aborting an entire book.
- * - Missing Bible or book records cause the job to throw, which pg-boss
- *   routes to its retry/dead-letter machinery.
- *
- * Idempotency:
- * - Verse inserts use `onConflictDoUpdate()` keyed on the composite unique
- *   index (bible_id, book_id, chapter_number, verse_number). Re-running the
- *   same job overwrites verse text with the latest fetch from the API.
+ * Ingests Bible text from API.Bible (DBL) via pg-boss jobs.
+ * 
+ * We fetch full chapters as plain text and parse verses via regex to avoid API rate limits 
+ * (~1,189 calls vs ~31,000 calls per Bible). 
+ * 
+ * Failed chapters are skipped to isolate errors, and upserts are idempotent 
+ * based on the unique index: (bible_id, book_id, chapter_number, verse_number).
  */
-export async function registerDblIngestTextWorker(boss: PgBoss) {
+export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: WorkerMetricsHooks) {
   const handler = async (
     jobs: { id?: string; data: DblIngestTextJob }[] | { id?: string; data: DblIngestTextJob }
   ) => {
-    const job = Array.isArray(jobs) ? jobs[0] : jobs;
-    const { bibleId, bookCodes } = job.data;
-    logger.info(`Starting on-demand text ingestion (Job ID: ${job.id})`, { bibleId, bookCodes });
+    const jobsArray = Array.isArray(jobs) ? jobs : [jobs];
+    const startTime = Date.now();
+    metricsHooks?.onBatchStart?.(jobsArray.length);
 
-    // Resolve the internal Bible record to get its DBL externalId.
-    const bible = await db.query.bibles.findFirst({
-      where: (bibles, { eq }) => eq(bibles.id, bibleId),
-    });
+    try {
+      for (const job of jobsArray) {
+        const { bibleId, bookCodes } = job.data;
+        logger.info(`Starting on-demand text ingestion (Job ID: ${job.id})`, {
+          bibleId,
+          bookCodes,
+        });
 
-    if (!bible || !bible.externalId) {
-      throw new Error(`Bible not found or missing externalId for bibleId: ${bibleId}`);
-    }
-    const externalId = bible.externalId;
+        // Resolve the internal Bible record to get its DBL externalId.
+        const bible = await db.query.bibles.findFirst({
+          where: (bibles, { eq }) => eq(bibles.id, bibleId),
+        });
 
-    for (const code of bookCodes) {
-      logger.info(`Fetching chapters for book ${code}`);
+        if (!bible || !bible.externalId) {
+          throw new Error(`Bible not found or missing externalId for bibleId: ${bibleId}`);
+        }
+        const externalId = bible.externalId;
 
-      // Resolve the book's internal ID from its canonical code (e.g. "GEN").
-      const dbBook = await db.query.books.findFirst({
-        where: (books, { eq }) => eq(books.code, code),
-      });
-      if (!dbBook) continue;
+        for (const code of bookCodes) {
+          logger.info(`Fetching chapters for book ${code}`);
 
-      const chaptersResult = await dblClient.getChapters(externalId, code);
-      if (!chaptersResult.ok) {
-        logger.error(`Failed to fetch chapters for book ${code}`, { error: chaptersResult.error });
-        continue;
-      }
-      const chapters = chaptersResult.data;
-
-      for (const chapter of chapters) {
-        // API.Bible returns an 'intro' pseudo-chapter for some Bibles;
-        // skip it since it contains no verse data.
-        if (chapter.number === 'intro') continue;
-
-        try {
-          const versesResult = await dblClient.getVerses(externalId, chapter.id);
-          if (!versesResult.ok) {
-            throw new Error(`Failed to fetch verses: ${versesResult.error.message}`);
-          }
-          const verseMetadata = versesResult.data;
-
-          const values: Array<{
-            bibleId: number;
-            bookId: number;
-            chapterNumber: number;
-            verseNumber: number;
-            text: string;
-          }> = [];
-
-          // Fetch the actual text for each verse in parallel
-          const versePromises = verseMetadata.map(async (v) => {
-            const textResult = await dblClient.getVerse(externalId, v.id, {
-              contentType: 'text',
-              includeNotes: false,
-              includeTitles: false,
-              includeChapterNumbers: false,
-              includeVerseNumbers: false,
-            });
-
-            let text = '';
-            if (textResult.ok && textResult.data.content) {
-              const rawContent =
-                typeof textResult.data.content === 'string'
-                  ? textResult.data.content
-                  : JSON.stringify(textResult.data.content);
-              text = rawContent
-                .replace(/\[\d+\]/g, '') // Strip embedded bracketed verse numbers like [1], [2]
-                .replace(/[<>«»]/g, '') // Strip USFM quote markers <, >, «, » as individual characters
-                .replace(/\s+/g, ' ') // Normalize spaces
-                .trim();
-            } else if (!textResult.ok) {
-              logger.warn(`Failed to fetch text for verse ${v.id}`, { error: textResult.error });
-            }
-
-            const parts = v.id.split('.');
-            const verseNumber = parts.length === 3 ? Number.parseInt(parts[2], 10) : 0;
-
-            return {
-              bibleId,
-              bookId: dbBook.id,
-              chapterNumber: Number.parseInt(chapter.number ?? '', 10) || 0,
-              verseNumber,
-              text: text || '',
-            };
+          // Resolve the book's internal ID from its canonical code (e.g. "GEN").
+          const dbBook = await db.query.books.findFirst({
+            where: (books, { eq }) => eq(books.code, code),
           });
 
-          values.push(...(await Promise.all(versePromises)));
-
-          if (values.length > 0) {
-            await db
-              .insert(bible_texts)
-              .values(values)
-              .onConflictDoUpdate({
-                target: [
-                  bible_texts.bibleId,
-                  bible_texts.bookId,
-                  bible_texts.chapterNumber,
-                  bible_texts.verseNumber,
-                ],
-                set: {
-                  text: sql`excluded.text`,
-                },
-              });
-            logger.info(
-              `Ingested chapter ${chapter.number} (${values.length} verses) for book ${code}`
-            );
+          if (!dbBook) {
+            logger.warn(`Book code "${code}" not found in database, skipping`, { bibleId });
+            continue;
           }
-        } catch (error) {
-          // Per-chapter error isolation: log and continue to the next chapter
-          // so a single transient failure doesn't abort the entire book.
-          logger.error(`Error ingesting chapter ${chapter.id}`, { error });
-        }
-      }
-    }
 
-    logger.info('On-demand text ingestion completed', { bibleId });
-
-    // Once text ingestion completes, ensure chapter assignments exist for the project unit
-    if (job.data.projectId && bookCodes.length > 0) {
-      try {
-        const projectUnits = await db
-          .select({ id: project_units.id })
-          .from(project_units)
-          .where(eq(project_units.projectId, job.data.projectId));
-
-        const bookIds = await db.query.books
-          .findMany({
-            where: (books, { inArray }) => inArray(books.code, bookCodes),
-          })
-          .then((res) => res.map((b) => b.id));
-
-        for (const pu of projectUnits) {
-          if (bookIds.length > 0) {
-            await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-              pu.id,
-              bibleId,
-              bookIds
-            );
-            logger.info('Created chapter assignments for project unit after text ingestion', {
-              projectId: job.data.projectId,
-              projectUnitId: pu.id,
-              bookIds,
+          const chaptersResult = await dblClient.getChapters(externalId, code);
+          if (!chaptersResult.ok) {
+            logger.error(`Failed to fetch chapters for book ${code}`, {
+              error: chaptersResult.error,
             });
+            continue;
+          }
+          const chapters = chaptersResult.data;
+
+          for (const chapter of chapters) {
+            // API.Bible returns an 'intro' pseudo-chapter for some Bibles;
+            // skip it since it contains no verse data.
+            if (chapter.number === 'intro') continue;
+
+            const chapterNumber = Number.parseInt(chapter.number ?? '', 10);
+            if (!chapterNumber || chapterNumber <= 0) {
+              logger.warn(`Skipping chapter with unparseable number: ${chapter.number}`, {
+                chapterId: chapter.id,
+              });
+              continue;
+            }
+
+            try {
+              // Fetch chapter as plain text with verse markers (e.g. "[1] ")
+              const chapterResult = await dblClient.getChapter(externalId, chapter.id, {
+                contentType: 'text',
+                includeNotes: false,
+                includeTitles: false,
+                includeChapterNumbers: false,
+                includeVerseNumbers: true,
+              });
+
+              if (!chapterResult.ok) {
+                logger.warn(`Failed to fetch chapter ${chapter.id}`, {
+                  error: chapterResult.error,
+                });
+                continue;
+              }
+
+              // Parse text into Map<verseNumber, text>
+              const verseTexts = extractVersesFromText(
+                String(chapterResult.data.content),
+                chapterResult.data.verseCount ?? undefined
+              );
+
+              const values: Array<{
+                bibleId: number;
+                bookId: number;
+                chapterNumber: number;
+                verseNumber: number;
+                text: string;
+              }> = [];
+
+              for (const [verseNumber, text] of verseTexts) {
+                values.push({
+                  bibleId,
+                  bookId: dbBook.id,
+                  chapterNumber,
+                  verseNumber,
+                  text,
+                });
+              }
+
+              if (values.length > 0) {
+                await db
+                  .insert(bible_texts)
+                  .values(values)
+                  .onConflictDoUpdate({
+                    target: [
+                      bible_texts.bibleId,
+                      bible_texts.bookId,
+                      bible_texts.chapterNumber,
+                      bible_texts.verseNumber,
+                    ],
+                    set: {
+                      text: sql`excluded.text`,
+                    },
+                  });
+                logger.info(
+                  `Ingested chapter ${chapter.number} (${values.length} verses) for book ${code}`
+                );
+              }
+            } catch (error) {
+              // Log and continue so a single failed chapter doesn't crash the book sync
+              logger.error(`Error ingesting chapter ${chapter.id}`, { error });
+            }
           }
         }
-      } catch (error) {
-        logger.error('Failed to create chapter assignments after text ingestion', { error });
-      }
+
+        logger.info('On-demand text ingestion completed', { bibleId });
+
+        // Once text ingestion completes, ensure chapter assignments exist for the project unit
+        if (job.data.projectId && bookCodes.length > 0) {
+          try {
+            const projectUnits = await db
+              .select({ id: project_units.id })
+              .from(project_units)
+              .where(sql`${project_units.projectId} = ${job.data.projectId}`);
+
+            const bookIds = await db.query.books
+              .findMany({
+                where: (books, { inArray }) => inArray(books.code, bookCodes),
+              })
+              .then((res) => res.map((b) => b.id));
+
+            for (const pu of projectUnits) {
+              if (bookIds.length > 0) {
+                await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
+                  pu.id,
+                  bibleId,
+                  bookIds
+                );
+                logger.info('Created chapter assignments for project unit after text ingestion', {
+                  projectId: job.data.projectId,
+                  projectUnitId: pu.id,
+                  bookIds,
+                });
+              }
+            }
+          } catch (error) {
+            logger.error('Failed to create chapter assignments after text ingestion', { error });
+          }
+        }
+      } // <-- end of jobs loop
+
+      metricsHooks?.onJobSuccess?.(Date.now() - startTime);
+    } catch (error) {
+      metricsHooks?.onJobFailure?.(Date.now() - startTime);
+      throw error; // Re-throw so pg-boss retries the job
+    } finally {
+      metricsHooks?.onBatchEnd?.(jobsArray.length);
     }
   };
 
-  // Register the same handler on both queues. pg-boss processes the priority
-  // queue first due to the priority=10 value set during job creation.
+  // Register handler on both queues; priority queue processes first
   await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT);
   await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
 

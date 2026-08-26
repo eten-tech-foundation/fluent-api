@@ -44,9 +44,10 @@ export interface DblClientConfig {
    * Personal/org API key from the api.bible dashboard, sent as the `api-key`
    * header (see https://docs.api.bible/quick-start/authentication).
    *
-   * Required — enforced by env.ts validation (z.string().min(1)). The
-   * DBL_NOT_CONFIGURED guard in dblRequest still exists as a safety net
-   * for programmatic callers that construct their own config.
+   * Optional at boot — `env.ts` defaults to `''` so the server starts without
+   * DBL access. The `DBL_NOT_CONFIGURED` guard in `dblRequest` is the actual
+   * enforcement point: every method returns `Result.err(DBL_NOT_CONFIGURED)`
+   * when the key is empty.
    */
   apiKey: string;
   /** Per-request timeout in ms, unless the caller supplies their own AbortSignal. */

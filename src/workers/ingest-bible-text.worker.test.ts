@@ -33,8 +33,7 @@ vi.mock('../db', () => ({
 
 const mockDblClientInstance = vi.hoisted(() => ({
   getChapters: vi.fn(),
-  getVerses: vi.fn(),
-  getVerse: vi.fn(),
+  getChapter: vi.fn(),
 }));
 
 vi.mock('../lib/services/dbl/dbl.client', () => {
@@ -79,20 +78,20 @@ describe('dblIngestTextWorker', () => {
       data: [{ id: 'GEN.1', number: '1' } as any, { id: 'GEN.2', number: '2' } as any],
     });
 
-    // Simulate error on chapter 1, but chapter 2 succeeds
-    mockDblClientInstance.getVerses
-      .mockResolvedValueOnce({ ok: false, error: new Error('Network error on chapter 1') })
-      .mockResolvedValueOnce({ ok: true, data: [{ id: 'GEN.2.1', reference: 'Gen 2:1' } as any] });
-
-    mockDblClientInstance.getVerse.mockResolvedValue({
-      ok: true,
-      data: { content: 'Verse 1' } as any,
-    });
+    // Simulate error on chapter 1, but chapter 2 succeeds with text content
+    mockDblClientInstance.getChapter
+      .mockResolvedValueOnce({ ok: false, error: { message: 'Network error on chapter 1' } })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          content: '   [1] Thus the heavens and the earth were completed.',
+        },
+      });
 
     await handler({ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-1' });
 
     // It should have continued to chapter 2 despite the error in chapter 1
-    expect(mockDblClientInstance.getVerses).toHaveBeenCalledTimes(2);
+    expect(mockDblClientInstance.getChapter).toHaveBeenCalledTimes(2);
     expect(db.insert).toHaveBeenCalledTimes(1); // Only for chapter 2
   });
 });
