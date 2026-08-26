@@ -76,14 +76,17 @@ describe('chapter-assignments.repository claim helpers', () => {
   });
 
   describe('flagClaimConflict', () => {
-    it('sets hasClaimConflict to true', async () => {
-      const record = { id: 1, hasClaimConflict: true };
+    it('sets hasClaimConflict and claimConflictUserId', async () => {
+      const record = { id: 1, hasClaimConflict: true, claimConflictUserId: 5 };
       mockUpdateChain.returning.mockResolvedValueOnce([record]);
 
-      const result = await repo.flagClaimConflict(1, mockTx());
+      const result = await repo.flagClaimConflict(1, 5, mockTx());
 
       expect(result).toEqual(record);
-      expect(mockUpdateChain.set).toHaveBeenCalledWith({ hasClaimConflict: true });
+      expect(mockUpdateChain.set).toHaveBeenCalledWith({
+        hasClaimConflict: true,
+        claimConflictUserId: 5,
+      });
     });
   });
 });

@@ -47,7 +47,7 @@ describe('chapterAssignmentPolicy.claim', () => {
     ).toBe(true);
   });
 
-  it('allows a race loser to reach the service when another translator owns a draft without peer', () => {
+  it('allows a race loser when another translator recently claimed a draft without peer', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
       ChapterAssignmentPolicy.claim(user, {
@@ -55,8 +55,23 @@ describe('chapterAssignmentPolicy.claim', () => {
         assignedUserId: 99,
         status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
         peerCheckerId: null,
+        updatedAt: new Date(),
       })
     ).toBe(true);
+  });
+
+  it('denies a late claim on a stale peer draft (not a real race)', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    const staleClaim = new Date(Date.now() - 6 * 60 * 1000);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+        peerCheckerId: null,
+        updatedAt: staleClaim,
+      })
+    ).toBe(false);
   });
 
   it('denies when the chapter is already assigned to someone else with a peer checker (PM assign)', () => {

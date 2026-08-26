@@ -37,6 +37,7 @@ const makeProgressInfo = (
   updatedAt: null,
   isAiEnabled: false,
   hasClaimConflict: false,
+  claimConflictUserId: null,
   ...over,
 });
 
@@ -59,8 +60,11 @@ describe('toResponse', () => {
     expect(response.targetLangCode).toBe('');
   });
 
-  it('propagates hasClaimConflict from repository progress rows', () => {
-    const response = toResponse(makeProgressInfo({ hasClaimConflict: true }));
+  it('propagates claim conflict fields from repository progress rows', () => {
+    const response = toResponse(
+      makeProgressInfo({ hasClaimConflict: true, claimConflictUserId: 99 })
+    );
     expect(response.hasClaimConflict).toBe(true);
+    expect(response.claimConflictUserId).toBe(99);
   });
 });

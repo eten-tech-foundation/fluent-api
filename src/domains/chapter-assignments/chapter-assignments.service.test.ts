@@ -54,6 +54,7 @@ const baseRecord: ChapterAssignmentRecord = {
   submittedTime: null,
   isAiEnabled: false,
   hasClaimConflict: false,
+  claimConflictUserId: null,
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
 };
@@ -122,7 +123,7 @@ describe('claimChapterAssignment', () => {
       assignedUserId: 7,
       status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
     };
-    const conflictRecord = { ...winnerRecord, hasClaimConflict: true };
+    const conflictRecord = { ...winnerRecord, hasClaimConflict: true, claimConflictUserId: 5 };
 
     vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
     vi.mocked(repo.findById).mockResolvedValue(winnerRecord);
@@ -133,9 +134,10 @@ describe('claimChapterAssignment', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.hasClaimConflict).toBe(true);
+      expect(result.data.claimConflictUserId).toBe(5);
       expect(result.data.assignedUserId).toBe(7);
     }
-    expect(repo.flagClaimConflict).toHaveBeenCalledWith(1, mockTx);
+    expect(repo.flagClaimConflict).toHaveBeenCalledWith(1, 5, mockTx);
   });
 
   it('returns not found when the assignment does not exist after losing the race', async () => {
@@ -167,8 +169,8 @@ describe('claimChapterAssignment', () => {
     });
 
     vi.mocked(repo.findById).mockImplementation(async () => ({ ...row }));
-    vi.mocked(repo.flagClaimConflict).mockImplementation(async () => {
-      row = { ...row, hasClaimConflict: true };
+    vi.mocked(repo.flagClaimConflict).mockImplementation(async (_id, claimConflictUserId) => {
+      row = { ...row, hasClaimConflict: true, claimConflictUserId };
       return row;
     });
     vi.mocked(repo.insertStatusHistory).mockResolvedValue(undefined);
@@ -199,8 +201,18 @@ describe('updateChapterAssignment conflict resolution', () => {
   });
 
   it('clears hasClaimConflict when a PM sets assignedUserId', async () => {
-    const current = { ...baseRecord, assignedUserId: 7, hasClaimConflict: true };
-    const updated = { ...current, assignedUserId: 9, hasClaimConflict: false };
+    const current = {
+      ...baseRecord,
+      assignedUserId: 7,
+      hasClaimConflict: true,
+      claimConflictUserId: 5,
+    };
+    const updated = {
+      ...current,
+      assignedUserId: 9,
+      hasClaimConflict: false,
+      claimConflictUserId: null,
+    };
 
     vi.mocked(repo.findById).mockResolvedValue(current);
     vi.mocked(repo.update).mockResolvedValue(updated);
@@ -210,7 +222,11 @@ describe('updateChapterAssignment conflict resolution', () => {
     expect(result.ok).toBe(true);
     expect(repo.update).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ assignedUserId: 9, hasClaimConflict: false }),
+      expect.objectContaining({
+        assignedUserId: 9,
+        hasClaimConflict: false,
+        claimConflictUserId: null,
+      }),
       mockTx
     );
     if (result.ok) {
@@ -220,11 +236,13 @@ describe('updateChapterAssignment conflict resolution', () => {
 });
 
 describe('toChapterAssignmentResponse', () => {
-  it('includes hasClaimConflict in the response payload', () => {
+  it('includes claim conflict fields in the response payload', () => {
     const response = toChapterAssignmentResponse({
       ...baseRecord,
       hasClaimConflict: true,
+      claimConflictUserId: 5,
     });
     expect(response.hasClaimConflict).toBe(true);
+    expect(response.claimConflictUserId).toBe(5);
   });
 });

@@ -33,6 +33,7 @@ export function toChapterAssignmentResponse(
     status: record.status,
     submittedTime: record.submittedTime,
     hasClaimConflict: record.hasClaimConflict,
+    claimConflictUserId: record.claimConflictUserId,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -186,7 +187,9 @@ export async function updateChapterAssignment(
 
     const finalData = applyAutoTransition(current, data);
     const updateData =
-      data.assignedUserId !== undefined ? { ...finalData, hasClaimConflict: false } : finalData;
+      data.assignedUserId !== undefined
+        ? { ...finalData, hasClaimConflict: false, claimConflictUserId: null }
+        : finalData;
     const updated = await repo.update(id, updateData, tx);
     if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
@@ -341,7 +344,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
         return ok(toChapterAssignmentResponse(current));
       }
 
-      const flagged = await repo.flagClaimConflict(id, tx);
+      const flagged = await repo.flagClaimConflict(id, userId, tx);
       return ok(toChapterAssignmentResponse(flagged ?? current));
     });
   } catch (error) {

@@ -206,6 +206,7 @@ function toMemberChapterAssignmentResponse(record: ChapterAssignmentWithProjectI
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     hasClaimConflict: record.hasClaimConflict,
+    claimConflictUserId: record.claimConflictUserId,
   };
 }
 

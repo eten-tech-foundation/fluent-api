@@ -568,6 +568,7 @@ export const chapter_assignments = pgTable(
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
     status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
     hasClaimConflict: boolean('has_claim_conflict').default(false).notNull(),
+    claimConflictUserId: integer('claim_conflict_user_id').references(() => users.id),
     isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
     submittedTime: timestamp('submitted_time'),
     createdAt: timestamp('created_at').defaultNow(),

@@ -31,6 +31,9 @@ export const CHAPTER_ASSIGNMENT_STATUS = {
 export type ChapterAssignmentStatus =
   (typeof CHAPTER_ASSIGNMENT_STATUS)[keyof typeof CHAPTER_ASSIGNMENT_STATUS];
 
+/** Max age of a rival claim (via `updated_at`) for the race-loser policy branch. */
+export const CLAIM_RACE_WINDOW_MS = 5 * 60 * 1000;
+
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
 export type ChapterAssignmentRecord = z.infer<typeof selectChapterAssignmentsSchema>;
@@ -71,6 +74,7 @@ export interface ChapterAssignmentProgressInfo {
   updatedAt: Date | null;
   isAiEnabled: boolean;
   hasClaimConflict: boolean;
+  claimConflictUserId: number | null;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -91,6 +95,7 @@ export interface UpdateChapterAssignmentRequestData {
   submittedTime?: Date;
   isAiEnabled?: boolean;
   hasClaimConflict?: boolean;
+  claimConflictUserId?: number | null;
 }
 
 export const updateChapterAssignmentAiStatusSchema = z.object({
@@ -117,6 +122,7 @@ export const chapterAssignmentResponseSchema = z.object({
     .optional(),
   submittedTime: z.date().nullable().optional(),
   hasClaimConflict: z.boolean().optional(),
+  claimConflictUserId: z.number().int().nullable().optional(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
 });

@@ -27,6 +27,7 @@ export async function getByProject(projectId: number): Promise<Result<ChapterAss
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
       })
@@ -140,6 +141,7 @@ export async function getByProjects(
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
       })

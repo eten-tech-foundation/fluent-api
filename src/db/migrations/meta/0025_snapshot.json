@@ -1,5 +1,5 @@
 {
-  "id": "b26b9611-c554-4cbd-9517-8669a75c1a35",
+  "id": "7a687e98-bf1e-4e99-b2a0-32e9328be8f9",
   "prevId": "860cc08e-41fc-4430-8625-aa0ff82a373e",
   "version": "7",
   "dialect": "postgresql",
@@ -1398,6 +1398,12 @@
           "notNull": true,
           "default": false
         },
+        "claim_conflict_user_id": {
+          "name": "claim_conflict_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "is_ai_enabled": {
           "name": "is_ai_enabled",
           "type": "boolean",
@@ -1554,6 +1560,15 @@
           "tableFrom": "chapter_assignments",
           "tableTo": "users",
           "columnsFrom": ["peer_checker_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "chapter_assignments_claim_conflict_user_id_users_id_fk": {
+          "name": "chapter_assignments_claim_conflict_user_id_users_id_fk",
+          "tableFrom": "chapter_assignments",
+          "tableTo": "users",
+          "columnsFrom": ["claim_conflict_user_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"

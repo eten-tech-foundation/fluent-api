@@ -72,6 +72,7 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         organizationId: projects.organization,
@@ -109,6 +110,7 @@ export async function findByIdWithAuthContext(
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         // Project context
@@ -330,11 +332,12 @@ export async function claimIfUnassigned(
 
 export async function flagClaimConflict(
   id: number,
+  claimConflictUserId: number,
   tx: DbTransaction
 ): Promise<ChapterAssignmentRecord | null> {
   const [updated] = await tx
     .update(chapter_assignments)
-    .set({ hasClaimConflict: true })
+    .set({ hasClaimConflict: true, claimConflictUserId })
     .where(eq(chapter_assignments.id, id))
     .returning();
   return updated ?? null;
@@ -435,6 +438,7 @@ export async function findAssignmentsProgress(
         updatedAt: chapter_assignments.updatedAt,
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

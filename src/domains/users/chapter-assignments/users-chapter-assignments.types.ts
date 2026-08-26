@@ -26,6 +26,7 @@ export interface UserChapterAssignment {
   updatedAt: string | null;
   isAiEnabled: boolean;
   hasClaimConflict: boolean;
+  claimConflictUserId: number | null;
 }
 
 // ─── API response schema ──────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   updatedAt: z.string().nullable(),
   isAiEnabled: z.boolean(),
   hasClaimConflict: z.boolean(),
+  claimConflictUserId: z.number().int().nullable(),
 });
 
 export const userChapterAssignmentsByUserResponseSchema = z.object({
@@ -79,6 +81,7 @@ export const memberChapterAssignmentResponseSchema = z.object({
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
   hasClaimConflict: z.boolean(),
+  claimConflictUserId: z.number().int().nullable(),
 });
 
 export const memberChapterAssignmentsResponseSchema = z.object({
