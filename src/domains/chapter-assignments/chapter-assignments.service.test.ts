@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
+import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
+import * as projectsService from '@/domains/projects/projects.service';
 import { ErrorCode } from '@/lib/types';
 
 import type { ChapterAssignmentRecord } from './chapter-assignments.types';
 
 import * as repo from './chapter-assignments.repository';
-import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
-import * as projectsService from '@/domains/projects/projects.service';
 import {
   claimChapterAssignment,
   toChapterAssignmentResponse,

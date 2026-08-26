@@ -11,8 +11,8 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
 
-import * as repo from './projects.repository';
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
+import * as repo from './projects.repository';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
