@@ -8,6 +8,7 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import { requireAiToolsAccess } from './ai-tools-auth.middleware';
 import { callRepeatedWords } from './ai-tools.service';
 import { RepeatedWordsRequestSchema, RepeatedWordsResponseSchema } from './ai-tools.types';
 
@@ -26,7 +27,11 @@ const repeatedWordsRoute = createRoute({
   tags: ['AI Tools'],
   method: 'post',
   path: '/ai/tools/greek-room/repeated-words',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.AI_TOOLS_USE)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.AI_TOOLS_USE),
+    requireAiToolsAccess(),
+  ] as const,
   request: {
     body: jsonContent(
       RepeatedWordsRequestSchema,

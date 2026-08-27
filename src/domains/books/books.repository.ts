@@ -3,7 +3,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { books } from '@/db/schema';
+import { bible_books, books } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -132,6 +132,61 @@ export async function getNewTestament(): Promise<Result<Book[]>> {
     return ok(await db.select().from(books).where(inArray(books.code, NEW_TESTAMENT_CODES)));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get New Testament books' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+// ─── DBL sync ──────────────────────────────────────────────────────────────
+
+export interface DblBookUpsertInput {
+  code: string;
+  eng_display_name: string;
+}
+
+/**
+ * Upserts books using `onConflictDoNothing` to preserve the first-seen English
+ * display name, preventing localized names from non-English Bibles from overwriting
+ * the canonical name (e.g. "Génesis" replacing "Genesis").
+ *
+ * Also links the inserted/existing books to the specified `bibleId` in the
+ * `bible_books` junction table.
+ */
+export async function upsertFromDbl(
+  bibleId: number,
+  rows: DblBookUpsertInput[]
+): Promise<Result<{ linkedBooks: number }>> {
+  if (rows.length === 0) return ok({ linkedBooks: 0 });
+
+  try {
+    await db.transaction(async (tx) => {
+      // 1. Bulk insert books, ignoring conflicts to preserve existing names
+      await tx.insert(books).values(rows).onConflictDoNothing();
+
+      // 2. Fetch all book IDs for the codes we just processed
+      const codes = rows.map((r) => r.code);
+      const allBooks = await tx
+        .select({ id: books.id })
+        .from(books)
+        .where(inArray(books.code, codes));
+
+      // 3. Link them to the Bible
+      const links = allBooks.map((b) => ({
+        bibleId,
+        bookId: b.id,
+      }));
+
+      if (links.length > 0) {
+        await tx.insert(bible_books).values(links).onConflictDoNothing();
+      }
+    });
+
+    return ok({ linkedBooks: rows.length });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to upsert books from DBL',
+      context: { bibleId, rowCount: rows.length },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

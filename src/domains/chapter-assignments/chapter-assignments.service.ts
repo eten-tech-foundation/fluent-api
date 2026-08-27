@@ -44,15 +44,15 @@ export function getChapterAssignment(id: number) {
 // Fetch a chapter assignment with auth context for middleware policy evaluation.
 export function getChapterAssignmentWithAuthContext(
   id: number,
-  userId: number,
-  roleName: string
+  userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
-  return repo.findByIdWithAuthContext(id, userId, roleName);
+  return repo.findByIdWithAuthContext(id, userId);
 }
 
 export function getAssignmentsProgress(
   filters: {
     projectId?: number;
+    orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
     status?: ChapterAssignmentStatus;
@@ -147,7 +147,7 @@ export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  tx?: DbTransaction
 ) {
   try {
     const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
@@ -164,10 +164,11 @@ export async function createChapterAssignmentForProjectUnit(
 
     const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
-  } catch (error) {
+  } catch (error: any) {
     logger.error({
       cause: error,
-      message: 'Failed to create chapter assignments for project unit',
+      message: `Failed to create chapter assignments for project unit: ${error?.message || String(error)}`,
+      stack: error?.stack,
       context: { projectUnitId, bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);

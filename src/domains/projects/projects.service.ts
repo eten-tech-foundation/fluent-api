@@ -1,11 +1,13 @@
 import { eq } from 'drizzle-orm';
 
-import type { DbTransaction, Result } from '@/lib/types';
+import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { pericope_sets } from '@/db/schema';
+import { bible_texts, pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
+import { PERMISSIONS } from '@/lib/permissions';
+import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
@@ -16,8 +18,32 @@ export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
 }
 
-export async function getProjectsByUserId(userId: number, updatedAfter?: Date) {
-  return repo.getByUserId(userId, updatedAfter);
+export function getProjectsForUser(user: AppPolicyUser) {
+  // Global view grant (SuperAdmin) fetches all projects
+  const hasGlobalView = user.grants.some(
+    (g) => g.orgId === null && g.projectId === null && g.permissions.has(PERMISSIONS.PROJECT_VIEW)
+  );
+  if (hasGlobalView) {
+    return repo.getAllProjects();
+  }
+
+  const orgIds = new Set<number>();
+  const projectIds = new Set<number>();
+  for (const g of user.grants) {
+    if (!g.permissions.has(PERMISSIONS.PROJECT_VIEW)) continue;
+    if (g.projectId !== null) projectIds.add(g.projectId);
+    else if (g.orgId !== null) orgIds.add(g.orgId);
+  }
+  return repo.findByOrgIdsOrProjectIds([...orgIds], [...projectIds]);
+}
+
+export async function getProjectsByUserId(
+  userId: number,
+  orgId?: number,
+  updatedAfter?: Date,
+  roleName?: string
+) {
+  return repo.getByUserId(userId, orgId, updatedAfter, roleName);
 }
 
 export function getProjectById(id: number) {
@@ -32,7 +58,7 @@ export function getProjectIdByUnitId(projectUnitId: number) {
   return repo.getProjectIdByUnitId(projectUnitId);
 }
 
-// This function is used to update the last activity timestamp for a project when a chapter assignment is created or updated. It retrieves the project ID associated with the given project unit ID and then updates the last activity timestamp in the database.
+// Update project activity timestamp on chapter assignment changes.
 export async function touchProjectActivity(
   projectUnitId: number,
   tx: DbTransaction
@@ -74,7 +100,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       }
     }
 
-    return await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
 
       const project = await repo.insertProjectRecord(
@@ -108,6 +134,79 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
 
       return ok(project);
     });
+
+    // Enqueue the on-demand text ingestion job
+    if (result.ok) {
+      try {
+        const queue = await getQueue();
+
+        // Detect which books have already been ingested for this Bible
+        const ingestedBooks = await db
+          .selectDistinct({ bookId: bible_texts.bookId })
+          .from(bible_texts)
+          .where(eq(bible_texts.bibleId, input.bibleId));
+        const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
+
+        // Get all available books for this Bible
+        const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
+        if (validBookIds.length === 0) {
+          logger.warn('No valid books found for Bible, skipping text ingestion', {
+            bibleId: input.bibleId,
+          });
+          return result;
+        }
+        const dbBooks = await db.query.books.findMany({
+          where: (books, { inArray }) => inArray(books.id, validBookIds),
+        });
+
+        const priorityBookCodes = dbBooks
+          .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
+          .map((b) => b.code);
+
+        // As per discussion: only pulling up selected books for now.
+        // Background ingestion of remaining Bible books is disabled until
+        // we have proper rate-limit budgeting and a clear product need.
+        // const backgroundBookCodes = dbBooks
+        //   .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
+        //   .map((b) => b.code);
+
+        // Enqueue priority ingestion for the exact requested books
+        if (priorityBookCodes.length > 0) {
+          await queue.send(
+            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+            {
+              projectId: result.data.id,
+              bibleId: input.bibleId,
+              bookCodes: priorityBookCodes,
+            },
+            { priority: 10 }
+          );
+          logger.info('Enqueued text ingestion job for requested books', {
+            projectId: result.data.id,
+            bookCodes: priorityBookCodes,
+          });
+        }
+
+        // As per discussion: only pulling up selected books for now.
+        // Uncomment the block below to enable background ingestion of
+        // remaining books in the Bible for future projects.
+        // if (backgroundBookCodes.length > 0) {
+        //   await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
+        //     projectId: result.data.id,
+        //     bibleId: input.bibleId,
+        //     bookCodes: backgroundBookCodes,
+        //   });
+        //   logger.info('Enqueued text ingestion job for remaining books', {
+        //     projectId: result.data.id,
+        //     bookCodes: backgroundBookCodes,
+        //   });
+        // }
+      } catch (error) {
+        logger.error('Failed to enqueue text ingestion job', { error });
+      }
+    }
+
+    return result;
   } catch (error) {
     logger.error({
       cause: error,

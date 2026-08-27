@@ -19,10 +19,24 @@ const LEGACY_EDITOR_STATE = {
   tabStatus: true,
 };
 
+const CURRENT_EDITOR_STATE = {
+  activeResource: 'dbl',
+  bookCode: 'JDG',
+  chapterNumber: 4,
+  verseNumber: 3,
+  languageCode: 'eng',
+  tabStatus: true,
+};
+
 describe('editorStateResourcesSchema — Repeated Word Check extension', () => {
   it('parses a legacy row (no new keys) unchanged — backward compatible', () => {
     const parsed = editorStateResourcesSchema.parse(LEGACY_EDITOR_STATE);
     expect(parsed).toEqual(LEGACY_EDITOR_STATE);
+  });
+
+  it('parses a current DBL row unchanged', () => {
+    const parsed = editorStateResourcesSchema.parse(CURRENT_EDITOR_STATE);
+    expect(parsed).toEqual(CURRENT_EDITOR_STATE);
   });
 
   it('still accepts null (the column is nullable)', () => {

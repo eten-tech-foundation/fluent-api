@@ -1,31 +1,23 @@
-import { ROLES } from '@/lib/roles';
+import type { AppPolicyUser } from '@/lib/types';
 
-export interface PolicyUser {
-  id: number;
-  roleName: string;
-  organization: number;
-}
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 
 export interface ProjectUnitAuthContext {
   organizationId: number;
-  memberUserIds: number[];
+  projectId: number;
 }
 
 export class AiSuggestionsPolicy {
   /**
    * Determines if a user can access AI suggestions for a specific project unit.
-   * Project Managers can access if they belong to the same organization.
-   * Translators can access if they are assigned as a member of the project.
+   * Checks if the user has project view or content update permissions within the project scope.
    */
-  static canAccessProjectUnit(user: PolicyUser, context: ProjectUnitAuthContext): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return context.organizationId === user.organization;
-    }
-
-    if (user.roleName === ROLES.TRANSLATOR) {
-      return context.memberUserIds.includes(user.id);
-    }
-
-    return false;
+  static canAccessProjectUnit(user: AppPolicyUser, context: ProjectUnitAuthContext): boolean {
+    const scope = { orgId: context.organizationId, projectId: context.projectId };
+    return (
+      authorize(user, PERMISSIONS.PROJECT_VIEW, scope) ||
+      authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)
+    );
   }
 }
