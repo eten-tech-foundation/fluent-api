@@ -23,7 +23,8 @@ export async function checkProjectUnitAccess(c: Context<AppEnv>, projectUnitId: 
     return c.json({ message: 'Project unit not found' }, HttpStatusCodes.NOT_FOUND);
   }
 
-  const isAuthorized = AiSuggestionsPolicy.canAccessProjectUnit(user, context);
+  const policyUser = { id: user.id, grants: user.grants };
+  const isAuthorized = AiSuggestionsPolicy.canAccessProjectUnit(policyUser, context);
   if (!isAuthorized) {
     return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
   }

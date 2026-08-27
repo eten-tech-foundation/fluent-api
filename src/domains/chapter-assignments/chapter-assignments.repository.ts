@@ -15,13 +15,12 @@ import {
   chapter_assignments,
   languages,
   project_units,
-  project_users,
   projects,
   translated_verses,
   users,
 } from '@/db/schema';
+import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { logger } from '@/lib/logger';
-import { ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
 
@@ -90,8 +89,7 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
 
 export async function findByIdWithAuthContext(
   id: number,
-  userId: number,
-  roleName: string
+  userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
   try {
     const [assignment] = await db
@@ -113,25 +111,18 @@ export async function findByIdWithAuthContext(
         projectId: projects.id,
         organizationId: projects.organization,
         // Project membership (LEFT JOIN to handle non-members)
-        isProjectMember: sql<boolean>`CASE WHEN ${project_users.userId} IS NOT NULL THEN true ELSE false END`,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
       .innerJoin(projects, eq(project_units.projectId, projects.id))
-      .leftJoin(
-        project_users,
-        and(
-          eq(project_users.projectId, projects.id),
-          eq(project_users.userId, userId),
-          // Only check membership for translators (per resolveIsProjectMember logic)
-          roleName === ROLES.TRANSLATOR ? sql`1=1` : sql`1=0`
-        )
-      )
       .where(eq(chapter_assignments.id, id))
       .limit(1);
 
     if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-    return ok(assignment);
+
+    const isProjectMember = await resolveIsProjectMember(assignment.projectId, userId);
+
+    return ok({ ...assignment, isProjectMember });
   } catch (error) {
     logger.error({
       cause: error,
@@ -161,6 +152,7 @@ export async function findForVerse(
         peerCheckerId: chapter_assignments.peerCheckerId,
         status: chapter_assignments.status,
         organizationId: projects.organization,
+        projectId: projects.id,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
@@ -189,9 +181,10 @@ export async function findForVerse(
 export async function findChaptersForProjectUnit(
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ) {
-  return tx
+  const dbClient = externalTx ?? db;
+  return dbClient
     .select({
       bibleId: bible_texts.bibleId,
       bookId: bible_texts.bookId,
@@ -284,13 +277,18 @@ export async function insertMany(
     assignedUserId: null;
     peerCheckerId: null;
   }>,
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ): Promise<ChapterAssignmentRecord[]> {
+  const dbClient = externalTx ?? db;
   const chunkSize = 1000;
   const inserted: ChapterAssignmentRecord[] = [];
   for (let i = 0; i < records.length; i += chunkSize) {
     const chunk = records.slice(i, i + chunkSize);
-    const result = await tx.insert(chapter_assignments).values(chunk).returning();
+    const result = await dbClient
+      .insert(chapter_assignments)
+      .values(chunk)
+      .onConflictDoNothing()
+      .returning();
     inserted.push(...result);
   }
   return inserted;
@@ -358,6 +356,7 @@ export async function insertSnapshot(
 export async function findAssignmentsProgress(
   filters: {
     projectId?: number;
+    orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
     status?: ChapterAssignmentStatus;
@@ -431,6 +430,9 @@ export async function findAssignmentsProgress(
     const conditions = [];
     if (filters.projectId !== undefined) {
       conditions.push(eq(project_units.projectId, filters.projectId));
+    }
+    if (filters.orgId !== undefined) {
+      conditions.push(eq(projects.organization, filters.orgId));
     }
     if (filters.assignedUserId !== undefined) {
       conditions.push(eq(chapter_assignments.assignedUserId, filters.assignedUserId));

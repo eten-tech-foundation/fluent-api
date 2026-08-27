@@ -3,6 +3,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Json } from 'drizzle-zod';
 
 import { z } from '@hono/zod-openapi';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -12,6 +13,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -21,6 +23,7 @@ import {
 import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
+export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
 export const projectStatusEnum = pgEnum('project_status', [
   'not_started',
   'in_progress',
@@ -86,6 +89,7 @@ export const authSession = pgTable('auth_session', {
   // Durably flags mobile sessions at sign-in time.
   // Avoids per-request UA re-parsing for rolling logic.
   isMobile: boolean('is_mobile').notNull().default(false),
+  activeOrgId: integer('active_org_id').references(() => organizations.id),
 });
 
 export const authAccount = pgTable('auth_account', {
@@ -146,13 +150,9 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 255 }).notNull().unique(),
   firstName: varchar('first_name', { length: 100 }),
   lastName: varchar('last_name', { length: 100 }),
-  role: integer('role')
-    .notNull()
-    .references(() => roles.id),
-  organization: integer('organization')
-    .notNull()
-    .references(() => organizations.id),
+
   status: userStatusEnum('status').notNull().default('invited'),
+  lastActiveOrgId: integer('last_active_org_id').references(() => organizations.id),
   createdBy: integer('created_by').references((): AnyPgColumn => users.id),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -162,9 +162,9 @@ export const users = pgTable('users', {
 
 export const languages = pgTable('languages', {
   id: serial('id').primaryKey(),
-  langName: varchar('lang_name', { length: 100 }).notNull(),
-  langNameLocalized: varchar('lang_name_localized', { length: 100 }),
-  langCodeIso6393: varchar('lang_code_iso_639_3', { length: 3 }),
+  langName: varchar('lang_name', { length: 255 }).notNull(),
+  langNameLocalized: varchar('lang_name_localized', { length: 255 }),
+  langCodeIso6393: varchar('lang_code_iso_639_3', { length: 3 }).unique(),
   scriptDirection: scriptDirectionEnum('script_direction').default('ltr'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -208,24 +208,37 @@ export const projects = pgTable('projects', {
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
   // Nullable — existing projects have no pericope set; new projects may select one
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
+  lastActivityAt: timestamp('last_activity_at'),
 });
 
-export const bibles = pgTable('bibles', {
-  id: serial('id').primaryKey(),
-  languageId: integer('language_id')
-    .notNull()
-    .references(() => languages.id),
-  name: varchar('name', { length: 255 }).notNull().unique(),
-  abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const bibles = pgTable(
+  'bibles',
+  {
+    id: serial('id').primaryKey(),
+    languageId: integer('language_id')
+      .notNull()
+      .references(() => languages.id),
+    name: varchar('name', { length: 255 }).notNull().unique(),
+    abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
+    provider: bibleProviderEnum('provider').notNull().default('dbl'),
+    externalId: varchar('external_id', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // DBL identity: a given provider + externalId pair maps to exactly one row.
+    // Partial: only rows with a non-null externalId are covered (seed data has none).
+    uniqueIndex('idx_bibles_provider_external_id')
+      .on(table.provider, table.externalId)
+      .where(sql`${table.externalId} IS NOT NULL`),
+  ]
+);
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),
-  code: varchar('code', { length: 50 }).notNull(),
+  code: varchar('code', { length: 50 }).notNull().unique(),
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
 });
 
@@ -265,18 +278,29 @@ export const pericope_verses = pgTable(
   ]
 );
 
-export const bible_books = pgTable('bible_books', {
-  bibleId: integer('bible_id')
-    .notNull()
-    .references(() => bibles.id),
-  bookId: integer('book_id')
-    .notNull()
-    .references(() => books.id),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+/**
+ * Junction table linking Bibles to their constituent Books.
+ *
+ * A composite unique index on (bible_id, book_id) prevents duplicate
+ * associations and enables the ingestion pipeline's `onConflictDoNothing()`
+ * to correctly detect existing links during re-sync.
+ */
+export const bible_books = pgTable(
+  'bible_books',
+  {
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex('idx_bible_books_bible_book').on(table.bibleId, table.bookId)]
+);
 
 export const project_units = pgTable('project_units', {
   id: serial('id').primaryKey(),
@@ -300,6 +324,18 @@ export const project_unit_bible_books = pgTable('project_unit_bible_books', {
   bookId: integer('book_id')
     .notNull()
     .references(() => books.id),
+  // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
+  // Null falls back to the book's display name in the export, as before.
+  runningHeader: varchar('running_header'),
+  bookTitle: varchar('book_title'),
+  // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
+  // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
+  // have no display-name fallback — a null or blank value omits the line from the
+  // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
+  // which is how the dialog drives the main title without ever rewriting book_title.
+  tocLongName: varchar('toc_long_name'),
+  tocShortName: varchar('toc_short_name'),
+  tocAbbreviation: varchar('toc_abbreviation'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -330,7 +366,7 @@ export const bible_texts = pgTable(
       table.bookId,
       table.chapterNumber
     ),
-    index('idx_bible_texts_bible_book_chapter_verse').on(
+    uniqueIndex('idx_bible_texts_bible_book_chapter_verse').on(
       table.bibleId,
       table.bookId,
       table.chapterNumber,
@@ -338,6 +374,120 @@ export const bible_texts = pgTable(
     ),
   ]
 );
+
+// ─── Verse structural markers (#263; fluent-web#314) ─────────────────────────
+// The paragraph-level markers a verse may open with. An allowlist rather than a
+// pattern: the export emits a stored value verbatim as `\<marker>`, so anything
+// outside this set — a verse or chapter marker (`v`, `c`), an identification
+// marker (`id`, `h`, `mt`) or an unknown identifier — would put a structurally
+// invalid line into the USFM. This is the whole USFM 3.x body-text set, so every
+// paragraph the editor can legitimately author round-trips; introduction markers
+// (`ip`, `io1`, …) are absent because they precede \c 1 and cannot open inside a
+// verse.
+// prettier-ignore
+export const USFM_PARAGRAPH_MARKERS = [
+  // Prose
+  'p', 'm', 'po', 'pr', 'cls', 'pmo', 'pm', 'pmc', 'pmr', 'pi', 'pi1', 'pi2', 'pi3',
+  'mi', 'nb', 'pc', 'ph', 'ph1', 'ph2', 'ph3', 'b',
+  // Poetry
+  'q', 'q1', 'q2', 'q3', 'q4', 'qr', 'qc', 'qa', 'qm', 'qm1', 'qm2', 'qm3', 'qd',
+  // Lists
+  'lh', 'li', 'li1', 'li2', 'li3', 'li4', 'lf', 'lim', 'lim1', 'lim2', 'lim3', 'lim4',
+  // Headings and titles, which open a paragraph of their own before the verse
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
+  // Tables and explicit page breaks
+  'tr', 'pb',
+] as const;
+
+// USJ paragraph context carried per verse row. `paragraphs` lists where new
+// paragraphs open inside this verse's content: offset 0 means the verse itself
+// opens a paragraph; a mid-text offset splits the verse across two paragraphs.
+// Null/absent = legacy row = no structure known; the USFM export then falls
+// back to a single \p per chapter, exactly as before this column existed.
+/**
+ * Markers that open a heading block: a paragraph of their own, carrying their own words, sitting
+ * before the verse that follows. A strict subset of USFM_PARAGRAPH_MARKERS — body-text markers are
+ * excluded so a caller cannot store the verse's own prose as a heading and lose it from the row.
+ */
+export const USFM_HEADING_MARKERS = [
+  's',
+  's1',
+  's2',
+  's3',
+  's4',
+  'sr',
+  'r',
+  'd',
+  'sp',
+  'sd',
+  'sd1',
+  'sd2',
+  'sd3',
+  'sd4',
+  'ms',
+  'ms1',
+  'ms2',
+  'ms3',
+  'mr',
+  'cd',
+  'cl',
+] as const;
+
+/**
+ * One heading block emitted before the verse. `text` is the heading's own words, which no
+ * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
+ * text, and a heading belongs to no verse (fluent-web#397).
+ */
+const verseHeadingSchema = z.object({
+  marker: z.enum(USFM_HEADING_MARKERS),
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    // The value is written straight into the USFM stream, so it can carry neither a marker
+    // escape nor a line break.
+    .max(300)
+    .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
+});
+
+export const verseMarkersSchema = z
+  .object({
+    /** Heading blocks emitted before this verse, in order. */
+    headings: z.array(verseHeadingSchema).min(1).max(4).optional(),
+    paragraphs: z
+      .array(
+        z.object({
+          // Allowlisted USFM paragraph marker (p, m, q1, pi2, …), so a stored
+          // value can neither smuggle USFM syntax into the export nor stand in
+          // for a structural marker the export has to own.
+          marker: z.enum(USFM_PARAGRAPH_MARKERS),
+          // Character offset into the verse's content where the paragraph opens.
+          offset: z.number().int().min(0),
+        })
+      )
+      .min(1)
+      .max(20)
+      .optional()
+      .superRefine((paragraphs, ctx) => {
+        if (!paragraphs) return;
+        for (let i = 1; i < paragraphs.length; i++) {
+          if (paragraphs[i].offset <= paragraphs[i - 1].offset) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'paragraph offsets must be strictly increasing',
+            });
+            break;
+          }
+        }
+      }),
+  })
+  .refine((markers) => markers.headings !== undefined || markers.paragraphs !== undefined, {
+    message: 'markers must carry headings, paragraphs, or both; use null for no structure',
+  })
+  .nullable();
+
+export type VerseMarkers = z.infer<typeof verseMarkersSchema>;
 
 export const translated_verses = pgTable(
   'translated_verses',
@@ -347,6 +497,8 @@ export const translated_verses = pgTable(
       .notNull()
       .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
     content: varchar('content').notNull(),
+    // Structural context for this verse (#263). Nullable: legacy rows carry none.
+    markers: jsonb('markers').$type<z.infer<typeof verseMarkersSchema>>(),
     bibleTextId: integer('bible_text_id')
       .notNull()
       .references(() => bible_texts.id),
@@ -359,6 +511,66 @@ export const translated_verses = pgTable(
   },
   (table) => [
     uniqueIndex('uq_translated_verse_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+  ]
+);
+
+/**
+ * Every object this API writes to cloud storage, so a row can always be traced
+ * back to bytes that need reclaiming.
+ *
+ * Postgres cannot delete an object in a bucket, so cascades alone can never keep
+ * storage clean: dropping a project unit cascades its recordings away and would
+ * silently strand their audio. Rows here are therefore NOT cascade-deleted —
+ * when the owning recording disappears, this row survives as the marker the
+ * reclaim sweep uses to delete the object and stamp deletedAt.
+ *
+ * Chosen over a DB trigger writing a tombstone queue (reviewer call on PR #224):
+ * triggers are invisible from application code, which rots without a dedicated
+ * DBA.
+ */
+export const storage_objects = pgTable(
+  'storage_objects',
+  {
+    id: serial('id').primaryKey(),
+    bucket: varchar('bucket').notNull(),
+    key: varchar('key').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    /** Set once the object has actually been removed from the bucket. */
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => [
+    uniqueIndex('uq_storage_object_bucket_key').on(table.bucket, table.key),
+    index('idx_storage_objects_unreclaimed').on(table.deletedAt),
+  ]
+);
+
+export const verse_audio_recordings = pgTable(
+  'verse_audio_recordings',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id),
+    uploadedBy: integer('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    // Deliberately no cascade: the storage row must outlive the recording so the
+    // sweep can still find and delete the object it points at.
+    storageObjectId: integer('storage_object_id').references(() => storage_objects.id),
+    contentType: varchar('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: real('duration_seconds'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
   ]
 );
 
@@ -549,24 +761,6 @@ export const user_settings = pgTable('user_settings', {
     .$onUpdate(() => new Date()),
 });
 
-export const project_users = pgTable(
-  'project_users',
-  {
-    projectId: integer('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-    userId: integer('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-    createdAt: timestamp('created_at').defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.userId] }),
-    index('idx_project_users_project').on(table.projectId),
-    index('idx_project_users_user').on(table.userId),
-  ]
-);
-
 export const permissions = pgTable('permissions', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull().unique(),
@@ -590,9 +784,37 @@ export const role_permissions = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
+  (table) => [primaryKey({ columns: [table.roleId, table.permissionId] })]
+);
+
+export const user_roles = pgTable(
+  'user_roles',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    orgId: integer('org_id').references(() => organizations.id, { onDelete: 'cascade' }),
+    projectId: integer('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    roleId: integer('role_id')
+      .notNull()
+      .references(() => roles.id),
+    createdBy: integer('created_by').references((): AnyPgColumn => users.id),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
   (table) => [
-    primaryKey({ columns: [table.roleId, table.permissionId] }),
-    index('idx_role_permissions_role').on(table.roleId),
+    uniqueIndex('uq_user_role_grant').on(
+      table.userId,
+      sql`COALESCE(${table.orgId}, -1)`,
+      sql`COALESCE(${table.projectId}, -1)`,
+      table.roleId
+    ),
+    index('idx_user_roles_user').on(table.userId),
+    index('idx_user_roles_org').on(table.orgId),
+    index('idx_user_roles_project').on(table.projectId),
   ]
 );
 
@@ -686,11 +908,11 @@ export const selectChapterAssignmentStatusHistorySchema = createSelectSchema(
 export const selectUserChapterAssignmentEditorStateSchema = createSelectSchema(
   user_chapter_assignment_editor_state
 );
-export const selectProjectUsersSchema = createSelectSchema(project_users);
 export const selectUserSettingsSchema = createSelectSchema(user_settings);
 export const selectPermissionsSchema = createSelectSchema(permissions);
 export const selectRolePermissionsSchema = createSelectSchema(role_permissions);
 export const selectActiveChapterEditorsSchema = createSelectSchema(active_chapter_editors);
+export const selectUserRolesSchema = createSelectSchema(user_roles);
 export const selectAiSuggestionsSchema = createSelectSchema(ai_suggestions);
 export const selectAiSuggestionUsageLogSchema = createSelectSchema(ai_suggestion_usage_log);
 
@@ -704,8 +926,6 @@ export const insertUsersSchema = createInsertSchema(users, {
   .required({
     username: true,
     email: true,
-    role: true,
-    organization: true,
   })
   .omit({
     id: true,
@@ -756,6 +976,7 @@ export const insertProjectsSchema = createInsertSchema(projects, {
     id: true,
     createdAt: true,
     updatedAt: true,
+    lastActivityAt: true,
   });
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
@@ -833,11 +1054,14 @@ export const insertBibleTextsSchema = createInsertSchema(bible_texts, {
     updatedAt: true,
   });
 
-export const insertTranslatedVersesSchema = createInsertSchema(translated_verses, {
+// Base object kept separate: the patch schema needs `.partial()`, which the
+// refined insert schema (a ZodEffects) no longer exposes.
+const insertTranslatedVersesBaseSchema = createInsertSchema(translated_verses, {
   projectUnitId: (schema) => schema.int(),
   content: (schema) => schema.min(0),
   bibleTextId: (schema) => schema.int(),
   assignedUserId: (schema) => schema.int().optional(),
+  markers: () => verseMarkersSchema.optional(),
 })
   .required({
     projectUnitId: true,
@@ -849,6 +1073,23 @@ export const insertTranslatedVersesSchema = createInsertSchema(translated_verses
     createdAt: true,
     updatedAt: true,
   });
+
+export const insertTranslatedVersesSchema = insertTranslatedVersesBaseSchema.superRefine(
+  (row, ctx) => {
+    // A paragraph can only open inside the verse's own text. Offset 0 is always
+    // fine (the verse opens a paragraph, even while still empty).
+    for (const paragraph of row.markers?.paragraphs ?? []) {
+      if (paragraph.offset !== 0 && paragraph.offset >= row.content.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['markers', 'paragraphs'],
+          message: 'paragraph offset lies beyond the verse content',
+        });
+        break;
+      }
+    }
+  }
+);
 
 export const insertChapterAssignmentsSchema = createInsertSchema(chapter_assignments, {
   projectUnitId: (schema) => schema.int(),
@@ -941,18 +1182,6 @@ export const insertUserChapterAssignmentEditorStateSchema = createInsertSchema(
     updatedAt: true,
   });
 
-export const insertProjectUsersSchema = createInsertSchema(project_users, {
-  projectId: (schema) => schema.int(),
-  userId: (schema) => schema.int(),
-})
-  .required({
-    projectId: true,
-    userId: true,
-  })
-  .omit({
-    createdAt: true,
-  });
-
 export const insertUserSettingsSchema = createInsertSchema(user_settings, {
   userId: (schema) => schema.int(),
   settings: () => userSettingsSchema,
@@ -964,7 +1193,6 @@ export const insertUserSettingsSchema = createInsertSchema(user_settings, {
     createdAt: true,
     updatedAt: true,
   });
-
 export const insertPermissionsSchema = createInsertSchema(permissions, {
   name: (schema) => schema.min(1).max(100),
   description: (schema) => schema.max(255).optional(),
@@ -976,6 +1204,15 @@ export const insertRolePermissionsSchema = createInsertSchema(role_permissions, 
 })
   .required({ roleId: true, permissionId: true })
   .omit({ updatedAt: true });
+
+export const insertUserRolesSchema = createInsertSchema(user_roles, {
+  userId: (schema) => schema.int(),
+  orgId: (schema) => schema.int().optional(),
+  projectId: (schema) => schema.int().optional(),
+  roleId: (schema) => schema.int(),
+})
+  .required({ userId: true, roleId: true })
+  .omit({ id: true, createdAt: true, updatedAt: true });
 
 export const insertAiSuggestionsSchema = createInsertSchema(ai_suggestions, {
   bibleTextId: (schema) => schema.int(),
@@ -1015,7 +1252,7 @@ export const patchBibleBooksSchema = insertBibleBooksSchema.partial();
 export const patchProjectUnitsSchema = insertProjectUnitsSchema.partial();
 export const patchProjectUnitBibleBooksSchema = insertProjectUnitBibleBooksSchema.partial();
 export const patchBibleTextsSchema = insertBibleTextsSchema.partial();
-export const patchTranslatedVersesSchema = insertTranslatedVersesSchema.partial();
+export const patchTranslatedVersesSchema = insertTranslatedVersesBaseSchema.partial();
 export const patchChapterAssignmentsSchema = insertChapterAssignmentsSchema.partial();
 export const patchChapterAssignmentSnapshotsSchema =
   insertChapterAssignmentSnapshotsSchema.partial();
@@ -1025,9 +1262,9 @@ export const patchChapterAssignmentStatusHistorySchema =
   insertChapterAssignmentStatusHistorySchema.partial();
 export const patchUserChapterAssignmentEditorStateSchema =
   insertUserChapterAssignmentEditorStateSchema.partial();
-export const patchProjectUsersSchema = insertProjectUsersSchema.partial();
 export const patchPermissionsSchema = insertPermissionsSchema.partial();
 export const patchRolePermissionsSchema = insertRolePermissionsSchema.partial();
+export const patchUserRolesSchema = insertUserRolesSchema.partial();
 export const patchAiSuggestionsSchema = insertAiSuggestionsSchema.partial();
 export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.partial();
 
@@ -1036,6 +1273,4 @@ export const patchProjectsClientSchema = patchProjectsSchema.omit({
   createdBy: true,
 });
 
-export const patchUsersClientSchema = patchUsersSchema.omit({
-  organization: true,
-});
+export const patchUsersClientSchema = patchUsersSchema;

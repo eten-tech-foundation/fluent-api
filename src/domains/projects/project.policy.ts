@@ -9,70 +9,39 @@
 
 import type { AppPolicyUser } from '@/lib/types';
 
-import { ROLES } from '@/lib/roles';
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 
 import type { ProjectWithLanguageNames } from './projects.types';
 
-/**
- * Internal helper to check if a user has modification rights over a project.
- */
-const _canModifyProject = (user: AppPolicyUser, project: ProjectWithLanguageNames): boolean => {
-  return user.roleName === ROLES.PROJECT_MANAGER && project.organization === user.organization;
-};
-
 export const ProjectPolicy = {
-  /**
-   * Can this user list all projects in the standard org route?
-   *
-   * Project Manager : yes.
-   * Translator      : no (they will use a separate /users/me/projects endpoint).
-   */
+  /** Can list projects at all? Anyone with project:view in any scope. */
   list(user: AppPolicyUser): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER;
+    return user.grants.some((g) => g.permissions.has(PERMISSIONS.PROJECT_VIEW));
   },
 
-  /**
-   * Can this user view this specific project?
-   *
-   * Project Manager : yes, if the project belongs to their organisation.
-   * Translator      : yes, if they are assigned to at least one chapter in it.
-   *
-   * `isAssignedToProject` is resolved inline in the route handler by checking
-   * the project_users table. Defaults to false.
-   */
   read(
     user: AppPolicyUser,
     project: ProjectWithLanguageNames,
     isAssignedToProject = false
   ): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return project.organization === user.organization;
-    }
-
-    if (user.roleName === ROLES.TRANSLATOR) {
-      return isAssignedToProject;
-    }
-
-    return false;
+    const scope = { orgId: project.organization, projectId: project.id };
+    if (authorize(user, PERMISSIONS.PROJECT_VIEW, scope)) return true;
+    // Translators with no org/project-wide view still see projects they're assigned to.
+    return isAssignedToProject;
   },
 
-  /**
-   * Can this user update this project?
-   *
-   * Project Manager : yes, if the project belongs to their organisation.
-   * Translator      : never.
-   */
   update(user: AppPolicyUser, project: ProjectWithLanguageNames): boolean {
-    return _canModifyProject(user, project);
+    return authorize(user, PERMISSIONS.PROJECT_UPDATE, {
+      orgId: project.organization,
+      projectId: project.id,
+    });
   },
 
-  /**
-   * Can this user delete this project?
-   *
-   * Project Manager : yes, if the project belongs to their organisation.
-   * Translator      : never.
-   */
   delete(user: AppPolicyUser, project: ProjectWithLanguageNames): boolean {
-    return _canModifyProject(user, project);
+    return authorize(user, PERMISSIONS.PROJECT_DELETE, {
+      orgId: project.organization,
+      projectId: project.id,
+    });
   },
 };

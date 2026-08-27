@@ -43,7 +43,7 @@ const envBool = () =>
     return z.NEVER;
   });
 
-const EnvSchema = z.object({
+const EnvBaseSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
   LOG_LEVEL: z
@@ -57,6 +57,39 @@ const EnvSchema = z.object({
   BETTER_AUTH_SESSION_EXPIRY_SECONDS: z.coerce.number().default(60 * 60 * 24 * 7), // 7 days
   APPLICATIONINSIGHTS_CONNECTION_STRING: z.string(),
 
+  // ── Cloudflare R2 storage (S3-compatible) ──────────────────────────────
+  // One set of credentials serves both consumers: async USFM exports and verse
+  // audio recordings. All three are optional — when any is unset the async
+  // export endpoints and the verse-audio routes respond 503 (the sync export
+  // path is unaffected), and the worker refuses export jobs. Both buckets MUST
+  // be created in the EU jurisdiction so files at rest stay in the EU (GDPR) —
+  // see .env.example.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  // Jurisdiction segment of the R2 endpoint
+  // ({account}.{jurisdiction}.r2.cloudflarestorage.com). 'eu' pins data at rest
+  // to the EU (GDPR); 'default' uses the un-pinned global endpoint.
+  R2_JURISDICTION: z.string().default('eu'),
+  // Overrides the derived R2 endpoint. Only for pointing local dev at an
+  // S3-compatible server (MinIO); leave unset against real R2 so the
+  // jurisdiction stays pinned by the derived host.
+  R2_ENDPOINT: z.string().url().optional(),
+  // Bucket dedicated to USFM exports — kept separate from the audio bucket
+  // because deleteExpiredExports sweeps and deletes every object in it older
+  // than the export TTL, while recordings are permanent. Deliberately NOT
+  // defaulted; required alongside the credentials — see requireExplicitR2Buckets.
+  R2_EXPORTS_BUCKET: z.string().optional(),
+  // Bucket dedicated to verse audio recordings (never TTL-swept). Also not
+  // defaulted — see requireExplicitR2Buckets.
+  R2_AUDIO_BUCKET: z.string().optional(),
+  // How often orphaned storage objects are reclaimed (see storage_objects).
+  AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  // How long a storage row is left alone before the sweep may reclaim it. An
+  // upload claims its row before writing the object, so it briefly looks
+  // orphaned; this keeps the sweep off anything that young.
+  AUDIO_RECLAIM_GRACE_MS: z.coerce.number().int().positive().default(3600000),
+
   EMAIL_SERVICE_API_KEY: z.string(),
   EMAIL_SERVICE_DOMAIN: z.string(),
   EMAIL_SERVICE_SENDER: z.string(),
@@ -68,6 +101,22 @@ const EnvSchema = z.object({
   AI_DEFAULT_LOOKAHEAD: z.coerce.number().int().positive().default(3),
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
   AI_TRIGGER_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+
+  // ── Rate limiting (#210) ──────────────────────────────────────────────
+  // Knobs for the in-memory per-IP limiter (src/middlewares/rate-limit.ts).
+  // Defaults preserve the values the limiter shipped with, so all four can
+  // stay unset until the deployment topology changes.
+  //
+  // How many trailing x-forwarded-for entries were appended by proxies we
+  // control. 1 = Azure App Service today (front-end appends the client IP as
+  // the last entry). Raise per extra trusted LB layer; 0 = no proxy in front,
+  // ignore the header entirely and key on the TCP socket address instead.
+  RATE_LIMIT_TRUSTED_HOPS: z.coerce.number().int().min(0).default(1),
+  // Hard cap on tracked client buckets per process (memory bound).
+  RATE_LIMIT_MAX_BUCKETS: z.coerce.number().int().positive().default(10_000),
+  // Per-route limits: bulk bible-texts reads (see bible-texts.route.ts).
+  RATE_LIMIT_BULK_TEXTS_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_BULK_TEXTS_MAX: z.coerce.number().int().positive().default(20),
 
   // ── Fluent-AI integration ──────────────────────────────────────────
   // Base URL of the fluent-ai service (no trailing slash, no path suffix).
@@ -82,24 +131,26 @@ const EnvSchema = z.object({
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
-  // ── Async USFM export storage (Cloudflare R2, S3-compatible) ───────
-  // Optional: when the three R2 credentials are unset the async export
-  // endpoints respond 503 and the worker refuses export jobs (the sync export
-  // path is unaffected). Credential var names are shared with the audio-record
-  // R2 integration for org consistency. The exports bucket MUST be created in
-  // the EU jurisdiction so files at rest stay in the EU (GDPR) — see
-  // .env.example. Local dev: MinIO or a real R2 dev bucket.
-  R2_ACCOUNT_ID: z.string().optional(),
-  R2_ACCESS_KEY_ID: z.string().optional(),
-  R2_SECRET_ACCESS_KEY: z.string().optional(),
-  // Jurisdiction segment of the R2 endpoint
-  // ({account}.{jurisdiction}.r2.cloudflarestorage.com). 'eu' pins data at rest
-  // to the EU (GDPR); 'default' uses the un-pinned global endpoint.
-  R2_JURISDICTION: z.string().default('eu'),
-  // Bucket dedicated to USFM exports — kept separate from other R2 buckets
-  // because deleteExpiredExports sweeps and deletes every object in it older
-  // than the export TTL.
-  R2_EXPORTS_BUCKET: z.string().default('usfm-exports'),
+  // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
+  // Base URL of the Aquifer API (no trailing slash). Defaults to production.
+  AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
+  // Server-held Aquifer API key — never expose to mobile/web clients.
+  // Optional like R2 credentials: unset/blank boots fine; translation-resources
+  // routes return AQUIFER_SERVICE_UNAVAILABLE (502) until a key is configured.
+  AQUIFER_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    }),
+
+  // ── API.Bible (DBL) Integration ──────────────────────────────────────
+  DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
+  DBL_API_KEY: z.string().optional().default(''),
+  // Per-request timeout (ms) for calls to the DBL/API.Bible client.
+  DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
@@ -128,6 +179,50 @@ const EnvSchema = z.object({
   EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
 });
 
+const R2_BUCKET_KEYS = ['R2_EXPORTS_BUCKET', 'R2_AUDIO_BUCKET'] as const;
+
+/**
+ * Neither bucket var may carry a hardcoded default.
+ *
+ * R2 credentials are ACCOUNT-level, so environments pointed at the same R2
+ * account are separated by nothing but their bucket names. With a default, an
+ * environment whose deploy config forgot `R2_AUDIO_BUCKET` would boot happily on
+ * the fallback name — and because audio object keys are deterministic
+ * (`unit-{id}/text-{id}`), two such environments would read and OVERWRITE each
+ * other's recordings rather than miss and 404. Silent and destructive, instead of
+ * loud and safe.
+ *
+ * So once any R2 credential is present, both buckets must be named explicitly.
+ * A missing one fails env validation at boot — a static config error caught
+ * before the server starts, unlike an unreachable bucket at runtime, which stays
+ * non-fatal by design (see verifyBlobStorageOnBoot / isAudioStorageAvailable).
+ */
+function requireExplicitR2Buckets(
+  value: z.infer<typeof EnvBaseSchema>,
+  ctx: z.RefinementCtx
+): void {
+  const anyCredential = Boolean(
+    value.R2_ACCOUNT_ID || value.R2_ACCESS_KEY_ID || value.R2_SECRET_ACCESS_KEY
+  );
+  if (!anyCredential) return;
+
+  for (const key of R2_BUCKET_KEYS) {
+    if (value[key]) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [key],
+      message: `${key} is required when R2 credentials are set — name the bucket this environment owns explicitly; there is no default to inherit, because two environments sharing one bucket would overwrite each other's objects`,
+    });
+  }
+}
+
+/**
+ * The full env contract. Exported so src/env.test.ts can exercise the R2 rule
+ * above: parsing the real environment happens once at module load below, which
+ * leaves no other seam to test a cross-field rule through.
+ */
+export const EnvSchema = EnvBaseSchema.superRefine(requireExplicitR2Buckets);
+
 export type env = z.infer<typeof EnvSchema>;
 
 /**
@@ -136,7 +231,7 @@ export type env = z.infer<typeof EnvSchema>;
  * object, so this reads the schema shape, not `process.env`). This is the
  * env-side half of the feature-flag drift check in src/lib/features.test.ts.
  */
-export const declaredFeatureEnvKeys: string[] = Object.keys(EnvSchema.shape).filter((k) =>
+export const declaredFeatureEnvKeys: string[] = Object.keys(EnvBaseSchema.shape).filter((k) =>
   k.startsWith('EN_FEATURE_')
 );
 

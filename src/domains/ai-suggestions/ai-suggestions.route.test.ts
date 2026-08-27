@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
 import { server } from '@/server/server';
 
-import { checkProjectUnitAccess } from './ai-suggestions.auth.middleware';
 import * as aiSuggestionsService from './ai-suggestions.service';
 import './ai-suggestions.route';
 
@@ -18,9 +17,25 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([{ organizationId: 1, projectId: 1 }]),
+    returning: vi.fn().mockResolvedValue([]),
+  };
+  return {
+    db: {
+      select: vi.fn(() => mockQueryBuilder),
+      selectDistinct: vi.fn(() => mockQueryBuilder),
+      insert: vi.fn(() => mockQueryBuilder),
+      update: vi.fn(() => mockQueryBuilder),
+      delete: vi.fn(() => mockQueryBuilder),
+    },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -30,9 +45,11 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
+
+// Removed permissions.service mock
 
 vi.mock('./ai-suggestions.service', () => ({
   getAiSuggestions: vi.fn(),
@@ -40,10 +57,13 @@ vi.mock('./ai-suggestions.service', () => ({
   trackUsage: vi.fn(),
 }));
 
-vi.mock('./ai-suggestions.auth.middleware', () => ({
-  checkProjectUnitAccess: vi.fn(),
-  requireProjectUnitAccess: vi.fn().mockImplementation(() => async (c: any, next: any) => next()),
-}));
+vi.mock('./ai-suggestions.auth.middleware', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ai-suggestions.auth.middleware')>();
+  return {
+    ...actual,
+    checkProjectUnitAccess: vi.fn(),
+  };
+});
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -56,13 +76,16 @@ const APP_USER = {
   status: 'verified' as const,
 };
 
-function asAuthenticatedUser(granted: boolean) {
+function asAuthenticatedUser(granted = true) {
   (auth.api.getSession as any).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
   });
   (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
-  (roleHasPermission as any).mockResolvedValue(granted);
+  (findGrantsByUserId as any).mockResolvedValue({
+    ok: true,
+    data: granted ? [{ orgId: 1, projectId: 1, permissions: new Set(['project:view']) }] : [],
+  });
 }
 
 function getAiSuggestions(projectUnitId: number, bibleTextIds: number[]) {
@@ -92,7 +115,6 @@ function postUsage(body: unknown) {
 describe('ai-suggestions routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (checkProjectUnitAccess as any).mockResolvedValue(null);
   });
 
   describe('get /ai-suggestions', () => {
@@ -127,10 +149,7 @@ describe('ai-suggestions routes', () => {
     };
 
     it('returns 403 when access check fails', async () => {
-      asAuthenticatedUser(true);
-      (checkProjectUnitAccess as any).mockResolvedValue(
-        new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })
-      );
+      asAuthenticatedUser(false);
 
       const res = await postQueueNext(VALID_BODY);
       expect(res.status).toBe(403);
@@ -160,10 +179,7 @@ describe('ai-suggestions routes', () => {
     };
 
     it('returns 403 when access check fails', async () => {
-      asAuthenticatedUser(true);
-      (checkProjectUnitAccess as any).mockResolvedValue(
-        new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })
-      );
+      asAuthenticatedUser(false);
 
       const res = await postUsage(VALID_BODY);
       expect(res.status).toBe(403);

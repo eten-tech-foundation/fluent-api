@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, translated_verses } from '@/db/schema';
@@ -14,13 +14,18 @@ import type {
   UpdateTranslatedVerseInput,
 } from './translated-verses.types';
 
-export async function getById(id: number): Promise<Result<TranslatedVerseRecord>> {
+export async function getById(
+  id: number,
+  tx?: DbTransaction
+): Promise<Result<TranslatedVerseRecord>> {
   try {
-    const [verse] = await db
+    const conn = tx ?? db;
+    const [verse] = await conn
       .select({
         id: translated_verses.id,
         projectUnitId: translated_verses.projectUnitId,
         content: translated_verses.content,
+        markers: translated_verses.markers,
         bibleTextId: translated_verses.bibleTextId,
         assignedUserId: translated_verses.assignedUserId,
         createdAt: translated_verses.createdAt,
@@ -101,22 +106,25 @@ export async function update(
 }
 
 export async function upsert(
-  input: CreateTranslatedVerseInput
+  input: CreateTranslatedVerseInput,
+  tx?: DbTransaction
 ): Promise<Result<TranslatedVerseRecord>> {
   try {
-    const [verse] = await db
+    const conn = tx ?? db;
+    const [verse] = await conn
       .insert(translated_verses)
       .values(input)
       .onConflictDoUpdate({
         target: [translated_verses.projectUnitId, translated_verses.bibleTextId],
         set: {
           content: sql`excluded.content`,
+          markers: sql`excluded.markers`,
           assignedUserId: sql`excluded.assigned_user_id`,
         },
       })
       .returning();
 
-    const result = await getById(verse.id);
+    const result = await getById(verse.id, tx);
     if (!result.ok) {
       return err(ErrorCode.INTERNAL_ERROR);
     }
@@ -151,6 +159,7 @@ export async function list(
         id: translated_verses.id,
         projectUnitId: translated_verses.projectUnitId,
         content: translated_verses.content,
+        markers: translated_verses.markers,
         bibleTextId: translated_verses.bibleTextId,
         assignedUserId: translated_verses.assignedUserId,
         createdAt: translated_verses.createdAt,

@@ -72,6 +72,7 @@ export const projectWithLangNames = {
   targetLanguageName: targetLanguages.langName,
   sourceName: sourceBibles.name,
   lastChapterActivity: lastActivitySubquery.lastChapterActivity,
+  lastActivityAt: projects.lastActivityAt,
   counts: chapterStatusCountsSubquery.counts,
 } as const;
 
