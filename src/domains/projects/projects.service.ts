@@ -12,6 +12,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
 
+import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
 
 export function getProjectsByOrganization(organizationId: number) {
@@ -74,6 +75,19 @@ export async function touchProjectActivity(
   }
 
   await repo.touchLastActivity(result.data.projectId, tx);
+}
+
+/** Activate a not_assigned project and bump lastActivityAt when a chapter is first assigned. */
+export async function recordProjectAssignmentActivity(
+  projectUnitId: number,
+  tx: DbTransaction
+): Promise<void> {
+  const projectIds = await projectChapterAssignmentsRepo.findNotAssignedProjectIds(
+    [projectUnitId],
+    tx
+  );
+  await projectChapterAssignmentsRepo.activateProjects(projectIds, tx);
+  await touchProjectActivity(projectUnitId, tx);
 }
 
 export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {

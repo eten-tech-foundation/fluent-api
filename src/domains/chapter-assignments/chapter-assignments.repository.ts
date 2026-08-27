@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
@@ -33,6 +33,8 @@ import type {
   CreateChapterAssignmentRequestData,
   UpdateChapterAssignmentRequestData,
 } from './chapter-assignments.types';
+
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecord {
   projectId: number;
@@ -69,6 +71,8 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         organizationId: projects.organization,
@@ -105,6 +109,8 @@ export async function findByIdWithAuthContext(
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         // Project context
@@ -307,6 +313,42 @@ export async function update(
   return updated ?? null;
 }
 
+export async function claimIfUnassigned(
+  id: number,
+  userId: number,
+  tx: DbTransaction
+): Promise<{ claimed: boolean; record: ChapterAssignmentRecord | null }> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({
+      assignedUserId: userId,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        isNull(chapter_assignments.assignedUserId),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED)
+      )
+    )
+    .returning();
+
+  return { claimed: !!updated, record: updated ?? null };
+}
+
+export async function flagClaimConflict(
+  id: number,
+  claimConflictUserId: number,
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord | null> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({ hasClaimConflict: true, claimConflictUserId })
+    .where(eq(chapter_assignments.id, id))
+    .returning();
+  return updated ?? null;
+}
+
 export async function remove(id: number): Promise<Result<void>> {
   try {
     const [deleted] = await db
@@ -401,6 +443,8 @@ export async function findAssignmentsProgress(
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
