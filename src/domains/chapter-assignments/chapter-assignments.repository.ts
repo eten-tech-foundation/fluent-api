@@ -181,9 +181,10 @@ export async function findForVerse(
 export async function findChaptersForProjectUnit(
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ) {
-  return tx
+  const dbClient = externalTx ?? db;
+  return dbClient
     .select({
       bibleId: bible_texts.bibleId,
       bookId: bible_texts.bookId,
@@ -276,13 +277,18 @@ export async function insertMany(
     assignedUserId: null;
     peerCheckerId: null;
   }>,
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ): Promise<ChapterAssignmentRecord[]> {
+  const dbClient = externalTx ?? db;
   const chunkSize = 1000;
   const inserted: ChapterAssignmentRecord[] = [];
   for (let i = 0; i < records.length; i += chunkSize) {
     const chunk = records.slice(i, i + chunkSize);
-    const result = await tx.insert(chapter_assignments).values(chunk).returning();
+    const result = await dbClient
+      .insert(chapter_assignments)
+      .values(chunk)
+      .onConflictDoNothing()
+      .returning();
     inserted.push(...result);
   }
   return inserted;

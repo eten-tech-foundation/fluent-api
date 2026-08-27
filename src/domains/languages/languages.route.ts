@@ -5,6 +5,7 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { getHttpStatus } from '@/lib/types';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as languageService from './languages.service';
@@ -14,6 +15,7 @@ const listLanguagesRoute = createRoute({
   tags: ['Languages'],
   method: 'get',
   path: '/languages',
+  middleware: [authenticateUser] as const,
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       languageResponseSchema.array().openapi('Languages'),
@@ -22,6 +24,10 @@ const listLanguagesRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -46,17 +52,22 @@ const getLanguageRoute = createRoute({
   tags: ['Languages'],
   method: 'get',
   path: '/languages/{id}',
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
-      id: z.coerce.number().openapi({
-        param: {
-          name: 'id',
-          in: 'path',
-          required: true,
-          allowReserved: false,
-        },
-        example: 1,
-      }),
+      id: z.coerce
+        .number()
+        .int()
+        .positive()
+        .openapi({
+          param: {
+            name: 'id',
+            in: 'path',
+            required: true,
+            allowReserved: false,
+          },
+          example: 1,
+        }),
     }),
   },
   responses: {
@@ -68,6 +79,10 @@ const getLanguageRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
