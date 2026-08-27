@@ -146,6 +146,12 @@ const EnvBaseSchema = z.object({
       return trimmed === '' ? undefined : trimmed;
     }),
 
+  // ── API.Bible (DBL) Integration ──────────────────────────────────────
+  DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
+  DBL_API_KEY: z.string().optional().default(''),
+  // Per-request timeout (ms) for calls to the DBL/API.Bible client.
+  DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
   // EN_FEATURE_ prefix. Each flag is declared explicitly here (proposal D2) so

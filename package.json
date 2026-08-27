@@ -41,6 +41,7 @@
     "db:generate": "drizzle-kit generate --name",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
+    "db:sync:dbl": "npx tsx src/db/scripts/sync-dbl-catalogue.ts",
     "db:seed:pericope-sets": "npx tsx src/db/seeds/pericope-sets.ts"
   },
   "dependencies": {

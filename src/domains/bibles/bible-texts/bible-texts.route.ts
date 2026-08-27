@@ -7,6 +7,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import env from '@/env';
 import { getHttpStatus } from '@/lib/types';
 import { rateLimit } from '@/middlewares/rate-limit';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import type { BulkBibleTextsRequest } from './bible-texts.types';
@@ -54,6 +55,7 @@ const getBibleTextsByChapterRoute = createRoute({
   tags: ['Bible Texts'],
   method: 'get',
   path: '/bibles/{bibleId}/books/{bookId}/chapters/{chapterNumber}/texts',
+  middleware: [authenticateUser] as const,
   request: { params: chapterParams },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
@@ -67,6 +69,14 @@ const getBibleTextsByChapterRoute = createRoute({
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Bible, book, or chapter not found'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -154,7 +164,7 @@ const getBulkBibleTextsRoute = createRoute({
 
 server.openapi(getBulkBibleTextsRoute, async (c) => {
   const { bibleId } = c.req.valid('param');
-  const body: BulkBibleTextsRequest = bulkChapterRequestSchema.parse(c.req.valid('json'));
+  const body: BulkBibleTextsRequest = c.req.valid('json');
   const result = await bibleTextsService.getBulkBibleTexts(bibleId, body);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

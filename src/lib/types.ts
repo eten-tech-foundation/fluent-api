@@ -80,6 +80,9 @@ export const ErrorCode = {
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
   // Aquifer (translation resources) upstream errors → HTTP 502
   AQUIFER_SERVICE_UNAVAILABLE: 'AQUIFER_SERVICE_UNAVAILABLE',
+  // DBL upstream errors
+  DBL_SERVICE_UNAVAILABLE: 'DBL_SERVICE_UNAVAILABLE',
+  DBL_NOT_CONFIGURED: 'DBL_NOT_CONFIGURED',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
@@ -124,6 +127,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
   AQUIFER_SERVICE_UNAVAILABLE: 'Aquifer service is unavailable',
+  DBL_SERVICE_UNAVAILABLE: 'DBL API is unavailable',
+  DBL_NOT_CONFIGURED: 'DBL API key is not configured',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
 };
@@ -138,6 +143,8 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
   AQUIFER_SERVICE_UNAVAILABLE: 502,
+  DBL_SERVICE_UNAVAILABLE: 502,
+  DBL_NOT_CONFIGURED: 503,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
