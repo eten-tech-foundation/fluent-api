@@ -42,6 +42,10 @@ vi.mock('../lib/services/dbl/dbl.client', () => {
   };
 });
 
+vi.mock('../domains/chapter-assignments/chapter-assignments.service', () => ({
+  createChapterAssignmentForProjectUnit: vi.fn(),
+}));
+
 describe('dblIngestTextWorker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -128,5 +132,106 @@ describe('dblIngestTextWorker', () => {
     );
     // Never even attempts to fetch chapters for a book it couldn't resolve.
     expect(mockDblClientInstance.getChapters).not.toHaveBeenCalled();
+  });
+
+  it('marks a failed chapter-list fetch as a job failure so pg-boss retries, instead of silently dropping the whole book', async () => {
+    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+    await registerDblIngestTextWorker(mockBoss);
+    const handler = mockBoss.work.mock.calls[0][2];
+
+    vi.mocked(db.query.bibles.findFirst).mockResolvedValue({
+      id: 1,
+      externalId: 'ext-bible-1',
+    } as any);
+    vi.mocked(db.query.books.findFirst).mockResolvedValue({ id: 1, code: 'GEN' } as any);
+    mockDblClientInstance.getChapters.mockResolvedValue({
+      ok: false,
+      error: { message: 'DBL returned 503' },
+    });
+
+    await expect(
+      handler([{ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-3' }])
+    ).rejects.toThrow(/trigger retry/);
+
+    // A book whose chapter list couldn't be fetched has no chapters to fetch
+    // content for.
+    expect(mockDblClientInstance.getChapter).not.toHaveBeenCalled();
+  });
+
+  describe('chapter assignments after ingestion', () => {
+    const setupProjectUnitsAndBooks = (projectUnitIds: number[], bookIds: number[]) => {
+      vi.mocked(db.select).mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(projectUnitIds.map((id) => ({ id }))),
+        }),
+      } as any);
+      vi.mocked(db.query.books.findMany).mockResolvedValueOnce(
+        bookIds.map((id) => ({ id })) as any
+      );
+    };
+
+    beforeEach(() => {
+      vi.mocked(db.query.bibles.findFirst).mockResolvedValue({
+        id: 1,
+        externalId: 'ext-bible-1',
+      } as any);
+      vi.mocked(db.query.books.findFirst).mockResolvedValue({ id: 7, code: 'GEN' } as any);
+      mockDblClientInstance.getChapters.mockResolvedValue({ ok: true, data: [] });
+    });
+
+    it('logs success only when the assignment Result is ok', async () => {
+      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      await registerDblIngestTextWorker(mockBoss);
+      const handler = mockBoss.work.mock.calls[0][2];
+      const { logger } = await import('../lib/logger');
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined as any);
+
+      const chapterAssignmentsService = await import(
+        '../domains/chapter-assignments/chapter-assignments.service'
+      );
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue({
+        ok: true,
+        data: [],
+      } as any);
+      setupProjectUnitsAndBooks([42], [7]);
+
+      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-4' }]);
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        'Created chapter assignments for project unit after text ingestion',
+        expect.objectContaining({ projectUnitId: 42 })
+      );
+    });
+
+    it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {
+      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      await registerDblIngestTextWorker(mockBoss);
+      const handler = mockBoss.work.mock.calls[0][2];
+      const { logger } = await import('../lib/logger');
+      const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined as any);
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as any);
+
+      const chapterAssignmentsService = await import(
+        '../domains/chapter-assignments/chapter-assignments.service'
+      );
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue({
+        ok: false,
+        error: { message: 'insert failed', code: 'INTERNAL_ERROR' },
+      } as any);
+      setupProjectUnitsAndBooks([42], [7]);
+
+      await expect(
+        handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-5' }])
+      ).rejects.toThrow(/Failed to create chapter assignments/);
+
+      expect(infoSpy).not.toHaveBeenCalledWith(
+        'Created chapter assignments for project unit after text ingestion',
+        expect.anything()
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Failed to create chapter assignments for project unit',
+        expect.objectContaining({ projectUnitId: 42 })
+      );
+    });
   });
 });

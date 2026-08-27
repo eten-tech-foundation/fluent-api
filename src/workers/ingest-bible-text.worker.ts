@@ -66,6 +66,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
           logger.error(`Failed to fetch chapters for book ${code}`, {
             error: chaptersResult.error,
           });
+          jobFailedChapters++;
           continue;
         }
         const chapters = chaptersResult.data;
@@ -174,22 +175,43 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
             })
             .then((res) => res.map((b) => b.id));
 
+          let failedAssignments = 0;
+
           for (const pu of projectUnits) {
             if (bookIds.length > 0) {
-              await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-                pu.id,
-                bibleId,
-                bookIds
-              );
-              logger.info('Created chapter assignments for project unit after text ingestion', {
-                projectId: job.data.projectId,
-                projectUnitId: pu.id,
-                bookIds,
-              });
+              const assignmentResult =
+                await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
+                  pu.id,
+                  bibleId,
+                  bookIds
+                );
+
+              if (assignmentResult.ok) {
+                logger.info('Created chapter assignments for project unit after text ingestion', {
+                  projectId: job.data.projectId,
+                  projectUnitId: pu.id,
+                  bookIds,
+                });
+              } else {
+                failedAssignments++;
+                logger.error('Failed to create chapter assignments for project unit', {
+                  projectId: job.data.projectId,
+                  projectUnitId: pu.id,
+                  bookIds,
+                  error: assignmentResult.error,
+                });
+              }
             }
+          }
+
+          if (failedAssignments > 0) {
+            throw new Error(
+              `Failed to create chapter assignments for ${failedAssignments} project unit(s). Throwing to trigger retry.`
+            );
           }
         } catch (error) {
           logger.error('Failed to create chapter assignments after text ingestion', { error });
+          throw error;
         }
       }
 
