@@ -92,6 +92,7 @@
   "overrides": {
     "better-call": {
       "zod": "$zod"
-    }
+    },
+    "tree-sitter": "0.25.1"
   }
 }
