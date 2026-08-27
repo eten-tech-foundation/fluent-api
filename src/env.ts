@@ -102,6 +102,22 @@ const EnvBaseSchema = z.object({
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
   AI_TRIGGER_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 
+  // ── Rate limiting (#210) ──────────────────────────────────────────────
+  // Knobs for the in-memory per-IP limiter (src/middlewares/rate-limit.ts).
+  // Defaults preserve the values the limiter shipped with, so all four can
+  // stay unset until the deployment topology changes.
+  //
+  // How many trailing x-forwarded-for entries were appended by proxies we
+  // control. 1 = Azure App Service today (front-end appends the client IP as
+  // the last entry). Raise per extra trusted LB layer; 0 = no proxy in front,
+  // ignore the header entirely and key on the TCP socket address instead.
+  RATE_LIMIT_TRUSTED_HOPS: z.coerce.number().int().min(0).default(1),
+  // Hard cap on tracked client buckets per process (memory bound).
+  RATE_LIMIT_MAX_BUCKETS: z.coerce.number().int().positive().default(10_000),
+  // Per-route limits: bulk bible-texts reads (see bible-texts.route.ts).
+  RATE_LIMIT_BULK_TEXTS_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_BULK_TEXTS_MAX: z.coerce.number().int().positive().default(20),
+
   // ── Fluent-AI integration ──────────────────────────────────────────
   // Base URL of the fluent-ai service (no trailing slash, no path suffix).
   // Ecosystem mode (via fluent-platform): http://ai:8200 — standalone: http://localhost:8200
@@ -114,6 +130,27 @@ const EnvBaseSchema = z.object({
 
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
+
+  // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
+  // Base URL of the Aquifer API (no trailing slash). Defaults to production.
+  AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
+  // Server-held Aquifer API key — never expose to mobile/web clients.
+  // Optional like R2 credentials: unset/blank boots fine; translation-resources
+  // routes return AQUIFER_SERVICE_UNAVAILABLE (502) until a key is configured.
+  AQUIFER_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    }),
+
+  // ── API.Bible (DBL) Integration ──────────────────────────────────────
+  DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
+  DBL_API_KEY: z.string().optional().default(''),
+  // Per-request timeout (ms) for calls to the DBL/API.Bible client.
+  DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated

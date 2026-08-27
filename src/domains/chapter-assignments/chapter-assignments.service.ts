@@ -2,6 +2,7 @@ import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
+import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -43,15 +44,15 @@ export function getChapterAssignment(id: number) {
 // Fetch a chapter assignment with auth context for middleware policy evaluation.
 export function getChapterAssignmentWithAuthContext(
   id: number,
-  userId: number,
-  roleName: string
+  userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
-  return repo.findByIdWithAuthContext(id, userId, roleName);
+  return repo.findByIdWithAuthContext(id, userId);
 }
 
 export function getAssignmentsProgress(
   filters: {
     projectId?: number;
+    orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
     status?: ChapterAssignmentStatus;
@@ -146,7 +147,7 @@ export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  tx?: DbTransaction
 ) {
   try {
     const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
@@ -163,10 +164,11 @@ export async function createChapterAssignmentForProjectUnit(
 
     const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
-  } catch (error) {
+  } catch (error: any) {
     logger.error({
       cause: error,
-      message: 'Failed to create chapter assignments for project unit',
+      message: `Failed to create chapter assignments for project unit: ${error?.message || String(error)}`,
+      stack: error?.stack,
       context: { projectUnitId, bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -179,21 +181,30 @@ export async function updateChapterAssignment(
   externalTx?: DbTransaction
 ) {
   const exec = async (tx: DbTransaction) => {
+    const current = await repo.findById(id, tx);
+    if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+    const finalData = applyAutoTransition(current, data);
+    const updated = await repo.update(id, finalData, tx);
+    if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+    await recordStatusChange(tx, current, updated);
+    const shouldTriggerAi = await recordUserAssignmentChanges(tx, current, updated, data);
+
+    await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+
+    return ok({
+      response: toChapterAssignmentResponse(updated),
+      shouldTriggerAi,
+    });
+  };
+
+  let result;
+  if (externalTx) {
+    result = await exec(externalTx);
+  } else {
     try {
-      const current = await repo.findById(id, tx);
-      if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-
-      const finalData = applyAutoTransition(current, data);
-      const updated = await repo.update(id, finalData, tx);
-      if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-
-      await recordStatusChange(tx, current, updated);
-      const shouldTriggerAi = await recordUserAssignmentChanges(tx, current, updated, data);
-
-      return ok({
-        response: toChapterAssignmentResponse(updated),
-        shouldTriggerAi,
-      });
+      result = await db.transaction(exec);
     } catch (error) {
       logger.error({
         cause: error,
@@ -202,9 +213,7 @@ export async function updateChapterAssignment(
       });
       return err(ErrorCode.INTERNAL_ERROR);
     }
-  };
-
-  const result = await (externalTx ? exec(externalTx) : db.transaction(exec));
+  }
 
   if (!result.ok) {
     return result;
@@ -237,67 +246,69 @@ export async function updateChapterAssignment(
 }
 
 export async function submitChapterAssignment(chapterAssignmentId: number) {
-  return db.transaction(async (tx) => {
-    try {
-      const current = await repo.findById(chapterAssignmentId, tx);
-      if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+  const exec = async (tx: DbTransaction) => {
+    const current = await repo.findById(chapterAssignmentId, tx);
+    if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-      let nextStatus: ChapterAssignmentStatus;
-      let snapshotUser: number | null;
+    let nextStatus: ChapterAssignmentStatus;
+    let snapshotUser: number | null;
 
-      switch (current.status) {
-        case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK;
-          snapshotUser = current.assignedUserId;
-          break;
-        case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
-          snapshotUser = current.peerCheckerId;
-          break;
-        case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
-          snapshotUser = current.assignedUserId;
-          break;
-        case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK;
-          snapshotUser = current.assignedUserId;
-          break;
-        case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK;
-          snapshotUser = current.assignedUserId;
-          break;
-        case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
-          nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
-          snapshotUser = current.assignedUserId;
-          break;
-        default:
-          return err(ErrorCode.INVALID_STATUS_TRANSITION);
-      }
-
-      const contentResult = await repo.getContent(tx, current);
-      if (!contentResult.ok) return contentResult;
-
-      await repo.insertSnapshot(tx, {
-        chapterAssignmentId,
-        status: current.status,
-        assignedUserId: snapshotUser,
-        content: contentResult.data,
-      });
-
-      return updateChapterAssignment(
-        chapterAssignmentId,
-        { submittedTime: new Date(), status: nextStatus },
-        tx
-      );
-    } catch (error) {
-      logger.error({
-        cause: error,
-        message: 'Failed to submit chapter assignment',
-        context: { chapterAssignmentId },
-      });
-      return err(ErrorCode.INTERNAL_ERROR);
+    switch (current.status) {
+      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK;
+        snapshotUser = current.assignedUserId;
+        break;
+      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
+        snapshotUser = current.peerCheckerId;
+        break;
+      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
+        snapshotUser = current.assignedUserId;
+        break;
+      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK;
+        snapshotUser = current.assignedUserId;
+        break;
+      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK;
+        snapshotUser = current.assignedUserId;
+        break;
+      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
+        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
+        snapshotUser = current.assignedUserId;
+        break;
+      default:
+        return err(ErrorCode.INVALID_STATUS_TRANSITION);
     }
-  });
+
+    const contentResult = await repo.getContent(tx, current);
+    if (!contentResult.ok) return contentResult;
+
+    await repo.insertSnapshot(tx, {
+      chapterAssignmentId,
+      status: current.status,
+      assignedUserId: snapshotUser,
+      content: contentResult.data,
+    });
+
+    return updateChapterAssignment(
+      chapterAssignmentId,
+      { submittedTime: new Date(), status: nextStatus },
+      tx
+    );
+  };
+
+  try {
+    return await db.transaction(exec);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to submit chapter assignment',
+      context: { chapterAssignmentId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export function deleteChapterAssignment(id: number) {

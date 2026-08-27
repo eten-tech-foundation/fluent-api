@@ -1,83 +1,36 @@
 import type { AppPolicyUser } from '@/lib/types';
 
-import { ROLES } from '@/lib/roles';
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 
-interface PolicyTargetUser {
+export interface PolicyTargetUser {
   id: number;
-  organization: number;
+  orgIds: number[];
 }
 
 export const UserPolicy = {
-  /**
-   * Can this user list all users in the organization?
-   *
-   * Manager    : yes.
-   * Translator : no (they can only view themselves via their specific ID).
-   */
   list(user: AppPolicyUser): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER;
+    return user.grants.some((g) => g.permissions.has(PERMISSIONS.USER_VIEW));
   },
 
-  /**
-   * Can this user view the target user's profile?
-   *
-   * Manager    : yes, if the target is in the same organisation.
-   * Translator : yes, only if the target is themselves.
-   */
-  view(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return user.organization === targetUser.organization;
-    }
-
-    if (user.roleName === ROLES.TRANSLATOR) {
-      return user.id === targetUser.id;
-    }
-
-    return false;
-  },
-
-  /**
-   * Can this user create a new user?
-   *
-   * Manager    : yes — requirePermission already confirmed user:create.
-   * Translator : never reaches here, blocked by requirePermission.
-   */
   create(user: AppPolicyUser): boolean {
-    return user.roleName === ROLES.PROJECT_MANAGER;
+    return user.grants.some((g) => g.permissions.has(PERMISSIONS.USER_CREATE));
   },
 
-  /**
-   * Can this user update the target user's profile?
-   *
-   * Manager    : yes, if the target is in the same organisation.
-   * Translator : yes, only if the target is themselves.
-   *
-   * Note: role and organisation fields are stripped from updates
-   * for non-managers in the handler before this is called.
-   */
-  update(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return user.organization === targetUser.organization;
-    }
-
-    if (user.roleName === ROLES.TRANSLATOR) {
-      return user.id === targetUser.id;
-    }
-
-    return false;
+  view(user: AppPolicyUser, target: PolicyTargetUser): boolean {
+    if (user.id === target.id) return true;
+    if (authorize(user, PERMISSIONS.USER_VIEW, { orgId: null })) return true;
+    return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_VIEW, { orgId }));
   },
 
-  /**
-   * Can this user delete a user?
-   *
-   * Manager    : yes, if the target is in the same organisation.
-   * Translator : never reaches here, blocked by requirePermission.
-   */
-  delete(user: AppPolicyUser, targetUser: PolicyTargetUser): boolean {
-    if (user.roleName === ROLES.PROJECT_MANAGER) {
-      return user.organization === targetUser.organization;
-    }
+  update(user: AppPolicyUser, target: PolicyTargetUser): boolean {
+    if (user.id === target.id) return true;
+    if (authorize(user, PERMISSIONS.USER_UPDATE, { orgId: null })) return true;
+    return target.orgIds.some((orgId) => authorize(user, PERMISSIONS.USER_UPDATE, { orgId }));
+  },
 
-    return false;
+  delete(user: AppPolicyUser, _target: PolicyTargetUser): boolean {
+    // Full account deletion is SuperAdmin-only.
+    return authorize(user, PERMISSIONS.USER_DELETE, { orgId: null });
   },
 };

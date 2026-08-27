@@ -7,6 +7,7 @@ import type { AppBindings } from '@/lib/types';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { logger } from '@/lib/logger';
@@ -136,10 +137,52 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
     }
     // ───────────────────────────────────────────────────────────────────────
 
-    // Look up the application user
-    const userResult = await getUserByEmail(session.user.email);
+    // Look up the application user and load their grants, concurrently with auth_session activeOrgId
+    const [userResult, sessionRecords] = await Promise.all([
+      getUserByEmail(session.user.email),
+      db
+        .select({ activeOrgId: schema.authSession.activeOrgId })
+        .from(schema.authSession)
+        .where(eq(schema.authSession.id, session.session.id))
+        .limit(1),
+    ]);
+
     if (userResult.ok) {
-      c.set('user', userResult.data);
+      let activeOrgId = sessionRecords[0]?.activeOrgId ?? null;
+
+      if (activeOrgId == null && userResult.data.lastActiveOrgId != null) {
+        activeOrgId = userResult.data.lastActiveOrgId;
+        await db
+          .update(schema.authSession)
+          .set({ activeOrgId })
+          .where(eq(schema.authSession.id, session.session.id));
+      }
+
+      c.set('activeOrgId', activeOrgId);
+
+      const grantsResult = await findGrantsByUserId(userResult.data.id);
+      if (!grantsResult.ok) {
+        logger.error('Database failure: unable to load grants for user', {
+          userId: userResult.data.id,
+          error: grantsResult.error,
+        });
+        throw new HTTPException(500, {
+          message: 'Internal Server Error: Failed to load user grants',
+        });
+      }
+      logger.debug(
+        {
+          userId: userResult.data.id,
+          grantsCount: grantsResult.data.length,
+          grants: grantsResult.data,
+        },
+        'Populated session user with grants in authenticate'
+      );
+
+      c.set('user', {
+        ...userResult.data,
+        grants: grantsResult.data,
+      });
     } else {
       logger.debug('Authenticated auth_user has no linked application user', {
         email: session.user.email,
@@ -148,6 +191,9 @@ export async function authenticate(c: Context<AppBindings>, next: Next) {
   } catch (error) {
     if (error instanceof HTTPException) throw error;
     logger.error('Authentication middleware error', { error });
+    throw new HTTPException(500, {
+      message: 'Internal Server Error: Authentication failure',
+    });
   }
 
   await next();

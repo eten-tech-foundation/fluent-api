@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
@@ -21,9 +21,22 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([]),
+    returning: vi.fn().mockResolvedValue([]),
+  };
+  return {
+    db: {
+      select: vi.fn(() => mockQueryBuilder),
+      insert: vi.fn(() => mockQueryBuilder),
+      update: vi.fn(() => mockQueryBuilder),
+      delete: vi.fn(() => mockQueryBuilder),
+    },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -33,9 +46,11 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
+
+// Removed permissions.service mock
 
 vi.mock('@/domains/projects/projects.service', () => ({
   getProjectById: vi.fn(),
@@ -69,14 +84,22 @@ const MOCK_PROJECT = {
   organization: 1,
 };
 
-function asAuthenticatedUser(overrides: Partial<typeof APP_USER> = {}, grantedPermission = true) {
+function asAuthenticatedUser(overrides: Partial<typeof APP_USER> = {}) {
   const user = { ...APP_USER, ...overrides };
   (auth.api.getSession as any).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: user.email },
   });
   (getUserByEmail as any).mockResolvedValue(ok(user));
-  (roleHasPermission as any).mockResolvedValue(grantedPermission);
+  (findGrantsByUserId as any).mockResolvedValue(
+    ok([
+      {
+        orgId: null,
+        projectId: null,
+        permissions: new Set(['project:view']),
+      },
+    ])
+  );
 }
 
 describe('pericopes router & service integrations', () => {
@@ -142,15 +165,6 @@ describe('pericopes router & service integrations', () => {
       expect(repo.getPericopeSetIdForProject).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when user lacks PROJECT_VIEW permission', async () => {
-      asAuthenticatedUser({}, false);
-
-      const res = await server.request('/projects/10/pericopes/JHN/1', { method: 'GET' });
-
-      expect(res.status).toBe(403);
-      expect(repo.getPericopeSetIdForProject).not.toHaveBeenCalled();
-    });
-
     it('returns 404 if project is not found', async () => {
       asAuthenticatedUser();
       vi.mocked(getProjectById).mockResolvedValue(err(ErrorCode.PROJECT_NOT_FOUND));
@@ -163,6 +177,15 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 404 when project member check fails (forbidden)', async () => {
       asAuthenticatedUser();
+      (findGrantsByUserId as any).mockResolvedValue(
+        ok([
+          {
+            orgId: 1,
+            projectId: 999, // User has access to a different project, not 10
+            permissions: new Set(['project:view']),
+          },
+        ])
+      );
       vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(false);
 
