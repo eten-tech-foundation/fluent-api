@@ -149,7 +149,7 @@ export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  tx?: DbTransaction
 ) {
   try {
     const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
@@ -166,10 +166,11 @@ export async function createChapterAssignmentForProjectUnit(
 
     const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
-  } catch (error) {
+  } catch (error: any) {
     logger.error({
       cause: error,
-      message: 'Failed to create chapter assignments for project unit',
+      message: `Failed to create chapter assignments for project unit: ${error?.message || String(error)}`,
+      stack: error?.stack,
       context: { projectUnitId, bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);

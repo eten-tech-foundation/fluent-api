@@ -1,5 +1,5 @@
 {
-  "id": "7a687e98-bf1e-4e99-b2a0-32e9328be8f9",
+  "id": "d65c689a-8eb2-42eb-b7a8-f38914f30932",
   "prevId": "860cc08e-41fc-4430-8625-aa0ff82a373e",
   "version": "7",
   "dialect": "postgresql",
@@ -796,7 +796,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_bible_books_bible_book": {
+          "name": "idx_bible_books_bible_book",
+          "columns": [
+            {
+              "expression": "bible_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "bible_books_bible_id_bibles_id_fk": {
           "name": "bible_books_bible_id_bibles_id_fk",
@@ -934,7 +956,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -994,6 +1016,20 @@
           "primaryKey": false,
           "notNull": true
         },
+        "provider": {
+          "name": "provider",
+          "type": "bible_provider",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'dbl'"
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1009,7 +1045,30 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_bibles_provider_external_id": {
+          "name": "idx_bibles_provider_external_id",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"bibles\".\"external_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "bibles_language_id_languages_id_fk": {
           "name": "bibles_language_id_languages_id_fk",
@@ -1064,7 +1123,13 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "books_code_unique": {
+          "name": "books_code_unique",
+          "nullsNotDistinct": false,
+          "columns": ["code"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1391,19 +1456,6 @@
           "notNull": true,
           "default": "'not_started'"
         },
-        "has_claim_conflict": {
-          "name": "has_claim_conflict",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "claim_conflict_user_id": {
-          "name": "claim_conflict_user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "is_ai_enabled": {
           "name": "is_ai_enabled",
           "type": "boolean",
@@ -1560,15 +1612,6 @@
           "tableFrom": "chapter_assignments",
           "tableTo": "users",
           "columnsFrom": ["peer_checker_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chapter_assignments_claim_conflict_user_id_users_id_fk": {
-          "name": "chapter_assignments_claim_conflict_user_id_users_id_fk",
-          "tableFrom": "chapter_assignments",
-          "tableTo": "users",
-          "columnsFrom": ["claim_conflict_user_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -3128,6 +3171,11 @@
       "name": "assignment_role",
       "schema": "public",
       "values": ["drafter", "peer_checker"]
+    },
+    "public.bible_provider": {
+      "name": "bible_provider",
+      "schema": "public",
+      "values": ["dbl"]
     },
     "public.chapter_status": {
       "name": "chapter_status",
