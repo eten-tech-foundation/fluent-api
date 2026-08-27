@@ -5,13 +5,50 @@ on:
   pull_request:
     types: [closed]
 
+# Deleting a ref is a write to repository contents. Scoped explicitly so this
+# job does not inherit the permissive default token.
+permissions:
+  contents: write
+
 jobs:
   cleanup:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Delete merged branch
-        uses: dawidd6/action-delete-branch@d1efac9a6f7a9b408d4e8ff663a99c1fbac17b3f # v3.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branches: ${{ github.event.pull_request.head.ref }}
+          script: |
+            const pr = context.payload.pull_request;
+            const branch = pr.head.ref;
+
+            // A fork's head ref names a branch in the fork, not here. Deleting
+            // `heads/<branch>` would target a same-named branch in this repo.
+            if (pr.head.repo.full_name !== context.payload.repository.full_name) {
+              core.info(`Skipping fork branch: ${pr.head.repo.full_name}:${branch}`);
+              return;
+            }
+
+            const protectedBranches = ['main', 'master', 'develop'];
+            if (protectedBranches.includes(branch)) {
+              core.info(`Refusing to delete protected branch: ${branch}`);
+              return;
+            }
+
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `heads/${branch}`,
+              });
+              core.info(`Deleted branch: ${branch}`);
+            } catch (error) {
+              // Dependabot deletes its own branches after merge, and GitHub's
+              // "Delete branch" button races this job. Already gone is success.
+              if (error.status === 404 || error.status === 422) {
+                core.info(`Branch already deleted: ${branch}`);
+                return;
+              }
+              throw error;
+            }
