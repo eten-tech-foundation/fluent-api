@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -9,8 +9,9 @@ import {
   chapterStatusEnum,
   project_unit_bible_books,
   project_units,
-  project_users,
   projects,
+  roles,
+  user_roles,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -72,20 +73,85 @@ export async function getByOrganization(
   }
 }
 
+export async function getAllProjects(): Promise<Result<ProjectWithLanguageNames[]>> {
+  try {
+    const rawProjects = await baseJoinQuery();
+    return ok(rawProjects.map(mapToProjectWithLanguages));
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to get all projects' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function findByOrgIdsOrProjectIds(
+  orgIds: number[],
+  projectIds: number[]
+): Promise<Result<ProjectWithLanguageNames[]>> {
+  if (orgIds.length === 0 && projectIds.length === 0) return ok([]);
+  try {
+    const conditions = [];
+    if (orgIds.length) conditions.push(inArray(projects.organization, orgIds));
+    if (projectIds.length) conditions.push(inArray(projects.id, projectIds));
+    const rows = await baseJoinQuery().where(or(...conditions));
+    return ok(rows.map(mapToProjectWithLanguages));
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to find projects for user' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 export async function getByUserId(
   userId: number,
-  updatedAfter?: Date
+  orgId?: number,
+  updatedAfter?: Date,
+  roleName?: string
 ): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
-    const rawProjects = await baseJoinQuery()
-      .innerJoin(project_users, eq(project_users.projectId, projects.id))
-      .where(
+    let query = baseJoinQuery()
+      .innerJoin(
+        user_roles,
         and(
-          eq(project_users.userId, userId),
-          updatedAfter ? gt(projects.updatedAt, updatedAfter) : undefined
+          eq(user_roles.userId, userId),
+          or(
+            // Explicit project-level grant — always counts.
+            eq(user_roles.projectId, projects.id),
+            // Org-level grant — only counts for roles other than 'Org Member'.
+            and(eq(user_roles.orgId, projects.organization), isNull(user_roles.projectId))
+          )
         )
-      );
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+      )
+      .innerJoin(roles, eq(roles.id, user_roles.roleId))
+      .$dynamic();
+
+    const conditions = [];
+    if (orgId !== undefined) conditions.push(eq(projects.organization, orgId));
+    if (updatedAfter) conditions.push(gt(projects.updatedAt, updatedAfter));
+
+    // When a specific role is requested, only return projects where
+    // the user holds that exact role.
+    if (roleName) {
+      conditions.push(eq(roles.name, roleName));
+    }
+
+    conditions.push(
+      or(
+        // Project-scoped grant — role name doesn't matter.
+        eq(user_roles.projectId, projects.id),
+        // Org-scoped grant — must NOT be the plain 'Org Member' anchor role.
+        and(isNull(user_roles.projectId), ne(roles.name, 'Org Member'))
+      )
+    );
+
+    query = query.where(and(...conditions));
+
+    const rawProjects = await query;
+
+    // Deduplicate: a user with both org-wide + project-pinned grants gets the same project twice
+    const seen = new Map<number, (typeof rawProjects)[number]>();
+    for (const row of rawProjects) {
+      if (!seen.has(row.id)) seen.set(row.id, row);
+    }
+    return ok([...seen.values()].map(mapToProjectWithLanguages));
   } catch (error) {
     logger.error({
       cause: error,
@@ -175,9 +241,17 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
-export async function getProjectIdByUnitId(projectUnitId: number): Promise<Result<ProjectUnitRef>> {
+export async function touchLastActivity(projectId: number, tx: DbTransaction): Promise<void> {
+  await tx.update(projects).set({ lastActivityAt: new Date() }).where(eq(projects.id, projectId));
+}
+
+export async function getProjectIdByUnitId(
+  projectUnitId: number,
+  tx?: DbTransaction
+): Promise<Result<ProjectUnitRef>> {
   try {
-    const [unit] = await db
+    const conn = tx ?? db;
+    const [unit] = await conn
       .select({ projectId: project_units.projectId })
       .from(project_units)
       .where(eq(project_units.id, projectUnitId))

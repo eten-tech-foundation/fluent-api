@@ -79,6 +79,11 @@ export async function getProjectBooks(
         bookId: project_unit_bible_books.bookId,
         bookCode: books.code,
         bookName: books.eng_display_name,
+        runningHeader: project_unit_bible_books.runningHeader,
+        bookTitle: project_unit_bible_books.bookTitle,
+        tocLongName: project_unit_bible_books.tocLongName,
+        tocShortName: project_unit_bible_books.tocShortName,
+        tocAbbreviation: project_unit_bible_books.tocAbbreviation,
       })
       .from(project_unit_bible_books)
       .innerJoin(books, eq(project_unit_bible_books.bookId, books.id))
@@ -123,6 +128,7 @@ export async function getBookVerses(
           chapterNumber: bible_texts.chapterNumber,
           verseNumber: bible_texts.verseNumber,
           translatedContent: translated_verses.content,
+          markers: translated_verses.markers,
         })
         .from(bible_texts)
         .innerJoin(books, eq(bible_texts.bookId, books.id))

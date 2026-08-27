@@ -4,6 +4,7 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import env from '@/env';
 import { getHttpStatus } from '@/lib/types';
 import { rateLimit } from '@/middlewares/rate-limit';
 import { server } from '@/server/server';
@@ -91,7 +92,12 @@ const getBulkBibleTextsRoute = createRoute({
   path: '/bibles/{bibleId}/bulk-texts',
   // Intentionally anonymous (mobile sync pre-cache; reviewer decision 2026-06-26).
   // Rate-limited as a scraping/abuse guard — a full sync needs only 1-2 requests.
-  middleware: [rateLimit({ windowMs: 60_000, max: 20 })] as const,
+  middleware: [
+    rateLimit({
+      windowMs: env.RATE_LIMIT_BULK_TEXTS_WINDOW_MS,
+      max: env.RATE_LIMIT_BULK_TEXTS_MAX,
+    }),
+  ] as const,
   request: {
     params: z.object({
       bibleId: z.coerce
@@ -121,7 +127,11 @@ const getBulkBibleTextsRoute = createRoute({
     [HttpStatusCodes.TOO_MANY_REQUESTS]: {
       ...jsonContent(
         createMessageObjectSchema('Too many requests'),
-        'Rate limit exceeded (20 requests per minute per client IP)'
+        // Read from env, not written out: the limits are deployment-configurable, so a fixed
+        // number here would describe whatever the defaults happened to be when this was written.
+        `Rate limit exceeded (${env.RATE_LIMIT_BULK_TEXTS_MAX} requests per ${
+          env.RATE_LIMIT_BULK_TEXTS_WINDOW_MS / 1000
+        }s per client IP)`
       ),
       headers: z.object({
         'Retry-After': z.string().openapi({

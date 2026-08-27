@@ -5,16 +5,15 @@ import type { Schema } from 'hono';
 import type { PinoLogger } from 'hono-pino';
 
 import type * as schema from '@/db/schema';
+import type { Permission } from '@/lib/permissions';
 
 // ─── App user (session context) ───────────────────────────────────────────────
 
 export interface User {
   id: number;
   email: string;
-  role: number;
-  roleName: string;
-  organization: number;
   status: 'invited' | 'verified' | 'inactive';
+  grants: Grant[];
   [key: string]: any;
 }
 
@@ -26,6 +25,7 @@ export interface AppBindings {
     user?: User;
     session?: any; // BetterAuth session
     requestId: string;
+    activeOrgId?: number | null;
   };
 }
 
@@ -57,6 +57,7 @@ export const ErrorCode = {
   BOOK_NOT_FOUND: 'BOOK_NOT_FOUND',
   BIBLE_BOOK_NOT_FOUND: 'BIBLE_BOOK_NOT_FOUND',
   TRANSLATED_VERSE_NOT_FOUND: 'TRANSLATED_VERSE_NOT_FOUND',
+  VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -69,12 +70,16 @@ export const ErrorCode = {
   CHAPTER_LIMIT_EXCEEDED: 'CHAPTER_LIMIT_EXCEEDED',
   INVALID_REFERENCE: 'INVALID_REFERENCE',
   INVALID_BIBLE_BOOKS: 'INVALID_BIBLE_BOOKS',
+  UNSUPPORTED_AUDIO_TYPE: 'UNSUPPORTED_AUDIO_TYPE',
+  EMPTY_AUDIO_FILE: 'EMPTY_AUDIO_FILE',
   // External service errors
   AUTH_ERROR: 'AUTH_ERROR',
   EMAIL_SERVICE_ERROR: 'EMAIL_SERVICE_ERROR',
   // AI-tools (fluent-ai) integration errors — both map to HTTP 502 (see §10.1)
   AI_SERVICE_UNAVAILABLE: 'AI_SERVICE_UNAVAILABLE',
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
+  // Aquifer (translation resources) upstream errors → HTTP 502
+  AQUIFER_SERVICE_UNAVAILABLE: 'AQUIFER_SERVICE_UNAVAILABLE',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
@@ -101,6 +106,9 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   BOOK_NOT_FOUND: 'Book not found',
   BIBLE_BOOK_NOT_FOUND: 'Bible book not found',
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
+  VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
+  UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
+  EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
   EMAIL_CONFLICT: 'Email is already in use',
   DUPLICATE: 'Resource already exists',
@@ -115,6 +123,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   EMAIL_SERVICE_ERROR: 'Email service error',
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
+  AQUIFER_SERVICE_UNAVAILABLE: 'Aquifer service is unavailable',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
 };
@@ -128,6 +137,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   // AI-tools upstream failures surface as 502 Bad Gateway (see §10.1)
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
+  AQUIFER_SERVICE_UNAVAILABLE: 502,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
@@ -154,6 +164,9 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   BOOK_NOT_FOUND: 404,
   BIBLE_BOOK_NOT_FOUND: 404,
   TRANSLATED_VERSE_NOT_FOUND: 404,
+  VERSE_AUDIO_NOT_FOUND: 404,
+  UNSUPPORTED_AUDIO_TYPE: 400,
+  EMPTY_AUDIO_FILE: 400,
 };
 
 export interface AppError {
@@ -161,13 +174,25 @@ export interface AppError {
   code: ErrorCode;
 }
 
+/** One authorization grant, flattened to its effective permissions. */
+export interface Grant {
+  orgId: number | null;
+  projectId: number | null;
+  permissions: ReadonlySet<Permission>;
+}
+
+/** The scope an action is evaluated against. */
+export interface AuthScope {
+  orgId?: number | null;
+  projectId?: number | null;
+}
+
 /**
  * Shared identity for authorization policies across all domains.
  */
 export interface AppPolicyUser {
   id: number;
-  roleName: string;
-  organization: number;
+  grants: Grant[];
 }
 
 // ─── Result type + factories ──────────────────────────────────────────────────

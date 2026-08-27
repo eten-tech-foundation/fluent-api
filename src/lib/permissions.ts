@@ -21,8 +21,14 @@ export const PERMISSIONS = {
   PROJECT_DELETE: 'project:delete',
 
   // ── Content ─────────────────────────────────────────────────────────
+  CONTENT_VIEW: 'content:view',
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
+
+  // ── Membership / role assignment ────────────────────────────────────
+  MEMBERSHIP_REVOKE: 'membership:revoke',
+  ROLE_ASSIGN_PROJECT: 'role:assign:project',
+  ROLE_ASSIGN_ORG_MANAGER: 'role:assign:org_manager',
 
   // ── AI tools ────────────────────────────────────────────────────────
   // Intentional alias of CONTENT_UPDATE (same string value) so "can invoke
@@ -42,3 +48,9 @@ export const PERMISSIONS = {
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+const VALID_PERMISSIONS = new Set<string>(Object.values(PERMISSIONS));
+
+export function isPermission(value: string): value is Permission {
+  return VALID_PERMISSIONS.has(value);
+}

@@ -7,9 +7,8 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import { insertUserChapterAssignmentEditorStateSchema } from '@/db/schema';
 import { requireChapterAssignmentAccess } from '@/domains/chapter-assignments/chapter-assignment-auth.middleware';
 import { CHAPTER_ASSIGNMENT_ACTIONS } from '@/domains/chapter-assignments/chapter-assignments.types';
-import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as editorStateService from './user-chapter-assignment-editor-state.service';
@@ -35,7 +34,6 @@ const getEditorStateRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/editor-state',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: { params: chapterAssignmentIdParam },
@@ -47,10 +45,6 @@ const getEditorStateRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
-    ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Access denied'
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
@@ -83,7 +77,6 @@ const saveEditorStateRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/editor-state',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: {
@@ -104,10 +97,6 @@ const saveEditorStateRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
-    ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Access denied'
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
