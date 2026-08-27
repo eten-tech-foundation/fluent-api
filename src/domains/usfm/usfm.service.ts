@@ -6,7 +6,7 @@ import type { Result } from '@/lib/types';
 import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
-import type { ExportResult, VerseData } from './usfm.types';
+import type { BookFields, ExportResult, VerseData } from './usfm.types';
 
 import * as repo from './usfm.repository';
 
@@ -24,7 +24,7 @@ export function getAvailableBooksForExport(projectUnitId: number) {
   return repo.getAvailableBooksForExport(projectUnitId);
 }
 
-export function createUSFMStreamForBook(verses: VerseData[]): Readable {
+export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields): Readable {
   if (verses.length === 0) {
     return Readable.from([]);
   }
@@ -32,18 +32,80 @@ export function createUSFMStreamForBook(verses: VerseData[]): Readable {
   const { bookCode, bookName } = verses[0];
 
   async function* generateUSFMChunks() {
+    // Header order is grammar-enforced: \id, \h, the \toc block, then \mt. A \toc
+    // line after \mt is a parse error for usfm-grammar, not merely unconventional.
+    //
+    // fluent-web#398: \mt is derived at render time from the short name (\toc2)
+    // rather than written on save, so an authored book_title survives a TOC edit
+    // instead of being overwritten; it still supplies \mt whenever no short name
+    // is set. \h likewise borrows the short name before falling back to the
+    // English display name, so a vernacular \toc2 is not paired with an English
+    // running header.
+    //
+    // Trimmed-truthy rather than `??` throughout: rows written by seeds or direct
+    // SQL never passed through the schema's trim, and a blank value must not
+    // produce an empty marker line.
+    const runningHeader = book?.runningHeader?.trim();
+    const bookTitle = book?.bookTitle?.trim();
+    const tocLongName = book?.tocLongName?.trim();
+    const tocShortName = book?.tocShortName?.trim();
+    const tocAbbreviation = book?.tocAbbreviation?.trim();
+
     yield `\\id ${bookCode}\n`;
-    yield `\\h ${bookName}\n`;
-    yield `\\mt ${bookName}\n`;
+    yield `\\h ${runningHeader || tocShortName || bookName}\n`;
+
+    // Unlike \h and \mt the \toc fields have no display-name fallback: unset means
+    // the line is omitted, not defaulted.
+    if (tocLongName) yield `\\toc1 ${tocLongName}\n`;
+    if (tocShortName) yield `\\toc2 ${tocShortName}\n`;
+    if (tocAbbreviation) yield `\\toc3 ${tocAbbreviation}\n`;
+
+    yield `\\mt ${tocShortName || bookTitle || bookName}\n`;
 
     let currentChapter: number | null = null;
 
     for (const verse of verses) {
-      if (currentChapter !== verse.chapterNumber) {
-        yield `\\c ${verse.chapterNumber}\n\\p\n`;
+      const content = verse.translatedContent ?? '';
+      // Stored paragraph starts for this verse, defensively bounded: offsets past the
+      // content are dropped rather than corrupting the output. Offset 0 (the verse
+      // opens a paragraph) is valid even while the verse is still empty.
+      const paragraphs = (verse.markers?.paragraphs ?? []).filter(
+        (p) => p.offset === 0 || p.offset < content.length
+      );
+      const opening = paragraphs.find((p) => p.offset === 0);
+      const isChapterStart = currentChapter !== verse.chapterNumber;
+
+      if (isChapterStart) {
         currentChapter = verse.chapterNumber;
+        yield `\\c ${verse.chapterNumber}\n`;
       }
-      yield `\\v ${verse.verseNumber} ${verse.translatedContent ?? ''}\n`;
+
+      // Heading blocks sit before the verse, and before its paragraph marker: a heading is a
+      // block of its own, so the verse that follows still needs a paragraph to live in.
+      for (const heading of verse.markers?.headings ?? []) {
+        yield `\\${heading.marker} ${heading.text}\n`;
+      }
+
+      if (opening) {
+        yield `\\${opening.marker}\n`;
+      } else if (isChapterStart) {
+        // Rows predating the markers column carry none, so every chapter still opens with the
+        // single default \\p those exports always had.
+        yield '\\p\n';
+      }
+
+      // A mid-text offset splits the verse across paragraphs: the text continues
+      // after the marker without a new \\v, which is exactly how USFM writes it.
+      let text = '';
+      let cursor = 0;
+      for (const paragraph of paragraphs) {
+        if (paragraph.offset === 0) continue;
+        text += `${content.slice(cursor, paragraph.offset)}\n\\${paragraph.marker}\n`;
+        cursor = paragraph.offset;
+      }
+      text += content.slice(cursor);
+
+      yield `\\v ${verse.verseNumber} ${text}\n`;
     }
 
     yield '\n';
@@ -129,7 +191,7 @@ export async function createUSFMZipStreamAsync(
           continue;
         }
 
-        const bookStream = createUSFMStreamForBook(verses);
+        const bookStream = createUSFMStreamForBook(verses, book);
         archive.append(bookStream, { name: `${book.bookCode}.usfm` });
 
         await new Promise((resolve) => process.nextTick(resolve));

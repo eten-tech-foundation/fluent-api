@@ -42,17 +42,26 @@ vi.mock('@/lib/logger', () => ({
 // succeeds, so that class of break fails CI instead of production.
 
 describe('gET /doc (OpenAPI document)', () => {
-  it('renders the full OpenAPI spec without throwing (200, valid JSON)', async () => {
-    const { default: app } = await import('@/app');
+  // The whole-app dynamic import below pays the full transform cost of every
+  // registered route module while other suites collect in parallel, so its
+  // wall-clock grows with each new domain and with machine load. The default
+  // 5s budget started flaking once the app graph gained the Azure storage SDK;
+  // 20s keeps headroom without weakening the assertion.
+  it(
+    'renders the full OpenAPI spec without throwing (200, valid JSON)',
+    { timeout: 20000 },
+    async () => {
+      const { default: app } = await import('@/app');
 
-    const res = await app.request('/doc', { method: 'GET' });
+      const res = await app.request('/doc', { method: 'GET' });
 
-    expect(res.status).toBe(200);
+      expect(res.status).toBe(200);
 
-    const doc = await res.json();
-    expect(doc.openapi).toBe('3.0.0');
-    // A representative registered path proves the walk actually completed rather
-    // than short-circuiting on an empty document.
-    expect(doc.paths['/self/settings']).toBeDefined();
-  });
+      const doc = await res.json();
+      expect(doc.openapi).toBe('3.0.0');
+      // A representative registered path proves the walk actually completed rather
+      // than short-circuiting on an empty document.
+      expect(doc.paths['/self/settings']).toBeDefined();
+    }
+  );
 });
