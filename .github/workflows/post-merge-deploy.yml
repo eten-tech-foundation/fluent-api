@@ -21,8 +21,6 @@ jobs:
           fi
           echo "Tag '$TAG' is valid."
 
-      # TODO: This repo uses actions/checkout@v6 while cut-release.yml uses @v7.0.0.
-      # Align to the same version in a future cleanup PR.
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
