@@ -54,9 +54,12 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
-    # package.json pins direct dependencies exactly. `increase` bumps the pin
-    # itself rather than widening it to a range, so that convention survives
-    # contact with Dependabot.
+    # Bump the minimum of whatever specification already exists, rather than
+    # widening it into a range. An exact pin stays exact -- which is most of
+    # package.json -- and the handful of caret ranges (@aws-sdk/*, better-auth,
+    # bcryptjs) keep their caret at a higher floor. This does not convert a
+    # range into a pin: tightening those is a package.json edit, not something
+    # a Dependabot setting can do.
     versioning-strategy: increase
     groups:
       # Minor and patch only. Majors are deliberately left ungrouped so each
