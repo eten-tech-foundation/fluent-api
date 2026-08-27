@@ -52,7 +52,7 @@
     "@better-auth/passkey": "^1.6.9",
     "@hono/node-server": "1.19.15",
     "@hono/zod-openapi": "0.19.10",
-    "@scalar/hono-api-reference": "0.9.12",
+    "@scalar/hono-api-reference": "0.9.48",
     "@types/bcryptjs": "^2.4.6",
     "applicationinsights": "3.14.0",
     "archiver": "7.0.1",
