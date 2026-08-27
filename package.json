@@ -50,7 +50,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1098.0",
     "@better-auth/drizzle-adapter": "^1.6.9",
     "@better-auth/passkey": "^1.6.9",
-    "@hono/node-server": "1.19.13",
+    "@hono/node-server": "1.19.15",
     "@hono/zod-openapi": "0.19.10",
     "@scalar/hono-api-reference": "0.9.12",
     "@types/bcryptjs": "^2.4.6",
@@ -92,6 +92,7 @@
   "overrides": {
     "better-call": {
       "zod": "$zod"
-    }
+    },
+    "tree-sitter": "0.25.1"
   }
 }
