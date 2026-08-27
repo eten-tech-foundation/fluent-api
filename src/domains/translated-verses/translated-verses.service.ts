@@ -1,4 +1,5 @@
 import { db } from '@/db';
+import { verseMarkersSchema } from '@/db/schema';
 import * as projectsService from '@/domains/projects/projects.service';
 import { ok } from '@/lib/types';
 
@@ -18,6 +19,7 @@ function toTranslatedVerseResponse(verse: TranslatedVerseRecord): TranslatedVers
     id: verse.id,
     projectUnitId: verse.projectUnitId,
     content: verse.content,
+    markers: verseMarkersSchema.catch(null).parse(verse.markers ?? null),
     bibleTextId: verse.bibleTextId,
     assignedUserId: verse.assignedUserId,
     verseNumber: verse.verseNumber,

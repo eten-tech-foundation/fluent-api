@@ -102,6 +102,22 @@ const EnvBaseSchema = z.object({
   AI_MAX_REQUESTED_BIBLE_TEXT_IDS: z.coerce.number().int().positive().default(200),
   AI_TRIGGER_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 
+  // ── Rate limiting (#210) ──────────────────────────────────────────────
+  // Knobs for the in-memory per-IP limiter (src/middlewares/rate-limit.ts).
+  // Defaults preserve the values the limiter shipped with, so all four can
+  // stay unset until the deployment topology changes.
+  //
+  // How many trailing x-forwarded-for entries were appended by proxies we
+  // control. 1 = Azure App Service today (front-end appends the client IP as
+  // the last entry). Raise per extra trusted LB layer; 0 = no proxy in front,
+  // ignore the header entirely and key on the TCP socket address instead.
+  RATE_LIMIT_TRUSTED_HOPS: z.coerce.number().int().min(0).default(1),
+  // Hard cap on tracked client buckets per process (memory bound).
+  RATE_LIMIT_MAX_BUCKETS: z.coerce.number().int().positive().default(10_000),
+  // Per-route limits: bulk bible-texts reads (see bible-texts.route.ts).
+  RATE_LIMIT_BULK_TEXTS_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_BULK_TEXTS_MAX: z.coerce.number().int().positive().default(20),
+
   // ── Fluent-AI integration ──────────────────────────────────────────
   // Base URL of the fluent-ai service (no trailing slash, no path suffix).
   // Ecosystem mode (via fluent-platform): http://ai:8200 — standalone: http://localhost:8200

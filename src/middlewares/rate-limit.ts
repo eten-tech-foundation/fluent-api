@@ -4,11 +4,9 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { AppBindings } from '@/lib/types';
 
+import env from '@/env';
 import { logger } from '@/lib/logger';
 
-// TODO(#210): when this limiter is reused beyond bulk-texts / the API scales
-// behind a load balancer, expose windowMs/max/MAX_BUCKETS via env vars and make
-// the trusted-proxy assumption in clientKey configurable.
 interface RateLimitOptions {
   /** Window length in milliseconds. */
   windowMs: number;
@@ -21,24 +19,37 @@ interface Bucket {
   resetAt: number;
 }
 
-// Hard cap on tracked buckets; when full, expired entries are swept and, if
-// necessary, oldest-inserted entries are evicted so memory stays bounded.
-const MAX_BUCKETS = 10_000;
+// Under @hono/node-server, c.env carries the raw Node request as `incoming`;
+// AppBindings declares no Bindings, so narrow the shape locally.
+interface NodeServerEnv {
+  incoming?: { socket?: { remoteAddress?: string } };
+}
 
 function clientKey(c: Context<AppBindings>): string {
-  // Trust only the proxy-appended tail of x-forwarded-for: Azure App Service
-  // APPENDS the real client IP (as ip[:port]) to whatever the caller sent, so
-  // the LAST entry comes from our trusted front-end while leading entries are
-  // client-controlled and spoofable. Requests that arrive without a proxy
-  // (local dev) share one bucket rather than trusting a client-sent header.
+  const trustedHops = env.RATE_LIMIT_TRUSTED_HOPS;
+
+  // No proxy in front of us: x-forwarded-for is entirely client-controlled,
+  // so key on the TCP socket address instead.
+  if (trustedHops === 0) {
+    const socketAddress = (c.env as NodeServerEnv)?.incoming?.socket?.remoteAddress;
+    return socketAddress ?? 'unknown';
+  }
+
+  // Trust only the proxy-appended tail of x-forwarded-for: each trusted hop
+  // APPENDS one entry (Azure App Service appends the real client IP as
+  // ip[:port]), so with N trusted hops the client is the Nth entry from the
+  // end, while leading entries are client-controlled and spoofable. Requests
+  // with no header or fewer entries than trusted hops (e.g. local dev, or a
+  // request that bypassed a proxy layer) share one bucket rather than
+  // trusting a client-sent value.
   const forwarded = c.req.header('x-forwarded-for');
   if (forwarded) {
     const entries = forwarded
       .split(',')
       .map((entry) => entry.trim())
       .filter(Boolean);
-    const last = entries[entries.length - 1];
-    if (last) return stripPort(last);
+    const client = entries[entries.length - trustedHops];
+    if (client) return stripPort(client);
   }
   return 'unknown';
 }
@@ -68,16 +79,20 @@ export function rateLimit(options: RateLimitOptions) {
     const key = clientKey(c);
     const bucket = buckets.get(key);
 
+    // Hard cap on tracked buckets; when full, expired entries are swept and,
+    // if necessary, oldest-inserted entries are evicted so memory stays bounded.
+    const maxBuckets = env.RATE_LIMIT_MAX_BUCKETS;
+
     if (!bucket || bucket.resetAt <= now) {
-      if (buckets.size >= MAX_BUCKETS) {
+      if (buckets.size >= maxBuckets) {
         for (const [k, b] of buckets) {
           if (b.resetAt <= now) buckets.delete(k);
         }
         // Map iteration order is insertion order, so this evicts oldest first.
-        if (buckets.size >= MAX_BUCKETS) {
+        if (buckets.size >= maxBuckets) {
           for (const k of buckets.keys()) {
             buckets.delete(k);
-            if (buckets.size < MAX_BUCKETS) break;
+            if (buckets.size < maxBuckets) break;
           }
         }
       }
