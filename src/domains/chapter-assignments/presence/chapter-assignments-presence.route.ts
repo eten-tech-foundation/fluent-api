@@ -6,9 +6,8 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { requireChapterAssignmentAccess } from '@/domains/chapter-assignments/chapter-assignment-auth.middleware';
 import { CHAPTER_ASSIGNMENT_ACTIONS } from '@/domains/chapter-assignments/chapter-assignments.types';
-import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as presenceService from './chapter-assignments-presence.service';
@@ -32,24 +31,21 @@ const registerPresenceRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(presenceResponseSchema, 'Presence registered successfully'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
-      createMessageObjectSchema('Bad Request'),
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
       'Invalid chapter assignment ID'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Access denied'
-    ),
+
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Chapter assignment not found'
@@ -70,24 +66,21 @@ const removePresenceRoute = createRoute({
   path: '/chapter-assignments/{chapterAssignmentId}/presence',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.CONTENT_UPDATE),
+
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT),
   ] as const,
   request: { params: chapterAssignmentIdParam },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Presence removed successfully' },
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
-      createMessageObjectSchema('Bad Request'),
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
       'Invalid chapter assignment ID'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Access denied'
-    ),
+
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Chapter assignment not found'

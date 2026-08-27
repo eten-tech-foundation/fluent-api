@@ -11,6 +11,7 @@ import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/l
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerAiTriggerWorker } from './ai-trigger.worker';
+import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
 import { registerUSFMExportWorker } from './usfm-export.worker';
 
 interface WorkerMetrics {
@@ -64,7 +65,7 @@ async function startWorker() {
 
     await ensureExportQueues(boss);
 
-    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTIONS, {
       policy: 'exclusive',
       retryLimit: 3,
       retryDelay: 60,
@@ -74,6 +75,7 @@ async function startWorker() {
 
     await registerUSFMExportWorker(boss, metricsHooks);
     await registerAiTriggerWorker(boss, metricsHooks);
+    await registerDblIngestTextWorker(boss, metricsHooks);
 
     logger.info('Worker started and listening for jobs');
 
@@ -92,11 +94,35 @@ async function startWorker() {
               ? workerMetrics.totalProcessingTime / workerMetrics.jobsProcessed
               : 0;
 
-          const stats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
-          const queueSize = stats.queuedCount + stats.activeCount + stats.deferredCount;
+          const exportStats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
+          const aiStats = await boss.getQueueStats(QUEUE_NAMES.AI_SUGGESTIONS);
+          const ingestStats = await boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT);
+          const ingestPriorityStats = await boss.getQueueStats(
+            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY
+          );
+
+          const totalQueued =
+            (exportStats?.queuedCount || 0) +
+            (aiStats?.queuedCount || 0) +
+            (ingestStats?.queuedCount || 0) +
+            (ingestPriorityStats?.queuedCount || 0);
+
+          const totalActive =
+            (exportStats?.activeCount || 0) +
+            (aiStats?.activeCount || 0) +
+            (ingestStats?.activeCount || 0) +
+            (ingestPriorityStats?.activeCount || 0);
+
+          const totalDeferred =
+            (exportStats?.deferredCount || 0) +
+            (aiStats?.deferredCount || 0) +
+            (ingestStats?.deferredCount || 0) +
+            (ingestPriorityStats?.deferredCount || 0);
+
+          const queueSize = totalQueued + totalActive + totalDeferred;
 
           logger.info('Worker heartbeat', {
-            queueName: QUEUE_NAMES.USFM_EXPORT,
+            scope: 'aggregate_all_queues',
             uptimeSeconds: Math.floor(uptimeSeconds),
             activeJobs: workerMetrics.activeJobs,
             processed: workerMetrics.jobsProcessed,

@@ -45,8 +45,8 @@ export const createProjectWithUnitsSchema = insertProjectsSchema
     bibleId: z.number().int(),
     bookId: z.array(z.number().int()),
     projectUnitStatus: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
-    // Made optional for frontend backwards compatibility.
-    // The route will overwrite these with secure auth context anyway.
+    // organization is optional — omitting it triggers solo-workflow auto-provisioning:
+    // the route will create a personal org for users with zero existing orgs.
     organization: z.number().int().optional(),
     createdBy: z.number().int().optional(),
   });

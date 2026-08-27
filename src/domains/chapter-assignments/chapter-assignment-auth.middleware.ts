@@ -4,7 +4,6 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import type { Result } from '@/lib/types';
 import type { AppEnv } from '@/server/context.types';
 
-import { ROLES } from '@/lib/roles';
 import { getHttpStatus } from '@/lib/types';
 
 import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
@@ -30,8 +29,7 @@ export function requireChapterAssignmentAccess(
     const result: Result<ChapterAssignmentWithAuthContext> =
       await chapterAssignmentService.getChapterAssignmentWithAuthContext(
         chapterAssignmentId,
-        user.id,
-        user.roleName
+        user.id
       );
 
     if (!result.ok) {
@@ -39,9 +37,10 @@ export function requireChapterAssignmentAccess(
     }
 
     const ctx = result.data;
-    const policyUser = { id: user.id, roleName: user.roleName, organization: user.organization };
+    const policyUser = { id: user.id, grants: user.grants };
     const policyAssignment = {
       organizationId: ctx.organizationId,
+      projectId: ctx.projectId,
       assignedUserId: ctx.assignedUserId,
       peerCheckerId: ctx.peerCheckerId,
       status: ctx.status,
@@ -50,11 +49,7 @@ export function requireChapterAssignmentAccess(
     let allowed = false;
     switch (action) {
       case CHAPTER_ASSIGNMENT_ACTIONS.READ:
-        if (user.roleName === ROLES.PROJECT_MANAGER) {
-          allowed = ctx.organizationId === user.organization;
-        } else if (user.roleName === ROLES.TRANSLATOR) {
-          allowed = ctx.isProjectMember;
-        }
+        allowed = ChapterAssignmentPolicy.view(policyUser, policyAssignment, ctx.isProjectMember);
         break;
 
       case CHAPTER_ASSIGNMENT_ACTIONS.UPDATE:
@@ -74,7 +69,11 @@ export function requireChapterAssignmentAccess(
         break;
 
       case CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT:
-        allowed = ChapterAssignmentPolicy.isParticipant(policyUser, policyAssignment);
+        allowed = ChapterAssignmentPolicy.isParticipant(
+          policyUser,
+          policyAssignment,
+          ctx.isProjectMember
+        );
         break;
     }
 
