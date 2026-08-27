@@ -183,6 +183,13 @@
       "when": 1787745032820,
       "tag": "0025_dbl_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787855401052,
+      "tag": "0026_add_chapter_claim_conflict",
+      "breakpoints": true
     }
   ]
 }
