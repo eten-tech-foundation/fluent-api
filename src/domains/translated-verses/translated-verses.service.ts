@@ -1,3 +1,6 @@
+import { db } from '@/db';
+import { verseMarkersSchema } from '@/db/schema';
+import * as projectsService from '@/domains/projects/projects.service';
 import { ok } from '@/lib/types';
 
 import type {
@@ -16,6 +19,7 @@ function toTranslatedVerseResponse(verse: TranslatedVerseRecord): TranslatedVers
     id: verse.id,
     projectUnitId: verse.projectUnitId,
     content: verse.content,
+    markers: verseMarkersSchema.catch(null).parse(verse.markers ?? null),
     bibleTextId: verse.bibleTextId,
     assignedUserId: verse.assignedUserId,
     verseNumber: verse.verseNumber,
@@ -43,7 +47,15 @@ export async function updateTranslatedVerse(id: number, input: UpdateTranslatedV
 }
 
 export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
-  const result = await translatedVersesRepo.upsert(input);
+  const result = await db.transaction(async (tx) => {
+    const upserted = await translatedVersesRepo.upsert(input, tx);
+    if (!upserted.ok) return upserted;
+    // Update the last activity timestamp for the associated project when a translated verse is upserted
+    await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
+
+    return upserted;
+  });
+
   if (!result.ok) return result;
   return ok(toTranslatedVerseResponse(result.data));
 }

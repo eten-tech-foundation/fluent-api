@@ -11,7 +11,6 @@ import {
   chapter_assignments,
   languages,
   project_units,
-  project_users,
   projects,
   translated_verses,
 } from '@/db/schema';
@@ -29,18 +28,18 @@ export async function findProjectUnitAuthContext(
   const records = await db
     .select({
       organizationId: projects.organization,
-      memberUserId: project_users.userId,
+      projectId: projects.id,
     })
     .from(project_units)
     .innerJoin(projects, eq(project_units.projectId, projects.id))
-    .leftJoin(project_users, eq(project_users.projectId, projects.id))
-    .where(eq(project_units.id, projectUnitId));
+    .where(eq(project_units.id, projectUnitId))
+    .limit(1);
 
   if (records.length === 0) return null;
 
   return {
     organizationId: records[0].organizationId,
-    memberUserIds: records.map((r) => r.memberUserId).filter((id): id is number => id !== null),
+    projectId: records[0].projectId,
   };
 }
 

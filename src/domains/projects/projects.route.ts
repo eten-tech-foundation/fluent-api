@@ -4,10 +4,14 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { db } from '@/db';
+import { organizations, user_roles } from '@/db/schema';
+import { getRoleId, grantRole } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
+import { ROLES } from '@/lib/roles';
 import { getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireProjectAccess } from './project-auth.middleware';
@@ -56,8 +60,17 @@ const listProjectsRoute = createRoute({
 
 server.openapi(listProjectsRoute, async (c) => {
   const currentUser = c.get('user')!;
+  const activeOrgId = c.get('activeOrgId');
 
-  const result = await projectService.getProjectsByOrganization(currentUser.organization);
+  const grants =
+    activeOrgId !== null && activeOrgId !== undefined
+      ? currentUser.grants.filter((g) => g.orgId === activeOrgId || g.orgId === null)
+      : currentUser.grants;
+
+  const result = await projectService.getProjectsForUser({
+    id: currentUser.id,
+    grants,
+  });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
@@ -68,9 +81,42 @@ const createProjectRoute = createRoute({
   tags: ['Projects'],
   method: 'post',
   path: '/projects',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_CREATE)] as const,
+  middleware: [
+    authenticateUser,
+    // Solo-workflow: users with zero orgs are allowed through without a PROJECT_CREATE grant.
+    // The handler detects this and provisions a personal org before creating the project.
+    // Users who already belong to an org must still have PROJECT_CREATE scoped to that org.
+    //
+    // TEMP: Project Managers are project-pinned (orgId+projectId) so the normal org-level
+    // authorize() check (which requires projectId=null) would deny them. Until the proper
+    // Org Manager workflow is in place, we also accept any grant that carries PROJECT_CREATE
+    // within the matching org regardless of projectId. Remove this bypass once the upcoming
+    // org-manager task is merged and QA has full org-manager accounts.
+    async (c: any, next: any) => {
+      const user = c.get('user');
+      const hasAnyOrg = user?.grants?.some((g: any) => g.orgId !== null);
+      if (!hasAnyOrg) return next(); // zero-org solo path — skip permission gate
+
+      // TEMP: also allow project-pinned grants (e.g. Project Manager) that carry PROJECT_CREATE
+      // within the org specified in the request body.
+      const body = await c.req.raw
+        .clone()
+        .json()
+        .catch(() => ({}));
+      const orgId = Number(body?.orgId ?? body?.organization);
+      if (Number.isFinite(orgId)) {
+        const hasCreateInOrg = user?.grants?.some(
+          (g: any) => g.orgId === orgId && g.permissions?.has(PERMISSIONS.PROJECT_CREATE)
+        );
+        if (hasCreateInOrg) return next();
+      }
+
+      return requirePermission(PERMISSIONS.PROJECT_CREATE, orgFromBody)(c, next);
+    },
+  ] as const,
   summary: 'Create a new project',
-  description: 'Project Manager only.',
+  description:
+    'Creates a project. If the caller has no org yet, provisions a personal org automatically (solo workflow).',
   request: { body: jsonContentRequired(createProjectWithUnitsSchema, 'Project to create') },
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent(projectResponseSchema, 'Created project'),
@@ -97,13 +143,111 @@ server.openapi(createProjectRoute, async (c) => {
   const projectData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
+  let pmRoleId: number;
+  try {
+    pmRoleId = await getRoleId(ROLES.PROJECT_MANAGER);
+  } catch {
+    return c.json(
+      { message: 'Internal Server Error: Missing PM role definition' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+    );
+  }
+
+  // ── Solo-workflow extension point ───────────────────────────────
+  // If the caller has no existing org, provision a personal org and grant
+  // Org Manager + Org Member anchor row before continuing.
+  let resolvedOrgId: number | undefined = projectData.organization;
+  const hasAnyOrg = currentUser.grants.some((g) => g.orgId !== null);
+
+  if (!hasAnyOrg) {
+    // Zero-org solo path: ignore caller-supplied org ID and force personal org provisioning
+    resolvedOrgId = undefined;
+  }
+
+  if (!resolvedOrgId) {
+    if (hasAnyOrg) {
+      // User has orgs but didn't specify one — require it.
+      return c.json(
+        { message: 'organization is required when the caller belongs to one or more orgs.' },
+        HttpStatusCodes.BAD_REQUEST as never
+      );
+    }
+
+    // Zero-org path: provision a personal org atomically.
+    try {
+      const orgName = `${currentUser.email}'s Organization`;
+
+      await db.transaction(async (tx) => {
+        const [newOrg] = await tx
+          .insert(organizations)
+          .values({ name: orgName })
+          .returning({ id: organizations.id });
+
+        resolvedOrgId = newOrg.id;
+
+        const orgMemberRoleId = await getRoleId(ROLES.ORG_MEMBER);
+        const orgManagerRoleId = await getRoleId(ROLES.ORG_MANAGER);
+
+        // Anchor row (Org Member) + Org Manager grant
+        await tx
+          .insert(user_roles)
+          .values({
+            userId: currentUser.id,
+            orgId: resolvedOrgId,
+            projectId: null,
+            roleId: orgMemberRoleId,
+            createdBy: currentUser.id,
+          })
+          .onConflictDoNothing();
+
+        await tx
+          .insert(user_roles)
+          .values({
+            userId: currentUser.id,
+            orgId: resolvedOrgId,
+            projectId: null,
+            roleId: orgManagerRoleId,
+            createdBy: currentUser.id,
+          })
+          .onConflictDoNothing();
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to provision personal org';
+      return c.json({ message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
+    }
+  }
+
+  if (!resolvedOrgId) {
+    return c.json(
+      { message: 'Failed to resolve organization' },
+      HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+    );
+  }
+  // ──────────────────────────────────────────────────────────────────
+
   const result = await projectService.createProject({
     ...projectData,
     createdBy: currentUser.id,
-    organization: currentUser.organization,
+    organization: resolvedOrgId,
   });
 
-  if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
+  if (result.ok) {
+    const grantResult = await grantRole({
+      userId: currentUser.id,
+      orgId: resolvedOrgId,
+      projectId: result.data.id,
+      roleId: pmRoleId,
+      createdBy: currentUser.id,
+    });
+    if (!grantResult.ok) {
+      const deleteResult = await projectService.deleteProject(result.data.id);
+      const message = deleteResult.ok
+        ? 'Project created but failed to assign creator role. Rolled back.'
+        : `Project created but failed to assign creator role, and rollback failed: ${deleteResult.error.message}`;
+      return c.json({ message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
+    }
+    return c.json(result.data, HttpStatusCodes.CREATED);
+  }
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
