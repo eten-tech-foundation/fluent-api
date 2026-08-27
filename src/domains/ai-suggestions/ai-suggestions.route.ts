@@ -9,7 +9,7 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import { checkProjectUnitAccess, requireProjectUnitAccess } from './ai-suggestions.auth.middleware';
+import { requireProjectUnitAccess } from './ai-suggestions.auth.middleware';
 import * as aiSuggestionsService from './ai-suggestions.service';
 import {
   aiSuggestionsListResponseSchema,
@@ -73,7 +73,21 @@ const queueNextVersesRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/queue-next',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess((c) => {
+      try {
+        const valid = (c.req as any).valid?.('json');
+        if (valid?.projectUnitId) return Number(valid.projectUnitId);
+      } catch {}
+      return c.req.raw
+        .clone()
+        .json()
+        .then((b: any) => Number(b.projectUnitId))
+        .catch(() => 0);
+    }),
+  ] as const,
   request: {
     body: jsonContent(queueNextVersesRequestSchema, 'Verses context'),
   },
@@ -111,9 +125,6 @@ const queueNextVersesRoute = createRoute({
 server.openapi(queueNextVersesRoute, async (c) => {
   const body = c.req.valid('json');
 
-  const accessError = await checkProjectUnitAccess(c, body.projectUnitId);
-  if (accessError) return accessError;
-
   const result = await aiSuggestionsService.queueNextVerses(
     body.projectUnitId,
     body.bibleId,
@@ -134,7 +145,21 @@ const trackUsageRoute = createRoute({
   tags: ['AI Suggestions'],
   method: 'post',
   path: '/ai-suggestions/usage',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.PROJECT_VIEW)] as const,
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess((c) => {
+      try {
+        const valid = (c.req as any).valid?.('json');
+        if (valid?.projectUnitId) return Number(valid.projectUnitId);
+      } catch {}
+      return c.req.raw
+        .clone()
+        .json()
+        .then((b: any) => Number(b.projectUnitId))
+        .catch(() => 0);
+    }),
+  ] as const,
   request: {
     body: jsonContent(trackUsageRequestSchema, 'Usage data'),
   },
@@ -172,9 +197,6 @@ server.openapi(trackUsageRoute, async (c) => {
   if (!user?.id) {
     return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
   }
-
-  const accessError = await checkProjectUnitAccess(c, body.projectUnitId);
-  if (accessError) return accessError;
 
   const result = await aiSuggestionsService.trackUsage(user, body);
   if (result.ok) {
