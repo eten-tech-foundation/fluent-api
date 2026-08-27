@@ -16,12 +16,7 @@ import { resolveIsProjectMember } from './users/project-users.service';
 export function requireProjectAccess(action: ProjectAction, paramName = 'id') {
   return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get('user')!;
-    const policyUser = {
-      id: user.id,
-      role: user.role,
-      roleName: user.roleName,
-      organization: user.organization,
-    };
+    const policyUser = { id: user.id, grants: user.grants };
 
     if (action === PROJECT_ACTIONS.LIST) {
       if (!ProjectPolicy.list(policyUser)) {
@@ -46,7 +41,7 @@ export function requireProjectAccess(action: ProjectAction, paramName = 'id') {
 
     switch (action) {
       case PROJECT_ACTIONS.READ:
-        isProjectMember = await resolveIsProjectMember(projectId, user.id, user.roleName);
+        isProjectMember = await resolveIsProjectMember(projectId, user.id);
         allowed = ProjectPolicy.read(policyUser, project, isProjectMember);
         break;
 

@@ -1,15 +1,23 @@
 import { createRoute, z } from '@hono/zod-openapi';
+import { eq } from 'drizzle-orm';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { db } from '@/db';
+import * as schema from '@/db/schema';
+import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
+import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ROLES } from '@/lib/roles';
-import { createUserWithInvitation } from '@/lib/services/auth/auth.service';
+import {
+  createUserWithInvitation,
+  inviteExistingUserToOrg,
+} from '@/lib/services/auth/auth.service';
+import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
-import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireUserAccess } from './user-auth.middleware';
@@ -17,6 +25,8 @@ import { UserPolicy } from './user.policy';
 import * as userService from './users.service';
 import {
   createUserRequestSchema,
+  inviteUserRequestSchema,
+  updateActiveOrgRequestSchema,
   updateUserRequestSchema,
   USER_ACTIONS,
   userResponseSchema,
@@ -58,7 +68,10 @@ const listUsersRoute = createRoute({
 server.openapi(listUsersRoute, async (c) => {
   const currentUser = c.get('user')!;
 
-  const result = await userService.getUsersByOrganization(currentUser.organization);
+  const result = await userService.getUsersForUser({
+    id: currentUser.id,
+    grants: currentUser.grants,
+  });
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.OK);
   }
@@ -74,7 +87,7 @@ const createUserRoute = createRoute({
   path: '/users',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.USER_CREATE),
+    requirePermission(PERMISSIONS.USER_CREATE, orgFromBody),
     requireUserAccess(USER_ACTIONS.CREATE),
   ] as const,
   request: {
@@ -110,6 +123,10 @@ const createUserRoute = createRoute({
       }),
       'The validation error'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema('Internal Server Error'),
+      'Internal server error'
+    ),
   },
   summary: 'Create a new user',
   description: 'Creates a new user with the provided data. Project Manager only.',
@@ -119,18 +136,50 @@ server.openapi(createUserRoute, async (c) => {
   const requestData = c.req.valid('json');
   const currentUser = c.get('user')!;
 
-  // Safely map the API request schema into the DB-bound input type
-  const userData = {
-    ...requestData,
-    organization: currentUser.organization,
-  };
-
-  const result = await userService.createUser(userData);
-  if (result.ok) {
-    return c.json(result.data, HttpStatusCodes.CREATED);
+  const result = await userService.createUser({ ...requestData, createdBy: currentUser.id });
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  // Grant the new user their initial role via user_roles
+  if (requestData.orgId) {
+    try {
+      const { grantRole } = await import('@/domains/user-roles/user-roles.service');
+
+      const roleId = await getRoleId(requestData.roleName);
+      const grantResult = await grantRole({
+        userId: result.data.id,
+        orgId: requestData.orgId,
+        projectId: requestData.projectId ?? null,
+        roleId,
+        createdBy: currentUser.id,
+      });
+      if (!grantResult.ok) {
+        const deleteResult = await userService.deleteUser(result.data.id);
+        const rollbackMsg = !deleteResult.ok
+          ? ` (Rollback failed: ${deleteResult.error.message})`
+          : '';
+        return c.json(
+          {
+            message: `Failed to create initial role grant: ${grantResult.error.message}${rollbackMsg}`,
+          },
+          HttpStatusCodes.INTERNAL_SERVER_ERROR
+        );
+      }
+    } catch (error) {
+      const deleteResult = await userService.deleteUser(result.data.id);
+      const rollbackMsg = !deleteResult.ok
+        ? ` (Rollback failed: ${deleteResult.error.message})`
+        : '';
+      const errorMessage = error instanceof Error ? error.message : 'Grant failed';
+      return c.json(
+        { message: `Failed to create initial role grant: ${errorMessage}${rollbackMsg}` },
+        HttpStatusCodes.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  return c.json(result.data, HttpStatusCodes.CREATED);
 });
 
 // ─── POST /users/invite ───────────────────────────────────────────────────────
@@ -141,16 +190,20 @@ const createUserWithInvitationRoute = createRoute({
   path: '/users/invite',
   middleware: [
     authenticateUser,
-    requirePermission(PERMISSIONS.USER_CREATE),
+    requirePermission(PERMISSIONS.USER_CREATE, orgFromBody),
     requireUserAccess(USER_ACTIONS.CREATE),
   ] as const,
   request: {
-    body: jsonContent(createUserRequestSchema, 'The user to create and invite'),
+    body: jsonContent(inviteUserRequestSchema, 'The user to invite'),
   },
   responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      z.object({ user: userResponseSchema }),
+      'Existing user added to org and project — login link email sent'
+    ),
     [HttpStatusCodes.CREATED]: jsonContent(
       z.object({ user: userResponseSchema }),
-      'User created and invitation sent'
+      'New user created and magic link invitation sent'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
@@ -186,19 +239,47 @@ const createUserWithInvitationRoute = createRoute({
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
-  const requestData = c.req.valid('json');
-  const currentUser = c.get('user')!;
+  const { email, username, orgId, projectId, roleName, orgName, inviterName } = c.req.valid('json');
+  const caller = c.get('user')!;
+  const normalizedEmail = email.toLowerCase();
+  const { getRoleId } = await import('@/domains/user-roles/user-roles.service');
 
-  const userData = {
-    ...requestData,
-    organization: currentUser.organization,
-  };
+  // Check if the user already exists in the system
+  const existingUserResult = await userService.getUserByEmail(normalizedEmail);
 
-  const result = await createUserWithInvitation(userData, c.req.raw.headers);
-  if (result.ok) {
-    return c.json(result.data, HttpStatusCodes.CREATED);
+  if (existingUserResult.ok) {
+    // ── EXISTING USER PATH ────────────────────────────────────────────────────
+    // User already has a Fluent account — grant access and send login-link email.
+    const roleId = await getRoleId(roleName);
+    const result = await inviteExistingUserToOrg({
+      existingUser: existingUserResult.data,
+      orgId,
+      projectId,
+      roleId,
+      createdBy: caller.id,
+      orgName,
+      inviterName,
+    });
+    if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
+  // ── NEW USER PATH ─────────────────────────────────────────────────────────
+  // User doesn't exist yet — create account and send magic link invitation.
+  const roleId = await getRoleId(roleName);
+  const result = await createUserWithInvitation(
+    {
+      email: normalizedEmail,
+      username,
+      orgId,
+      projectId,
+      roleId,
+      status: 'invited',
+      createdBy: caller.id,
+    },
+    c.req.raw.headers
+  );
+  if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
@@ -209,7 +290,7 @@ const getUserByEmailRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users/email/{email}',
-  middleware: [authenticateUser, requirePermission(PERMISSIONS.USER_VIEW)] as const,
+  middleware: [authenticateUser] as const,
   request: {
     params: z.object({
       email: z
@@ -231,10 +312,6 @@ const getUserByEmailRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
-    ),
   },
   summary: 'Get a user by email',
   description: 'Managers: any user in their org. Translators: themselves only.',
@@ -245,8 +322,7 @@ server.openapi(getUserByEmailRoute, async (c) => {
   const currentUser = c.get('user')!;
   const policyUser = {
     id: currentUser.id,
-    roleName: currentUser.roleName,
-    organization: currentUser.organization,
+    grants: currentUser.grants,
   };
 
   const result = await userService.getUserByEmail(email.toLowerCase());
@@ -255,11 +331,21 @@ server.openapi(getUserByEmailRoute, async (c) => {
     return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
-  const { roleName: _roleName, ...targetUser } = result.data;
+  const targetUser = result.data;
+  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
 
   // Returning 404 instead of 403 to prevent email enumeration across orgs
-  if (!UserPolicy.view(policyUser, targetUser)) {
+  if (!UserPolicy.view(policyUser, { id: targetUser.id, orgIds: targetOrgIds })) {
     return c.json({ message: ErrorMessages[ErrorCode.USER_NOT_FOUND] }, HttpStatusCodes.NOT_FOUND);
+  }
+
+  // When the caller is fetching their own profile, inject the session-scoped
+  // activeOrgId so the frontend uses the same org the backend is filtering by.
+  if (targetUser.id === currentUser.id) {
+    const sessionActiveOrgId = c.get('activeOrgId') as number | null;
+    if (sessionActiveOrgId != null) {
+      targetUser.lastActiveOrgId = sessionActiveOrgId;
+    }
   }
 
   return c.json(targetUser, HttpStatusCodes.OK);
@@ -271,11 +357,7 @@ const getUserRoute = createRoute({
   tags: ['Users'],
   method: 'get',
   path: '/users/{id}',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.USER_VIEW),
-    requireUserAccess(USER_ACTIONS.VIEW),
-  ] as const,
+  middleware: [authenticateUser, requireUserAccess(USER_ACTIONS.VIEW)] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -294,10 +376,6 @@ const getUserRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
-    ),
   },
   summary: 'Get a user by ID',
   description: 'Managers: any user in their org. Translators: themselves only.',
@@ -314,11 +392,7 @@ const updateUserRoute = createRoute({
   tags: ['Users'],
   method: 'patch',
   path: '/users/{id}',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.USER_UPDATE),
-    requireUserAccess(USER_ACTIONS.UPDATE),
-  ] as const,
+  middleware: [authenticateUser, requireUserAccess(USER_ACTIONS.UPDATE)] as const,
   request: {
     params: z.object({
       id: z.coerce.number().openapi({
@@ -346,10 +420,6 @@ const updateUserRoute = createRoute({
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'Insufficient permissions'
-    ),
     [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
       z.object({
         success: z.boolean(),
@@ -371,6 +441,7 @@ server.openapi(updateUserRoute, async (c) => {
   const { id } = c.req.valid('param');
   const updates = c.req.valid('json');
   const currentUser = c.get('user')!;
+  const targetUser = c.get('targetUser')!;
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -391,7 +462,15 @@ server.openapi(updateUserRoute, async (c) => {
     );
   }
 
-  if (currentUser.roleName === ROLES.TRANSLATOR) {
+  // Strip role update if user lacks MEMBERSHIP_REVOKE
+  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
+  const hasGrantManagement = targetOrgIds.some((orgId) =>
+    authorize({ id: currentUser.id, grants: currentUser.grants }, PERMISSIONS.MEMBERSHIP_REVOKE, {
+      orgId,
+    })
+  );
+
+  if (!hasGrantManagement) {
     delete (updates as Record<string, unknown>).role;
   }
 
@@ -454,4 +533,58 @@ server.openapi(deleteUserRoute, async (c) => {
   }
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── PATCH /users/me/active-org ───────────────────────────────────────────────
+
+const updateActiveOrgRoute = createRoute({
+  tags: ['Users'],
+  method: 'patch',
+  path: '/users/me/active-org',
+  middleware: [authenticateUser] as const,
+  request: {
+    body: jsonContent(updateActiveOrgRequestSchema, 'The active org to set'),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: {
+      description: 'Active org updated',
+    },
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User does not belong to this organization'
+    ),
+  },
+  summary: 'Update active organization',
+  description: 'Sets the active organization for the current session and updates the user default.',
+});
+
+server.openapi(updateActiveOrgRoute, async (c) => {
+  const { orgId } = c.req.valid('json');
+  const currentUser = c.get('user')!;
+  const session = c.get('session')!;
+
+  // Verify the user actually belongs to this org
+  const belongsToOrg = currentUser.grants.some((g) => g.orgId === orgId);
+  if (!belongsToOrg) {
+    return c.json(
+      { message: 'User does not belong to this organization' },
+      HttpStatusCodes.FORBIDDEN
+      // eslint-disable-next-line max-lines
+    );
+  }
+
+  // Update session and user default atomically in a single transaction
+  await db.transaction(async (tx) => {
+    await tx
+      .update(schema.authSession)
+      .set({ activeOrgId: orgId })
+      .where(eq(schema.authSession.id, session.session.id));
+
+    await tx
+      .update(schema.users)
+      .set({ lastActiveOrgId: orgId })
+      .where(eq(schema.users.id, currentUser.id));
+  });
+
+  return c.body(null, HttpStatusCodes.OK);
 });

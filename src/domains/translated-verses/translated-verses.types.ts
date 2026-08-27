@@ -6,6 +6,8 @@ import type {
   selectTranslatedVersesSchema,
 } from '@/db/schema';
 
+import { verseMarkersSchema } from '@/db/schema';
+
 // Internal types
 export type TranslatedVerseRecord = z.infer<typeof selectTranslatedVersesSchema> & {
   verseNumber: number;
@@ -27,6 +29,7 @@ export const translatedVerseResponseSchema = z.object({
   bibleTextId: z.number().int(),
   assignedUserId: z.number().int().nullable(),
   content: z.string(),
+  markers: verseMarkersSchema,
   verseNumber: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
