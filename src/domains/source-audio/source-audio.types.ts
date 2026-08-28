@@ -33,6 +33,10 @@ export const sourceAudioVerseTimestampSchema = z
   .object({
     verse: z.number().int().positive(),
     startSeconds: z.number().nonnegative().optional(),
+    dblAudioBibleId: z.string().optional().openapi({
+      description:
+        'DBL audio bible id for this timestamp when provider is dbl. Matches the item with the same id.',
+    }),
   })
   .openapi('SourceAudioVerseTimestamp');
 
@@ -56,7 +60,7 @@ export const sourceAudioResponseSchema = z
     items: z.array(sourceAudioItemSchema),
     verseTimestamps: z.array(sourceAudioVerseTimestampSchema).optional().openapi({
       description:
-        'Verse start offsets for the primary DBL audio bible (`bible.dblAudioBibleId`). Additional DBL items may have different timings.',
+        'Verse start offsets. For DBL, each entry includes `dblAudioBibleId` matching the corresponding item.',
     }),
   })
   .openapi('SourceAudioResponse');

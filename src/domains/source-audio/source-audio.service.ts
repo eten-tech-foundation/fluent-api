@@ -134,12 +134,18 @@ function dblTracksToResponse(params: {
 }): SourceAudioResponse {
   const primary = params.tracks[0]!;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
-  for (const timecode of primary.timecodes ?? []) {
-    const versePart = timecode.verseId.split('.').pop();
-    const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
-    const startSeconds = Number.parseFloat(timecode.start);
-    if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
-    verseTimestamps.push({ verse, startSeconds });
+  for (const track of params.tracks) {
+    for (const timecode of track.timecodes ?? []) {
+      const versePart = timecode.verseId.split('.').pop();
+      const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
+      const startSeconds = Number.parseFloat(timecode.start);
+      if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
+      verseTimestamps.push({
+        verse,
+        startSeconds,
+        dblAudioBibleId: track.audioBibleId,
+      });
+    }
   }
 
   return {

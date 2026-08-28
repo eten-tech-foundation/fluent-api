@@ -13,7 +13,7 @@ Issue: [#282](https://github.com/eten-tech-foundation/fluent-api/issues/282)
 
 ### Resolution order (online playback)
 
-1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`; `verseTimestamps` come from the first track (`bible.dblAudioBibleId`). Each item includes `dblAudioBibleId` so clients can associate extra tracks.
+1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`. Each item and each `verseTimestamps` entry includes `dblAudioBibleId` so timings stay associated with their track (`bible.dblAudioBibleId` is the first track).
 2. **Aquifer** — when DBL returns no tracks, or DBL is unavailable (`502`). Aquifer is matched by Fluent bible **abbreviation or name only** — never a language-default or first-catalogue fallback.
 3. **Empty `items`** — when neither provider has audio, the Aquifer catalogue is empty, or no Aquifer bible matches (HTTP 200, not 404).
 
@@ -37,7 +37,7 @@ Response (`200`):
 
 - `provider`: `"dbl"` or `"aquifer"`
 - `items[]`: playable URLs (`mp3` / `webm`), `sizeBytes`, `scope: "chapter"`
-- `verseTimestamps[]`: optional verse → start offset mapping
+- `verseTimestamps[]`: optional verse → start offset mapping (DBL entries include `dblAudioBibleId`)
 - **Empty `items`**: no source audio for this chapter (not an error)
 
 Errors:

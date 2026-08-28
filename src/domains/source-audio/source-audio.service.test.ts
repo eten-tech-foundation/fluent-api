@@ -117,7 +117,10 @@ describe('getChapterSourceAudio', () => {
       expect(result.data.items[0]?.url).toBe('https://example.com/audio.mp3');
       expect(result.data.items[0]?.dblAudioBibleId).toBe('audio-1');
       expect(result.data.items[1]?.dblAudioBibleId).toBe('audio-2');
-      expect(result.data.verseTimestamps).toEqual([{ verse: 1, startSeconds: 0 }]);
+      expect(result.data.verseTimestamps).toEqual([
+        { verse: 1, startSeconds: 0, dblAudioBibleId: 'audio-1' },
+        { verse: 1, startSeconds: 9, dblAudioBibleId: 'audio-2' },
+      ]);
       expect(result.data.bible.dblAudioBibleId).toBe('audio-1');
     }
     expect(getBibles).not.toHaveBeenCalled();
