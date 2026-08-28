@@ -59,6 +59,7 @@ export const ErrorCode = {
   TRANSLATED_VERSE_NOT_FOUND: 'TRANSLATED_VERSE_NOT_FOUND',
   VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
   VERSE_AUDIO_TAKE_NOT_FOUND: 'VERSE_AUDIO_TAKE_NOT_FOUND',
+  VERSE_AUDIO_VERSION_CONFLICT: 'VERSE_AUDIO_VERSION_CONFLICT',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -112,6 +113,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
   VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
   VERSE_AUDIO_TAKE_NOT_FOUND: 'Verse audio take not found',
+  VERSE_AUDIO_VERSION_CONFLICT: 'Version token changed concurrently; reload and retry',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
@@ -175,6 +177,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   TRANSLATED_VERSE_NOT_FOUND: 404,
   VERSE_AUDIO_NOT_FOUND: 404,
   VERSE_AUDIO_TAKE_NOT_FOUND: 404,
+  VERSE_AUDIO_VERSION_CONFLICT: 409,
   UNSUPPORTED_AUDIO_TYPE: 400,
   EMPTY_AUDIO_FILE: 400,
 };

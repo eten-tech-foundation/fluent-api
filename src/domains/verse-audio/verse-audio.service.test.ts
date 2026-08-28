@@ -157,7 +157,7 @@ describe('verse-audio service', () => {
       expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
         1,
         1,
-        expect.objectContaining({ activeTakeId: 10 }),
+        expect.objectContaining({ activeTakeId: 10, versionToken: 2 }),
         { requireNullActiveTake: true }
       );
     });
@@ -245,6 +245,106 @@ describe('verse-audio service', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.activeTakeId).toBe(10);
+      }
+    });
+
+    it('preserves conflict when a legacy client replaces the active take', async () => {
+      const conflicted = {
+        ...record,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+      const newData = Buffer.from('legacy-over-conflict');
+      const newHash = hashOf(newData);
+      const newTake = { ...take, id: 11, contentHash: newHash, storageObjectId: 56 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(conflicted))
+        .mockResolvedValue(
+          ok({
+            ...conflicted,
+            versionToken: 2,
+            activeTakeId: 11,
+            storageObjectId: 56,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({
+          applied: true,
+          record: {
+            ...conflicted,
+            versionToken: 2,
+            activeTakeId: 11,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          },
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: newData,
+      });
+
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
+        1,
+        1,
+        expect.objectContaining({
+          versionToken: 2,
+          conflictStatus: 'conflict',
+          activeTakeId: 11,
+        })
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
+        expect(result.data.activeTakeId).toBe(11);
+      }
+    });
+
+    it('marks conflict when a stale base re-submits bytes for a non-active take', async () => {
+      const prior = { ...take, id: 10 };
+      const active = {
+        ...take,
+        id: 11,
+        contentHash: hashOf(Buffer.from('newer')),
+        storageObjectId: 56,
+      };
+      const unit = { ...record, versionToken: 3, activeTakeId: 11, storageObjectId: 56 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(unit))
+        .mockResolvedValue(
+          ok({ ...unit, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.markConflictPreservingActive).mockResolvedValue(
+        ok({ ...unit, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: Buffer.from('abcd'),
+        baseVersionToken: 1,
+      });
+
+      expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
+      expect(repo.markConflictPreservingActive).toHaveBeenCalledWith(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
       }
     });
 
@@ -636,7 +736,7 @@ describe('verse-audio service', () => {
         takeId: 10,
       });
 
-      expect(result).toEqual(err(ErrorCode.CONFLICT));
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
     });
 
     it('rejects takes that do not belong to the unit', async () => {

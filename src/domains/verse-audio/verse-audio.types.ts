@@ -121,7 +121,7 @@ export interface UploadRecordingInput {
   contentType: string;
   data: Buffer;
   durationSeconds?: number;
-  /** Client's last-known unit version; omit/stale → conflict when a take already exists. */
+  /** Client's last-known unit version (starts at 1). Omit for legacy replace; stale → conflict. */
   baseVersionToken?: number;
 }
 

@@ -98,9 +98,9 @@ const uploadVerseAudioRoute = createRoute({
               description: 'Client-measured duration in seconds',
               example: 12.5,
             }),
-            baseVersionToken: z.coerce.number().int().nonnegative().optional().openapi({
+            baseVersionToken: z.coerce.number().int().positive().optional().openapi({
               description:
-                'Last-known unit versionToken. Matching or omitted token updates the active take; a present-but-stale token keeps both takes and marks conflict.',
+                'Last-known unit versionToken (starts at 1). Matching token updates the active take and clears conflict; omitted token replaces the active take but preserves conflict; a present-but-stale token keeps both takes and marks conflict.',
               example: 1,
             }),
           }),
@@ -126,7 +126,7 @@ const uploadVerseAudioRoute = createRoute({
   },
   summary: 'Upload an audio take for a verse',
   description:
-    'Versioned upload: send baseVersionToken from the client’s last sync. Matching or omitted base replaces the active take; a present-but-stale base keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh).',
+    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take and clears conflict; omitted token replaces the active take but preserves an existing conflict (legacy clients); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh).',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
@@ -146,8 +146,14 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   const durationRaw = Number(body.durationSeconds);
   const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
 
-  const baseRaw = Number(body.baseVersionToken);
-  const baseVersionToken = Number.isFinite(baseRaw) && baseRaw >= 0 ? baseRaw : undefined;
+  const baseRaw = body.baseVersionToken;
+  const baseVersionToken =
+    typeof baseRaw === 'string' &&
+    baseRaw !== '' &&
+    Number.isFinite(Number(baseRaw)) &&
+    Number(baseRaw) >= 1
+      ? Number(baseRaw)
+      : undefined;
 
   const data = Buffer.from(await file.arrayBuffer());
 
