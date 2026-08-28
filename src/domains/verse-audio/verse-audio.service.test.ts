@@ -55,6 +55,8 @@ vi.mock('./verse-audio.repository', () => ({
   updateRecordingStateIfVersion: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   remove: vi.fn(),
+  listPrunableTakes: vi.fn(),
+  deleteTakesByIds: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -129,6 +131,8 @@ describe('verse-audio service', () => {
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
     vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
     vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
+    vi.mocked(repo.listPrunableTakes).mockResolvedValue(ok([]));
+    vi.mocked(repo.deleteTakesByIds).mockResolvedValue(ok(undefined));
   });
 
   describe('uploadRecording', () => {
@@ -859,6 +863,35 @@ describe('verse-audio service', () => {
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(1);
       expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
       expect(result).toEqual(ok(2));
+    });
+
+    it('prunes superseded takes on clean units before the orphan sweep', async () => {
+      const superseded = {
+        ...take,
+        id: 99,
+        storageObjectId: 77,
+        contentHash: 'abc',
+        projectUnitId: 12,
+        bibleTextId: 3401,
+      };
+      vi.mocked(repo.listPrunableTakes).mockResolvedValue(ok([superseded]));
+      vi.mocked(storageRepo.getById).mockResolvedValue(
+        ok({
+          id: 77,
+          bucket: 'verse-audio',
+          key: 'unit-12/text-3401/abc',
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([]));
+
+      const result = await reclaimOrphanedStorageObjects();
+
+      expect(repo.deleteTakesByIds).toHaveBeenCalledWith([99]);
+      expect(deleteVerseAudio).toHaveBeenCalledWith('unit-12/text-3401/abc');
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(77);
+      expect(result).toEqual(ok(1));
     });
   });
 });

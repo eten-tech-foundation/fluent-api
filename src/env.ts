@@ -77,17 +77,20 @@ const EnvBaseSchema = z.object({
   R2_ENDPOINT: z.string().url().optional(),
   // Bucket dedicated to USFM exports — kept separate from the audio bucket
   // because deleteExpiredExports sweeps and deletes every object in it older
-  // than the export TTL, while recordings are permanent. Deliberately NOT
-  // defaulted; required alongside the credentials — see requireExplicitR2Buckets.
+  // than the export TTL. Audio uses a different reclaim path (orphans +
+  // superseded takes). Deliberately NOT defaulted; required alongside the
+  // credentials — see requireExplicitR2Buckets.
   R2_EXPORTS_BUCKET: z.string().optional(),
-  // Bucket dedicated to verse audio recordings (never TTL-swept). Also not
-  // defaulted — see requireExplicitR2Buckets.
+  // Bucket dedicated to verse audio recordings. Active takes are retained;
+  // superseded takes on clean units are pruned by the reclaim sweep.
+  // Also not defaulted — see requireExplicitR2Buckets.
   R2_AUDIO_BUCKET: z.string().optional(),
-  // How often orphaned storage objects are reclaimed (see storage_objects).
+  // How often orphaned storage objects and superseded takes are reclaimed.
   AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
-  // How long a storage row is left alone before the sweep may reclaim it. An
-  // upload claims its row before writing the object, so it briefly looks
-  // orphaned; this keeps the sweep off anything that young.
+  // How long a storage row / superseded take is left alone before the sweep may
+  // reclaim it. An upload claims its row before writing the object, so it briefly
+  // looks orphaned; this keeps the sweep off anything that young. The same window
+  // is the retention cap for non-active takes on a clean (non-conflicted) unit.
   AUDIO_RECLAIM_GRACE_MS: z.coerce.number().int().positive().default(3600000),
 
   EMAIL_SERVICE_API_KEY: z.string(),

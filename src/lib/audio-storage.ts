@@ -20,8 +20,9 @@ import { logger } from './logger';
 //
 // This module stays audio-scoped and separate from lib/blob-storage.ts (USFM
 // exports, PR #212): the two have different buckets and different lifecycles —
-// exports are TTL-swept, recordings are permanent. Sharing one module is a
-// follow-up once both have landed.
+// exports are TTL-swept; the active recording for a verse is retained, while
+// superseded takes are pruned by the audio reclaim sweep. Sharing one module is
+// a follow-up once both have landed.
 
 // How long a signed playback URL stays valid once issued.
 const DOWNLOAD_TTL_SECONDS = 15 * 60;

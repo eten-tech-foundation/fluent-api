@@ -586,17 +586,57 @@ export async function deleteRecording(
 /**
  * Deletes objects nothing references any more and stamps their rows.
  *
+ * Also drops superseded takes on clean units (older than the reclaim grace):
+ * hash-keyed blobs are per-take, so without this a verse re-recorded ten times
+ * would keep ten objects forever. Conflicted units are left intact until resolve.
+ *
  * This is the counterpart to the cascade: dropping a project unit cascades its
  * recordings away, but Postgres cannot touch a bucket, so without this the audio
  * would sit there forever. Runs on an interval from the server entrypoint.
  */
 export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
+  const prunable = await repo.listPrunableTakes(env.AUDIO_RECLAIM_GRACE_MS);
+  if (!prunable.ok) {
+    return prunable;
+  }
+
+  let reclaimed = 0;
+  if (prunable.data.length > 0) {
+    const removed = await repo.deleteTakesByIds(prunable.data.map((take) => take.id));
+    if (!removed.ok) {
+      return removed;
+    }
+
+    for (const take of prunable.data) {
+      if (take.storageObjectId === null) {
+        continue;
+      }
+      const storage = await storageRepo.getById(take.storageObjectId);
+      const key = storage.ok
+        ? storage.data.key
+        : fallbackBlobKey(take.projectUnitId, take.bibleTextId, take.contentHash);
+
+      try {
+        await deleteVerseAudio(key);
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Superseded take object delete failed; left for the reclaim sweep',
+          context: { key, takeId: take.id },
+        });
+        continue;
+      }
+
+      await storageRepo.markDeleted(take.storageObjectId);
+      reclaimed++;
+    }
+  }
+
   const orphans = await storageRepo.findOrphans(env.AUDIO_RECLAIM_GRACE_MS);
   if (!orphans.ok) {
     return orphans;
   }
 
-  let reclaimed = 0;
   for (const orphan of orphans.data) {
     try {
       await deleteVerseAudio(orphan.key);

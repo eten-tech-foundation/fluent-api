@@ -17,7 +17,7 @@ export interface StorageObjectRecord {
 
 /**
  * Records that `key` exists in `bucket`, returning the row. Idempotent: writing
- * the same object again (a re-recording overwrites in place) revives the
+ * the same object again (identical bytes reuse the hash-keyed path) revives the
  * existing row rather than adding a second one, so the sweep never sees a
  * duplicate for the same bytes.
  */
