@@ -338,6 +338,11 @@ export async function uploadRecording(
 
   const unit = existing.data;
 
+  // Three cases: a matching token replaces the active take, an absent token does
+  // the same on behalf of clients too old to send one, and a stale token keeps
+  // both takes and flags a conflict. None of them clears an open conflict — that
+  // is resolve's job alone, so a losing client cannot settle a contest in its own
+  // favour just by retrying with the token the conflict response handed it.
   const tokenSupplied = input.baseVersionToken !== undefined;
   const baseMatches = tokenSupplied && input.baseVersionToken === unit.versionToken;
   const legacyReplace = !tokenSupplied;
@@ -349,6 +354,8 @@ export async function uploadRecording(
   }
 
   if (duplicate.data) {
+    // Re-sending the active take's own bytes changes nothing, including the
+    // conflict flag: only resolve clears that.
     if (duplicate.data.id === unit.activeTakeId) {
       return loadUnitResponse(input.projectUnitId, input.bibleTextId);
     }
@@ -361,7 +368,6 @@ export async function uploadRecording(
         sizeBytes: duplicate.data.sizeBytes,
         durationSeconds: duplicate.data.durationSeconds,
         versionToken: unit.versionToken + 1,
-        conflictStatus: legacyReplace ? unit.conflictStatus : VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
         activeTakeId: duplicate.data.id,
       });
       if (!promoted.ok) {
@@ -411,6 +417,8 @@ export async function uploadRecording(
   const observedVersion = unit.versionToken;
 
   if (baseMatches || legacyReplace) {
+    // conflictStatus is deliberately absent from the patch: an upload may take
+    // over as the active take, but only resolve adjudicates an open conflict.
     const updated = await repo.updateRecordingStateIfVersion(unit.id, observedVersion, {
       uploadedBy: input.uploadedBy,
       storageObjectId: stored.data.storageObjectId,
@@ -418,7 +426,6 @@ export async function uploadRecording(
       sizeBytes: input.data.length,
       durationSeconds,
       versionToken: nextVersion,
-      conflictStatus: legacyReplace ? unit.conflictStatus : VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
       activeTakeId: take.data.id,
     });
     if (!updated.ok) {
@@ -586,52 +593,32 @@ export async function deleteRecording(
 /**
  * Deletes objects nothing references any more and stamps their rows.
  *
- * Also drops superseded takes on clean units (older than the reclaim grace):
- * hash-keyed blobs are per-take, so without this a verse re-recorded ten times
- * would keep ten objects forever. Conflicted units are left intact until resolve.
+ * Runs in two independent phases. First it drops superseded takes on settled
+ * clean units: hash-keyed blobs are per-take, so without this a verse re-recorded
+ * ten times would keep ten objects forever. Conflicted units are left intact
+ * until resolve. That phase only deletes take rows — the objects they freed fall
+ * to the orphan pass on a later sweep, which is what keeps a concurrent
+ * re-upload of the same bytes from having its revived row stamped deleted.
  *
- * This is the counterpart to the cascade: dropping a project unit cascades its
- * recordings away, but Postgres cannot touch a bucket, so without this the audio
- * would sit there forever. Runs on an interval from the server entrypoint.
+ * The orphan pass is the counterpart to the cascade: dropping a project unit
+ * cascades its recordings away, but Postgres cannot touch a bucket, so without
+ * this the audio would sit there forever. Runs on an interval from the server
+ * entrypoint.
  */
 export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
-  const prunable = await repo.listPrunableTakes(env.AUDIO_RECLAIM_GRACE_MS);
-  if (!prunable.ok) {
-    return prunable;
+  // Independent of the orphan pass below: a persistent failure here must not
+  // starve reclamation of objects left behind by deleted project units.
+  const pruned = await repo.pruneSupersededTakes(env.AUDIO_TAKE_RETENTION_MS);
+  if (!pruned.ok) {
+    logger.error({
+      message: 'Superseded take prune failed; continuing to the orphan sweep',
+      context: { code: pruned.error.code },
+    });
+  } else if (pruned.data > 0) {
+    logger.info('Pruned superseded verse audio takes', { pruned: pruned.data });
   }
 
   let reclaimed = 0;
-  if (prunable.data.length > 0) {
-    const removed = await repo.deleteTakesByIds(prunable.data.map((take) => take.id));
-    if (!removed.ok) {
-      return removed;
-    }
-
-    for (const take of prunable.data) {
-      if (take.storageObjectId === null) {
-        continue;
-      }
-      const storage = await storageRepo.getById(take.storageObjectId);
-      const key = storage.ok
-        ? storage.data.key
-        : fallbackBlobKey(take.projectUnitId, take.bibleTextId, take.contentHash);
-
-      try {
-        await deleteVerseAudio(key);
-      } catch (error) {
-        logger.error({
-          cause: error,
-          message: 'Superseded take object delete failed; left for the reclaim sweep',
-          context: { key, takeId: take.id },
-        });
-        continue;
-      }
-
-      await storageRepo.markDeleted(take.storageObjectId);
-      reclaimed++;
-    }
-  }
-
   const orphans = await storageRepo.findOrphans(env.AUDIO_RECLAIM_GRACE_MS);
   if (!orphans.ok) {
     return orphans;

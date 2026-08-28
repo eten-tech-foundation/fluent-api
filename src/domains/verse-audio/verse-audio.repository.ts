@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -16,11 +16,6 @@ import type {
 } from './verse-audio.types';
 
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
-
-export interface PrunableTake extends VerseAudioTakeRecord {
-  projectUnitId: number;
-  bibleTextId: number;
-}
 
 const recordSelection = {
   id: verse_audio_recordings.id,
@@ -421,56 +416,87 @@ export async function listTakesForRecording(
 }
 
 /**
- * Non-active takes on a clean unit, older than `graceMs`. Conflicted units keep
- * every take until resolve; the active take is never returned.
+ * Drops superseded takes: non-active takes on a clean unit that has been settled
+ * on its active take for the whole retention window.
+ *
+ * Only take rows go; the objects they referenced are left to the orphan pass,
+ * which already skips anything a take or recording still points at and honours
+ * its own grace window. Deleting blobs here instead would race a concurrent
+ * upload of the same bytes, which revives the very `storage_objects` row (unique
+ * on bucket+key) this sweep is about to stamp deleted.
+ *
+ * `active_take_id` is `ON DELETE set null`, so nothing at the schema level stops
+ * a take promoted mid-sweep from being deleted out from under its recording.
+ * Two guards close that window: the parent recordings are locked before the
+ * delete, and the delete re-evaluates the "not active, still clean" predicate
+ * under that lock rather than trusting the candidate snapshot.
  */
-export async function listPrunableTakes(
-  graceMs: number,
+export async function pruneSupersededTakes(
+  retentionMs: number,
   limit = 500
-): Promise<Result<PrunableTake[]>> {
+): Promise<Result<number>> {
   try {
-    const rows = await db
-      .select({
-        ...takeSelection,
-        projectUnitId: verse_audio_recordings.projectUnitId,
-        bibleTextId: verse_audio_recordings.bibleTextId,
-      })
-      .from(verse_audio_takes)
-      .innerJoin(
-        verse_audio_recordings,
-        eq(verse_audio_takes.recordingId, verse_audio_recordings.id)
-      )
-      .where(
-        and(
-          eq(verse_audio_recordings.conflictStatus, VERSE_AUDIO_CONFLICT_STATUS.CLEAN),
-          isNotNull(verse_audio_recordings.activeTakeId),
-          ne(verse_audio_takes.id, verse_audio_recordings.activeTakeId),
-          lt(verse_audio_takes.createdAt, new Date(Date.now() - graceMs))
+    const cutoff = new Date(Date.now() - retentionMs);
+
+    return await db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: verse_audio_takes.id, recordingId: verse_audio_takes.recordingId })
+        .from(verse_audio_takes)
+        .innerJoin(
+          verse_audio_recordings,
+          eq(verse_audio_takes.recordingId, verse_audio_recordings.id)
         )
-      )
-      .limit(limit);
+        .where(
+          and(
+            eq(verse_audio_recordings.conflictStatus, VERSE_AUDIO_CONFLICT_STATUS.CLEAN),
+            isNotNull(verse_audio_recordings.activeTakeId),
+            ne(verse_audio_takes.id, verse_audio_recordings.activeTakeId),
+            lt(verse_audio_takes.createdAt, cutoff),
+            // The unit itself has been untouched for the window. Promoting a take
+            // stamps the recording, so this is "settled since", not "created before".
+            lt(verse_audio_recordings.updatedAt, cutoff)
+          )
+        )
+        .orderBy(asc(verse_audio_takes.id))
+        .limit(limit);
 
-    return ok(rows);
-  } catch (error) {
-    logger.error({ cause: error, message: 'Failed to list prunable verse audio takes' });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
+      if (candidates.length === 0) {
+        return ok(0);
+      }
 
-export async function deleteTakesByIds(takeIds: number[]): Promise<Result<void>> {
-  if (takeIds.length === 0) {
-    return ok(undefined);
-  }
+      // Ordered lock so concurrent sweeps cannot deadlock against each other, and
+      // an upload promoting one of these takes serialises behind us.
+      const recordingIds = [...new Set(candidates.map((c) => c.recordingId))].sort((a, b) => a - b);
+      await tx
+        .select({ id: verse_audio_recordings.id })
+        .from(verse_audio_recordings)
+        .where(inArray(verse_audio_recordings.id, recordingIds))
+        .orderBy(asc(verse_audio_recordings.id))
+        .for('update');
 
-  try {
-    await db.delete(verse_audio_takes).where(inArray(verse_audio_takes.id, takeIds));
-    return ok(undefined);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to delete superseded verse audio takes',
-      context: { takeIds },
+      const deleted = await tx
+        .delete(verse_audio_takes)
+        .where(
+          and(
+            inArray(
+              verse_audio_takes.id,
+              candidates.map((c) => c.id)
+            ),
+            sql`EXISTS (
+              SELECT 1 FROM ${verse_audio_recordings} r
+              WHERE r.id = ${verse_audio_takes.recordingId}
+                AND r.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CLEAN}
+                AND r.active_take_id IS NOT NULL
+                AND r.active_take_id <> ${verse_audio_takes.id}
+            )`
+          )
+        )
+        .returning({ id: verse_audio_takes.id });
+
+      return ok(deleted.length);
     });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to prune superseded verse audio takes' });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

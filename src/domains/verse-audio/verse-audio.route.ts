@@ -98,11 +98,24 @@ const uploadVerseAudioRoute = createRoute({
               description: 'Client-measured duration in seconds',
               example: 12.5,
             }),
-            baseVersionToken: z.coerce.number().int().positive().optional().openapi({
-              description:
-                'Last-known unit versionToken (starts at 1). Matching token updates the active take and clears conflict; omitted token replaces the active take but preserves conflict; a present-but-stale token keeps both takes and marks conflict.',
-              example: 1,
-            }),
+            // Empty is normalised to absent before coercion: a client that always
+            // appends the field to its FormData, empty when it has no local token,
+            // is a legacy client, not a malformed request. Everything else present
+            // must coerce to a positive integer — `z.coerce` alone would read '' as
+            // 0 and reject it. This schema is enforced, not just documentation:
+            // zod-openapi validates multipart bodies through the form validator.
+            baseVersionToken: z
+              .preprocess(
+                (value) => (value === '' ? undefined : value),
+                z.coerce.number().int().positive().optional()
+              )
+              .openapi({
+                type: 'integer',
+                minimum: 1,
+                description:
+                  'Last-known unit versionToken (starts at 1). Matching token updates the active take; omitted or empty replaces the active take on behalf of clients too old to send one; a present-but-stale token keeps both takes and marks conflict. Present but not a positive integer is a 400. No upload clears an existing conflict — use the resolve endpoint.',
+                example: 1,
+              }),
           }),
         },
       },
@@ -116,7 +129,7 @@ const uploadVerseAudioRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
-      'Missing/empty file or unsupported content type'
+      'Missing/empty file, unsupported content type, or a malformed baseVersionToken'
     ),
     413: jsonContent(
       createMessageObjectSchema('Payload too large'),
@@ -126,7 +139,7 @@ const uploadVerseAudioRoute = createRoute({
   },
   summary: 'Upload an audio take for a verse',
   description:
-    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take and clears conflict; omitted token replaces the active take but preserves an existing conflict (legacy clients); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh).',
+    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients; a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it — an upload can become the active take but never settles the conflict on its own.',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
@@ -146,14 +159,22 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   const durationRaw = Number(body.durationSeconds);
   const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
 
+  // The schema above has already rejected anything malformed. Re-derived here
+  // rather than read from c.req.valid('form') because this handler works from its
+  // own parseBody copy, and reading a fumbled token as absent would quietly
+  // disable the conflict detection the token exists for.
   const baseRaw = body.baseVersionToken;
-  const baseVersionToken =
-    typeof baseRaw === 'string' &&
-    baseRaw !== '' &&
-    Number.isFinite(Number(baseRaw)) &&
-    Number(baseRaw) >= 1
-      ? Number(baseRaw)
-      : undefined;
+  let baseVersionToken: number | undefined;
+  if (baseRaw !== undefined && baseRaw !== '') {
+    const parsed = typeof baseRaw === 'string' ? Number(baseRaw) : Number.NaN;
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      return c.json(
+        { message: 'baseVersionToken must be a positive integer' },
+        HttpStatusCodes.BAD_REQUEST
+      );
+    }
+    baseVersionToken = parsed;
+  }
 
   const data = Buffer.from(await file.arrayBuffer());
 
@@ -200,7 +221,7 @@ const getVerseAudioRoute = createRoute({
   },
   summary: 'Get the audio recording for a verse',
   description:
-    'Returns unit version/conflict state plus all takes, each with a read-only downloadUrl valid for 15 minutes.',
+    'Returns unit version/conflict state plus all takes, each with a read-only downloadUrl valid for 15 minutes. A conflicted unit keeps every take until it is resolved; on a settled clean unit, non-active takes are pruned once they fall outside the take retention window (AUDIO_TAKE_RETENTION_MS, 7 days by default), so takes[] collapses to the active take.',
 });
 
 server.openapi(getVerseAudioRoute, async (c) => {
@@ -308,7 +329,7 @@ const resolveVerseAudioRoute = createRoute({
   },
   summary: 'Resolve a verse-audio conflict by selecting the active take',
   description:
-    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. Non-selected takes are retained. Returns 409 if another writer advanced the token first.',
+    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. This is the only way a conflict is cleared; uploads never clear one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.',
 });
 
 server.openapi(resolveVerseAudioRoute, async (c) => {

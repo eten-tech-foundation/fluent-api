@@ -170,6 +170,60 @@ describe('verse-audio routes', () => {
     });
   });
 
+  describe('put /verse-audio/{projectUnitId}/{bibleTextId}', () => {
+    // The multipart body never reaches the zod schema (parseBody bypasses
+    // c.req.valid), so baseVersionToken is validated by hand in the handler.
+    function upload(baseVersionToken?: string) {
+      const form = new FormData();
+      form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
+      if (baseVersionToken !== undefined) {
+        form.append('baseVersionToken', baseVersionToken);
+      }
+      return server.request('/verse-audio/1/10', { method: 'PUT', body: form });
+    }
+
+    beforeEach(() => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      (verseAudioService.uploadRecording as any).mockResolvedValue({
+        ok: true,
+        data: { id: 1, projectUnitId: 1, bibleTextId: 10, versionToken: 2 },
+      });
+    });
+
+    it.each([
+      ['not a number', 'abc'],
+      ['zero', '0'],
+      ['negative', '-1'],
+      ['fractional', '1.5'],
+    ])('rejects a %s baseVersionToken rather than treating it as absent', async (_label, value) => {
+      const res = await upload(value);
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRecording).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['omitted', undefined],
+      ['empty', ''],
+    ])('treats an %s baseVersionToken as a legacy client', async (_label, value) => {
+      const res = await upload(value);
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ baseVersionToken: undefined })
+      );
+    });
+
+    it('forwards a well-formed token', async () => {
+      const res = await upload('3');
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ baseVersionToken: 3 })
+      );
+    });
+  });
+
   describe('delete /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     it('returns 200 when recording deleted successfully', async () => {
       asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);

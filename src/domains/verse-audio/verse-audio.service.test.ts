@@ -55,8 +55,7 @@ vi.mock('./verse-audio.repository', () => ({
   updateRecordingStateIfVersion: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   remove: vi.fn(),
-  listPrunableTakes: vi.fn(),
-  deleteTakesByIds: vi.fn(),
+  pruneSupersededTakes: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -131,8 +130,7 @@ describe('verse-audio service', () => {
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
     vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
     vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
-    vi.mocked(repo.listPrunableTakes).mockResolvedValue(ok([]));
-    vi.mocked(repo.deleteTakesByIds).mockResolvedValue(ok(undefined));
+    vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
   });
 
   describe('uploadRecording', () => {
@@ -243,7 +241,6 @@ describe('verse-audio service', () => {
         expect.objectContaining({
           activeTakeId: 10,
           versionToken: 4,
-          conflictStatus: 'clean',
         })
       );
       expect(result.ok).toBe(true);
@@ -306,9 +303,11 @@ describe('verse-audio service', () => {
         1,
         expect.objectContaining({
           versionToken: 2,
-          conflictStatus: 'conflict',
           activeTakeId: 11,
         })
+      );
+      expect(vi.mocked(repo.updateRecordingStateIfVersion).mock.calls[0]![2]).not.toHaveProperty(
+        'conflictStatus'
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -344,6 +343,81 @@ describe('verse-audio service', () => {
 
       expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
       expect(repo.markConflictPreservingActive).toHaveBeenCalledWith(1);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
+      }
+    });
+
+    it('does not let a losing client clear its own conflict by retrying the same bytes', async () => {
+      // The stale-base response hands the loser the current token. Re-sending the
+      // same bytes may promote its take, but must not settle the contest for it.
+      const losing = { ...take, id: 10 };
+      const active = { ...take, id: 11, contentHash: hashOf(Buffer.from('newer')) };
+      const conflicted = {
+        ...record,
+        versionToken: 3,
+        activeTakeId: 11,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(conflicted))
+        .mockResolvedValue(ok({ ...conflicted, versionToken: 4, activeTakeId: 10 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(losing));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: { ...conflicted, versionToken: 4, activeTakeId: 10 } })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([losing, active]));
+
+      const result = await uploadRecording({ ...uploadInput, baseVersionToken: 3 });
+
+      expect(vi.mocked(repo.updateRecordingStateIfVersion).mock.calls[0]![2]).not.toHaveProperty(
+        'conflictStatus'
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
+      }
+    });
+
+    it('leaves an open conflict alone when a matching-token upload brings new bytes', async () => {
+      const newData = Buffer.from('fresh-over-conflict');
+      const newHash = hashOf(newData);
+      const newTake = { ...take, id: 12, contentHash: newHash, storageObjectId: 56 };
+      const conflicted = {
+        ...record,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(conflicted))
+        .mockResolvedValue(ok({ ...conflicted, versionToken: 2, activeTakeId: 12 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: { ...conflicted, versionToken: 2, activeTakeId: 12 } })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: newData,
+        baseVersionToken: 1,
+      });
+
+      expect(vi.mocked(repo.updateRecordingStateIfVersion).mock.calls[0]![2]).not.toHaveProperty(
+        'conflictStatus'
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.conflictStatus).toBe('conflict');
@@ -393,7 +467,6 @@ describe('verse-audio service', () => {
         1,
         expect.objectContaining({
           versionToken: 2,
-          conflictStatus: 'clean',
           activeTakeId: 11,
         })
       );
@@ -447,7 +520,6 @@ describe('verse-audio service', () => {
         1,
         expect.objectContaining({
           versionToken: 2,
-          conflictStatus: 'clean',
           activeTakeId: 11,
         })
       );
@@ -865,32 +937,28 @@ describe('verse-audio service', () => {
       expect(result).toEqual(ok(2));
     });
 
-    it('prunes superseded takes on clean units before the orphan sweep', async () => {
-      const superseded = {
-        ...take,
-        id: 99,
-        storageObjectId: 77,
-        contentHash: 'abc',
-        projectUnitId: 12,
-        bibleTextId: 3401,
-      };
-      vi.mocked(repo.listPrunableTakes).mockResolvedValue(ok([superseded]));
-      vi.mocked(storageRepo.getById).mockResolvedValue(
-        ok({
-          id: 77,
-          bucket: 'verse-audio',
-          key: 'unit-12/text-3401/abc',
-          createdAt: new Date(),
-          deletedAt: null,
-        })
-      );
+    it('prunes superseded takes before the orphan sweep, leaving their objects to it', async () => {
+      vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(1));
       vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([]));
 
       const result = await reclaimOrphanedStorageObjects();
 
-      expect(repo.deleteTakesByIds).toHaveBeenCalledWith([99]);
-      expect(deleteVerseAudio).toHaveBeenCalledWith('unit-12/text-3401/abc');
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(77);
+      expect(repo.pruneSupersededTakes).toHaveBeenCalledWith(expect.any(Number));
+      // The prune drops rows only. Deleting the blob here would race a concurrent
+      // re-upload of the same bytes, which revives that very storage_objects row.
+      expect(deleteVerseAudio).not.toHaveBeenCalled();
+      expect(storageRepo.markDeleted).not.toHaveBeenCalled();
+      expect(result).toEqual(ok(0));
+    });
+
+    it('still runs the orphan sweep when the take prune fails', async () => {
+      vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([orphan(3, 'unit-9/text-3/c')]));
+
+      const result = await reclaimOrphanedStorageObjects();
+
+      expect(storageRepo.findOrphans).toHaveBeenCalled();
+      expect(storageRepo.markDeleted).toHaveBeenCalledWith(3);
       expect(result).toEqual(ok(1));
     });
   });

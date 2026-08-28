@@ -87,11 +87,16 @@ const EnvBaseSchema = z.object({
   R2_AUDIO_BUCKET: z.string().optional(),
   // How often orphaned storage objects and superseded takes are reclaimed.
   AUDIO_RECLAIM_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
-  // How long a storage row / superseded take is left alone before the sweep may
-  // reclaim it. An upload claims its row before writing the object, so it briefly
-  // looks orphaned; this keeps the sweep off anything that young. The same window
-  // is the retention cap for non-active takes on a clean (non-conflicted) unit.
+  // How long a storage row is left alone before the sweep may reclaim it. An
+  // upload claims its row before writing the object, so it briefly looks
+  // orphaned; this keeps the sweep off anything that young.
   AUDIO_RECLAIM_GRACE_MS: z.coerce.number().int().positive().default(3600000),
+  // How long superseded takes survive on a settled clean unit. This is the window
+  // in which a re-upload of earlier bytes can revert to that take rather than
+  // storing it again, and how long `takes[]` keeps showing the history, so it is
+  // a product decision rather than the blob-level grace above. Conflicted units
+  // are exempt: they keep every take until resolve.
+  AUDIO_TAKE_RETENTION_MS: z.coerce.number().int().positive().default(604800000),
 
   EMAIL_SERVICE_API_KEY: z.string(),
   EMAIL_SERVICE_DOMAIN: z.string(),
