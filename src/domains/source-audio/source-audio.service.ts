@@ -25,6 +25,7 @@ import type {
 interface SourceAudioVerseTimestamp {
   verse: number;
   startSeconds?: number;
+  dblAudioBibleId?: string;
 }
 
 interface ChapterSourceAudioInput {
