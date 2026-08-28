@@ -18,11 +18,12 @@ When working on optimistic-lock / `versionToken` paths (services, repositories, 
 
 ### Optional version fields (legacy compat)
 
-- **Absent** → legacy replace active take; preserve existing conflict status.
-- **Present + match** → happy path; may clear conflict.
-- **Present + stale** → keep both takes; mark conflict.
+- **Absent** → legacy replace active take; do not clear an existing conflict.
+- **Present + match** → replace active take; do not clear an existing conflict.
+- **Present + stale** → keep both takes and mark conflict; do not clear an existing conflict.
+- **Present + malformed** → return `400`; never fall back to legacy semantics.
 
-Document all three in OpenAPI. Parse route form fields carefully: `Number('') === 0` — treat empty strings as absent; tokens start at `1`.
+Only `resolveConflict` sets `conflictStatus` to clean. Document all four states in OpenAPI. Parse route form fields carefully: `Number('') === 0` — treat empty strings as absent; tokens start at `1`.
 
 ### Review triage
 
