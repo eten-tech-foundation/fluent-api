@@ -9,11 +9,11 @@ Use this checklist when adding or reviewing code that uses `versionToken`, optim
 
 ## Concurrency
 
-1. **Every writer is a CAS** — updates that advance state must match the observed version in SQL (`WHERE version_token = expected`), not read-modify-write with an unconditional `UPDATE`.
+1. **Every state-advancing write is a CAS** — versioned clients match their supplied token in SQL (`WHERE version_token = expected`); the supported legacy path snapshots the current token when `baseVersionToken` is omitted and uses that value as `expected`. Neither path may use an unconditional `UPDATE`.
 2. **First-write / link paths need extra predicates** — e.g. `activeTakeId IS NULL` when linking the first take, so two concurrent first uploads cannot both claim active without conflict.
-3. **Every write that advances state bumps the token** — if a link or replace path skips the bump, a concurrent writer that read the old token can still win its CAS and silently demote the first one. Flagging a conflict without changing what the resource points at is the exception: it does not invalidate anyone's token.
+3. **Every write that advances state bumps the token** — if a link or replace path skips the bump, a concurrent writer who read the old token can still win its CAS and silently demote the first one. Flagging a conflict without changing what the resource points at is the exception: it does not invalidate anyone's token.
 4. **Resolve uses the same CAS as upload** — conflict resolution must not clobber a concurrent upload's state.
-5. **Clearing a conflict is its own operation** — if writes could also clear it, the client that caused the conflict settles it by retrying with the token the conflict response handed back. Let writes raise the flag and only an explicit resolve lower it.
+5. **Clearing a conflict is its own operation** — if writes could also clear it, the client that caused the conflict settles it by retrying with the token the conflict response handed back. Let write paths raise the flag and only an explicit resolve lower it.
 6. **Sweeps that delete are CAS too** — a background prune must re-check "still unreferenced" inside the deleting statement, under a lock on the parent row, not trust the snapshot it listed from. Delete rows and let a later grace-guarded pass free the bytes, so a concurrent re-upload cannot have its revived object collected.
 
 ## ORM footguns (Drizzle)
@@ -26,12 +26,12 @@ Use this checklist when adding or reviewing code that uses `versionToken`, optim
 
 For optional fields that change write semantics (e.g. `baseVersionToken`):
 
-| Field state | Semantics |
-|-------------|-----------|
-| Absent | Legacy last-writer-wins for the active take |
-| Present + matches | Happy path; replace the active take |
-| Present + stale | Keep both takes; mark conflict |
-| Present + malformed | `400` — never fold it into the legacy path |
+| Field state         | Semantics                                   |
+| ------------------- | ------------------------------------------- |
+| Absent              | Legacy last-writer-wins for the active take |
+| Present + matches   | Happy path; replace the active take         |
+| Present + stale     | Keep both takes; mark conflict              |
+| Present + malformed | `400` — never fold it into the legacy path  |
 
 None of these clears an existing conflict; see concurrency rule 5.
 

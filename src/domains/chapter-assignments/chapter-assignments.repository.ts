@@ -145,7 +145,11 @@ export async function findForVerse(
 ): Promise<Result<PolicyChapterAssignment>> {
   try {
     const [bibleText] = await db
-      .select({ bookId: bible_texts.bookId, chapterNumber: bible_texts.chapterNumber })
+      .select({
+        bibleId: bible_texts.bibleId,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+      })
       .from(bible_texts)
       .where(eq(bible_texts.id, bibleTextId))
       .limit(1);
@@ -166,6 +170,7 @@ export async function findForVerse(
       .where(
         and(
           eq(chapter_assignments.projectUnitId, projectUnitId),
+          eq(chapter_assignments.bibleId, bibleText.bibleId),
           eq(chapter_assignments.bookId, bibleText.bookId),
           eq(chapter_assignments.chapterNumber, bibleText.chapterNumber)
         )

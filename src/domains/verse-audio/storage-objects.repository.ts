@@ -172,6 +172,29 @@ export async function reclaimOrphanIfUnreferenced(
     const cutoff = new Date(Date.now() - graceMs);
 
     return await db.transaction(async (tx) => {
+      const selection = {
+        id: storage_objects.id,
+        bucket: storage_objects.bucket,
+        key: storage_objects.key,
+        createdAt: storage_objects.createdAt,
+        deletedAt: storage_objects.deletedAt,
+      };
+
+      // Lock by identity first. Putting the reference predicates in this query
+      // lets PostgreSQL evaluate them before a conflicting FK insert releases
+      // its KEY SHARE lock, leaving a stale "unreferenced" result.
+      const [locked] = await tx
+        .select(selection)
+        .from(storage_objects)
+        .where(eq(storage_objects.id, id))
+        .for('update');
+
+      if (!locked) {
+        return ok(false);
+      }
+
+      // This is intentionally a separate statement after the lock is held: all
+      // orphan predicates must observe references that committed while we waited.
       const [orphan] = await tx
         .select({
           id: storage_objects.id,
@@ -196,7 +219,7 @@ export async function reclaimOrphanIfUnreferenced(
             )`
           )
         )
-        .for('update');
+        .limit(1);
 
       if (!orphan) {
         return ok(false);

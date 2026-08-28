@@ -4,6 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/schema';
+import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -81,6 +82,7 @@ export async function get(
 
 export async function listByChapter(
   projectUnitId: number,
+  bibleId: number,
   bookId: number,
   chapterNumber: number
 ): Promise<Result<VerseAudioRecord[]>> {
@@ -92,6 +94,7 @@ export async function listByChapter(
       .where(
         and(
           eq(verse_audio_recordings.projectUnitId, projectUnitId),
+          eq(bible_texts.bibleId, bibleId),
           eq(bible_texts.bookId, bookId),
           eq(bible_texts.chapterNumber, chapterNumber)
         )
@@ -103,7 +106,7 @@ export async function listByChapter(
     logger.error({
       cause: error,
       message: 'Failed to list verse audio recordings',
-      context: { projectUnitId, bookId, chapterNumber },
+      context: { projectUnitId, bibleId, bookId, chapterNumber },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -213,6 +216,11 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
       message: 'Failed to insert verse audio take',
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
+    // Reclamation can delete the claimed storage row immediately before this
+    // FK insert. No metadata committed, so the request is safe to retry.
+    if (hasPostgresErrorCode(error, '23503')) {
+      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+    }
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -252,6 +260,9 @@ export async function insertRecording(
       message: 'Failed to insert verse audio recording',
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
+    if (hasPostgresErrorCode(error, '23503')) {
+      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+    }
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -345,6 +356,9 @@ export async function updateRecordingStateIfVersion(
       message: 'Failed to conditionally update verse audio recording state',
       context: { recordingId, expectedVersionToken, patch, options },
     });
+    if (hasPostgresErrorCode(error, '23503')) {
+      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+    }
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -357,7 +371,7 @@ export async function markConflictPreservingActive(
     const [row] = await db
       .update(verse_audio_recordings)
       .set({
-        conflictStatus: 'conflict',
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
         updatedAt: new Date(),
       })
       .where(eq(verse_audio_recordings.id, recordingId))

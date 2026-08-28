@@ -374,10 +374,10 @@ export async function uploadRecording(
         return promoted;
       }
       if (!promoted.data.applied) {
-        const marked = await repo.markConflictPreservingActive(unit.id);
-        if (!marked.ok) {
-          return marked;
-        }
+        // No new take was added on this path. A successful concurrent resolve
+        // may have won the CAS, so reopening its clean state would undo an
+        // explicit adjudication without introducing any new contender.
+        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
       }
       return loadUnitResponse(input.projectUnitId, input.bibleTextId);
     }
@@ -467,10 +467,11 @@ export async function getRecording(
 
 export async function listChapterRecordings(
   projectUnitId: number,
+  bibleId: number,
   bookId: number,
   chapterNumber: number
 ): Promise<Result<{ items: VerseAudioWithUrl[]; hasConflict: boolean }>> {
-  const result = await repo.listByChapter(projectUnitId, bookId, chapterNumber);
+  const result = await repo.listByChapter(projectUnitId, bibleId, bookId, chapterNumber);
   if (!result.ok) {
     return result;
   }

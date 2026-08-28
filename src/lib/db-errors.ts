@@ -2,6 +2,22 @@ import type { Result } from '@/lib/types';
 
 import { err, ErrorCode } from '@/lib/types';
 
+/** Checks a wrapped database error without depending on a driver-specific class. */
+export function hasPostgresErrorCode(error: unknown, code: string): boolean {
+  let current = error;
+  const visited = new Set<object>();
+
+  while (current && typeof current === 'object' && !visited.has(current)) {
+    visited.add(current);
+    if ('code' in current && current.code === code) {
+      return true;
+    }
+    current = 'cause' in current ? current.cause : undefined;
+  }
+
+  return false;
+}
+
 /**
  * Maps generic Postgres constraint violations to standard ErrorCode responses.
  */

@@ -131,6 +131,10 @@ const uploadVerseAudioRoute = createRoute({
       createMessageObjectSchema('Bad request'),
       'Missing/empty file, unsupported content type, or a malformed baseVersionToken'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'A concurrent write or cleanup invalidated the upload; reload and retry'
+    ),
     413: jsonContent(
       createMessageObjectSchema('Payload too large'),
       'Audio file exceeds the 30 MB limit'
@@ -252,6 +256,7 @@ const listVerseAudioRoute = createRoute({
   request: {
     query: z.object({
       projectUnitId: z.coerce.number().int().positive().openapi({ example: 12 }),
+      bibleId: z.coerce.number().int().positive().openapi({ example: 1 }),
       bookId: z.coerce.number().int().positive().openapi({ example: 1 }),
       chapterNumber: z.coerce.number().int().positive().openapi({ example: 3 }),
     }),
@@ -269,7 +274,7 @@ const listVerseAudioRoute = createRoute({
   },
   summary: 'List audio recordings for a chapter',
   description:
-    'One call per chapter for mobile playback: every stored verse recording in the chapter, verse-ordered, each with takes + downloadUrl, plus hasConflict when any unit is conflicted.',
+    'One call per Bible chapter for mobile playback: every stored verse recording matching bibleId, bookId, and chapterNumber, verse-ordered, each with takes + downloadUrl, plus hasConflict when any matching unit is conflicted.',
 });
 
 server.openapi(listVerseAudioRoute, async (c) => {
@@ -277,10 +282,11 @@ server.openapi(listVerseAudioRoute, async (c) => {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 
-  const { projectUnitId, bookId, chapterNumber } = c.req.valid('query');
+  const { projectUnitId, bibleId, bookId, chapterNumber } = c.req.valid('query');
 
   const result = await verseAudioService.listChapterRecordings(
     projectUnitId,
+    bibleId,
     bookId,
     chapterNumber
   );
@@ -323,7 +329,7 @@ const resolveVerseAudioRoute = createRoute({
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
-      'Version token changed concurrently; reload and retry'
+      'Verse audio changed concurrently; reload and retry'
     ),
     ...commonErrorResponses,
   },

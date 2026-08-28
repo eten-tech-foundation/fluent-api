@@ -1,19 +1,29 @@
+import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { db } from '@/db';
+import { chapter_assignments } from '@/db/schema';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
-const { mockUpdateChain } = vi.hoisted(() => {
-  const chain = {
+const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+  const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     returning: vi.fn(),
   };
-  return { mockUpdateChain: chain };
+  const selectChain = {
+    from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn(),
+  };
+  return { mockSelectChain: selectChain, mockUpdateChain: updateChain };
 });
 
 vi.mock('@/db', () => ({
-  db: {},
+  db: { select: vi.fn() },
 }));
 
 vi.mock('drizzle-orm', async (importOriginal) => {
@@ -39,8 +49,32 @@ function mockTx() {
 describe('chapter-assignments.repository claim helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(db.select).mockReturnValue(mockSelectChain as any);
+    mockSelectChain.from.mockReturnThis();
+    mockSelectChain.innerJoin.mockReturnThis();
+    mockSelectChain.where.mockReturnThis();
     mockUpdateChain.set.mockReturnThis();
     mockUpdateChain.where.mockReturnThis();
+  });
+
+  describe('findForVerse', () => {
+    it('requires the assignment Bible to match the verse Bible', async () => {
+      const assignment = {
+        assignedUserId: 5,
+        peerCheckerId: null,
+        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+        organizationId: 2,
+        projectId: 3,
+      };
+      mockSelectChain.limit
+        .mockResolvedValueOnce([{ bibleId: 9, bookId: 1, chapterNumber: 4 }])
+        .mockResolvedValueOnce([assignment]);
+
+      const result = await repo.findForVerse(12, 3401);
+
+      expect(result).toEqual({ ok: true, data: assignment });
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
+    });
   });
 
   describe('claimIfUnassigned', () => {

@@ -383,6 +383,44 @@ describe('verse-audio service', () => {
       }
     });
 
+    it('does not reopen a conflict when resolve wins a duplicate-take promotion race', async () => {
+      const prior = { ...take, id: 10 };
+      const active = {
+        ...take,
+        id: 11,
+        contentHash: hashOf(Buffer.from('newer')),
+        storageObjectId: 56,
+      };
+      const conflicted = {
+        ...record,
+        versionToken: 3,
+        activeTakeId: 11,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+      const resolved = {
+        ...conflicted,
+        versionToken: 4,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      };
+
+      vi.mocked(repo.get).mockResolvedValueOnce(ok(conflicted)).mockResolvedValue(ok(resolved));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: false, record: null })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+
+      const result = await uploadRecording({ ...uploadInput, baseVersionToken: 3 });
+
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          data: expect.objectContaining({ conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN }),
+        })
+      );
+    });
+
     it('leaves an open conflict alone when a matching-token upload brings new bytes', async () => {
       const newData = Buffer.from('fresh-over-conflict');
       const newHash = hashOf(newData);
@@ -723,13 +761,14 @@ describe('verse-audio service', () => {
         ok([take, { ...take, id: 20, recordingId: 2 }])
       );
 
-      const result = await listChapterRecordings(12, 1, 3);
+      const result = await listChapterRecordings(12, 9, 1, 3);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.items).toHaveLength(2);
         expect(result.data.hasConflict).toBe(true);
       }
+      expect(repo.listByChapter).toHaveBeenCalledWith(12, 9, 1, 3);
       expect(storageRepo.getByIds).not.toHaveBeenCalled();
     });
 
@@ -772,7 +811,7 @@ describe('verse-audio service', () => {
         ])
       );
 
-      const result = await listChapterRecordings(12, 1, 3);
+      const result = await listChapterRecordings(12, 9, 1, 3);
 
       expect(storageRepo.getByIds).toHaveBeenCalledTimes(1);
       expect(storageRepo.getByIds).toHaveBeenCalledWith([55, 66]);

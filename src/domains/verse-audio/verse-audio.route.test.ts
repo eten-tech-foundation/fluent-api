@@ -5,6 +5,7 @@ import { getUserByEmail } from '@/domains/users/users.service';
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
 import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
+import { err, ErrorCode } from '@/lib/types';
 import { server } from '@/server/server';
 
 import * as verseAudioService from './verse-audio.service';
@@ -160,19 +161,32 @@ describe('verse-audio routes', () => {
         },
       });
 
-      const res = await server.request('/verse-audio?projectUnitId=1&bookId=1&chapterNumber=1', {
-        method: 'GET',
-      });
+      const res = await server.request(
+        '/verse-audio?projectUnitId=1&bibleId=9&bookId=1&chapterNumber=1',
+        { method: 'GET' }
+      );
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.items).toHaveLength(1);
       expect(json.hasConflict).toBe(false);
+      expect(verseAudioService.listChapterRecordings).toHaveBeenCalledWith(1, 9, 1, 1);
+    });
+
+    it('requires bibleId so chapter conflicts cannot cross Bible boundaries', async () => {
+      asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
+
+      const res = await server.request('/verse-audio?projectUnitId=1&bookId=1&chapterNumber=1', {
+        method: 'GET',
+      });
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
     });
   });
 
   describe('put /verse-audio/{projectUnitId}/{bibleTextId}', () => {
-    // The multipart body never reaches the zod schema (parseBody bypasses
-    // c.req.valid), so baseVersionToken is validated by hand in the handler.
+    // The form validator enforces the declared schema, while the handler reads
+    // a separate parseBody result and repeats the guard as defence in depth.
     function upload(baseVersionToken?: string) {
       const form = new FormData();
       form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
@@ -221,6 +235,60 @@ describe('verse-audio routes', () => {
       expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
         expect.objectContaining({ baseVersionToken: 3 })
       );
+    });
+
+    it('returns 409 when concurrent cleanup invalidates an upload reference', async () => {
+      vi.mocked(verseAudioService.uploadRecording).mockResolvedValue(
+        err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT)
+      );
+
+      const res = await upload('3');
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        message: 'Verse audio changed concurrently; reload and retry',
+      });
+    });
+  });
+
+  describe('post /verse-audio/{projectUnitId}/{bibleTextId}/resolve', () => {
+    function resolve(takeId = 11) {
+      return server.request('/verse-audio/1/10/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ takeId }),
+      });
+    }
+
+    beforeEach(() => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+    });
+
+    it('returns the resolved recording', async () => {
+      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
+        ok: true,
+        data: { id: 1, activeTakeId: 11, conflictStatus: 'clean' } as any,
+      });
+
+      const res = await resolve();
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.resolveConflict).toHaveBeenCalledWith({
+        projectUnitId: 1,
+        bibleTextId: 10,
+        takeId: 11,
+      });
+    });
+
+    it.each([
+      [ErrorCode.VERSE_AUDIO_VERSION_CONFLICT, 409],
+      [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
+    ])('maps %s to %i', async (code, status) => {
+      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
+
+      const res = await resolve();
+
+      expect(res.status).toBe(status);
     });
   });
 
