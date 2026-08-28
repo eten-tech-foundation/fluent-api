@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import env from '@/env';
 import { ErrorCode } from '@/lib/types';
 
-import { getResource, searchAllResources, searchResources } from './aquifer.client';
+import {
+  getBibles,
+  getBibleText,
+  getResource,
+  searchAllResources,
+  searchResources,
+} from './aquifer.client';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -280,6 +286,51 @@ describe('aquifer.client', () => {
         expect(result.data).toHaveLength(1);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getBibles', () => {
+    it('returns bibles for a language code', async () => {
+      const body = [{ id: 1, name: 'BSB', abbreviation: 'BSB', hasAudio: true }];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(body));
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data[0]?.abbreviation).toBe('BSB');
+      }
+    });
+  });
+
+  describe('getBibleText', () => {
+    it('requests audio data by default', async () => {
+      const body = {
+        bibleId: 1,
+        bibleName: 'BSB',
+        bibleAbbreviation: 'BSB',
+        bookName: 'Mark',
+        bookCode: 'MRK',
+        chapters: [
+          {
+            number: 14,
+            audio: { mp3: { url: 'https://cdn.example/a.mp3', size: 100 } },
+            verses: [{ number: 1, text: 'Hello' }],
+          },
+        ],
+      };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(body));
+
+      const result = await getBibleText({
+        aquiferBibleId: 1,
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      });
+
+      expect(result.ok).toBe(true);
+      const [url] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('shouldReturnAudioData=true');
     });
   });
 });

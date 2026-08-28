@@ -92,3 +92,51 @@ export interface AquiferSearchResourcesParams {
   limit?: number;
   offset?: number;
 }
+
+export const aquiferMediaFileSchema = z.object({
+  url: z.string(),
+  size: z.number().int().nonnegative(),
+});
+
+export type AquiferMediaFile = z.infer<typeof aquiferMediaFileSchema>;
+
+export const aquiferBibleSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  abbreviation: z.string(),
+  languageId: z.number().int().optional(),
+  languageCode: z.string().optional(),
+  isLanguageDefault: z.boolean().optional(),
+  hasAudio: z.boolean().optional(),
+});
+
+export type AquiferBible = z.infer<typeof aquiferBibleSchema>;
+
+export const aquiferBibleTextChapterSchema = z.object({
+  number: z.number().int(),
+  audio: z
+    .object({
+      webm: aquiferMediaFileSchema.nullable().optional(),
+      mp3: aquiferMediaFileSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  verses: z.array(
+    z.object({
+      number: z.number().int(),
+      text: z.string(),
+      audioTimestamp: z.unknown().optional(),
+    })
+  ),
+});
+
+export const aquiferBibleTextResponseSchema = z.object({
+  bibleId: z.number().int(),
+  bibleName: z.string(),
+  bibleAbbreviation: z.string(),
+  bookName: z.string(),
+  bookCode: z.string(),
+  chapters: z.array(aquiferBibleTextChapterSchema),
+});
+
+export type AquiferBibleTextResponse = z.infer<typeof aquiferBibleTextResponseSchema>;
