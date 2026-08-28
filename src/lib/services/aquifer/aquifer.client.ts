@@ -1,15 +1,23 @@
 import type { Result } from '@/lib/types';
 
 import env from '@/env';
+import { logger } from '@/lib/logger';
 import { ErrorCode, ErrorMessages } from '@/lib/types';
 
 import type {
+  AquiferBible,
+  AquiferBibleTextResponse,
   AquiferResourceDetails,
   AquiferResourceSearchResponse,
   AquiferSearchResourcesParams,
 } from './aquifer.types';
 
-import { aquiferResourceDetailsSchema, aquiferResourceSearchResponseSchema } from './aquifer.types';
+import {
+  aquiferBibleSchema,
+  aquiferBibleTextResponseSchema,
+  aquiferResourceDetailsSchema,
+  aquiferResourceSearchResponseSchema,
+} from './aquifer.types';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** Hard cap on search pagination to avoid unbounded Aquifer fan-out. */
@@ -115,6 +123,14 @@ async function aquiferGet<T>(
 
   if (!isAquiferConfigured()) {
     return fail('AQUIFER_API_KEY is not configured');
+  }
+
+  try {
+    if (new URL(env.AQUIFER_API_URL).protocol !== 'https:') {
+      return fail('AQUIFER_API_URL must use HTTPS');
+    }
+  } catch {
+    return fail('AQUIFER_API_URL is not a valid URL');
   }
 
   const url = buildUrl(path, query);
@@ -236,4 +252,64 @@ export async function searchAllResources(
   }
 
   return { ok: true, data: allItems };
+}
+
+/**
+ * List Aquifer Bibles for a language code (used to resolve source-audio assets).
+ */
+export async function getBibles(languageCode: string): Promise<Result<AquiferBible[]>> {
+  const query = new URLSearchParams({ languageCode });
+  const result = await aquiferGet(
+    '/bibles',
+    {
+      safeParse: (data: unknown): { success: true; data: AquiferBible[] } | { success: false } => {
+        if (!Array.isArray(data)) return { success: false };
+        const items: AquiferBible[] = [];
+        for (const entry of data) {
+          const parsed = aquiferBibleSchema.safeParse(entry);
+          if (!parsed.success) {
+            logger.warn({
+              message: 'Skipping unparseable Aquifer bible catalogue entry',
+              context: {
+                languageCode,
+                issues: parsed.error.issues.slice(0, MAX_LOGGED_SCHEMA_ISSUES),
+              },
+            });
+            continue;
+          }
+          items.push(parsed.data);
+        }
+        return { success: true, data: items };
+      },
+    },
+    query
+  );
+  return result;
+}
+
+/**
+ * Fetch Bible text (optionally with chapter audio) for a scripture range.
+ * Mirrors fluent-mobile AquiferAPI.getBibleText.
+ */
+export async function getBibleText(params: {
+  aquiferBibleId: number;
+  bookCode: string;
+  startChapter: number;
+  endChapter: number;
+  includeAudio?: boolean;
+}): Promise<Result<AquiferBibleTextResponse>> {
+  const query = new URLSearchParams({
+    BookCode: params.bookCode,
+    StartChapter: String(params.startChapter),
+    EndChapter: String(params.endChapter),
+  });
+  if (params.includeAudio !== false) {
+    query.set('shouldReturnAudioData', 'true');
+  }
+
+  return aquiferGet(
+    `/bibles/${params.aquiferBibleId}/texts`,
+    aquiferBibleTextResponseSchema,
+    query
+  );
 }
