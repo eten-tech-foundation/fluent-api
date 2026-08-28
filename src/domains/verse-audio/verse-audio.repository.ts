@@ -7,14 +7,15 @@ import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/sch
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import {
-  VERSE_AUDIO_CONFLICT_STATUS,
-  type InsertTakeInput,
-  type UpsertVerseAudioInput,
-  type VerseAudioConflictStatus,
-  type VerseAudioRecord,
-  type VerseAudioTakeRecord,
+import type {
+  InsertTakeInput,
+  UpsertVerseAudioInput,
+  VerseAudioConflictStatus,
+  VerseAudioRecord,
+  VerseAudioTakeRecord,
 } from './verse-audio.types';
+
+import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
 export interface PrunableTake extends VerseAudioTakeRecord {
   projectUnitId: number;
