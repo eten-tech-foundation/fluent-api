@@ -23,6 +23,9 @@ export const sourceAudioItemSchema = z
     scope: sourceAudioScopeSchema,
     durationSeconds: z.number().nonnegative().optional(),
     expiresAt: z.number().optional(),
+    dblAudioBibleId: z.string().optional().openapi({
+      description: 'DBL audio bible id for this item when provider is dbl',
+    }),
   })
   .openapi('SourceAudioItem');
 
@@ -51,7 +54,10 @@ export const sourceAudioResponseSchema = z
     chapter: z.number().int().positive(),
     verse: z.number().int().positive().optional(),
     items: z.array(sourceAudioItemSchema),
-    verseTimestamps: z.array(sourceAudioVerseTimestampSchema).optional(),
+    verseTimestamps: z.array(sourceAudioVerseTimestampSchema).optional().openapi({
+      description:
+        'Verse start offsets for the primary DBL audio bible (`bible.dblAudioBibleId`). Additional DBL items may have different timings.',
+    }),
   })
   .openapi('SourceAudioResponse');
 

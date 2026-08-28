@@ -11,8 +11,9 @@ import type { Result } from '@/lib/types';
 import * as bibleAudioService from '@/domains/bibles/bible-audio/bible-audio.service';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import { getBookByCode } from '@/domains/books/books.service';
+import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
-import { err, ErrorCode, ok } from '@/lib/types';
+import { ErrorCode, ok } from '@/lib/types';
 
 import type {
   SourceAudioItem,
@@ -65,7 +66,7 @@ export function matchAquiferBible(
   const byName = candidates.find((b) => normalizeToken(b.name) === name);
   if (byName) return byName;
 
-  return candidates.find((b) => b.isLanguageDefault) ?? candidates[0];
+  return undefined;
 }
 
 function parseVerseTimestamp(value: unknown): number | undefined {
@@ -131,24 +132,23 @@ function dblTracksToResponse(params: {
   chapter: number;
   verse?: number;
 }): SourceAudioResponse {
+  const primary = params.tracks[0]!;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
-  for (const track of params.tracks) {
-    for (const timecode of track.timecodes ?? []) {
-      const versePart = timecode.verseId.split('.').pop();
-      const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
-      const startSeconds = Number.parseFloat(timecode.start);
-      if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
-      verseTimestamps.push({ verse, startSeconds });
-    }
+  for (const timecode of primary.timecodes ?? []) {
+    const versePart = timecode.verseId.split('.').pop();
+    const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
+    const startSeconds = Number.parseFloat(timecode.start);
+    if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
+    verseTimestamps.push({ verse, startSeconds });
   }
 
   return {
     provider: 'dbl',
     bible: {
-      name: params.tracks[0]?.name ?? 'Source Bible Audio',
-      abbreviation: params.tracks[0]?.name ?? 'Audio',
+      name: primary.name,
+      abbreviation: primary.name,
       fluentBibleId: params.fluentBibleId,
-      ...(params.tracks[0]?.audioBibleId ? { dblAudioBibleId: params.tracks[0].audioBibleId } : {}),
+      dblAudioBibleId: primary.audioBibleId,
     },
     bookCode: params.bookCode,
     chapter: params.chapter,
@@ -158,11 +158,30 @@ function dblTracksToResponse(params: {
       url: track.resourceUrl,
       sizeBytes: 0,
       scope: 'chapter' as const,
+      dblAudioBibleId: track.audioBibleId,
       ...(track.expiresAt !== null && track.expiresAt !== undefined
         ? { expiresAt: track.expiresAt }
         : {}),
     })),
     ...(verseTimestamps.length > 0 ? { verseTimestamps } : {}),
+  };
+}
+
+function emptyAquiferChapterResponse(
+  fluentBible: Bible,
+  input: ChapterSourceAudioInput
+): SourceAudioResponse {
+  return {
+    provider: 'aquifer',
+    bible: {
+      name: fluentBible.name,
+      abbreviation: fluentBible.abbreviation,
+      fluentBibleId: fluentBible.id,
+    },
+    bookCode: input.bookCode,
+    chapter: input.chapter,
+    ...(input.verse !== undefined ? { verse: input.verse } : {}),
+    items: [],
   };
 }
 
@@ -175,7 +194,7 @@ async function getAquiferChapterSourceAudio(
 
   const aquiferBible = matchAquiferBible(fluentBible, aquiferList.data);
   if (!aquiferBible) {
-    return err(ErrorCode.BIBLE_NOT_FOUND);
+    return ok(emptyAquiferChapterResponse(fluentBible, input));
   }
 
   const text = await getBibleText({
@@ -235,7 +254,8 @@ async function getDblChapterSourceAudio(
 
 /**
  * Chapter-level source/reference audio for drafting. Prefers DBL when the Fluent
- * bible is linked; falls back to Aquifer. Empty `items` when neither has audio.
+ * bible is linked; falls back to Aquifer when DBL has no tracks or DBL is down.
+ * Empty `items` when neither has audio (including unmatched Aquifer catalogues).
  */
 export async function getChapterSourceAudio(
   input: ChapterSourceAudioInput
@@ -244,8 +264,21 @@ export async function getChapterSourceAudio(
   if (!fluentBibleResult.ok) return fluentBibleResult;
 
   const dblResult = await getDblChapterSourceAudio(input, fluentBibleResult.data.id);
-  if (!dblResult.ok) return dblResult;
-  if (dblResult.data) return ok(dblResult.data);
+  if (dblResult.ok) {
+    if (dblResult.data) return ok(dblResult.data);
+  } else if (dblResult.error.code !== ErrorCode.DBL_SERVICE_UNAVAILABLE) {
+    return dblResult;
+  } else {
+    logger.warn({
+      cause: dblResult.error,
+      message: 'DBL source audio unavailable; trying Aquifer',
+      context: {
+        fluentBibleId: input.fluentBibleId,
+        bookCode: input.bookCode,
+        chapter: input.chapter,
+      },
+    });
+  }
 
   return getAquiferChapterSourceAudio(input, fluentBibleResult.data);
 }
@@ -264,7 +297,13 @@ export async function getSourceAudioManifest(
 
   const aquiferBible = matchAquiferBible(fluentBibleResult.data, aquiferList.data);
   if (!aquiferBible) {
-    return err(ErrorCode.BIBLE_NOT_FOUND);
+    return ok({
+      projectId: input.projectId,
+      sourceLanguageCode: input.languageCode,
+      provider: 'aquifer' satisfies SourceAudioProvider,
+      items: [],
+      totalBytes: 0,
+    });
   }
 
   const text = await getBibleText({

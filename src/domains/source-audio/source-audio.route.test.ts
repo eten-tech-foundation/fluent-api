@@ -9,6 +9,7 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
+import * as sourceAudioRepo from './source-audio.repository';
 import * as sourceAudioService from './source-audio.service';
 import './source-audio.route';
 
@@ -53,6 +54,10 @@ vi.mock('@/domains/projects/users/project-users.service', () => ({
 vi.mock('./source-audio.service', () => ({
   getChapterSourceAudio: vi.fn(),
   getSourceAudioManifest: vi.fn(),
+}));
+
+vi.mock('./source-audio.repository', () => ({
+  isBibleBookLinkedToProject: vi.fn(),
 }));
 
 const APP_USER = {
@@ -118,6 +123,7 @@ function asProjectMember() {
 describe('source-audio routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(true));
   });
 
   describe('get /projects/{projectId}/source-audio/{bookCode}/{chapter}', () => {
@@ -183,6 +189,17 @@ describe('source-audio routes', () => {
       const res = await server.request(CHAPTER_PATH, { method: 'GET' });
       expect(res.status).toBe(404);
     });
+
+    it('returns 404 without calling the service when the Bible is not linked to the project', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
+
+      const res = await server.request(CHAPTER_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(404);
+      expect(sourceAudioService.getChapterSourceAudio).not.toHaveBeenCalled();
+    });
   });
 
   describe('get /projects/{projectId}/source-audio/manifest', () => {
@@ -223,6 +240,17 @@ describe('source-audio routes', () => {
       const body = await res.json();
       expect(body.items).toHaveLength(1);
       expect(body.items[0].tier).toBe(1);
+    });
+
+    it('returns 404 without calling the service when the Bible is not linked to the project', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
+
+      const res = await server.request(MANIFEST_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(404);
+      expect(sourceAudioService.getSourceAudioManifest).not.toHaveBeenCalled();
     });
   });
 });

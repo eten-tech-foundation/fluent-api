@@ -124,6 +124,14 @@ async function aquiferGet<T>(
     return fail('AQUIFER_API_KEY is not configured');
   }
 
+  try {
+    if (new URL(env.AQUIFER_API_URL).protocol !== 'https:') {
+      return fail('AQUIFER_API_URL must use HTTPS');
+    }
+  } catch {
+    return fail('AQUIFER_API_URL is not a valid URL');
+  }
+
   const url = buildUrl(path, query);
   const controller = new AbortController();
   const startedAt = Date.now();

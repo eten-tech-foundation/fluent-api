@@ -91,6 +91,30 @@ describe('aquifer.client', () => {
       expect(init?.headers).not.toHaveProperty('Content-Type');
     });
 
+    it('rejects a non-HTTPS base URL before sending the API key', async () => {
+      const originalUrl = env.AQUIFER_API_URL;
+      env.AQUIFER_API_URL = 'http://aquifer.example.test';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      try {
+        const result = await searchResources({
+          bookCode: 'MRK',
+          startChapter: 1,
+          endChapter: 1,
+          languageCode: 'eng',
+        });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+          expect(result.error.message).toContain('must use HTTPS');
+        }
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        env.AQUIFER_API_URL = originalUrl;
+      }
+    });
+
     it('maps a non-2xx response to AQUIFER_SERVICE_UNAVAILABLE', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'bad key' }, 401));
 

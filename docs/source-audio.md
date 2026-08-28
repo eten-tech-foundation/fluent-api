@@ -13,9 +13,9 @@ Issue: [#282](https://github.com/eten-tech-foundation/fluent-api/issues/282)
 
 ### Resolution order (online playback)
 
-1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter.
-2. **Aquifer** — when DBL returns no tracks (empty, not an error).
-3. **Empty `items`** — when neither provider has audio for the chapter (HTTP 200).
+1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`; `verseTimestamps` come from the first track (`bible.dblAudioBibleId`). Each item includes `dblAudioBibleId` so clients can associate extra tracks.
+2. **Aquifer** — when DBL returns no tracks, or DBL is unavailable (`502`). Aquifer is matched by Fluent bible **abbreviation or name only** — never a language-default or first-catalogue fallback.
+3. **Empty `items`** — when neither provider has audio, the Aquifer catalogue is empty, or no Aquifer bible matches (HTTP 200, not 404).
 
 Prepare Offline Tier 1 manifest uses Aquifer today (download metadata with `sizeBytes`).
 
@@ -42,11 +42,11 @@ Response (`200`):
 
 Errors:
 
-| Status        | Meaning                         |
-| ------------- | ------------------------------- |
-| `404`         | Fluent bible or book not found  |
-| `502`         | DBL or Aquifer upstream failure |
-| `401` / `403` | Auth / project access           |
+| Status | Meaning                                                                           |
+| ------ | --------------------------------------------------------------------------------- |
+| `401`  | Authentication failure                                                            |
+| `404`  | Project inaccessible, Fluent bible/book not found, or Bible not linked to project |
+| `502`  | Aquifer upstream failure (after DBL miss or DBL outage)                           |
 
 ### Legacy DBL-only route
 

@@ -12,6 +12,7 @@ import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import * as sourceAudioRepo from './source-audio.repository';
 import * as sourceAudioService from './source-audio.service';
 import {
   chapterSourceAudioParamSchema,
@@ -60,6 +61,19 @@ function sourceAudioErrorResponse(
   return aquiferErrorResponse(c, error);
 }
 
+async function requireProjectBibleBook(
+  c: Parameters<typeof aquiferErrorResponse>[0],
+  projectId: number,
+  bibleId: number,
+  bookCode: string
+) {
+  const linked = await sourceAudioRepo.isBibleBookLinkedToProject(projectId, bibleId, bookCode);
+  if (!linked.ok) return sourceAudioErrorResponse(c, linked.error);
+  if (!linked.data) {
+    return c.json({ message: HttpStatusPhrases.NOT_FOUND }, HttpStatusCodes.NOT_FOUND);
+  }
+}
+
 // ─── GET /projects/{projectId}/source-audio/{bookCode}/{chapter}
 
 const getChapterSourceAudioRoute = createRoute({
@@ -73,7 +87,7 @@ const getChapterSourceAudioRoute = createRoute({
   ] as const,
   summary: 'Get source/reference audio for a chapter',
   description:
-    'Returns playable chapter-level source audio URLs (DBL when the Fluent bible is linked, otherwise Aquifer). Empty `items` when no audio exists (HTTP 200). Distinct from translator `/verse-audio` draft recordings.',
+    'Returns playable chapter-level source audio URLs (DBL when the Fluent bible is linked, otherwise Aquifer). Empty `items` when no audio exists (HTTP 200). `bibleId` must be linked to the project for the given book. Distinct from translator `/verse-audio` draft recordings.',
   request: {
     params: chapterSourceAudioParamSchema,
     query: sourceAudioQuerySchema,
@@ -90,8 +104,11 @@ const getChapterSourceAudioRoute = createRoute({
 });
 
 server.openapi(getChapterSourceAudioRoute, async (c) => {
-  const { bookCode, chapter } = c.req.valid('param');
+  const { projectId, bookCode, chapter } = c.req.valid('param');
   const { languageCode, bibleId, verse } = c.req.valid('query');
+  const denied = await requireProjectBibleBook(c, projectId, bibleId, bookCode);
+  if (denied) return denied;
+
   const result = await sourceAudioService.getChapterSourceAudio({
     languageCode,
     fluentBibleId: bibleId,
@@ -116,7 +133,7 @@ const getSourceAudioManifestRoute = createRoute({
   ] as const,
   summary: 'Prepare Offline Tier 1 source audio manifest',
   description:
-    'Returns Aquifer-backed download metadata for source Bible audio across a chapter range (max 20 chapters). Empty `items` when no audio exists.',
+    'Returns Aquifer-backed download metadata for source Bible audio across a chapter range (max 20 chapters). Empty `items` when no audio exists or the Aquifer bible cannot be matched. `bibleId` must be linked to the project for the given book.',
   request: {
     params: chapterSourceAudioParamSchema.pick({ projectId: true }),
     query: sourceAudioManifestQuerySchema,
@@ -138,6 +155,9 @@ const getSourceAudioManifestRoute = createRoute({
 server.openapi(getSourceAudioManifestRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const { languageCode, bibleId, bookCode, startChapter, endChapter } = c.req.valid('query');
+  const denied = await requireProjectBibleBook(c, projectId, bibleId, bookCode);
+  if (denied) return denied;
+
   const result = await sourceAudioService.getSourceAudioManifest({
     projectId,
     languageCode,
