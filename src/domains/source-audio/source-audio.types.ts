@@ -19,7 +19,9 @@ export const sourceAudioItemSchema = z
   .object({
     format: sourceAudioFormatSchema,
     url: z.string().url(),
-    sizeBytes: z.number().int().nonnegative(),
+    sizeBytes: z.number().int().nonnegative().optional().openapi({
+      description: 'Provider-reported file size; omitted when the provider does not supply it',
+    }),
     scope: sourceAudioScopeSchema,
     durationSeconds: z.number().nonnegative().optional(),
     expiresAt: z.number().optional(),
@@ -92,7 +94,7 @@ export const sourceAudioQuerySchema = languageCodeQuerySchema.extend({
     .openapi({
       param: { name: 'verse', in: 'query' },
       description:
-        'Optional verse for verse-level timestamps. Chapter audio URLs are returned regardless.',
+        'Optional verse echoed in the response. All provider-supplied chapter timestamps and audio URLs are returned regardless.',
     }),
 });
 

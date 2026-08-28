@@ -117,11 +117,13 @@ describe('getChapterSourceAudio', () => {
       expect(result.data.items[0]?.url).toBe('https://example.com/audio.mp3');
       expect(result.data.items[0]?.dblAudioBibleId).toBe('audio-1');
       expect(result.data.items[1]?.dblAudioBibleId).toBe('audio-2');
+      expect(result.data.items[0]).not.toHaveProperty('sizeBytes');
       expect(result.data.verseTimestamps).toEqual([
         { verse: 1, startSeconds: 0, dblAudioBibleId: 'audio-1' },
         { verse: 1, startSeconds: 9, dblAudioBibleId: 'audio-2' },
       ]);
       expect(result.data.bible.dblAudioBibleId).toBe('audio-1');
+      expect(result.data.bible.abbreviation).toBe('BSB');
     }
     expect(getBibles).not.toHaveBeenCalled();
   });
@@ -195,6 +197,47 @@ describe('getChapterSourceAudio', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.items).toEqual([]);
+    }
+  });
+
+  it('keeps Aquifer audio playable when the provider omits its size', async () => {
+    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(ok([]));
+    vi.mocked(getBibles).mockResolvedValue(
+      ok([{ id: 11, name: 'Berean Standard Bible', abbreviation: 'BSB' }])
+    );
+    vi.mocked(getBibleText).mockResolvedValue(
+      ok({
+        bibleId: 11,
+        bibleName: 'Berean Standard Bible',
+        bibleAbbreviation: 'BSB',
+        bookName: 'Mark',
+        bookCode: 'MRK',
+        chapters: [
+          {
+            number: 14,
+            audio: { mp3: { url: 'https://cdn.example/a.mp3' } },
+            verses: [{ number: 1, text: null }],
+          },
+        ],
+      })
+    );
+
+    const result = await getChapterSourceAudio({
+      languageCode: 'eng',
+      fluentBibleId: 1,
+      bookCode: 'MRK',
+      chapter: 14,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.items).toEqual([
+        {
+          format: 'mp3',
+          url: 'https://cdn.example/a.mp3',
+          scope: 'chapter',
+        },
+      ]);
     }
   });
 
@@ -280,6 +323,35 @@ describe('getSourceAudioManifest', () => {
     if (result.ok) {
       expect(result.data.items).toEqual([]);
       expect(result.data.totalBytes).toBe(0);
+    }
+    expect(getBibleText).not.toHaveBeenCalled();
+  });
+
+  it('does not fall through to a sibling edition when the exact match has no audio', async () => {
+    vi.mocked(getBibles).mockResolvedValue(
+      ok([
+        {
+          id: 11,
+          name: 'Berean Standard Bible',
+          abbreviation: 'BSB',
+          hasAudio: false,
+        },
+        { id: 12, name: 'Sibling Edition', abbreviation: 'SIB', hasAudio: true },
+      ])
+    );
+
+    const result = await getSourceAudioManifest({
+      projectId: 10,
+      languageCode: 'eng',
+      fluentBibleId: 1,
+      bookCode: 'MRK',
+      startChapter: 14,
+      endChapter: 14,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.items).toEqual([]);
     }
     expect(getBibleText).not.toHaveBeenCalled();
   });

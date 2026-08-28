@@ -93,7 +93,7 @@ function chapterAudioItems(
     items.push({
       format,
       url: file.url,
-      sizeBytes: file.size,
+      ...(file.size !== null && file.size !== undefined ? { sizeBytes: file.size } : {}),
       scope: 'chapter',
     });
   };
@@ -128,7 +128,7 @@ function formatFromUrl(url: string): 'mp3' | 'webm' {
 
 function dblTracksToResponse(params: {
   tracks: BibleAudioResponse[];
-  fluentBibleId: number;
+  fluentBible: Bible;
   bookCode: UsfmBookCode;
   chapter: number;
   verse?: number;
@@ -153,8 +153,8 @@ function dblTracksToResponse(params: {
     provider: 'dbl',
     bible: {
       name: primary.name,
-      abbreviation: primary.name,
-      fluentBibleId: params.fluentBibleId,
+      abbreviation: params.fluentBible.abbreviation,
+      fluentBibleId: params.fluentBible.id,
       dblAudioBibleId: primary.audioBibleId,
     },
     bookCode: params.bookCode,
@@ -163,7 +163,6 @@ function dblTracksToResponse(params: {
     items: params.tracks.map((track) => ({
       format: formatFromUrl(track.resourceUrl),
       url: track.resourceUrl,
-      sizeBytes: 0,
       scope: 'chapter' as const,
       dblAudioBibleId: track.audioBibleId,
       ...(track.expiresAt !== null && track.expiresAt !== undefined
@@ -200,7 +199,7 @@ async function getAquiferChapterSourceAudio(
   if (!aquiferList.ok) return aquiferList;
 
   const aquiferBible = matchAquiferBible(fluentBible, aquiferList.data);
-  if (!aquiferBible) {
+  if (!aquiferBible || aquiferBible.hasAudio === false) {
     return ok(emptyAquiferChapterResponse(fluentBible, input));
   }
 
@@ -235,7 +234,7 @@ async function getAquiferChapterSourceAudio(
 
 async function getDblChapterSourceAudio(
   input: ChapterSourceAudioInput,
-  fluentBibleId: number
+  fluentBible: Bible
 ): Promise<Result<SourceAudioResponse | null>> {
   const bookResult = await getBookByCode(input.bookCode);
   if (!bookResult.ok) return bookResult;
@@ -251,7 +250,7 @@ async function getDblChapterSourceAudio(
   return ok(
     dblTracksToResponse({
       tracks: dblResult.data,
-      fluentBibleId,
+      fluentBible,
       bookCode: input.bookCode,
       chapter: input.chapter,
       verse: input.verse,
@@ -270,7 +269,7 @@ export async function getChapterSourceAudio(
   const fluentBibleResult = await biblesRepo.getById(input.fluentBibleId);
   if (!fluentBibleResult.ok) return fluentBibleResult;
 
-  const dblResult = await getDblChapterSourceAudio(input, fluentBibleResult.data.id);
+  const dblResult = await getDblChapterSourceAudio(input, fluentBibleResult.data);
   if (dblResult.ok) {
     if (dblResult.data) return ok(dblResult.data);
   } else if (dblResult.error.code !== ErrorCode.DBL_SERVICE_UNAVAILABLE) {
@@ -303,7 +302,7 @@ export async function getSourceAudioManifest(
   if (!aquiferList.ok) return aquiferList;
 
   const aquiferBible = matchAquiferBible(fluentBibleResult.data, aquiferList.data);
-  if (!aquiferBible) {
+  if (!aquiferBible || aquiferBible.hasAudio === false) {
     return ok({
       projectId: input.projectId,
       sourceLanguageCode: input.languageCode,
@@ -326,6 +325,9 @@ export async function getSourceAudioManifest(
 
   for (const chapter of text.data.chapters) {
     for (const audioItem of chapterAudioItems(chapter)) {
+      // Offline manifests require an honest byte budget. Keep unknown-size audio
+      // playable online, but do not advertise it as a zero-byte download.
+      if (audioItem.sizeBytes === undefined) continue;
       items.push({
         id: `source-audio-${aquiferBible.id}-${input.bookCode}-${chapter.number}-${audioItem.format}`,
         tier: 1,

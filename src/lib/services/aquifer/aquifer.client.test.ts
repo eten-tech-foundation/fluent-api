@@ -325,6 +325,24 @@ describe('aquifer.client', () => {
         expect(result.data[0]?.abbreviation).toBe('BSB');
       }
     });
+
+    it('skips malformed catalogue entries without hiding valid bibles', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse([
+          { id: 'bad-id', name: 'Malformed', abbreviation: 'BAD' },
+          { id: 2, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true },
+        ])
+      );
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toEqual([
+          { id: 2, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true },
+        ]);
+      }
+    });
   });
 
   describe('getBibleText', () => {
@@ -355,6 +373,38 @@ describe('aquifer.client', () => {
       expect(result.ok).toBe(true);
       const [url] = fetchSpy.mock.calls[0]!;
       expect(String(url)).toContain('shouldReturnAudioData=true');
+    });
+
+    it('accepts null verse text and audio without provider-reported size', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({
+          bibleId: 1,
+          bibleName: 'BSB',
+          bibleAbbreviation: 'BSB',
+          bookName: 'Mark',
+          bookCode: 'MRK',
+          chapters: [
+            {
+              number: 14,
+              audio: { mp3: { url: 'https://cdn.example/a.mp3' } },
+              verses: [{ number: 1, text: null }],
+            },
+          ],
+        })
+      );
+
+      const result = await getBibleText({
+        aquiferBibleId: 1,
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.chapters[0]?.audio?.mp3?.size).toBeUndefined();
+        expect(result.data.chapters[0]?.verses[0]?.text).toBeNull();
+      }
     });
   });
 });

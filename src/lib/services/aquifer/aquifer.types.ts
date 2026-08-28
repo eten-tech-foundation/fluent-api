@@ -95,7 +95,7 @@ export interface AquiferSearchResourcesParams {
 
 export const aquiferMediaFileSchema = z.object({
   url: z.string(),
-  size: z.number().int().nonnegative(),
+  size: z.number().int().nonnegative().nullish(),
 });
 
 export type AquiferMediaFile = z.infer<typeof aquiferMediaFileSchema>;
@@ -124,7 +124,7 @@ export const aquiferBibleTextChapterSchema = z.object({
   verses: z.array(
     z.object({
       number: z.number().int(),
-      text: z.string(),
+      text: z.string().nullish(),
       audioTimestamp: z.unknown().optional(),
     })
   ),

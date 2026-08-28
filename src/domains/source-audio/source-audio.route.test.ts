@@ -203,6 +203,25 @@ describe('source-audio routes', () => {
   });
 
   describe('get /projects/{projectId}/source-audio/manifest', () => {
+    it.each([
+      [
+        'endChapter before startChapter',
+        '/projects/10/source-audio/manifest?languageCode=eng&bibleId=1&bookCode=MRK&startChapter=14&endChapter=13',
+      ],
+      [
+        'more than 20 chapters',
+        '/projects/10/source-audio/manifest?languageCode=eng&bibleId=1&bookCode=MRK&startChapter=1&endChapter=21',
+      ],
+    ])('returns 400 for %s', async (_label, path) => {
+      asAuthenticatedUser();
+      asProjectMember();
+
+      const res = await server.request(path, { method: 'GET' });
+
+      expect(res.status).toBe(400);
+      expect(sourceAudioService.getSourceAudioManifest).not.toHaveBeenCalled();
+    });
+
     it('returns manifest items for chapter range', async () => {
       asAuthenticatedUser();
       asProjectMember();

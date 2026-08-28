@@ -14,7 +14,7 @@ Issue: [#282](https://github.com/eten-tech-foundation/fluent-api/issues/282)
 ### Resolution order (online playback)
 
 1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`. Each item and each `verseTimestamps` entry includes `dblAudioBibleId` so timings stay associated with their track (`bible.dblAudioBibleId` is the first track).
-2. **Aquifer** — when DBL returns no tracks, or DBL is unavailable (`502`). Aquifer is matched by Fluent bible **abbreviation or name only** — never a language-default or first-catalogue fallback.
+2. **Aquifer** — when DBL returns no tracks, or DBL is unavailable (`502`). Aquifer is matched by Fluent bible **abbreviation or name only** — never a language-default, first-catalogue, or sibling-edition fallback. If that exact matched edition reports `hasAudio: false`, the API returns empty `items` even if another edition in the language has audio.
 3. **Empty `items`** — when neither provider has audio, the Aquifer catalogue is empty, or no Aquifer bible matches (HTTP 200, not 404).
 
 Prepare Offline Tier 1 manifest uses Aquifer today (download metadata with `sizeBytes`).
@@ -36,7 +36,7 @@ Query:
 Response (`200`):
 
 - `provider`: `"dbl"` or `"aquifer"`
-- `items[]`: playable URLs (`mp3` / `webm`), `sizeBytes`, `scope: "chapter"`
+- `items[]`: playable URLs (`mp3` / `webm`), optional provider-reported `sizeBytes`, `scope: "chapter"`
 - `verseTimestamps[]`: optional verse → start offset mapping (DBL entries include `dblAudioBibleId`)
 - **Empty `items`**: no source audio for this chapter (not an error)
 
@@ -61,3 +61,7 @@ Same query shape as translation-resources manifest (`languageCode`, `bookCode`, 
 ## Mobile integration
 
 [fluent-mobile#235](https://github.com/eten-tech-foundation/fluent-mobile/issues/235) can call the chapter route with the active assignment’s `bibleId`, source `languageCode`, and current book/chapter. No new provider API key is required on the client.
+
+## Deferred optimization
+
+Provider responses are not cached yet. Each Aquifer-backed chapter request fetches the language catalogue and chapter text; manifest generation fetches the same data for its range. A short-TTL catalogue cache (and, if measurements justify it, chapter-response caching) is deferred until request volume and provider limits establish an appropriate TTL and invalidation policy.

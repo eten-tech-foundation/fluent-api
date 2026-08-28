@@ -1,6 +1,7 @@
 import type { Result } from '@/lib/types';
 
 import env from '@/env';
+import { logger } from '@/lib/logger';
 import { ErrorCode, ErrorMessages } from '@/lib/types';
 
 import type {
@@ -266,7 +267,16 @@ export async function getBibles(languageCode: string): Promise<Result<AquiferBib
         const items: AquiferBible[] = [];
         for (const entry of data) {
           const parsed = aquiferBibleSchema.safeParse(entry);
-          if (!parsed.success) return { success: false };
+          if (!parsed.success) {
+            logger.warn({
+              message: 'Skipping unparseable Aquifer bible catalogue entry',
+              context: {
+                languageCode,
+                issues: parsed.error.issues.slice(0, MAX_LOGGED_SCHEMA_ISSUES),
+              },
+            });
+            continue;
+          }
           items.push(parsed.data);
         }
         return { success: true, data: items };
