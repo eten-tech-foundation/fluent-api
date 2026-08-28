@@ -18,11 +18,11 @@ export async function registerAiTriggerWorker(
   metricsHooks: WorkerMetricsHooks
 ): Promise<void> {
   logger.info('Registering AI suggestion trigger worker', {
-    queueName: QUEUE_NAMES.AI_SUGGESTION_TRIGGER,
+    queueName: QUEUE_NAMES.AI_SUGGESTIONS,
   });
 
   await boss.work<AiSuggestionTriggerJob>(
-    QUEUE_NAMES.AI_SUGGESTION_TRIGGER,
+    QUEUE_NAMES.AI_SUGGESTIONS,
     {
       batchSize: 5,
       pollingIntervalSeconds: 2,
@@ -55,6 +55,6 @@ export async function registerAiTriggerWorker(
   );
 
   logger.info('AI trigger worker registered', {
-    queueName: QUEUE_NAMES.AI_SUGGESTION_TRIGGER,
+    queueName: QUEUE_NAMES.AI_SUGGESTIONS,
   });
 }

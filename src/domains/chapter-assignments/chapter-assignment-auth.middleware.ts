@@ -44,6 +44,7 @@ export function requireChapterAssignmentAccess(
       assignedUserId: ctx.assignedUserId,
       peerCheckerId: ctx.peerCheckerId,
       status: ctx.status,
+      updatedAt: ctx.updatedAt,
     };
 
     let allowed = false;
@@ -74,6 +75,10 @@ export function requireChapterAssignmentAccess(
           policyAssignment,
           ctx.isProjectMember
         );
+        break;
+
+      case CHAPTER_ASSIGNMENT_ACTIONS.CLAIM:
+        allowed = ChapterAssignmentPolicy.claim(policyUser, policyAssignment);
         break;
     }
 

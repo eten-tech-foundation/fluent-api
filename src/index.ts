@@ -23,7 +23,7 @@ async function startServer() {
     await ensureExportQueues(boss);
 
     logger.info('Ensuring AI suggestion trigger queue exists');
-    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTION_TRIGGER, {
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTIONS, {
       policy: 'exclusive',
       retryLimit: 3,
       retryDelay: 60,
