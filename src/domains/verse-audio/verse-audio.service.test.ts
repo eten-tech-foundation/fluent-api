@@ -325,9 +325,7 @@ describe('verse-audio service', () => {
 
       vi.mocked(repo.get)
         .mockResolvedValueOnce(ok(unit))
-        .mockResolvedValue(
-          ok({ ...unit, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT })
-        );
+        .mockResolvedValue(ok({ ...unit, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT }));
       vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
       vi.mocked(repo.markConflictPreservingActive).mockResolvedValue(
         ok({ ...unit, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT })

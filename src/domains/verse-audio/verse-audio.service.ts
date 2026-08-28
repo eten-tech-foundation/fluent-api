@@ -361,9 +361,7 @@ export async function uploadRecording(
         sizeBytes: duplicate.data.sizeBytes,
         durationSeconds: duplicate.data.durationSeconds,
         versionToken: unit.versionToken + 1,
-        conflictStatus: legacyReplace
-          ? unit.conflictStatus
-          : VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        conflictStatus: legacyReplace ? unit.conflictStatus : VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
         activeTakeId: duplicate.data.id,
       });
       if (!promoted.ok) {
