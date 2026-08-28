@@ -1,7 +1,6 @@
 ---
-description: Checklist for optimistic-lock / version-token write paths (CAS, ORM null vs undefined, legacy compat)
-globs: src/**/*.{service,repository,route}.ts
-alwaysApply: false
+name: versioned-resource-writers
+description: Checklist for optimistic-lock / version-token write paths - use when adding or reviewing code that uses versionToken, optimistic locking, compare-and-swap updates, conflict detection, background prune/sweep deletes, or optional request fields that change write semantics. Covers CAS correctness, Drizzle null-vs-undefined footguns, and legacy-client compatibility. Applies to src/**/*.{service,repository,route}.ts.
 ---
 
 # Versioned resource writers
@@ -39,4 +38,4 @@ None of these clears an existing conflict; see concurrency rule 5.
 - Document all four in OpenAPI and add a legacy-client test (omitted field).
 - Route parsing: empty form fields coerce to `0` — treat `''` as absent and require tokens `>= 1`. Where the framework validates a body it never sees (multipart read through `parseBody`), the declared schema is documentation only: validate in the handler.
 
-Mirrored for Claude Code at `.claude/skills/versioned-resource-writers/SKILL.md` — keep the two in sync.
+Mirrored from `.cursor/rules/versioned-resource-writers.mdc` — keep the two in sync.
