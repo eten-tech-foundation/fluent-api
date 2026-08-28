@@ -39,10 +39,4 @@ None of these clears an existing conflict; see concurrency rule 5.
 - Document all four in OpenAPI and add a legacy-client test (omitted field).
 - Route parsing: empty form fields coerce to `0` — treat `''` as absent and require tokens `>= 1`. Where the framework validates a body it never sees (multipart read through `parseBody`), the declared schema is documentation only: validate in the handler.
 
-## AI review hygiene
-
-- **Blocking**: correctness, data loss, silent demotion, rollout breaks for legacy clients.
-- **Non-blocking**: N+1 queries, dead helpers, naming — label as follow-up unless trivial.
-- **Validate before flagging** — walk concurrent sequences against the current tip, not just the diff narrative.
-
 Mirrored for Claude Code at `.claude/skills/versioned-resource-writers/SKILL.md` — keep the two in sync.
