@@ -153,3 +153,69 @@ export async function findOrphans(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
+
+/**
+ * Deletes one still-orphaned object while holding a lock on its storage row.
+ *
+ * The lock serializes against `claim()` and FK inserts from recordings/takes.
+ * References are rechecked after the lock is acquired, immediately before the
+ * bucket delete. The row is then deleted (rather than merely stamped) so a
+ * blocked concurrent FK insert cannot commit a live reference to bytes that
+ * were reclaimed; its request fails and can safely retry through a fresh claim.
+ */
+export async function reclaimOrphanIfUnreferenced(
+  id: number,
+  graceMs: number,
+  deleteObject: (object: StorageObjectRecord) => Promise<void>
+): Promise<Result<boolean>> {
+  try {
+    const cutoff = new Date(Date.now() - graceMs);
+
+    return await db.transaction(async (tx) => {
+      const [orphan] = await tx
+        .select({
+          id: storage_objects.id,
+          bucket: storage_objects.bucket,
+          key: storage_objects.key,
+          createdAt: storage_objects.createdAt,
+          deletedAt: storage_objects.deletedAt,
+        })
+        .from(storage_objects)
+        .where(
+          and(
+            eq(storage_objects.id, id),
+            isNull(storage_objects.deletedAt),
+            lt(storage_objects.createdAt, cutoff),
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${verse_audio_recordings}
+              WHERE ${verse_audio_recordings.storageObjectId} = ${storage_objects.id}
+            )`,
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${verse_audio_takes}
+              WHERE ${verse_audio_takes.storageObjectId} = ${storage_objects.id}
+            )`
+          )
+        )
+        .for('update');
+
+      if (!orphan) {
+        return ok(false);
+      }
+
+      await deleteObject(orphan);
+      const deleted = await tx
+        .delete(storage_objects)
+        .where(eq(storage_objects.id, orphan.id))
+        .returning({ id: storage_objects.id });
+
+      return ok(deleted.length === 1);
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to reclaim orphaned storage object',
+      context: { id },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}

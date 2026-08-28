@@ -625,18 +625,17 @@ export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
   }
 
   for (const orphan of orphans.data) {
-    try {
-      await deleteVerseAudio(orphan.key);
-    } catch (error) {
-      // Leave the row unstamped so the next sweep retries this object.
-      logger.error({
-        cause: error,
-        message: 'Failed to reclaim orphaned storage object',
-        context: { bucket: orphan.bucket, key: orphan.key },
-      });
+    // The candidate list is only a hint. Lock and revalidate immediately before
+    // touching the bucket so an upload cannot gain a live reference between the
+    // database check and object deletion.
+    const result = await storageRepo.reclaimOrphanIfUnreferenced(
+      orphan.id,
+      env.AUDIO_RECLAIM_GRACE_MS,
+      async (locked) => deleteVerseAudio(locked.key)
+    );
+    if (!result.ok || !result.data) {
       continue;
     }
-    await storageRepo.markDeleted(orphan.id);
     reclaimed++;
   }
 

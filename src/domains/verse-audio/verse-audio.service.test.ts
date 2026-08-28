@@ -40,6 +40,7 @@ vi.mock('./storage-objects.repository', () => ({
   getByIds: vi.fn(),
   markDeleted: vi.fn(),
   findOrphans: vi.fn(),
+  reclaimOrphanIfUnreferenced: vi.fn(),
 }));
 
 vi.mock('./verse-audio.repository', () => ({
@@ -126,6 +127,7 @@ describe('verse-audio service', () => {
     );
     vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
+    vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockResolvedValue(ok(false));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
     vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
@@ -197,7 +199,7 @@ describe('verse-audio service', () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
       vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
 
-      const result = await uploadRecording({ ...uploadInput, baseVersionToken: 0 });
+      const result = await uploadRecording({ ...uploadInput, baseVersionToken: 2 });
 
       expect(result.ok).toBe(true);
       expect(repo.insertTake).not.toHaveBeenCalled();
@@ -530,6 +532,50 @@ describe('verse-audio service', () => {
       }
     });
 
+    it('keeps a new take and marks conflict when the clean-update CAS loses', async () => {
+      const newData = Buffer.from('concurrent');
+      const newHash = hashOf(newData);
+      const newTake = { ...take, id: 11, contentHash: newHash, storageObjectId: 56 };
+      const conflicted = {
+        ...record,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+      };
+
+      vi.mocked(repo.get).mockResolvedValueOnce(ok(record)).mockResolvedValue(ok(conflicted));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: false, record: null })
+      );
+      vi.mocked(repo.markConflictPreservingActive).mockResolvedValue(ok(conflicted));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+
+      const result = await uploadRecording({
+        ...uploadInput,
+        data: newData,
+        baseVersionToken: 1,
+      });
+
+      expect(repo.insertTake).toHaveBeenCalledWith(
+        expect.objectContaining({ contentHash: newHash })
+      );
+      expect(repo.markConflictPreservingActive).toHaveBeenCalledWith(record.id);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.conflictStatus).toBe('conflict');
+        expect(result.data.takes).toHaveLength(2);
+      }
+    });
+
     it('marks conflict when baseVersionToken is stale', async () => {
       const newData = Buffer.from('conflict');
       const newHash = hashOf(newData);
@@ -571,7 +617,7 @@ describe('verse-audio service', () => {
         ...uploadInput,
         data: newData,
         uploadedBy: 9,
-        baseVersionToken: 0,
+        baseVersionToken: 2,
       });
 
       expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
@@ -923,17 +969,22 @@ describe('verse-audio service', () => {
       deletedAt: null,
     });
 
-    it('deletes each orphaned object and stamps its row', async () => {
-      vi.mocked(storageRepo.findOrphans).mockResolvedValue(
-        ok([orphan(1, 'unit-9/text-1/a'), orphan(2, 'unit-9/text-2/b')])
+    it('locks and revalidates each candidate before deleting its object', async () => {
+      const candidates = [orphan(1, 'unit-9/text-1/a'), orphan(2, 'unit-9/text-2/b')];
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok(candidates));
+      vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockImplementation(
+        async (id, _graceMs, deleteObject) => {
+          const candidate = candidates.find((item) => item.id === id)!;
+          await deleteObject(candidate);
+          return ok(true);
+        }
       );
 
       const result = await reclaimOrphanedStorageObjects();
 
       expect(storageRepo.findOrphans).toHaveBeenCalledWith(expect.any(Number));
+      expect(storageRepo.reclaimOrphanIfUnreferenced).toHaveBeenCalledTimes(2);
       expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(1);
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(2);
       expect(result).toEqual(ok(2));
     });
 
@@ -953,12 +1004,23 @@ describe('verse-audio service', () => {
 
     it('still runs the orphan sweep when the take prune fails', async () => {
       vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
-      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([orphan(3, 'unit-9/text-3/c')]));
+      const candidate = orphan(3, 'unit-9/text-3/c');
+      vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([candidate]));
+      vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockImplementation(
+        async (_id, _graceMs, deleteObject) => {
+          await deleteObject(candidate);
+          return ok(true);
+        }
+      );
 
       const result = await reclaimOrphanedStorageObjects();
 
       expect(storageRepo.findOrphans).toHaveBeenCalled();
-      expect(storageRepo.markDeleted).toHaveBeenCalledWith(3);
+      expect(storageRepo.reclaimOrphanIfUnreferenced).toHaveBeenCalledWith(
+        3,
+        expect.any(Number),
+        expect.any(Function)
+      );
       expect(result).toEqual(ok(1));
     });
   });

@@ -488,6 +488,7 @@ export async function pruneSupersededTakes(
                 AND r.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CLEAN}
                 AND r.active_take_id IS NOT NULL
                 AND r.active_take_id <> ${verse_audio_takes.id}
+                AND r.updated_at < ${cutoff}
             )`
           )
         )
