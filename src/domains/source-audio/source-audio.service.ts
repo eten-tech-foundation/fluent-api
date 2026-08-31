@@ -25,6 +25,7 @@ import type {
 interface SourceAudioVerseTimestamp {
   verse: number;
   startSeconds?: number;
+  endSeconds?: number;
   dblAudioBibleId?: string;
 }
 
@@ -52,11 +53,41 @@ function normalizeToken(value: string): string {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+/**
+ * Resolve the Fluent Bible to an Aquifer one.
+ *
+ * `bibles.aquifer_bible_id` is the concrete peg: when it is set AND resolves against the
+ * candidate list, it wins outright, so an operator can pin a Bible to a specific Aquifer
+ * publication instead of relying on the name/abbreviation heuristic below.
+ *
+ * Everything else is unchanged on purpose. A NULL column -- which is every row that predates
+ * this feature -- takes exactly the path it always did, and a set-but-unresolvable id also
+ * falls through rather than short-circuiting to "no audio". That keeps this a pure addition:
+ * no input that has a defined result today gets a different one. Whether an explicitly-pinned
+ * Bible SHOULD refuse to guess is a real question, but it is a change to the pre-existing
+ * fallback's semantics and belongs with whoever owns the callers of that behaviour -- the warn
+ * below exists so that conversation can start from evidence rather than suspicion.
+ */
 export function matchAquiferBible(
   fluentBible: Bible,
   candidates: AquiferBible[]
 ): AquiferBible | undefined {
   if (candidates.length === 0) return undefined;
+
+  if (fluentBible.aquiferBibleId !== null && fluentBible.aquiferBibleId !== undefined) {
+    const byPinnedId = candidates.find((b) => b.id === fluentBible.aquiferBibleId);
+    if (byPinnedId) return byPinnedId;
+    logger.warn({
+      message:
+        'Bible pins an aquiferBibleId that is not in the Aquifer catalogue for this language; ' +
+        'falling back to name matching',
+      context: {
+        fluentBibleId: fluentBible.id,
+        aquiferBibleId: fluentBible.aquiferBibleId,
+        candidateIds: candidates.map((b) => b.id),
+      },
+    });
+  }
 
   const abbrev = normalizeToken(fluentBible.abbreviation);
   const name = normalizeToken(fluentBible.name);
@@ -70,15 +101,81 @@ export function matchAquiferBible(
   return undefined;
 }
 
-function parseVerseTimestamp(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (!value || typeof value !== 'object') return undefined;
-  const record = value as Record<string, unknown>;
-  for (const key of ['startSeconds', 'start', 'seconds', 'time']) {
-    const candidate = record[key];
-    if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate;
+/**
+ * Both providers publish a per-verse WINDOW -- a start and an end -- and both of them are
+ * required fields in their respective contracts. Only the start was ever read here, which left
+ * `window: [start, end]` consumers with no source for the second number even though it was on
+ * the wire. These helpers exist so the two providers converge on one shape as early as
+ * possible: after this point nothing downstream knows which provider it came from.
+ *
+ * The providers disagree on TYPE, and that disagreement is the only provider-specific code
+ * left -- Aquifer sends `number` (decimal seconds, verified live), DBL sends `string`.
+ */
+const START_KEYS = ['startSeconds', 'start', 'seconds', 'time'] as const;
+const END_KEYS = ['endSeconds', 'end', 'stop'] as const;
+
+function numericSeconds(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function pickSeconds(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const seconds = numericSeconds(record[key]);
+    if (seconds !== undefined) return seconds;
   }
   return undefined;
+}
+
+/**
+ * Aquifer's `audioTimestamp` is `{ start, end }` in decimal seconds -- confirmed against the
+ * live API 2026-08-31, where all 36 verses of a chapter carried one, the last verse included.
+ * It is typed `unknown` upstream though, so the keys are still probed defensively and only
+ * `number` is accepted, exactly as before; a bare number keeps its old meaning of "a start
+ * with no end".
+ */
+function parseVerseTimestampWindow(value: unknown): {
+  startSeconds?: number;
+  endSeconds?: number;
+} {
+  const bare = numericSeconds(value);
+  if (bare !== undefined) return { startSeconds: bare };
+  if (!value || typeof value !== 'object') return {};
+  const record = value as Record<string, unknown>;
+  return {
+    startSeconds: pickSeconds(record, START_KEYS),
+    endSeconds: pickSeconds(record, END_KEYS),
+  };
+}
+
+/**
+ * DBL publishes timecodes as STRINGS whose format is undocumented (see `self-notes/dbl/audio.md`
+ * §4, open question 2). Seconds-as-decimal matches ABS's own example (`'0.0'` / `'4.5'`) and is
+ * what this file already assumed, but `HH:MM:SS.mmm` is not excluded by the contract -- and a
+ * bare `Number.parseFloat('01:23.4')` returns `1`, silently, wrong by 83 seconds. Both readings
+ * are handled so the DBL path is right under either.
+ *
+ * This branch is currently unreachable: a sweep of all 355 audio Bibles the configured key can
+ * see (2026-08-31) found `timecodes` absent from every one of them. It is written defensively
+ * and cannot be proven against live data until a publication ships timing files.
+ */
+function dblTimecodeToSeconds(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed === '') return undefined;
+
+  if (trimmed.includes(':')) {
+    const parts = trimmed.split(':');
+    if (parts.length > 3) return undefined;
+    let total = 0;
+    for (const part of parts) {
+      const unit = Number(part);
+      if (!Number.isFinite(unit) || unit < 0) return undefined;
+      total = total * 60 + unit;
+    }
+    return total;
+  }
+
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function chapterAudioItems(
@@ -108,9 +205,13 @@ function verseTimestampsFromChapter(
 ): SourceAudioVerseTimestamp[] {
   const timestamps: SourceAudioVerseTimestamp[] = [];
   for (const verse of chapter.verses) {
-    const startSeconds = parseVerseTimestamp(verse.audioTimestamp);
+    const { startSeconds, endSeconds } = parseVerseTimestampWindow(verse.audioTimestamp);
     if (startSeconds === undefined) continue;
-    timestamps.push({ verse: verse.number, startSeconds });
+    timestamps.push({
+      verse: verse.number,
+      startSeconds,
+      ...(endSeconds !== undefined ? { endSeconds } : {}),
+    });
   }
   return timestamps;
 }
@@ -139,11 +240,13 @@ function dblTracksToResponse(params: {
     for (const timecode of track.timecodes ?? []) {
       const versePart = timecode.verseId.split('.').pop();
       const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
-      const startSeconds = Number.parseFloat(timecode.start);
-      if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
+      const startSeconds = dblTimecodeToSeconds(timecode.start);
+      const endSeconds = dblTimecodeToSeconds(timecode.end);
+      if (!Number.isFinite(verse) || startSeconds === undefined) continue;
       verseTimestamps.push({
         verse,
         startSeconds,
+        ...(endSeconds !== undefined ? { endSeconds } : {}),
         dblAudioBibleId: track.audioBibleId,
       });
     }
