@@ -21,6 +21,9 @@
  * the Drizzle client picks up the correct connection string regardless of
  * which environment is targeted.
  */
+// Load .env for local convenience — dotenv never overwrites real env vars,
+// so shell / CI / Azure App Config values always win.
+import 'dotenv/config';
 import { execSync } from 'node:child_process';
 
 import type { EnvConfig } from '@/db/env-configs/types';
@@ -57,16 +60,37 @@ async function setup() {
   console.log(`║   Fluent DB Setup — ${config.label.padEnd(17)}║`);
   console.log('╚═══════════════════════════════════════╝\n');
 
-  // ── Override / Resolve DATABASE_URL ───────────────────────────────────────
-  // Prioritise process.env.DATABASE_URL if set by environment / .env file.
-  // Fall back to config.databaseUrl if defined in the env-config.
-  if (process.env.DATABASE_URL) {
-    const masked = process.env.DATABASE_URL.replace(/:([^@]+)@/, ':****@');
-    console.log(`ℹ  Using DATABASE_URL from process.env: ${masked}\n`);
-  } else if (config.databaseUrl) {
+  // ── Resolve DATABASE_URL ──────────────────────────────────────────────────
+  // The env-config owns URL resolution — DEV_DATABASE_URL / QA_DATABASE_URL
+  // are already baked into config.databaseUrl by the env-config file, so we
+  // just apply whatever the config provides. This ensures the env-specific URL
+  // always wins and can never be silently overridden by a generic DATABASE_URL
+  // that happens to be exported in the shell.
+  if (config.databaseUrl) {
     process.env.DATABASE_URL = config.databaseUrl;
     const masked = config.databaseUrl.replace(/:([^@]+)@/, ':****@');
-    console.log(`ℹ  Using DATABASE_URL from config fallback: ${masked}\n`);
+    console.log(`ℹ  DATABASE_URL → ${masked}\n`);
+  } else if (!process.env.DATABASE_URL) {
+    console.error(
+      `❌  No database URL available for environment "${envName}".\n` +
+        `   Set DEV_DATABASE_URL (for dev) or QA_DATABASE_URL (for qa) in your environment or .env file.`
+    );
+    process.exit(1);
+  } else {
+    // local: DATABASE_URL is injected by docker-compose; nothing to do.
+    const masked = process.env.DATABASE_URL.replace(/:([^@]+)@/, ':****@');
+    console.log(`ℹ  DATABASE_URL (from environment) → ${masked}\n`);
+  }
+
+  // ── Resolve MIGRATIONS_DATABASE_URL ───────────────────────────────────────
+  // drizzle.config.ts prefers MIGRATIONS_DATABASE_URL over DATABASE_URL so
+  // drizzle-kit migrate can run as the migrations role (DDL rights) rather
+  // than web_user (DML only). For dev/qa, derive it from the same env-config
+  // source if not already set.
+  if (!process.env.MIGRATIONS_DATABASE_URL && config.migrationsUrl) {
+    process.env.MIGRATIONS_DATABASE_URL = config.migrationsUrl;
+    const masked = config.migrationsUrl.replace(/:([^@]+)@/, ':****@');
+    console.log(`ℹ  MIGRATIONS_DATABASE_URL → ${masked}\n`);
   }
 
   // ── Migrations ────────────────────────────────────────────────────────────

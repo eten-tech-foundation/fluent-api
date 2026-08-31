@@ -43,13 +43,23 @@ export interface EnvConfig {
   orgName: string;
 
   /**
-   * Optional explicit database URL.
-   * Used by `setup.ts` **only when `process.env.DATABASE_URL` is absent** —
-   * it is never written back to `process.env`. If `DATABASE_URL` is already
-   * set in the environment it takes precedence over this value.
-   * When both are absent, `setup.ts` will exit with an error.
+   * Optional explicit database URL for the application runtime role.
+   * Used by `setup.ts` to set `DATABASE_URL` — the env-config owns this value
+   * (e.g. `DEV_DATABASE_URL` for dev), so it always wins over any generic
+   * `DATABASE_URL` that may be exported in the shell.
+   * When absent for `local`, docker-compose injects `DATABASE_URL` directly.
    */
   databaseUrl?: string;
+
+  /**
+   * Optional database URL for the migrations role.
+   * When set, `setup.ts` will assign it to `MIGRATIONS_DATABASE_URL` before
+   * invoking `drizzle-kit migrate`, so Drizzle runs as the DDL-capable
+   * `migrations` login role rather than the runtime `web_user`.
+   * Matches the preference in `drizzle.config.ts`:
+   *   `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`
+   */
+  migrationsUrl?: string;
 
   /**
    * Users to seed.

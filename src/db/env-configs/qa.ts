@@ -20,28 +20,31 @@ export const config: EnvConfig = {
   label: 'QA / Staging',
   orgName: 'Fluent QA',
 
-  // ── Application DB URL (runtime user, used by setup.ts) ──────────────────
-  // Reads QA_DATABASE_URL or DATABASE_URL from environment
+  // ── Application DB URLs (used by setup.ts) ──────────────────────────
+  // QA_DATABASE_URL wins; DATABASE_URL is a last resort fallback.
+  // setup.ts will error if neither is set.
   databaseUrl: process.env.QA_DATABASE_URL ?? process.env.DATABASE_URL,
+  // For drizzle-kit migrate — runs as the DDL-capable migrations role.
+  // Falls back to DATABASE_URL via drizzle.config.ts if unset.
+  migrationsUrl: process.env.QA_MIGRATIONS_DATABASE_URL,
 
-  seedUsers: [
-    {
-      // QA_PM_EMAIL and QA_PM_PASSWORD must be set; no fallback to avoid
-      // accidentally seeding an account with a known placeholder password.
-      email: (() => {
-        const v = process.env.QA_PM_EMAIL;
-        if (!v) throw new Error('Missing required env var: QA_PM_EMAIL');
-        return v;
-      })(),
-      password: (() => {
-        const v = process.env.QA_PM_PASSWORD;
-        if (!v) throw new Error('Missing required env var: QA_PM_PASSWORD');
-        return v;
-      })(),
-      username: 'qapm',
-      role: 'project_manager',
-    },
-  ],
+  // Lazy getter — validation runs only when setup.ts accesses seedUsers.
+  // provision-db.ts imports this config for provision.* credentials but never
+  // reads seedUsers, so it can run cleanly without QA_PM_EMAIL / QA_PM_PASSWORD.
+  get seedUsers() {
+    const email = process.env.QA_PM_EMAIL;
+    const password = process.env.QA_PM_PASSWORD;
+    if (!email) throw new Error('Missing required env var: QA_PM_EMAIL');
+    if (!password) throw new Error('Missing required env var: QA_PM_PASSWORD');
+    return [
+      {
+        email,
+        password,
+        username: 'qapm',
+        role: 'project_manager' as const,
+      },
+    ];
+  },
 
   // Avoid printing passwords to CI / staging logs.
   printCredentials: false,

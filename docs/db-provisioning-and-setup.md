@@ -40,26 +40,39 @@ To keep our database secure and maintainable across environments, database tasks
 
 ### Where to Set Environment Variables
 
-You can configure database URLs and credentials in three different places depending on your workflow:
+You can configure database URLs and credentials in three places — listed in **precedence order** (highest first):
 
-1. **Local Development (`.env` File)**: Place variables in your local `.env` file at the root of `fluent-api`.
-2. **Cloud / CI/CD (Environment Variables)**: Set environment variables in Azure App Service Configuration, GitHub Repository Secrets, or container environment settings.
-3. **Inline CLI Flag (One-off Execution)**: Pass environment variables directly in your terminal command.
+1. **Shell / CI / Azure App Config (Real Environment Variables)**: Variables set in the process environment, GitHub Secrets, or Azure App Service Configuration. These always win — `dotenv` never overwrites them.
+2. **Local `.env` File**: Place variables in `.env` at the root of `fluent-api`. Both `provision-db.ts` and `setup.ts` load this file via `dotenv/config` at startup. Useful for local development runs.
+3. **Inline CLI Flag (One-off Execution)**: Pass variables directly in your terminal command — these become real env vars for that process, so they also take precedence over `.env`.
+
+> **Precedence rule:** Shell env vars > `.env` file. If `BOOTSTRAP_DATABASE_URL` is already set in your shell, the `.env` value is silently ignored. This means CI and Azure deployments are never affected by a developer's local `.env`.
 
 ### Environment Variable Catalog
 
-| Variable Name            | Required By           | Description / Format                                                                 | Example Value                                              |
-| ------------------------ | --------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| `DATABASE_URL`           | `setup.ts` (fallback) | Runtime connection URL (`web_user`). Used by `setup.ts` when no env-specific URL set | `postgres://web_user:pass@localhost:5432/fluentdb`         |
-| `DEV_DATABASE_URL`       | `setup.ts` (Dev)      | Dev migrations/seed connection (`migrations` role preferred for setup)               | `postgres://migrations:pass@localhost:5432/fluent_dev`     |
-| `QA_DATABASE_URL`        | `setup.ts` (QA)       | QA migrations/seed connection (`migrations` role preferred for setup)                | `postgres://migrations:pass@qa-host:5432/fluentdb`         |
-| `BOOTSTRAP_DATABASE_URL` | `provision-db.ts`     | Superuser / Admin URL to create roles & schemas                                      | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
-| `DB_ADMIN_PASSWORD`      | `provision-db.ts`     | Password for the schema-owner `db_admin` role                                        | `SecretDbAdminPass123`                                     |
-| `MIGRATIONS_PASSWORD`    | `provision-db.ts`     | Password for the DDL migration runner `migrations` user                              | `SecretMigrationsPass123`                                  |
-| `WEB_USER_PASSWORD`      | `provision-db.ts`     | Password for the API runtime `web_user` account                                      | `SecretWebUserPass123`                                     |
-| `AI_USER_PASSWORD`       | `provision-db.ts`     | Password for the AI service `ai_user` account                                        | `SecretAiUserPass123`                                      |
+| Variable Name                 | Required By         | Description / Format                                                                          | Example Value                                              |
+| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`                | `setup.ts` (local)  | Runtime role URL injected by docker-compose for local. Last-resort fallback for dev/qa.       | `postgres://web_user:pass@localhost:5432/fluentdb`         |
+| `MIGRATIONS_DATABASE_URL`     | `drizzle.config.ts` | Direct DDL migration connection URL (read directly by drizzle-kit).                           | `postgres://migrations:pass@localhost:5432/fluentdb`       |
+| `DEV_DATABASE_URL`            | `setup.ts` (dev)    | Runtime role URL for dev — **wins over** `DATABASE_URL` when `SETUP_ENV=dev`.                 | `postgres://web_user:pass@dev-host:5432/fluentdb`          |
+| `DEV_MIGRATIONS_DATABASE_URL` | `setup.ts` (dev)    | Migrations role URL for dev — passed to `drizzle-kit migrate` (DDL rights).                   | `postgres://migrations:pass@dev-host:5432/fluentdb`        |
+| `QA_DATABASE_URL`             | `setup.ts` (qa)     | Runtime role URL for QA — **wins over** `DATABASE_URL` when `SETUP_ENV=qa`.                   | `postgres://web_user:pass@qa-host:5432/fluentdb`           |
+| `QA_MIGRATIONS_DATABASE_URL`  | `setup.ts` (qa)     | Migrations role URL for QA — passed to `drizzle-kit migrate` (DDL rights).                    | `postgres://migrations:pass@qa-host:5432/fluentdb`         |
+| `BOOTSTRAP_DATABASE_URL`      | `provision-db.ts`   | Superuser / Admin URL to create roles & schemas                                               | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
+| `DB_ADMIN_PASSWORD`           | `provision-db.ts`   | Password for the schema-owner `db_admin` role                                                 | `SecretDbAdminPass123`                                     |
+| `MIGRATIONS_PASSWORD`         | `provision-db.ts`   | Password for the DDL migration runner `migrations` user                                       | `SecretMigrationsPass123`                                  |
+| `WEB_USER_PASSWORD`           | `provision-db.ts`   | Password for the API runtime `web_user` account                                               | `SecretWebUserPass123`                                     |
+| `AI_USER_PASSWORD`            | `provision-db.ts`   | Password for the AI service `ai_user` account                                                 | `SecretAiUserPass123`                                      |
+| `QA_PM_EMAIL`                 | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `pm@yourorg.com`                                           |
+| `QA_PM_PASSWORD`              | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `StrongPassword!1`                                         |
+| `DEV_PM_EMAIL`                | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it. | `pm@yourorg.com`                                           |
+| `DEV_PM_PASSWORD`             | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it. | `StrongPassword!1`                                         |
+| `DEV_SEED_PASSWORD`           | `setup.ts` (dev)    | Shared password for the 3 translator accounts (`alice.smith`, `bob.johnson`, `carol.davis`).  | `StrongPassword!2`                                         |
 
-> **Note:** Migrations require the `migrations` database role (DDL privileges). Use the `migrations` credentials in `DEV_DATABASE_URL` / `QA_DATABASE_URL` when running `db:setup`. The `web_user` credentials in `DATABASE_URL` are for the running API server only.
+> **URL resolution order for `db:setup:dev`:**
+> `DEV_DATABASE_URL` → `DATABASE_URL` (last resort). `DEV_MIGRATIONS_DATABASE_URL` is passed to
+> `drizzle-kit migrate` so it runs as the DDL-capable `migrations` role rather than `web_user`.
+> This matches `drizzle.config.ts` which prefers `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`.
 
 ---
 
@@ -69,11 +82,11 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ### 1. Environment Configurations (`src/db/env-configs/`)
 
-| File Path                     | Status  | Environment       | Configured Seed Data                                                                                    |
-| ----------------------------- | ------- | ----------------- | ------------------------------------------------------------------------------------------------------- |
-| `src/db/env-configs/local.ts` | `[NEW]` | Local Docker      | 3 default local users (`devpm`, `translator`, `translator2`).                                           |
-| `src/db/env-configs/dev.ts`   | `[NEW]` | Shared Dev Server | `Fluent Dev` org, QA manager (`qa.manager`), translators (`alice.smith`, `bob.johnson`, `carol.davis`). |
-| `src/db/env-configs/qa.ts`    | `[NEW]` | QA / Staging      | `Fluent QA` org, single QA project manager (`qapm`).                                                    |
+| File Path                     | Status  | Environment       | Configured Seed Data                                                                                                                                                  |
+| ----------------------------- | ------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/db/env-configs/local.ts` | `[NEW]` | Local Docker      | 3 default local users (`devpm`, `translator`, `translator2`).                                                                                                         |
+| `src/db/env-configs/dev.ts`   | `[NEW]` | Shared Dev Server | `Fluent Dev` org. PM via `DEV_PM_EMAIL`/`DEV_PM_PASSWORD`. Translators (`alice.smith`, `bob.johnson`, `carol.davis`) via `DEV_SEED_PASSWORD`. No hardcoded passwords. |
+| `src/db/env-configs/qa.ts`    | `[NEW]` | QA / Staging      | `Fluent QA` org, single QA project manager (`qapm`).                                                                                                                  |
 
 ### 2. Core Scripts & Shared Types
 
@@ -94,11 +107,11 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ### 4. Infrastructure & Project Configurations
 
-| File Path              | Status       | Purpose & Usage                                                                           |
-| ---------------------- | ------------ | ----------------------------------------------------------------------------------------- |
-| `package.json`         | `[MODIFIED]` | Added CLI scripts (`db:setup:dev`, `db:setup:qa`, `db:provision:dev`, `db:provision:qa`). |
-| `docker-entrypoint.sh` | `[MODIFIED]` | Configured local Docker container startup to set `SETUP_ENV=local`.                       |
-| `src/lib/queue.ts`     | `[MODIFIED]` | Configured `pgboss` queue initialization options (`createSchema: true`).                  |
+| File Path              | Status       | Purpose & Usage                                                                                                                                                  |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`         | `[MODIFIED]` | Added CLI scripts (`db:setup:dev`, `db:setup:qa`, `db:provision:dev`, `db:provision:qa`).                                                                        |
+| `docker-entrypoint.sh` | `[MODIFIED]` | Configured local Docker container startup to set `SETUP_ENV=local`.                                                                                              |
+| `src/lib/queue.ts`     | `[MODIFIED]` | `createSchema: false` — pgboss schema is pre-created by `provision-db.ts` / `bootstrap.ts` as a superuser, so the runtime role never needs `CREATE ON DATABASE`. |
 
 ---
 
@@ -108,22 +121,26 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ### PostgreSQL Group Roles (No `LOGIN`)
 
-| Group Role         | Target Schema | Granted Privileges                                           | Purpose                                                           |
-| ------------------ | ------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `role_web_data`    | `public`      | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the Web API server.                           |
-| `role_ai_data`     | `ai`          | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the AI processing service.                    |
-| `role_ai_reader`   | `public`      | `USAGE`, `SELECT`                                            | Read-only access to `public` schema for cross-schema AI analysis. |
-| `role_pgboss_user` | `pgboss`      | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Access to `pg-boss` background job queues.                        |
-| `role_migrations`  | All schemas   | `USAGE`, `CREATE`, `ALL PRIVILEGES`                          | DDL + DML rights across all schemas for migration runners.        |
+| Group Role         | Target Schema | Granted Privileges                                           | Purpose                                                                                                |
+| ------------------ | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `role_web_data`    | `public`      | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the Web API server.                                                                |
+| `role_ai_data`     | `ai`          | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the AI processing service.                                                         |
+| `role_ai_reader`   | `public`      | `USAGE`, `SELECT`                                            | Read-only access to `public` schema for cross-schema AI analysis.                                      |
+| `role_pgboss_user` | `pgboss`      | Schema owner via `web_user` (see below)                      | Anchor group role — `web_user` owns the pgboss schema so pg-boss can manage its own tables at runtime. |
+| `role_migrations`  | All schemas   | `USAGE`, `CREATE`, `ALL PRIVILEGES`                          | DDL + DML rights across all schemas for migration runners.                                             |
 
 ### Login Users & Membership Mapping
 
-| Login Account | Granted Group Roles                                  | Target Schemas / Privileges                        |
-| ------------- | ---------------------------------------------------- | -------------------------------------------------- |
-| `web_user`    | `role_web_data`, `role_pgboss_user`                  | DML on `public` and `pgboss` schemas               |
-| `ai_user`     | `role_ai_data`, `role_ai_reader`, `role_pgboss_user` | DML on `ai` & `pgboss`, Read-only on `public`      |
-| `migrations`  | `role_migrations`                                    | DDL + DML across all schemas                       |
-| `db_admin`    | _(Schema Owner)_                                     | Schema Owner (`public`, `ai`, `pgboss`, `drizzle`) |
+| Login Account | Granted Group Roles                                  | Target Schemas / Privileges                   |
+| ------------- | ---------------------------------------------------- | --------------------------------------------- |
+| `web_user`    | `role_web_data`, `role_pgboss_user`                  | DML on `public` and `pgboss` schemas          |
+| `ai_user`     | `role_ai_data`, `role_ai_reader`, `role_pgboss_user` | DML on `ai` & `pgboss`, Read-only on `public` |
+| `migrations`  | `role_migrations`                                    | DDL + DML across all schemas                  |
+| `db_admin`    | _(Schema Owner)_                                     | Schema owner: `public`, `ai`, `drizzle`       |
+
+> **pgboss schema:** Owned by `web_user` (not `db_admin`) so pg-boss can create its own tables,
+> enums, and functions at runtime without needing `CREATE ON DATABASE`. This mirrors how
+> `bootstrap.ts` sets it up for local Docker (`CREATE SCHEMA pgboss AUTHORIZATION api_user`).
 
 ---
 
@@ -133,11 +150,11 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ### Target Environments
 
-| `SETUP_ENV` | Config File                   | Usage             | Seed Strategy                                                                 |
-| ----------- | ----------------------------- | ----------------- | ----------------------------------------------------------------------------- |
-| `local`     | `src/db/env-configs/local.ts` | Local Docker      | 3 default local users (`devpm`, `translator`, `translator2`)                  |
-| `dev`       | `src/db/env-configs/dev.ts`   | Shared Dev Server | PM (`qa.manager`) + Translators (`alice.smith`, `bob.johnson`, `carol.davis`) |
-| `qa`        | `src/db/env-configs/qa.ts`    | Staging / QA      | 1 QA Project Manager (`qapm`)                                                 |
+| `SETUP_ENV` | Config File                   | Usage             | Seed Strategy                                                                                                                        |
+| ----------- | ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `local`     | `src/db/env-configs/local.ts` | Local Docker      | 3 default local users (`devpm`, `translator`, `translator2`)                                                                         |
+| `dev`       | `src/db/env-configs/dev.ts`   | Shared Dev Server | PM (`DEV_PM_EMAIL`) + 3 translators (`alice.smith`, `bob.johnson`, `carol.davis`) via `DEV_SEED_PASSWORD`. No hardcoded credentials. |
+| `qa`        | `src/db/env-configs/qa.ts`    | Staging / QA      | 1 QA Project Manager (`qapm`)                                                                                                        |
 
 ---
 
@@ -156,20 +173,105 @@ npm run db:provision:dev # Dev Provisioning (SETUP_ENV=dev)
 npm run db:provision:qa  # QA Provisioning (SETUP_ENV=qa)
 ```
 
-### Typical Workflow for a Fresh Remote Database
+### Complete Workflow Examples per Environment
 
-1. **Step 1: Run One-Time Infrastructure & Role Setup**
+Environment variables can be supplied in two ways:
 
-   ```bash
-   BOOTSTRAP_DATABASE_URL="postgres://admin:secret@dev-db.postgres.database.azure.com:5432/fluentdb?sslmode=require" \
-   npm run db:provision:dev
-   ```
+- **Option A (`.env` File - Recommended for local/staging runs)**: Add the variables to your `.env` file once, then run `npm run db:provision:<env>` and `npm run db:setup:<env>`.
+- **Option B (Inline CLI - Recommended for CI/CD)**: Pass variables directly in the shell command before the `npm run` script.
 
-2. **Step 2: Run Migrations & Data Seeding**
-   ```bash
-   DATABASE_URL="postgres://migrations:secret@dev-db.postgres.database.azure.com:5432/fluentdb?sslmode=require" \
-   npm run db:setup:dev
-   ```
+---
+
+#### 1. Dev Environment (`dev`)
+
+##### Option A: Via `.env` File
+
+Add the following to `.env`:
+
+```env
+# ── Step 1: Provisioning (.env entries for npm run db:provision:dev) ─────────
+BOOTSTRAP_DATABASE_URL=postgres://<postgres_admin>:<password>@<dev-host>:5432/<dbname>?sslmode=require
+DB_ADMIN_PASSWORD=<db_admin_password>
+MIGRATIONS_PASSWORD=<migrations_password>
+WEB_USER_PASSWORD=<web_user_password>
+AI_USER_PASSWORD=<ai_user_password>
+
+# ── Step 2: Setup (.env entries for npm run db:setup:dev) ────────────────────
+DEV_DATABASE_URL=postgres://web_user:<web_user_password>@<dev-host>:5432/<dbname>?sslmode=require
+DEV_MIGRATIONS_DATABASE_URL=postgres://migrations:<migrations_password>@<dev-host>:5432/<dbname>?sslmode=require
+DEV_PM_EMAIL=<pm_email>
+DEV_PM_PASSWORD=<pm_password>
+DEV_SEED_PASSWORD=<seed_translator_password>
+```
+
+Execute in terminal:
+
+```bash
+# 1. Provision roles and schemas (One-time superuser step)
+npm run db:provision:dev
+
+# 2. Run migrations and seed data
+npm run db:setup:dev
+
+# 3. Start API app server
+npm run dev
+```
+
+##### Option B: Via Inline CLI (CI/CD / One-off Execution)
+
+```bash
+# 1. Provisioning (Superuser step)
+BOOTSTRAP_DATABASE_URL="..." DB_ADMIN_PASSWORD="..." MIGRATIONS_PASSWORD="..." WEB_USER_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:dev
+
+# 2. Setup (Migrations & Seeding)
+DEV_DATABASE_URL="..." DEV_MIGRATIONS_DATABASE_URL="..." DEV_PM_EMAIL="..." DEV_PM_PASSWORD="..." DEV_SEED_PASSWORD="..." npm run db:setup:dev
+```
+
+---
+
+#### 2. QA / Staging Environment (`qa`)
+
+##### Option A: Via `.env` File
+
+Add the following to `.env`:
+
+```env
+# ── Step 1: Provisioning (.env entries for npm run db:provision:qa) ──────────
+BOOTSTRAP_DATABASE_URL=postgres://<postgres_admin>:<password>@<qa-host>:5432/<dbname>?sslmode=require
+DB_ADMIN_PASSWORD=<db_admin_password>
+MIGRATIONS_PASSWORD=<migrations_password>
+WEB_USER_PASSWORD=<web_user_password>
+AI_USER_PASSWORD=<ai_user_password>
+
+# ── Step 2: Setup (.env entries for npm run db:setup:qa) ─────────────────────
+QA_DATABASE_URL=postgres://web_user:<web_user_password>@<qa-host>:5432/<dbname>?sslmode=require
+QA_MIGRATIONS_DATABASE_URL=postgres://migrations:<migrations_password>@<qa-host>:5432/<dbname>?sslmode=require
+QA_PM_EMAIL=<qapm_email>
+QA_PM_PASSWORD=<qapm_password>
+```
+
+Execute in terminal:
+
+```bash
+# 1. Provision roles and schemas (One-time superuser step)
+npm run db:provision:qa
+
+# 2. Run migrations and seed data
+npm run db:setup:qa
+
+# 3. Start API app server
+npm run start
+```
+
+##### Option B: Via Inline CLI (CI/CD / One-off Execution)
+
+```bash
+# 1. Provisioning (Superuser step)
+BOOTSTRAP_DATABASE_URL="..." DB_ADMIN_PASSWORD="..." MIGRATIONS_PASSWORD="..." WEB_USER_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:qa
+
+# 2. Setup (Migrations & Seeding)
+QA_DATABASE_URL="..." QA_MIGRATIONS_DATABASE_URL="..." QA_PM_EMAIL="..." QA_PM_PASSWORD="..." npm run db:setup:qa
+```
 
 ---
 
