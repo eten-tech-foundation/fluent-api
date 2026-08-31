@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
-import { roleHasPermission } from '@/lib/services/permissions/permissions.service';
-import { ErrorCode } from '@/lib/types';
+import { ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
 import { fetchTtsAudio, generateTtsAudio } from './tts.service';
@@ -31,9 +31,16 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@/db', () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-}));
+vi.mock('@/db', () => {
+  const mockQueryBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue([{ activeOrgId: 1 }]),
+  };
+  return {
+    db: { select: vi.fn(() => mockQueryBuilder), insert: vi.fn(), update: vi.fn() },
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
@@ -43,8 +50,8 @@ vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
 }));
 
-vi.mock('@/lib/services/permissions/permissions.service', () => ({
-  roleHasPermission: vi.fn(),
+vi.mock('@/domains/user-roles/user-roles.repository', () => ({
+  findGrantsByUserId: vi.fn(),
 }));
 
 vi.mock('./tts.service', () => ({
@@ -67,14 +74,23 @@ const HASH = '9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91';
 const AUDIO_FILE = `${HASH}.wav`;
 const VALID_BODY = { text: 'In the beginning God created the heavens and the earth.' };
 
-/** Authenticate as APP_USER with the given permission grant. */
+/**
+ * Authenticate as APP_USER, holding TTS_USE or holding nothing.
+ *
+ * `requirePermission(TTS_USE)` is called without a scope resolver, so it reduces to
+ * `user.grants.some((g) => g.permissions.has(TTS_USE))` (`role-auth.ts`). The grant's
+ * org/project ids are therefore not consulted on this route and are only present
+ * because the row shape requires them.
+ */
 function asAuthenticatedUser(granted: boolean) {
   (auth.api.getSession as any).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
   });
-  (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
-  (roleHasPermission as any).mockResolvedValue(granted);
+  (getUserByEmail as any).mockResolvedValue(ok(APP_USER));
+  (findGrantsByUserId as any).mockResolvedValue(
+    ok(granted ? [{ orgId: 1, projectId: 1, permissions: new Set([PERMISSIONS.TTS_USE]) }] : [])
+  );
 }
 
 function postGenerate(body: unknown) {
@@ -150,12 +166,22 @@ describe('tTS proxy authorization', () => {
     // the passage would silently lose audio — so the alias target is asserted.
     expect(PERMISSIONS.TTS_USE).toBe('project:view');
 
-    asAuthenticatedUser(true);
+    // Post-RBAC the check is a set membership test on the user's grants, so the
+    // alias is pinned by admitting a grant that holds TTS_USE and nothing else.
+    (auth.api.getSession as any).mockResolvedValue({
+      session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
+      user: { email: APP_USER.email },
+    });
+    (getUserByEmail as any).mockResolvedValue(ok(APP_USER));
+    (findGrantsByUserId as any).mockResolvedValue(
+      ok([{ orgId: 1, projectId: 1, permissions: new Set([PERMISSIONS.TTS_USE]) }])
+    );
     (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'x' } });
 
-    await postGenerate(VALID_BODY);
+    const res = await postGenerate(VALID_BODY);
 
-    expect(roleHasPermission).toHaveBeenCalledWith(APP_USER.role, PERMISSIONS.TTS_USE);
+    expect(res.status).toBe(200);
+    expect(findGrantsByUserId).toHaveBeenCalledWith(APP_USER.id);
   });
 });
 
