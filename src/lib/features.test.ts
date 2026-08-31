@@ -58,32 +58,32 @@ describe('buildFeatures', () => {
     expect(features.aiSuggestions).toBe(false);
   });
 
-  it('honors an explicitly-set sourceTts flag (true) regardless of AI wiring', () => {
-    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_TTS: true }));
-    expect(features.sourceTts).toBe(true);
+  it('honors an explicitly-set sourceAudio flag (true) regardless of AI wiring', () => {
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_AUDIO: true }));
+    expect(features.sourceAudio).toBe(true);
   });
 
-  it('honors an explicitly-set sourceTts flag (false) even when AI is wired', () => {
-    const features = buildFeatures(makeEnv({ ...AI_WIRED, EN_FEATURE_SOURCE_TTS: false }));
-    expect(features.sourceTts).toBe(false);
+  it('honors an explicitly-set sourceAudio flag (false) even when AI is wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_WIRED, EN_FEATURE_SOURCE_AUDIO: false }));
+    expect(features.sourceAudio).toBe(false);
   });
 
-  it('derives sourceTts = true when unset and AI is wired', () => {
+  it('derives sourceAudio = true when unset and AI is wired', () => {
     const features = buildFeatures(makeEnv({ ...AI_WIRED }));
-    expect(features.sourceTts).toBe(true);
+    expect(features.sourceAudio).toBe(true);
   });
 
-  it('derives sourceTts = false (safe default) when unset and AI is not wired', () => {
+  it('derives sourceAudio = false (safe default) when unset and AI is not wired', () => {
     const features = buildFeatures(makeEnv({ ...AI_UNWIRED }));
-    expect(features.sourceTts).toBe(false);
+    expect(features.sourceAudio).toBe(false);
   });
 
   it('resolves each flag independently — one set flag does not move the others', () => {
     // Guards the registry against a copy-paste slip where two entries share an
-    // env key or a resolver: with AI unwired, forcing sourceTts ON must leave the
+    // env key or a resolver: with AI unwired, forcing sourceAudio ON must leave the
     // other AI-dependent flags at their safe-off default.
-    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_TTS: true }));
-    expect(features.sourceTts).toBe(true);
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_AUDIO: true }));
+    expect(features.sourceAudio).toBe(true);
     expect(features.repeatedWordCheck).toBe(false);
     expect(features.aiSuggestions).toBe(false);
   });
