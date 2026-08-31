@@ -35,6 +35,18 @@ export const sourceAudioVerseTimestampSchema = z
   .object({
     verse: z.number().int().positive(),
     startSeconds: z.number().nonnegative().optional(),
+    endSeconds: z
+      .number()
+      .nonnegative()
+      .optional()
+      .openapi({
+        description:
+          'Offset at which this verse stops. Together with startSeconds this is the seek window ' +
+          'into the chapter file: play from startSeconds, halt at endSeconds. Both providers ' +
+          'publish an end for every verse they timestamp, the last verse of a chapter included, ' +
+          'so a verse range has a known duration before any audio is fetched. Omitted when the ' +
+          'provider gave no end for this verse.',
+      }),
     dblAudioBibleId: z.string().optional().openapi({
       description:
         'DBL audio bible id for this timestamp when provider is dbl. Matches the item with the same id.',
@@ -60,10 +72,15 @@ export const sourceAudioResponseSchema = z
     chapter: z.number().int().positive(),
     verse: z.number().int().positive().optional(),
     items: z.array(sourceAudioItemSchema),
-    verseTimestamps: z.array(sourceAudioVerseTimestampSchema).optional().openapi({
-      description:
-        'Verse start offsets. For DBL, each entry includes `dblAudioBibleId` matching the corresponding item.',
-    }),
+    verseTimestamps: z
+      .array(sourceAudioVerseTimestampSchema)
+      .optional()
+      .openapi({
+        description:
+          'Per-verse seek windows into the chapter file (startSeconds..endSeconds). For DBL, each ' +
+          'entry includes `dblAudioBibleId` matching the corresponding item. Absent entirely when ' +
+          'the provider supplies no timing data for the chapter, which is the normal case for DBL.',
+      }),
   })
   .openapi('SourceAudioResponse');
 

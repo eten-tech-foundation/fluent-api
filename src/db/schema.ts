@@ -24,6 +24,12 @@ import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
 export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
+// Publication licence, global to the Bible (not a tenant/user grant). TTS_USE is the RBAC axis.
+export const ttsLicenseStatusEnum = pgEnum('tts_license_status', [
+  'allowed',
+  'forbidden',
+  'unknown',
+]);
 export const projectStatusEnum = pgEnum('project_status', [
   'not_started',
   'in_progress',
@@ -227,6 +233,19 @@ export const bibles = pgTable(
     provider: bibleProviderEnum('provider').notNull().default('dbl'),
     externalId: varchar('external_id', { length: 255 }),
     hasAudio: boolean('has_audio').notNull().default(false),
+    // Aquifer's own Bible id (the `{id}` in Aquifer's `GET /bibles/{id}/texts`), when this
+    // Bible is known to correspond to one. Nullable and purely additive: when it is NULL,
+    // Aquifer resolution falls back to the abbreviation/name match it has always used, so
+    // rows that predate this column behave exactly as before. Set it to pin a Bible to a
+    // specific Aquifer publication and remove the guesswork -- see matchAquiferBible().
+    //
+    // Deliberately NOT folded into provider/externalId: `bible_provider` has only the value
+    // 'dbl', and a Bible can legitimately have both a DBL externalId and an Aquifer id, which
+    // a single provider/externalId pair cannot express.
+    aquiferBibleId: integer('aquifer_bible_id'),
+    ttsLicenseStatus: ttsLicenseStatusEnum('tts_license_status').notNull().default('unknown'),
+    // Human-curated attribution for this Bible, maintained alongside its licence status.
+    licenseNotice: text('license_notice'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
