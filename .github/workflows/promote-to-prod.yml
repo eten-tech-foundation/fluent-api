@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'QA-approved tag to promote (e.g. v26.08.3)'
+        description: QA-approved tag to promote (e.g. v26.08.3)
         required: true
 
 concurrency: production-deploy
