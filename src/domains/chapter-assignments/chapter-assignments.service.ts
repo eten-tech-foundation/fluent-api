@@ -32,6 +32,8 @@ export function toChapterAssignmentResponse(
     peerCheckerId: record.peerCheckerId,
     status: record.status,
     submittedTime: record.submittedTime,
+    hasClaimConflict: record.hasClaimConflict,
+    claimConflictUserId: record.claimConflictUserId,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -147,7 +149,7 @@ export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  tx?: DbTransaction
 ) {
   try {
     const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
@@ -164,10 +166,11 @@ export async function createChapterAssignmentForProjectUnit(
 
     const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
-  } catch (error) {
+  } catch (error: any) {
     logger.error({
       cause: error,
-      message: 'Failed to create chapter assignments for project unit',
+      message: `Failed to create chapter assignments for project unit: ${error?.message || String(error)}`,
+      stack: error?.stack,
       context: { projectUnitId, bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -184,7 +187,11 @@ export async function updateChapterAssignment(
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
     const finalData = applyAutoTransition(current, data);
-    const updated = await repo.update(id, finalData, tx);
+    const updateData =
+      data.assignedUserId !== undefined
+        ? { ...finalData, hasClaimConflict: false, claimConflictUserId: null }
+        : finalData;
+    const updated = await repo.update(id, updateData, tx);
     if (!updated) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
     await recordStatusChange(tx, current, updated);
@@ -312,6 +319,82 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
 
 export function deleteChapterAssignment(id: number) {
   return repo.remove(id);
+}
+
+export async function claimChapterAssignment(id: number, userId: number) {
+  try {
+    const result = await db.transaction(async (tx) => {
+      const { claimed, record } = await repo.claimIfUnassigned(id, userId, tx);
+
+      if (claimed && record) {
+        await repo.insertStatusHistory(tx, id, CHAPTER_ASSIGNMENT_STATUS.DRAFT);
+        await repo.insertUserAssignmentHistory(
+          tx,
+          id,
+          userId,
+          'drafter',
+          CHAPTER_ASSIGNMENT_STATUS.DRAFT
+        );
+        await projectsService.recordProjectAssignmentActivity(record.projectUnitId, tx);
+        return ok({
+          response: toChapterAssignmentResponse(record),
+          shouldTriggerAi: true,
+        });
+      }
+
+      const current = await repo.findById(id, tx);
+      if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+      if (current.assignedUserId === userId) {
+        return ok({
+          response: toChapterAssignmentResponse(current),
+          shouldTriggerAi: false,
+        });
+      }
+
+      const flagged = await repo.flagClaimConflict(id, userId, tx);
+      return ok({
+        response: toChapterAssignmentResponse(flagged ?? current),
+        shouldTriggerAi: false,
+      });
+    });
+
+    if (!result.ok) {
+      return result;
+    }
+
+    if (result.data.shouldTriggerAi) {
+      const assignment = result.data.response;
+      try {
+        await aiSuggestionsService.handleChapterAssigned(
+          assignment.projectUnitId,
+          assignment.bibleId,
+          assignment.bookId,
+          assignment.chapterNumber
+        );
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Failed to enqueue AI suggestions after chapter claim',
+          context: {
+            projectUnitId: assignment.projectUnitId,
+            bibleId: assignment.bibleId,
+            bookId: assignment.bookId,
+            chapterNumber: assignment.chapterNumber,
+          },
+        });
+      }
+    }
+
+    return ok(result.data.response);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to claim chapter assignment',
+      context: { id, userId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 function applyAutoTransition(

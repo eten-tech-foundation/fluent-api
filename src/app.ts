@@ -15,6 +15,7 @@ import '@/domains/books/books.route';
 import '@/domains/bible-books/bible-books.route';
 import '@/domains/projects/books/project-books.route';
 import '@/domains/bibles/bible-texts/bible-texts.route';
+import '@/domains/bibles/bible-audio/bible-audio.route';
 import '@/domains/translated-verses/translated-verses.route';
 import '@/domains/verse-audio/verse-audio.route';
 import '@/domains/usfm/usfm.route';
@@ -29,6 +30,7 @@ import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
 import '@/domains/pericopes/pericopes.route';
 import '@/domains/translation-resources/translation-resources.route';
+import '@/domains/source-audio/source-audio.route';
 import '@/domains/self/settings/self-settings.route';
 configureOpenAPI(server);
 

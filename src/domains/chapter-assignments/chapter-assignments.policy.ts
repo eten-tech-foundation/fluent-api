@@ -10,7 +10,7 @@ import type { AppPolicyUser } from '@/lib/types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { authorize } from '@/lib/services/permissions/authorize';
 
-import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
+import { CHAPTER_ASSIGNMENT_STATUS, CLAIM_RACE_WINDOW_MS } from './chapter-assignments.types';
 
 export interface PolicyChapterAssignment {
   organizationId: number;
@@ -18,6 +18,12 @@ export interface PolicyChapterAssignment {
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: string | null;
+  updatedAt?: Date | null;
+}
+
+function isWithinClaimRaceWindow(updatedAt: Date | null | undefined, now = Date.now()): boolean {
+  if (!updatedAt) return false;
+  return now - updatedAt.getTime() <= CLAIM_RACE_WINDOW_MS;
 }
 
 const POST_PEER_STATUSES = new Set<string>([
@@ -126,5 +132,38 @@ export const ChapterAssignmentPolicy = {
   ): boolean {
     // A participant in the editor is exactly anyone who currently has edit rights.
     return this.edit(user, assignment, isProjectMember);
+  },
+
+  claim(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+
+    // Managers (content:assign) assign via PATCH .../:id, not via claim.
+    if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) return false;
+
+    // Translators have content:update without content:assign.
+    if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) return false;
+
+    // Same translator retrying their own claim (e.g. offline reconnect) — service
+    // returns idempotently without duplicating history.
+    if (assignment.assignedUserId === user.id) {
+      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
+    }
+
+    // Another translator won a recent self-claim (true race / retry overlap).
+    // Service flags hasClaimConflict and returns 200 — never 404 for concurrency.
+    // Stale drafts are not claimable; offline reconnect conflicts are detected
+    // client-side during assignment sync (#271), not via this branch.
+    if (assignment.assignedUserId != null) {
+      return (
+        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
+        assignment.peerCheckerId == null &&
+        isWithinClaimRaceWindow(assignment.updatedAt)
+      );
+    }
+
+    return (
+      assignment.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED &&
+      assignment.assignedUserId == null
+    );
   },
 };
