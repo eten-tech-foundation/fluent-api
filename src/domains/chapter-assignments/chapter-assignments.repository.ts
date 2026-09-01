@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
@@ -33,6 +33,8 @@ import type {
   CreateChapterAssignmentRequestData,
   UpdateChapterAssignmentRequestData,
 } from './chapter-assignments.types';
+
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecord {
   projectId: number;
@@ -69,6 +71,8 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         organizationId: projects.organization,
@@ -105,6 +109,8 @@ export async function findByIdWithAuthContext(
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         // Project context
@@ -181,9 +187,10 @@ export async function findForVerse(
 export async function findChaptersForProjectUnit(
   bibleId: number,
   bookIds: number[],
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ) {
-  return tx
+  const dbClient = externalTx ?? db;
+  return dbClient
     .select({
       bibleId: bible_texts.bibleId,
       bookId: bible_texts.bookId,
@@ -276,13 +283,18 @@ export async function insertMany(
     assignedUserId: null;
     peerCheckerId: null;
   }>,
-  tx: DbTransaction
+  externalTx?: DbTransaction
 ): Promise<ChapterAssignmentRecord[]> {
+  const dbClient = externalTx ?? db;
   const chunkSize = 1000;
   const inserted: ChapterAssignmentRecord[] = [];
   for (let i = 0; i < records.length; i += chunkSize) {
     const chunk = records.slice(i, i + chunkSize);
-    const result = await tx.insert(chapter_assignments).values(chunk).returning();
+    const result = await dbClient
+      .insert(chapter_assignments)
+      .values(chunk)
+      .onConflictDoNothing()
+      .returning();
     inserted.push(...result);
   }
   return inserted;
@@ -296,6 +308,42 @@ export async function update(
   const [updated] = await tx
     .update(chapter_assignments)
     .set(data)
+    .where(eq(chapter_assignments.id, id))
+    .returning();
+  return updated ?? null;
+}
+
+export async function claimIfUnassigned(
+  id: number,
+  userId: number,
+  tx: DbTransaction
+): Promise<{ claimed: boolean; record: ChapterAssignmentRecord | null }> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({
+      assignedUserId: userId,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        isNull(chapter_assignments.assignedUserId),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED)
+      )
+    )
+    .returning();
+
+  return { claimed: !!updated, record: updated ?? null };
+}
+
+export async function flagClaimConflict(
+  id: number,
+  claimConflictUserId: number,
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord | null> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({ hasClaimConflict: true, claimConflictUserId })
     .where(eq(chapter_assignments.id, id))
     .returning();
   return updated ?? null;
@@ -395,6 +443,8 @@ export async function findAssignmentsProgress(
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

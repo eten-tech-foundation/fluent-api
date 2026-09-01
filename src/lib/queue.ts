@@ -8,8 +8,16 @@ export const QUEUE_NAMES = {
   USFM_EXPORT: 'usfm-export',
   /** Dead-letter destination for exports that exhaust their retries. */
   USFM_EXPORT_DLQ: 'usfm-export-dlq',
-  AI_SUGGESTION_TRIGGER: 'ai-suggestion-trigger',
+  AI_SUGGESTIONS: 'ai-suggestions',
+  DBL_INGEST_TEXT: 'dbl-ingest-text',
+  DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
 } as const;
+
+export interface DblIngestTextJob {
+  projectId: number;
+  bibleId: number;
+  bookCodes: string[];
+}
 
 export interface USFMExportJob {
   projectUnitId: number;
@@ -41,8 +49,9 @@ export async function initializeQueue(): Promise<PgBoss> {
   boss = new PgBoss({
     connectionString,
     schema: 'pgboss',
-    // Bootstrap creates the pgboss schema; skip the CREATE SCHEMA DDL so
-    // api_user (runtime role) doesn't need CREATE privilege on the database.
+    // provision-db.ts (dev/qa) and bootstrap.ts (local) create the pgboss
+    // schema as a superuser before the API starts, so the runtime role
+    // (web_user in dev/qa, api_user locally) never needs CREATE ON DATABASE.
     createSchema: false,
     max: 10,
     application_name: 'fluent-server-queue',

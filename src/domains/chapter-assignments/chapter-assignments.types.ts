@@ -11,6 +11,7 @@ export const CHAPTER_ASSIGNMENT_ACTIONS = {
   DELETE: 'delete',
   IS_PARTICIPANT: 'isParticipant',
   TOGGLE_AI: 'toggleAi',
+  CLAIM: 'claim',
 } as const;
 
 export type ChapterAssignmentAction =
@@ -29,6 +30,9 @@ export const CHAPTER_ASSIGNMENT_STATUS = {
 
 export type ChapterAssignmentStatus =
   (typeof CHAPTER_ASSIGNMENT_STATUS)[keyof typeof CHAPTER_ASSIGNMENT_STATUS];
+
+/** Max age of a rival claim (via `updated_at`) for the race-loser policy branch. */
+export const CLAIM_RACE_WINDOW_MS = 5 * 60 * 1000;
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
@@ -69,6 +73,8 @@ export interface ChapterAssignmentProgressInfo {
   createdAt: Date | null;
   updatedAt: Date | null;
   isAiEnabled: boolean;
+  hasClaimConflict: boolean;
+  claimConflictUserId: number | null;
 }
 
 // ─── Service input types ──────────────────────────────────────────────────────
@@ -88,6 +94,8 @@ export interface UpdateChapterAssignmentRequestData {
   status?: ChapterAssignmentStatus;
   submittedTime?: Date;
   isAiEnabled?: boolean;
+  hasClaimConflict?: boolean;
+  claimConflictUserId?: number | null;
 }
 
 export const updateChapterAssignmentAiStatusSchema = z.object({
@@ -113,6 +121,8 @@ export const chapterAssignmentResponseSchema = z.object({
     )
     .optional(),
   submittedTime: z.date().nullable().optional(),
+  hasClaimConflict: z.boolean(),
+  claimConflictUserId: z.number().int().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
 });

@@ -1,0 +1,3 @@
+ALTER TABLE "chapter_assignments" ADD COLUMN "has_claim_conflict" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "chapter_assignments" ADD COLUMN "claim_conflict_user_id" integer;--> statement-breakpoint
+ALTER TABLE "chapter_assignments" ADD CONSTRAINT "chapter_assignments_claim_conflict_user_id_users_id_fk" FOREIGN KEY ("claim_conflict_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
