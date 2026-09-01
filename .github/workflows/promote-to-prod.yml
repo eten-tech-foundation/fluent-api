@@ -128,3 +128,6 @@ jobs:
       verify_delay: 45
       verify_attempts: 12
       verify_interval: 15
+    # Required: without it `secrets.*` is EMPTY in deploy.yml, environment
+    # or not. See the secrets note at the top of deploy.yml.
+    secrets: inherit

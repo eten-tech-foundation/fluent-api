@@ -14,6 +14,15 @@
 # Secrets resolve from the GitHub Environment named by `environment`, so each
 # environment supplies the same secret NAMES with its own values. Do not
 # reintroduce `_DEV`/`_QA`/`_PROD` suffixes -- the environment is the scope.
+#
+# Every caller MUST pass `secrets: inherit`. `on.workflow_call` has no
+# `environment` keyword, so a called workflow's `secrets` context is populated
+# only by what the caller passes; without `inherit` the job below still gates on
+# the environment and still records the deployment, but every `secrets.*` here
+# resolves to an EMPTY STRING. The docs line "the environment secret will be
+# used, and not the secret passed from the caller workflow" describes
+# PRECEDENCE once secrets are inherited -- it is not a statement that
+# environment secrets arrive on their own. See actions/runner#1490.
 name: Deploy
 
 on:

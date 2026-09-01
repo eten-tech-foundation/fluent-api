@@ -64,6 +64,9 @@ jobs:
       ref: ${{ github.sha }}
       environment: Development
       app_name: scribe-server-dev
+    # Required: without it `secrets.*` is EMPTY in deploy.yml, environment
+    # or not. See the secrets note at the top of deploy.yml.
+    secrets: inherit
 
   deploy-qa:
     if: github.ref_type == 'tag'
@@ -74,3 +77,6 @@ jobs:
       environment: QA
       app_name: fluent-server-qa
       expect_version: ${{ needs.meta.outputs.version }}
+    # Required: without it `secrets.*` is EMPTY in deploy.yml, environment
+    # or not. See the secrets note at the top of deploy.yml.
+    secrets: inherit
