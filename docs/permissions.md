@@ -56,11 +56,11 @@ user_roles         (id, userId → users.id, orgId?, projectId?, roleId → role
 
 `user_roles` is the central assignment table. The `orgId` and `projectId` columns are nullable, which drives the scope hierarchy:
 
-| `orgId` | `projectId` | Meaning |
-|---|---|---|
-| `NULL` | `NULL` | Global scope — SuperAdmin |
-| `N` | `NULL` | Org-wide — covers all projects within org N |
-| `N` | `M` | Project-scoped — only project M within org N |
+| `orgId` | `projectId` | Meaning                                      |
+| ------- | ----------- | -------------------------------------------- |
+| `NULL`  | `NULL`      | Global scope — SuperAdmin                    |
+| `N`     | `NULL`      | Org-wide — covers all projects within org N  |
+| `N`     | `M`         | Project-scoped — only project M within org N |
 
 See [`src/db/schema.ts`](../src/db/schema.ts) (tables `roles`, `permissions`, `role_permissions`, `user_roles`) and [`src/db/seeds/rbac.ts`](../src/db/seeds/rbac.ts) for the seed data.
 
@@ -72,23 +72,23 @@ Defined in [`src/lib/roles.ts`](../src/lib/roles.ts).
 
 ```typescript
 export const ROLES = {
-  SUPER_ADMIN:        'SuperAdmin',
-  ORG_MANAGER:        'Org Manager',
-  ORG_MEMBER:         'Org Member',
-  PROJECT_MANAGER:    'Project Manager',
+  SUPER_ADMIN: 'SuperAdmin',
+  ORG_MANAGER: 'Org Manager',
+  ORG_MEMBER: 'Org Member',
+  PROJECT_MANAGER: 'Project Manager',
   PROJECT_TRANSLATOR: 'Project Translator',
-  PROJECT_OBSERVER:   'Project Observer',
+  PROJECT_OBSERVER: 'Project Observer',
 } as const;
 ```
 
-| Role | Typical Scope | Purpose |
-|---|---|---|
-| `SuperAdmin` | Global (`orgId=null, projectId=null`) | Full access to everything. Can assign any role. |
-| `Org Manager` | Org-wide | Manage projects and users within an organization. |
-| `Org Member` | Org-wide | Structural membership role. No content permissions. Grants eligibility to be assigned project roles. |
-| `Project Manager` | Project | Full control over a single project and its content. |
-| `Project Translator` | Project | Edit content and use AI tools on assigned chapters. |
-| `Project Observer` | Project | Read-only access to a project. |
+| Role                 | Typical Scope                         | Purpose                                                                                              |
+| -------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SuperAdmin`         | Global (`orgId=null, projectId=null`) | Full access to everything. Can assign any role.                                                      |
+| `Org Manager`        | Org-wide                              | Manage projects and users within an organization.                                                    |
+| `Org Member`         | Org-wide                              | Structural membership role. No content permissions. Grants eligibility to be assigned project roles. |
+| `Project Manager`    | Project                               | Full control over a single project and its content.                                                  |
+| `Project Translator` | Project                               | Edit content and use AI tools on assigned chapters.                                                  |
+| `Project Observer`   | Project                               | Read-only access to a project.                                                                       |
 
 > **Note on `Org Member`:** This role has no permissions seeded in the database. It exists to express org membership without granting any content capabilities. A user can simultaneously hold `Org Member` (org scope) and `Project Translator` (project scope).
 
@@ -101,30 +101,30 @@ Defined in [`src/lib/permissions.ts`](../src/lib/permissions.ts). Each string va
 ```typescript
 export const PERMISSIONS = {
   // Projects
-  PROJECT_VIEW:            'project:view',
-  PROJECT_CREATE:          'project:create',
-  PROJECT_UPDATE:          'project:update',
-  PROJECT_DELETE:          'project:delete',
+  PROJECT_VIEW: 'project:view',
+  PROJECT_CREATE: 'project:create',
+  PROJECT_UPDATE: 'project:update',
+  PROJECT_DELETE: 'project:delete',
 
   // Content
-  CONTENT_VIEW:            'content:view',
-  CONTENT_ASSIGN:          'content:assign',
-  CONTENT_UPDATE:          'content:update',
+  CONTENT_VIEW: 'content:view',
+  CONTENT_ASSIGN: 'content:assign',
+  CONTENT_UPDATE: 'content:update',
 
   // Membership / role assignment
-  MEMBERSHIP_REVOKE:       'membership:revoke',
-  ROLE_ASSIGN_PROJECT:     'role:assign:project',
+  MEMBERSHIP_REVOKE: 'membership:revoke',
+  ROLE_ASSIGN_PROJECT: 'role:assign:project',
   ROLE_ASSIGN_ORG_MANAGER: 'role:assign:org_manager',
 
   // AI tools — intentional alias of CONTENT_UPDATE (same string, no separate DB row).
   // Promoting to a distinct permission only requires changing this string value.
-  AI_TOOLS_USE:            'content:update',
+  AI_TOOLS_USE: 'content:update',
 
   // Users
-  USER_VIEW:               'user:view',
-  USER_CREATE:             'user:create',
-  USER_UPDATE:             'user:update',
-  USER_DELETE:             'user:delete',
+  USER_VIEW: 'user:view',
+  USER_CREATE: 'user:create',
+  USER_UPDATE: 'user:update',
+  USER_DELETE: 'user:delete',
 } as const;
 ```
 
@@ -136,22 +136,22 @@ export const PERMISSIONS = {
 
 Derived from [`src/db/seeds/rbac.ts`](../src/db/seeds/rbac.ts). ✅ = granted, — = not granted.
 
-| Permission | SuperAdmin | Org Manager | Org Member | Project Manager | Project Translator | Project Observer |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `project:view` | ✅ | ✅ | — | ✅ | ✅ | ✅ |
-| `project:create` | ✅ | ✅ | — | ✅ | — | — |
-| `project:update` | ✅ | ✅ | — | ✅ | — | — |
-| `project:delete` | ✅ | ✅ | — | ✅ | — | — |
-| `content:view` | ✅ | ✅ | — | ✅ | ✅ | ✅ |
-| `content:assign` | ✅ | ✅ | — | ✅ | — | — |
-| `content:update` | ✅ | ✅ | — | ✅ | ✅ | — |
-| `membership:revoke` | ✅ | ✅ | — | ✅ | — | — |
-| `role:assign:project` | ✅ | ✅ | — | ✅ | — | — |
-| `role:assign:org_manager` | ✅ | — | — | — | — | — |
-| `user:view` | ✅ | ✅ | — | ✅ | ✅ | ✅ |
-| `user:create` | ✅ | ✅ | — | ✅ | — | — |
-| `user:update` | ✅ | ✅ | — | ✅ | ✅ | — |
-| `user:delete` | ✅ | — | — | — | — | — |
+| Permission                | SuperAdmin | Org Manager | Org Member | Project Manager | Project Translator | Project Observer |
+| ------------------------- | :--------: | :---------: | :--------: | :-------------: | :----------------: | :--------------: |
+| `project:view`            |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        ✅        |
+| `project:create`          |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `project:update`          |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `project:delete`          |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `content:view`            |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        ✅        |
+| `content:assign`          |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `content:update`          |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        —         |
+| `membership:revoke`       |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `role:assign:project`     |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `role:assign:org_manager` |     ✅     |      —      |     —      |        —        |         —          |        —         |
+| `user:view`               |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        ✅        |
+| `user:create`             |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
+| `user:update`             |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        —         |
+| `user:delete`             |     ✅     |      —      |     —      |        —        |         —          |        —         |
 
 > Users can view and edit their own profile regardless of role. The permissions above do not cover this.
 
@@ -164,8 +164,8 @@ When a user authenticates, their complete set of role assignments is loaded from
 ```typescript
 // src/lib/types.ts
 export interface Grant {
-  orgId:       number | null;
-  projectId:   number | null;
+  orgId: number | null;
+  projectId: number | null;
   permissions: ReadonlySet<Permission>;
 }
 ```
@@ -174,7 +174,7 @@ A **scope** defines the context of a permission check:
 
 ```typescript
 export interface AuthScope {
-  orgId?:     number | null;
+  orgId?: number | null;
   projectId?: number | null;
 }
 ```
@@ -199,11 +199,7 @@ Examples:
 Defined in [`src/lib/services/permissions/authorize.ts`](../src/lib/services/permissions/authorize.ts).
 
 ```typescript
-export function authorize(
-  user: AppPolicyUser,
-  permission: Permission,
-  scope: AuthScope
-): boolean {
+export function authorize(user: AppPolicyUser, permission: Permission, scope: AuthScope): boolean {
   return collectPermissions(user.grants, scope).has(permission);
 }
 ```
@@ -271,6 +267,7 @@ Request
 Runs globally on every request except `/api/auth/*` and `/ai-suggestions/internal/*` (which use service-key authentication via `requireServiceAuth`).
 
 Responsibilities:
+
 - Calls `auth.api.getSession()` to validate the BetterAuth session (cookie or Bearer token).
 - Looks up the application user record via email.
 - Loads all grants by calling `findGrantsByUserId()` and sets them on the request context.
@@ -278,6 +275,7 @@ Responsibilities:
 - Handles mobile session rolling: if `isMobile=true` and session has less than 30 days remaining, extends expiry by 60 days (throttled to once per 24h).
 
 If a Bearer token is provided but invalid, returns granular errors:
+
 - `401 Invalid or revoked session token` — token not in DB
 - `401 Session token has expired` — token exists but past `expiresAt`
 
@@ -292,16 +290,16 @@ Used explicitly on routes that require an authenticated user. Checks that `c.get
 [`src/middlewares/role-auth.ts`](../src/middlewares/role-auth.ts)
 
 ```typescript
-export function requirePermission(permission: Permission, resolveScope?: ScopeResolver)
+export function requirePermission(permission: Permission, resolveScope?: ScopeResolver);
 ```
 
 Coarse gate — checks whether the user holds the given permission in any applicable grant.
 
 **Behaviour differs based on whether `resolveScope` is provided:**
 
-| Call form | Check performed |
-|---|---|
-| `requirePermission(PERMISSIONS.X)` | `grants.some(g => g.permissions.has(X))` — scope-free: does the user hold this permission anywhere? |
+| Call form                                        | Check performed                                                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `requirePermission(PERMISSIONS.X)`               | `grants.some(g => g.permissions.has(X))` — scope-free: does the user hold this permission anywhere?  |
 | `requirePermission(PERMISSIONS.X, resolveScope)` | `authorize(user, X, scope)` — scope-aware: does the user hold this permission in the resolved scope? |
 
 The scope-free form is used when the specific resource is not yet known (e.g. before loading the record from the DB). The full scope check is then enforced in Layer 4.
@@ -330,17 +328,17 @@ export function canAssignRole(
   targetRoleName: string,
   orgId: number,
   projectId: number | null
-): boolean
+): boolean;
 ```
 
-| Target Role | Required Permission | Additional Constraint |
-|---|---|---|
-| `SuperAdmin` | `role:assign:org_manager` | Caller must also have a global grant (`orgId=null, projectId=null`) |
-| `Org Manager` | `role:assign:org_manager` | Checked at the given `orgId` scope |
-| `Org Member` | `user:create` OR `role:assign:project` OR `role:assign:org_manager` | Any of these at the given scope |
-| `Project Manager` | `role:assign:project` | `projectId` must not be null |
-| `Project Translator` | `role:assign:project` | `projectId` must not be null |
-| `Project Observer` | `role:assign:project` | `projectId` must not be null |
+| Target Role          | Required Permission                                                 | Additional Constraint                                               |
+| -------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `SuperAdmin`         | `role:assign:org_manager`                                           | Caller must also have a global grant (`orgId=null, projectId=null`) |
+| `Org Manager`        | `role:assign:org_manager`                                           | Checked at the given `orgId` scope                                  |
+| `Org Member`         | `user:create` OR `role:assign:project` OR `role:assign:org_manager` | Any of these at the given scope                                     |
+| `Project Manager`    | `role:assign:project`                                               | `projectId` must not be null                                        |
+| `Project Translator` | `role:assign:project`                                               | `projectId` must not be null                                        |
+| `Project Observer`   | `role:assign:project`                                               | `projectId` must not be null                                        |
 
 ---
 
@@ -354,12 +352,12 @@ They are called after the coarse `requirePermission()` gate and always receive t
 
 [`src/domains/projects/project.policy.ts`](../src/domains/projects/project.policy.ts)
 
-| Method | Logic |
-|---|---|
-| `list(user)` | True if user holds `project:view` in any grant. |
+| Method                                      | Logic                                                                                                                                                           |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list(user)`                                | True if user holds `project:view` in any grant.                                                                                                                 |
 | `read(user, project, isAssignedToProject?)` | `project:view` at `{orgId, projectId}` scope, OR the user is assigned to the project (allows translators to see their own projects without a broad view grant). |
-| `update(user, project)` | `project:update` at `{orgId, projectId}` scope. |
-| `delete(user, project)` | `project:delete` at `{orgId, projectId}` scope. |
+| `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                 |
+| `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                 |
 
 Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check returns `404 Project not found` rather than `403` to avoid leaking project existence.
 
@@ -367,13 +365,13 @@ Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](..
 
 [`src/domains/users/user.policy.ts`](../src/domains/users/user.policy.ts)
 
-| Method | Logic |
-|---|---|
-| `list(user)` | True if user holds `user:view` in any grant. |
-| `create(user)` | True if user holds `user:create` in any grant. |
-| `view(user, target)` | Self-access always allowed. Otherwise `user:view` at global scope or at any org the target belongs to. |
-| `update(user, target)` | Self-access always allowed. Otherwise `user:update` at global scope or at any shared org. |
-| `delete(user, target)` | `user:delete` at global scope only — SuperAdmin only. |
+| Method                 | Logic                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `list(user)`           | True if user holds `user:view` in any grant.                                                           |
+| `create(user)`         | True if user holds `user:create` in any grant.                                                         |
+| `view(user, target)`   | Self-access always allowed. Otherwise `user:view` at global scope or at any org the target belongs to. |
+| `update(user, target)` | Self-access always allowed. Otherwise `user:update` at global scope or at any shared org.              |
+| `delete(user, target)` | `user:delete` at global scope only — SuperAdmin only.                                                  |
 
 ### ChapterAssignmentPolicy
 
@@ -381,27 +379,27 @@ Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](..
 
 The most complex policy. The `edit` method enforces assignment-position rules and workflow-stage gates.
 
-| Method | Required Permission | Additional Constraint |
-|---|---|---|
-| `view` | `content:view` at scope | OR user is a project member |
-| `create` | `content:assign` at scope | — |
-| `update` | `content:assign` at scope | — |
-| `delete` | `content:assign` at scope | — |
-| `deleteAll` | `content:assign` at scope | — |
-| `assignAll` | `content:assign` at scope | — |
-| `assign` | `content:assign` at scope | — |
-| `submit` | Delegates to `edit` | — |
+| Method               | Required Permission       | Additional Constraint                                                                                                           |
+| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `view`               | `content:view` at scope   | OR user is a project member                                                                                                     |
+| `create`             | `content:assign` at scope | —                                                                                                                               |
+| `update`             | `content:assign` at scope | —                                                                                                                               |
+| `delete`             | `content:assign` at scope | —                                                                                                                               |
+| `deleteAll`          | `content:assign` at scope | —                                                                                                                               |
+| `assignAll`          | `content:assign` at scope | —                                                                                                                               |
+| `assign`             | `content:assign` at scope | —                                                                                                                               |
+| `submit`             | Delegates to `edit`       | —                                                                                                                               |
 | `edit` (translators) | `content:update` at scope | Status `draft`: must be `assignedUserId`. Status `peer_check`: must be `peerCheckerId`. Post-peer statuses: any project member. |
-| `edit` (managers) | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`. |
-| `toggleAi` | `content:assign` | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`) |
-| `isParticipant` | Delegates to `edit` | — |
+| `edit` (managers)    | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                      |
+| `toggleAi`           | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                       |
+| `isParticipant`      | Delegates to `edit`       | —                                                                                                                               |
 
 ### AiSuggestionsPolicy
 
 [`src/domains/ai-suggestions/ai-suggestions.policy.ts`](../src/domains/ai-suggestions/ai-suggestions.policy.ts)
 
-| Method | Logic |
-|---|---|
+| Method                                | Logic                                                             |
+| ------------------------------------- | ----------------------------------------------------------------- |
 | `canAccessProjectUnit(user, context)` | `project:view` OR `content:update` at `{orgId, projectId}` scope. |
 
 ---
@@ -439,6 +437,7 @@ export const orgFromBody: ScopeResolver = async (c) => {
 Set on the request context by the `authenticate` middleware. Represents the user's currently active organization for the session.
 
 Resolution order:
+
 1. `auth_session.active_org_id` if set.
 2. Falls back to `users.last_active_org_id` if the session column is null (and backfills the session column in that case).
 
@@ -489,11 +488,11 @@ No user records are created or rolled back. The `grantRole` call uses `onConflic
 
 The inviter can only assign roles they are authorized to grant, as enforced by `canAssignRole()` (see [Role Assignment Rules](#role-assignment-rules-canassignrole)). In practice:
 
-| Inviter Role | Can Assign |
-|---|---|
-| `SuperAdmin` | Any role |
-| `Org Manager` | `Org Member`, `Project Manager`, `Project Translator`, `Project Observer` |
-| `Project Manager` | `Project Translator`, `Project Observer` (within their project) |
+| Inviter Role      | Can Assign                                                                |
+| ----------------- | ------------------------------------------------------------------------- |
+| `SuperAdmin`      | Any role                                                                  |
+| `Org Manager`     | `Org Member`, `Project Manager`, `Project Translator`, `Project Observer` |
+| `Project Manager` | `Project Translator`, `Project Observer` (within their project)           |
 
 ### Project Creator Auto-Grant
 
