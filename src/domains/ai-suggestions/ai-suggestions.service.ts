@@ -17,6 +17,12 @@ import type {
 
 import { MAX_CONTEXT_VERSES_TOTAL } from './ai-suggestions.constants';
 import {
+  findVersesNeedingSuggestions,
+  getBibleTextLocation,
+  getChapterPericopeVerseGroups,
+  isExactlyAtAiActivationThreshold,
+} from './ai-suggestions.pericope.repository';
+import {
   checkBibleTextsExist,
   findNextUntranslatedVerses,
   getAiSuggestions as getAiSuggestionsRepo,
@@ -65,6 +71,11 @@ export async function getAiSuggestions(
   return ok({ data });
 }
 
+/**
+ * Navigation-triggered queuing (#417). The drafting views call this with the verse the
+ * translator is now on; both views share one queue, so the unit is the pericope, not a window
+ * of verses.
+ */
 export async function queueNextVerses(
   projectUnitId: number,
   bibleId: number,
@@ -86,13 +97,12 @@ export async function queueNextVerses(
       return ok({ queued: false, thresholdMet: isThresholdMet });
     }
 
-    await queueNextVersesForAssignment(
+    await queueFromVerse(
       projectUnitId,
       bibleId,
       bookCode.toUpperCase(),
       chapterNumber,
-      currentVerse,
-      env.AI_DEFAULT_LOOKAHEAD
+      currentVerse
     );
 
     return ok({ queued: true, thresholdMet: true });
@@ -102,26 +112,98 @@ export async function queueNextVerses(
   }
 }
 
-async function queueNextVersesForAssignment(
+/**
+ * The pericope the translator is in plus the one after it, never crossing into the next chapter
+ * (#417): the next chapter's first pericope is only ever queued by its own assignment-time
+ * trigger or the threshold backfill. A verse outside every pericope queues nothing.
+ *
+ * A project with no pericope set keeps the fixed look-ahead from #157/#158, since there is no
+ * pericope to size the work by.
+ */
+async function queueFromVerse(
   projectUnitId: number,
   bibleId: number,
   bookCode: string,
   chapterNumber: number,
-  currentVerse: number,
-  lookahead: number
+  currentVerse: number
 ): Promise<Result<void>> {
-  const nextVerses = await findNextUntranslatedVerses(
+  const pericopes = await getChapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+
+  if (pericopes.length === 0) {
+    const nextVerses = await findNextUntranslatedVerses(
+      projectUnitId,
+      bibleId,
+      bookCode,
+      chapterNumber,
+      currentVerse,
+      env.AI_DEFAULT_LOOKAHEAD
+    );
+    return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, nextVerses);
+  }
+
+  const index = pericopes.findIndex((verses) => verses.includes(currentVerse));
+  if (index === -1) return ok(undefined);
+
+  const wanted = pericopes.slice(index, index + 2).flat();
+  const needing = await findVersesNeedingSuggestions(
     projectUnitId,
     bibleId,
     bookCode,
     chapterNumber,
-    currentVerse,
-    lookahead
+    wanted
   );
+  return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, needing);
+}
 
-  if (nextVerses.length === 0) return ok(undefined);
+/**
+ * The first pericope of a chapter, which is the only speculative queuing #417 allows: a
+ * translator may not reach an assigned chapter for weeks, so one pericope of runway is all that
+ * is spun up ahead of them. Without a pericope set, the initial count from #158.
+ */
+async function queueFirstPericope(
+  projectUnitId: number,
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number
+): Promise<Result<void>> {
+  const pericopes = await getChapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
 
-  const jobs = nextVerses.map((verseNumber) => ({
+  const wanted =
+    pericopes.length === 0
+      ? await findNextUntranslatedVerses(
+          projectUnitId,
+          bibleId,
+          bookCode,
+          chapterNumber,
+          0,
+          env.AI_INITIAL_QUEUE_COUNT
+        )
+      : await findVersesNeedingSuggestions(
+          projectUnitId,
+          bibleId,
+          bookCode,
+          chapterNumber,
+          pericopes[0]
+        );
+
+  return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, wanted);
+}
+
+/**
+ * One job per verse, deduplicated per verse. The decision of *which* verses is pericope-level;
+ * the job stays per-verse because that is the contract fluent-ai is known to handle, and it
+ * lets a drafted verse in the middle of a pericope be left out without splitting the job.
+ */
+async function sendVerseJobs(
+  projectUnitId: number,
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number,
+  verseNumbers: number[]
+): Promise<Result<void>> {
+  if (verseNumbers.length === 0) return ok(undefined);
+
+  const jobs = verseNumbers.map((verseNumber) => ({
     projectUnitId,
     bibleId,
     bookCode,
@@ -168,6 +250,11 @@ async function queueNextVersesForAssignment(
   }
 }
 
+/**
+ * Assignment-time queuing (#417): the first pericope of the chapter, subject to both gates. The
+ * toggle check is here rather than only in the callers because #417 wants it on every enqueue,
+ * and a chapter can be assigned with AI still switched off.
+ */
 export async function handleChapterAssigned(
   projectUnitId: number,
   bibleId: number,
@@ -181,20 +268,14 @@ export async function handleChapterAssigned(
       return ok(undefined);
     }
 
-    const isThresholdMet = await hasReachedAiActivationThreshold(
-      projectUnitId,
-      env.AI_ACTIVATION_THRESHOLD_VERSES
-    );
+    const normalizedBookCode = bookCode.toUpperCase();
+    const [isThresholdMet, isAiEnabled] = await Promise.all([
+      hasReachedAiActivationThreshold(projectUnitId, env.AI_ACTIVATION_THRESHOLD_VERSES),
+      getChapterAssignmentAiStatus(projectUnitId, bibleId, normalizedBookCode, chapterNumber),
+    ]);
 
-    if (isThresholdMet) {
-      await queueNextVersesForAssignment(
-        projectUnitId,
-        bibleId,
-        bookCode.toUpperCase(),
-        chapterNumber,
-        0,
-        env.AI_INITIAL_QUEUE_COUNT
-      );
+    if (isThresholdMet && isAiEnabled) {
+      await queueFirstPericope(projectUnitId, bibleId, normalizedBookCode, chapterNumber);
     }
 
     return ok(undefined);
@@ -203,6 +284,55 @@ export async function handleChapterAssigned(
       cause: error,
       message: 'Failed to trigger initial AI queue on chapter assignment',
       context: { projectUnitId, chapterNumber },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Threshold backfill (#417). A chapter assigned before the project family reached the
+ * activation threshold got no assignment-time queuing, so the save that crosses the threshold
+ * makes up for it: the first pericope of the chapter being drafted, and of the chapter after it.
+ *
+ * Called after every draft save; it is a no-op unless this save is the crossing one. Both
+ * chapters still go through the toggle, and the next chapter is skipped unless it is actually
+ * assigned in this project unit. Duplicate sends from two saves racing on the threshold are
+ * absorbed by the per-verse singletonKey.
+ */
+export async function handleThresholdCrossed(
+  projectUnitId: number,
+  bibleTextId: number
+): Promise<Result<void>> {
+  try {
+    const crossed = await isExactlyAtAiActivationThreshold(
+      projectUnitId,
+      env.AI_ACTIVATION_THRESHOLD_VERSES
+    );
+    if (!crossed) return ok(undefined);
+
+    const location = await getBibleTextLocation(bibleTextId);
+    if (!location) return ok(undefined);
+
+    const bookCode = location.bookCode.toUpperCase();
+    for (const chapterNumber of [location.chapterNumber, location.chapterNumber + 1]) {
+      const isAiEnabled = await getChapterAssignmentAiStatus(
+        projectUnitId,
+        location.bibleId,
+        bookCode,
+        chapterNumber
+      );
+      // null is "not assigned in this unit"; false is the toggle. Neither gets queued.
+      if (isAiEnabled !== true) continue;
+
+      await queueFirstPericope(projectUnitId, location.bibleId, bookCode, chapterNumber);
+    }
+
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to backfill AI queue on threshold crossing',
+      context: { projectUnitId, bibleTextId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

@@ -1,6 +1,8 @@
 import { db } from '@/db';
 import { verseMarkersSchema } from '@/db/schema';
+import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
+import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
 import type {
@@ -57,6 +59,23 @@ export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
   });
 
   if (!result.ok) return result;
+
+  // #417: the save that pushes the project family over the AI activation threshold backfills the
+  // queuing that assignment-time never got to do. Runs after the transaction has committed, and a
+  // failure here must not turn an already-saved draft into an error for the translator.
+  try {
+    await aiSuggestionsService.handleThresholdCrossed(
+      result.data.projectUnitId,
+      result.data.bibleTextId
+    );
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'AI threshold backfill failed after draft save',
+      context: { projectUnitId: result.data.projectUnitId, bibleTextId: result.data.bibleTextId },
+    });
+  }
+
   return ok(toTranslatedVerseResponse(result.data));
 }
 
