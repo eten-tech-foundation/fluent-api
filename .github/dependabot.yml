@@ -30,3 +30,61 @@ updates:
       - dependencies
     commit-message:
       prefix: build(deps)
+
+  # The npm ecosystem had no entry here until now, which did not stop npm
+  # bumps from arriving -- Dependabot security updates run off the alert feed
+  # and ignore this file entirely. Every npm pull request this repo has ever
+  # seen came in that way. The cost was invisible until it wasn't:
+  #
+  #   * no routine version updates at all, so dependencies only ever moved
+  #     when an advisory forced them;
+  #   * one pull request per advisory, ungrouped and without the cooldown
+  #     above, which is the same sprawl the github-actions groups exist to
+  #     prevent;
+  #   * `@dependabot rebase` fails on those pull requests. The rebase path
+  #     looks for the ecosystem's entry in this file, does not find one, and
+  #     reports that the entry "has been deleted" -- which sends you to close
+  #     a perfectly good pull request. Closing it teaches Dependabot the
+  #     release was declined and it stops offering that fix, which is how the
+  #     axios and better-auth advisories ended up with no open pull request.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    # Bump the minimum of whatever specification already exists, rather than
+    # widening it into a range. An exact pin stays exact -- which is most of
+    # package.json -- and the handful of caret ranges (@aws-sdk/*, better-auth,
+    # bcryptjs) keep their caret at a higher floor. This does not convert a
+    # range into a pin: tightening those is a package.json edit, not something
+    # a Dependabot setting can do.
+    versioning-strategy: increase
+    groups:
+      # Minor and patch only. Majors are deliberately left ungrouped so each
+      # one arrives as its own pull request with its own changelog to read.
+      npm-production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      npm-development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+      # Same reasoning as github-actions-security above: advisories arrive as
+      # a separate update type and default to a pull request each.
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
