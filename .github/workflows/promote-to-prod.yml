@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'QA-approved release tag to promote (e.g. v26.08.3)'
+        description: QA-approved release tag to promote (e.g. v26.08.3)
         required: true
         type: string
       skip_qa_check:
@@ -49,6 +49,10 @@ jobs:
             exit 1
           fi
 
+      # Resolved through `git/ref/tags/` rather than `commits/{ref}`, which
+      # accepts an unqualified name and so would happily resolve a BRANCH
+      # called v26.08.3 -- a CalVer-shaped branch name passes the regex above.
+      # Only a real tag may be promoted.
       - name: Resolve tag to a commit
         id: resolve
         env:
@@ -56,10 +60,19 @@ jobs:
           TAG: ${{ inputs.tag }}
           REPO: ${{ github.repository }}
         run: |
-          sha=$(gh api "repos/$REPO/commits/$TAG" --jq '.sha') || {
-            echo "::error::Tag '$TAG' does not exist in $REPO."
+          object=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha') || {
+            echo "::error::No tag '$TAG' in $REPO. A branch of that name is not promotable."
             exit 1
           }
+          read -r type sha <<< "$object"
+
+          # `git tag` makes a lightweight tag, which points straight at the
+          # commit. An annotated one (`git tag -a`) points at a tag object that
+          # has to be dereferenced first.
+          if [ "$type" = "tag" ]; then
+            sha=$(gh api "repos/$REPO/git/tags/$sha" --jq '.object.sha')
+          fi
+
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "Tag '$TAG' is $sha."
@@ -115,4 +128,3 @@ jobs:
       verify_delay: 45
       verify_attempts: 12
       verify_interval: 15
-    secrets: inherit

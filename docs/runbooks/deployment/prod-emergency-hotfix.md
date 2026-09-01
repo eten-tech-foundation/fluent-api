@@ -2,10 +2,13 @@
 
 If production is broken and there is no pending QA cycle, you must branch directly from the tag currently live in production.
 
-1. Verify the current production tag (e.g. `v26.07.1`):
+1. Verify the tag currently live in production:
    ```bash
-   curl -s https://fluent-server-prod.azurewebsites.net/health | jq .version
+   curl -s https://fluent-server-prod.azurewebsites.net/health | jq -r .version
+   # Prints the version WITHOUT the leading v, e.g. 26.07.1
    ```
+   Every step below wants the git tag, so put the `v` back: `26.07.1` here
+   means the live tag is `v26.07.1`.
 2. Identify the latest tag for the current month to determine the next serial:
    ```bash
    # Example output: v26.07.1
