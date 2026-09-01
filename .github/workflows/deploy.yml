@@ -1,0 +1,161 @@
+# Migrates the database and deploys the built package to one Azure Web App.
+#
+# Every deploy in this repo goes through here -- dev on merge to main, QA on a
+# tag, and prod from `promote-to-prod.yml`. The three copies this replaces had
+# already drifted (different verify timings, one hard-coded publish-profile
+# secret left over from the `scribe-server-dev` days), and a drifted deploy job
+# is a QA stage that exercises something prod won't ship.
+#
+# Migrate and deploy are one job, not two. Two jobs on the same environment
+# means the production reviewer is prompted twice for a single release, and an
+# approver who waves through `migrate` has already changed the prod schema
+# before anyone decides whether the code should ship.
+#
+# Secrets resolve from the GitHub Environment named by `environment`, so each
+# environment supplies the same secret NAMES with its own values. Do not
+# reintroduce `_DEV`/`_QA`/`_PROD` suffixes -- the environment is the scope.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out for the migration step. Must match the ref the artifact was built from.
+        required: true
+        type: string
+      environment:
+        description: 'GitHub Environment supplying the secrets: Development | QA | Production'
+        required: true
+        type: string
+      app_name:
+        description: Azure Web App to deploy to
+        required: true
+        type: string
+      artifact:
+        description: 'Artifact to deploy, uploaded by build.yml earlier in this run'
+        required: false
+        type: string
+        default: node-app
+      expect_version:
+        description: 'Version /health must report after deploy, without the leading v. Empty skips the assertion (dev builds have no tag).'
+        required: false
+        type: string
+        default: ''
+      verify_delay:
+        description: Seconds to wait before the first health check
+        required: false
+        type: number
+        default: 30
+      verify_attempts:
+        description: Number of health check attempts
+        required: false
+        type: number
+        default: 10
+      verify_interval:
+        description: Seconds between health check attempts
+        required: false
+        type: number
+        default: 10
+    outputs:
+      url:
+        description: URL of the deployed Web App
+        value: ${{ jobs.deploy.outputs.url }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    # Serialise per environment, so two tags cut in quick succession cannot
+    # race the same Web App or the same database. Queue rather than cancel: a
+    # migration killed midway leaves the schema in an unknown state.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    outputs:
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Node.js version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+        env:
+          CXXFLAGS: '-std=c++20'
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL is not set on the $ENVIRONMENT environment."
+            exit 1
+          fi
+          npm run db:migrate
+
+      - name: Download artifact from build job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact }}
+          path: deployment/
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
+        with:
+          app-name: ${{ inputs.app_name }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+          package: deployment/
+          clean: true
+
+      # Checks /health rather than /, because /health also reports the running
+      # version. Azure serves the OLD app on / for a while after a deploy, so a
+      # 200 there proves only that something is up; matching the version proves
+      # the deploy actually landed.
+      - name: Verify deployment
+        env:
+          URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          DELAY: ${{ inputs.verify_delay }}
+          ATTEMPTS: ${{ inputs.verify_attempts }}
+          INTERVAL: ${{ inputs.verify_interval }}
+        run: |
+          sleep "$DELAY"
+          for i in $(seq 1 "$ATTEMPTS"); do
+            body=$(curl -fsS --max-time 20 "$URL/health" 2>/dev/null || true)
+            if [ -n "$body" ]; then
+              actual=$(printf '%s' "$body" | jq -r '.version // empty')
+              if [ -z "$EXPECT_VERSION" ]; then
+                echo "$ENVIRONMENT deployment successful (version $actual)"
+                exit 0
+              elif [ "$actual" = "$EXPECT_VERSION" ]; then
+                echo "$ENVIRONMENT deployment successful (version $actual)"
+                exit 0
+              else
+                echo "Health check reports version '$actual', waiting for '$EXPECT_VERSION'."
+              fi
+            else
+              echo "App not ready yet (attempt $i/$ATTEMPTS)."
+            fi
+            sleep "$INTERVAL"
+          done
+          echo "::error::$ENVIRONMENT deployment verification failed."
+          exit 1
