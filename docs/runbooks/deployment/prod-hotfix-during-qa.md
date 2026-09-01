@@ -33,4 +33,6 @@ If a bug is found in a tag that's currently mid-QA (before it reaches full produ
 > [!WARNING]
 > **Tag format must be exactly `vYY.MM.SERIAL`** (e.g. `v26.07.4`, not `v26.7.4`). The deploy workflow validates this with a strict regex and will reject malformed tags.
 
-6. The tag push will automatically trigger the deployment workflow.
+6. The tag push deploys to **QA**, not production. Re-run QA against the new
+   tag, then ship it with **Promote to Production** (step 3 of
+   [`prod-release-cut.md`](prod-release-cut.md)).

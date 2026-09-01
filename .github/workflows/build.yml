@@ -1,0 +1,99 @@
+# Builds the deployable package once, for one git ref.
+#
+# Both deploy paths call this: `post-merge-deploy.yml` on a push to main or a
+# tag, and `promote-to-prod.yml` on a tag being promoted. It used to be copied
+# verbatim into each of them, which is worse than untidy -- two copies of a
+# build step drift, and a drifted build means production ships something QA
+# never built.
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref (tag, branch or SHA) to build'
+        required: true
+        type: string
+      version:
+        description: 'Version to write into package.json, without the leading v. Empty leaves package.json alone (dev builds off main).'
+        required: false
+        type: string
+        default: ''
+      artifact:
+        description: 'Name of the uploaded artifact'
+        required: false
+        type: string
+        default: node-app
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Node.js version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      # `npm start` on Azure sets process.env.npm_package_version from this,
+      # which is what /health reports and what the deploy verification asserts.
+      - name: Set version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          jq ".version = \"$VERSION\"" package.json > tmp.json && mv tmp.json package.json
+          echo "package.json version set to $(jq -r .version package.json)"
+
+      - name: Install all dependencies
+        run: npm install --legacy-peer-deps
+        env:
+          CXXFLAGS: '-std=c++20'
+
+      - name: Lint and format check
+        run: |
+          npm run lint
+          npm run format:check
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Create deployment package directory
+        run: |
+          mkdir -p deployment
+          cp -r dist deployment/
+          cp package.json deployment/
+          cp package-lock.json deployment/ || true
+
+      - name: Install production dependencies
+        run: |
+          cd deployment
+          npm install --prod --legacy-peer-deps
+        env:
+          CXXFLAGS: '-std=c++20'
+
+      - name: Add WebJob to deployment package
+        run: |
+          export WEBJOB_ROOT=deployment
+          node scripts/setup-webjob.js
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact }}
+          path: deployment/
