@@ -64,7 +64,6 @@ jobs:
       ref: ${{ github.sha }}
       environment: Development
       app_name: scribe-server-dev
-    secrets: inherit
 
   deploy-qa:
     if: github.ref_type == 'tag'
@@ -75,4 +74,3 @@ jobs:
       environment: QA
       app_name: fluent-server-qa
       expect_version: ${{ needs.meta.outputs.version }}
-    secrets: inherit

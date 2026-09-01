@@ -20,7 +20,7 @@ on:
         type: string
         default: ''
       artifact:
-        description: 'Name of the uploaded artifact'
+        description: Name of the uploaded artifact
         required: false
         type: string
         default: node-app
