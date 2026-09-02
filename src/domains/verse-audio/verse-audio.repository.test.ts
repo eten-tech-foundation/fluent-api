@@ -12,6 +12,7 @@ vi.mock('@/db', () => ({
     insert: vi.fn(),
     select: vi.fn(),
     update: vi.fn(),
+    transaction: vi.fn(),
   },
 }));
 
@@ -27,9 +28,11 @@ vi.mock('@/lib/logger', () => ({
   logger: { error: vi.fn() },
 }));
 
-const foreignKeyRace = new Error('query failed', {
-  cause: { code: '23503' },
-});
+function foreignKeyRace(constraint: string) {
+  return new Error('query failed', {
+    cause: { code: '23503', constraint },
+  });
+}
 
 describe('verse-audio repository', () => {
   beforeEach(() => {
@@ -54,7 +57,7 @@ describe('verse-audio repository', () => {
 
   it('maps a reclaimed storage object during take insert to 409', async () => {
     vi.mocked(db.insert).mockImplementation(() => {
-      throw foreignKeyRace;
+      throw foreignKeyRace('verse_audio_takes_storage_object_id_storage_objects_id_fk');
     });
 
     const result = await repo.insertTake({
@@ -70,9 +73,27 @@ describe('verse-audio repository', () => {
     expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
   });
 
+  it('maps a missing recording FK during take insert to 404', async () => {
+    vi.mocked(db.insert).mockImplementation(() => {
+      throw foreignKeyRace('verse_audio_takes_recording_id_verse_audio_recordings_id_fk');
+    });
+
+    const result = await repo.insertTake({
+      recordingId: 1,
+      uploadedBy: 2,
+      storageObjectId: 3,
+      contentType: 'audio/mp4',
+      sizeBytes: 4,
+      durationSeconds: null,
+      contentHash: 'a'.repeat(64),
+    });
+
+    expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
+  });
+
   it('maps a reclaimed storage object during first recording insert to 409', async () => {
     vi.mocked(db.insert).mockImplementation(() => {
-      throw foreignKeyRace;
+      throw foreignKeyRace('verse_audio_recordings_storage_object_id_storage_objects_id_fk');
     });
 
     const result = await repo.insertRecording({
@@ -93,7 +114,7 @@ describe('verse-audio repository', () => {
 
   it('maps a pruned active take during conditional promotion to 409', async () => {
     vi.mocked(db.update).mockImplementation(() => {
-      throw foreignKeyRace;
+      throw foreignKeyRace('verse_audio_recordings_active_take_id_verse_audio_takes_id_fk');
     });
 
     const result = await repo.updateRecordingStateIfVersion(1, 2, {

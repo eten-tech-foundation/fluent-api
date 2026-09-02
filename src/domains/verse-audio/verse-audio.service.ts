@@ -247,7 +247,8 @@ export async function uploadRecording(
     return existing;
   }
 
-  // First recording for this unit — create clean unit + take.
+  // First recording for this unit — create clean unit + take in one transaction
+  // so a concurrent GET cannot observe takes:[] while downloadUrl still works.
   if (!existing.ok) {
     const stored = await storeTakeBytes(
       input.projectUnitId,
@@ -260,76 +261,40 @@ export async function uploadRecording(
       return stored;
     }
 
-    // Insert-only: concurrent first-upload races reload the winner, never overwrite.
-    const created = await repo.insertRecording({
-      projectUnitId: input.projectUnitId,
-      bibleTextId: input.bibleTextId,
-      uploadedBy: input.uploadedBy,
-      storageObjectId: stored.data.storageObjectId,
-      contentType: input.contentType,
-      sizeBytes: input.data.length,
-      durationSeconds,
-      versionToken: 1,
-      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
-      activeTakeId: null,
-    });
-    if (!created.ok) {
-      return created;
-    }
-
-    const take = await repo.insertTake({
-      recordingId: created.data.id,
-      uploadedBy: input.uploadedBy,
-      storageObjectId: stored.data.storageObjectId,
-      contentType: input.contentType,
-      sizeBytes: input.data.length,
-      durationSeconds,
-      contentHash,
-    });
-    if (!take.ok) {
-      return take;
-    }
-
-    // If another writer already finished this unit, keep their active take and
-    // surface our take as a conflict instead of clobbering version state.
-    // Identical bytes that reloaded the winner's own active take are idempotent.
-    if (created.data.activeTakeId !== null || created.data.versionToken !== 1) {
-      if (take.data.id === created.data.activeTakeId) {
-        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
-      }
-      const marked = await repo.markConflictPreservingActive(created.data.id);
-      if (!marked.ok) {
-        return marked;
-      }
-      return loadUnitResponse(input.projectUnitId, input.bibleTextId);
-    }
-
-    const linked = await repo.updateRecordingStateIfVersion(
-      created.data.id,
-      1,
+    const created = await repo.createFirstRecordingWithTake(
       {
-        activeTakeId: take.data.id,
+        projectUnitId: input.projectUnitId,
+        bibleTextId: input.bibleTextId,
         uploadedBy: input.uploadedBy,
         storageObjectId: stored.data.storageObjectId,
         contentType: input.contentType,
         sizeBytes: input.data.length,
         durationSeconds,
-        versionToken: 2,
+        versionToken: 1,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: null,
       },
-      { requireNullActiveTake: true }
-    );
-    if (!linked.ok) {
-      return linked;
-    }
-    if (!linked.data.applied) {
-      // Same-bytes race: winner already linked our take (via onConflictDoNothing).
-      const current = await repo.get(input.projectUnitId, input.bibleTextId);
-      if (current.ok && current.data.activeTakeId === take.data.id) {
-        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+      {
+        uploadedBy: input.uploadedBy,
+        storageObjectId: stored.data.storageObjectId,
+        contentType: input.contentType,
+        sizeBytes: input.data.length,
+        durationSeconds,
+        contentHash,
       }
-      const marked = await repo.markConflictPreservingActive(created.data.id);
-      if (!marked.ok) {
-        return marked;
+    );
+    if (!created.ok) {
+      return created;
+    }
+
+    // Race loser: keep the winner's active take and surface ours as a conflict,
+    // unless the identical bytes already became active (idempotent retry).
+    if (created.data.outcome === 'concurrent') {
+      if (created.data.take.id !== created.data.record.activeTakeId) {
+        const marked = await repo.markConflictPreservingActive(created.data.record.id);
+        if (!marked.ok) {
+          return marked;
+        }
       }
     }
 
@@ -346,6 +311,20 @@ export async function uploadRecording(
   const tokenSupplied = input.baseVersionToken !== undefined;
   const baseMatches = tokenSupplied && input.baseVersionToken === unit.versionToken;
   const legacyReplace = !tokenSupplied;
+
+  if (legacyReplace) {
+    // Temporary escape hatch for un-upgraded clients. Count/log so we can retire
+    // it once mobile builds all send baseVersionToken.
+    logger.info(
+      {
+        event: 'verse_audio_upload_legacy_no_token',
+        projectUnitId: input.projectUnitId,
+        bibleTextId: input.bibleTextId,
+        recordingId: unit.id,
+      },
+      'Verse audio upload omitted baseVersionToken; using deprecated legacy replace'
+    );
+  }
 
   // Idempotent retry / intentional revert onto an existing take's bytes.
   const duplicate = await repo.findTakeByContentHash(unit.id, contentHash);
@@ -382,10 +361,9 @@ export async function uploadRecording(
       return loadUnitResponse(input.projectUnitId, input.bibleTextId);
     }
 
-    const marked = await repo.markConflictPreservingActive(unit.id);
-    if (!marked.ok) {
-      return marked;
-    }
+    // Stale token + duplicate of a non-active take: no new contender was added.
+    // Returning current state (rather than markConflictPreservingActive) preserves
+    // a concurrent /resolve that already adjudicated these same takes.
     return loadUnitResponse(input.projectUnitId, input.bibleTextId);
   }
 

@@ -36,6 +36,8 @@ For optional fields that change write semantics (e.g. `baseVersionToken`):
 
 None of these clears an existing conflict; see concurrency rule 5.
 
+The omitted-token legacy path is a **deprecated** compatibility hatch. Upload logs `verse_audio_upload_legacy_no_token` so we can measure remaining use before removing it.
+
 - Document all four in OpenAPI and add a legacy-client test (omitted field).
 - Route parsing: empty form fields coerce to `0` — treat `''` as absent and require tokens `>= 1`. Where the framework validates a body it never sees (multipart read through `parseBody`), the declared schema is documentation only: validate in the handler.
 

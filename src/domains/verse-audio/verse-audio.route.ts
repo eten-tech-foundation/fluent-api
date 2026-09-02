@@ -143,7 +143,7 @@ const uploadVerseAudioRoute = createRoute({
   },
   summary: 'Upload an audio take for a verse',
   description:
-    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients; a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it — an upload can become the active take but never settles the conflict on its own.',
+    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients (deprecated escape hatch — logged as verse_audio_upload_legacy_no_token until mobile builds all send the field); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it — an upload can become the active take but never settles the conflict on its own.',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {

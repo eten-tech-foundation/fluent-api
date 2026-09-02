@@ -20,6 +20,7 @@ import {
   users,
 } from '@/db/schema';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
@@ -458,7 +459,7 @@ export async function findAssignmentsProgress(
             AND bt.bible_id = ${chapter_assignments.bibleId}
             AND bt.book_id = ${chapter_assignments.bookId}
             AND bt.chapter_number = ${chapter_assignments.chapterNumber}
-            AND var.conflict_status = 'conflict'
+            AND var.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CONFLICT}
         )`.mapWith(Boolean),
       })
       .from(chapter_assignments)

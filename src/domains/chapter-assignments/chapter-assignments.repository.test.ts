@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { chapter_assignments } from '@/db/schema';
+import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -74,6 +75,62 @@ describe('chapter-assignments.repository claim helpers', () => {
 
       expect(result).toEqual({ ok: true, data: assignment });
       expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
+    });
+  });
+
+  describe('findAssignmentsProgress hasConflict rollup', () => {
+    it('wires the verse-audio conflict-status constant into the rollup', async () => {
+      // Guards against renaming VERSE_AUDIO_CONFLICT_STATUS.CONFLICT without
+      // updating the raw SQL rollup in findAssignmentsProgress.
+      expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
+
+      const orderBy = vi.fn().mockResolvedValue([
+        {
+          assignmentId: 1,
+          projectId: 3,
+          projectName: 'P',
+          projectUnitId: 12,
+          bibleId: 9,
+          bibleName: 'B',
+          bookId: 1,
+          bookCode: 'JHN',
+          bookNameEng: 'John',
+          chapterNumber: 3,
+          status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+          targetLanguage: 'en',
+          targetLangCode: 'eng',
+          sourceLangCode: 'grc',
+          totalVerses: 1,
+          completedVerses: 0,
+          assignedUserId: 5,
+          assignedUserDisplayName: 'u',
+          peerCheckerId: null,
+          peerCheckerDisplayName: null,
+          submittedTime: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isAiEnabled: false,
+          hasClaimConflict: false,
+          claimConflictUserId: null,
+          hasConflict: true,
+        },
+      ]);
+      const groupBy = vi.fn().mockReturnValue({ orderBy });
+      const selectChain = {
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn().mockReturnThis(),
+        leftJoin: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        groupBy,
+      };
+      vi.mocked(db.select).mockReturnValue(selectChain as any);
+
+      const result = await repo.findAssignmentsProgress({ projectId: 3 });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data[0]?.hasConflict).toBe(true);
+      }
     });
   });
 

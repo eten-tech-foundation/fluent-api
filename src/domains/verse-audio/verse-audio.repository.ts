@@ -4,7 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/schema';
-import { hasPostgresErrorCode } from '@/lib/db-errors';
+import { getPostgresConstraintName, hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -17,6 +17,25 @@ import type {
 } from './verse-audio.types';
 
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
+
+/** Storage-object FKs that fail when reclaim races an insert/promotion. */
+const RETRYABLE_STORAGE_FK_CONSTRAINTS = new Set([
+  'verse_audio_takes_storage_object_id_storage_objects_id_fk',
+  'verse_audio_recordings_storage_object_id_storage_objects_id_fk',
+  'verse_audio_recordings_active_take_id_verse_audio_takes_id_fk',
+]);
+
+function mapForeignKeyViolation(error: unknown): Result<never> {
+  const constraint = getPostgresConstraintName(error) ?? '';
+  if (RETRYABLE_STORAGE_FK_CONSTRAINTS.has(constraint) || constraint.includes('storage_object')) {
+    // Reclamation / prune deleted the referenced row; safe to reload and retry.
+    return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+  }
+  if (constraint.includes('recording_id')) {
+    return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+  }
+  return err(ErrorCode.INTERNAL_ERROR);
+}
 
 const recordSelection = {
   id: verse_audio_recordings.id,
@@ -216,10 +235,8 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
       message: 'Failed to insert verse audio take',
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
-    // Reclamation can delete the claimed storage row immediately before this
-    // FK insert. No metadata committed, so the request is safe to retry.
     if (hasPostgresErrorCode(error, '23503')) {
-      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+      return mapForeignKeyViolation(error);
     }
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -261,7 +278,172 @@ export async function insertRecording(
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
     if (hasPostgresErrorCode(error, '23503')) {
-      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+      return mapForeignKeyViolation(error);
+    }
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export type FirstRecordingOutcome = 'created' | 'concurrent' | 'link-conflict';
+
+/**
+ * First-upload path as one transaction: insert recording + take + optional
+ * active-take link. Prevents a GET between those writes from returning
+ * `takes: []` while `downloadUrl` still resolves via `storageObjectId`.
+ */
+export async function createFirstRecordingWithTake(
+  recording: UpsertVerseAudioInput,
+  takeInput: Omit<InsertTakeInput, 'recordingId'>
+): Promise<
+  Result<{ outcome: FirstRecordingOutcome; record: VerseAudioRecord; take: VerseAudioTakeRecord }>
+> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(verse_audio_recordings)
+        .values(recording)
+        .onConflictDoNothing({
+          target: [verse_audio_recordings.projectUnitId, verse_audio_recordings.bibleTextId],
+        })
+        .returning();
+
+      let recordingId: number;
+      let concurrent = false;
+
+      if (!inserted) {
+        const [existing] = await tx
+          .select(recordSelection)
+          .from(verse_audio_recordings)
+          .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+          .where(
+            and(
+              eq(verse_audio_recordings.projectUnitId, recording.projectUnitId),
+              eq(verse_audio_recordings.bibleTextId, recording.bibleTextId)
+            )
+          )
+          .limit(1);
+
+        if (!existing) {
+          return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+        }
+        recordingId = existing.id;
+        concurrent = true;
+      } else {
+        recordingId = inserted.id;
+      }
+
+      const [takeRow] = await tx
+        .insert(verse_audio_takes)
+        .values({ ...takeInput, recordingId })
+        .onConflictDoNothing({
+          target: [verse_audio_takes.recordingId, verse_audio_takes.contentHash],
+        })
+        .returning();
+
+      let take: VerseAudioTakeRecord;
+      if (takeRow) {
+        take = takeRow;
+      } else {
+        const [existingTake] = await tx
+          .select(takeSelection)
+          .from(verse_audio_takes)
+          .where(
+            and(
+              eq(verse_audio_takes.recordingId, recordingId),
+              eq(verse_audio_takes.contentHash, takeInput.contentHash)
+            )
+          )
+          .limit(1);
+        if (!existingTake) {
+          return err(ErrorCode.INTERNAL_ERROR);
+        }
+        take = existingTake;
+      }
+
+      const loadRecord = async (): Promise<Result<VerseAudioRecord>> => {
+        const [row] = await tx
+          .select(recordSelection)
+          .from(verse_audio_recordings)
+          .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+          .where(eq(verse_audio_recordings.id, recordingId))
+          .limit(1);
+        if (!row) {
+          return err(ErrorCode.INTERNAL_ERROR);
+        }
+        return ok(row as VerseAudioRecord);
+      };
+
+      if (concurrent) {
+        const current = await loadRecord();
+        if (!current.ok) {
+          return current;
+        }
+        return ok({ outcome: 'concurrent', record: current.data, take });
+      }
+
+      const [linked] = await tx
+        .update(verse_audio_recordings)
+        .set({
+          activeTakeId: take.id,
+          uploadedBy: takeInput.uploadedBy,
+          storageObjectId: takeInput.storageObjectId,
+          contentType: takeInput.contentType,
+          sizeBytes: takeInput.sizeBytes,
+          durationSeconds: takeInput.durationSeconds,
+          versionToken: 2,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(verse_audio_recordings.id, recordingId),
+            eq(verse_audio_recordings.versionToken, 1),
+            isNull(verse_audio_recordings.activeTakeId)
+          )
+        )
+        .returning({ id: verse_audio_recordings.id });
+
+      if (linked) {
+        const current = await loadRecord();
+        if (!current.ok) {
+          return current;
+        }
+        return ok({ outcome: 'created', record: current.data, take });
+      }
+
+      const current = await loadRecord();
+      if (!current.ok) {
+        return current;
+      }
+      if (current.data.activeTakeId === take.id) {
+        return ok({ outcome: 'created', record: current.data, take });
+      }
+
+      await tx
+        .update(verse_audio_recordings)
+        .set({
+          conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          updatedAt: new Date(),
+        })
+        .where(eq(verse_audio_recordings.id, recordingId));
+
+      const marked = await loadRecord();
+      if (!marked.ok) {
+        return marked;
+      }
+      return ok({ outcome: 'link-conflict', record: marked.data, take });
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to create first verse audio recording with take',
+      context: {
+        projectUnitId: recording.projectUnitId,
+        bibleTextId: recording.bibleTextId,
+        sizeBytes: takeInput.sizeBytes,
+      },
+    });
+    if (hasPostgresErrorCode(error, '23503')) {
+      return mapForeignKeyViolation(error);
     }
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -282,37 +464,6 @@ export interface RecordingStatePatch {
 export interface UpdateIfVersionOptions {
   /** First-take link: only succeed while no active take is set yet. */
   requireNullActiveTake?: boolean;
-}
-
-export async function updateRecordingState(
-  recordingId: number,
-  patch: RecordingStatePatch
-): Promise<Result<VerseAudioRecord>> {
-  try {
-    const [row] = await db
-      .update(verse_audio_recordings)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(eq(verse_audio_recordings.id, recordingId))
-      .returning();
-
-    if (!row) {
-      return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
-    }
-
-    const result = await get(row.projectUnitId, row.bibleTextId);
-    if (!result.ok) {
-      return err(ErrorCode.INTERNAL_ERROR);
-    }
-
-    return ok(result.data);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to update verse audio recording state',
-      context: { recordingId, patch },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
 }
 
 /**
@@ -357,7 +508,7 @@ export async function updateRecordingStateIfVersion(
       context: { recordingId, expectedVersionToken, patch, options },
     });
     if (hasPostgresErrorCode(error, '23503')) {
-      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+      return mapForeignKeyViolation(error);
     }
     return err(ErrorCode.INTERNAL_ERROR);
   }
