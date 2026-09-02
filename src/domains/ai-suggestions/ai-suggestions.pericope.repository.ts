@@ -3,68 +3,24 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import {
-  ai_suggestions,
-  bible_texts,
-  books,
-  pericope_verses,
-  project_units,
-  projects,
-  translated_verses,
-} from '@/db/schema';
+import { ai_suggestions, bible_texts, books, project_units, translated_verses } from '@/db/schema';
 
+import { MAX_QUEUED_VERSES_PER_CALL } from './ai-suggestions.constants';
 import {
+  familyHasReachedAiActivationThreshold,
   getAiActivationFamily,
-  hasReachedAiActivationThreshold,
 } from './ai-suggestions.repository';
 
 // ─── Pericope-level queuing (#417) ────────────────────────────────────────────
 
-/**
- * The verse numbers of every pericope in a chapter, in reading order, one array per pericope.
- * Empty when the project has no pericope set or the set does not cover this chapter, which is
- * the verse-by-verse fallback the pericope view itself uses.
- */
-export async function getChapterPericopeVerseGroups(
-  projectUnitId: number,
-  bookCode: string,
-  chapterNumber: number
-): Promise<number[][]> {
+/** The project a unit belongs to, so the pericopes domain can be asked for its grouping. */
+export async function getProjectIdForProjectUnit(projectUnitId: number): Promise<number | null> {
   const [unit] = await db
-    .select({ pericopeSetId: projects.pericopeSetId })
+    .select({ projectId: project_units.projectId })
     .from(project_units)
-    .innerJoin(projects, eq(project_units.projectId, projects.id))
     .where(eq(project_units.id, projectUnitId))
     .limit(1);
-
-  if (!unit?.pericopeSetId) return [];
-
-  const rows = await db
-    .select({
-      verseNumber: pericope_verses.verseNumber,
-      section: pericope_verses.section,
-      pericopeNumber: pericope_verses.pericopeNumber,
-    })
-    .from(pericope_verses)
-    .innerJoin(books, eq(pericope_verses.bookId, books.id))
-    .where(
-      and(
-        eq(pericope_verses.pericopeSetId, unit.pericopeSetId),
-        eq(books.code, bookCode.toUpperCase()),
-        eq(pericope_verses.chapterNumber, chapterNumber)
-      )
-    )
-    .orderBy(asc(pericope_verses.verseNumber));
-
-  // Same grouping the pericopes domain applies: FCBH sets carry a section, FIA does not.
-  const groups = new Map<string, number[]>();
-  for (const row of rows) {
-    const key = row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
-    const verses = groups.get(key) ?? [];
-    verses.push(row.verseNumber);
-    groups.set(key, verses);
-  }
-  return Array.from(groups.values());
+  return unit?.projectId ?? null;
 }
 
 /**
@@ -109,7 +65,8 @@ export async function findVersesNeedingSuggestions(
         isNull(ai_suggestions.projectUnitId)
       )
     )
-    .orderBy(asc(bible_texts.verseNumber));
+    .orderBy(asc(bible_texts.verseNumber))
+    .limit(MAX_QUEUED_VERSES_PER_CALL);
 
   return rows.map((r) => r.verseNumber);
 }
@@ -157,24 +114,31 @@ export async function claimAiActivationCrossing<T>(
   threshold: number,
   write: () => Promise<Result<T>>
 ): Promise<{ written: Result<T>; crossed: boolean }> {
+  // The family cannot change mid-transaction, so it is read once and threaded through every
+  // measurement rather than re-fetched inside each one.
+  const family = await getAiActivationFamily(projectUnitId, tx);
+
   // A family already over the threshold cannot be crossing it now, so the common case skips the
   // lock entirely rather than serialising every save in an active organisation behind it.
-  const family = await getAiActivationFamily(projectUnitId, tx);
-  if (!family || (await hasReachedAiActivationThreshold(projectUnitId, threshold, tx))) {
+  if (!family || (await familyHasReachedAiActivationThreshold(family, threshold, tx))) {
     return { written: await write(), crossed: false };
   }
 
-  const lockKey = `ai-activation:${family.sourceLanguage}:${family.targetLanguage}:${family.organization}`;
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`);
+  // Two real integer keys rather than a hash of the triple, so unrelated organisations can never
+  // collide onto one lock. Families in the same organisation with the same source language share
+  // a key; they serialise briefly but the counts stay scoped by the full triple in the WHERE.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${family.organization}::int, ${family.sourceLanguage}::int)`
+  );
 
   // Re-measured under the lock: another save may have committed while this one waited for it.
-  const before = await hasReachedAiActivationThreshold(projectUnitId, threshold, tx);
+  const before = await familyHasReachedAiActivationThreshold(family, threshold, tx);
   const written = await write();
 
-  // A failed write leaves the transaction aborted, so nothing more may run on it.
-  if (!written.ok) return { written, crossed: false };
+  // A failed write leaves the transaction aborted, so nothing more may run on it; and if the
+  // family was already over before this write, it cannot have crossed, so `after` is not needed.
+  if (!written.ok || before) return { written, crossed: false };
 
-  const after = await hasReachedAiActivationThreshold(projectUnitId, threshold, tx);
-
-  return { written, crossed: !before && after };
+  const after = await familyHasReachedAiActivationThreshold(family, threshold, tx);
+  return { written, crossed: after };
 }

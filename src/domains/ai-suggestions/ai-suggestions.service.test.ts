@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as pericopesService from '@/domains/pericopes/pericopes.service';
 import { getQueue } from '@/lib/queue';
+import { ok } from '@/lib/types';
 
 import * as pericopeRepo from './ai-suggestions.pericope.repository';
 import * as repo from './ai-suggestions.repository';
@@ -38,11 +40,15 @@ vi.mock('./ai-suggestions.repository', () => ({
   upsertAiSuggestions: vi.fn(),
 }));
 
+vi.mock('@/domains/pericopes/pericopes.service', () => ({
+  getChapterPericopes: vi.fn(),
+}));
+
 vi.mock('./ai-suggestions.pericope.repository', () => ({
   claimAiActivationCrossing: vi.fn(),
   findVersesNeedingSuggestions: vi.fn(),
   getBibleTextLocation: vi.fn(),
-  getChapterPericopeVerseGroups: vi.fn(),
+  getProjectIdForProjectUnit: vi.fn(),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -52,12 +58,18 @@ const BIBLE = 3;
 const BOOK = 'GEN';
 const CHAPTER = 1;
 
-/** Genesis 1 cut three ways: 1-3, 4-7, 8-9. */
-const PERICOPES = [
+const PROJECT = 42;
+
+/** Genesis 1 cut three ways: 1-3, 4-7, 8-9, in the shape the pericopes domain returns. */
+const PERICOPE_GROUPS = [
   [1, 2, 3],
   [4, 5, 6, 7],
   [8, 9],
-];
+].map((verses, index) => ({
+  pericopeNumber: String(index + 1),
+  pericopeTitle: null,
+  verses: verses.map((verseNumber) => ({ chapterNumber: 1, verseNumber })),
+}));
 
 const send = vi.fn();
 
@@ -75,7 +87,8 @@ beforeEach(() => {
   vi.mocked(getQueue).mockResolvedValue({ send } as never);
   vi.mocked(repo.hasReachedAiActivationThreshold).mockResolvedValue(true);
   vi.mocked(repo.getChapterAssignmentAiStatus).mockResolvedValue(true);
-  vi.mocked(pericopeRepo.getChapterPericopeVerseGroups).mockResolvedValue(PERICOPES);
+  vi.mocked(pericopeRepo.getProjectIdForProjectUnit).mockResolvedValue(PROJECT);
+  vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok(PERICOPE_GROUPS));
   // By default nothing is drafted or suggested yet, so whatever is asked for is what goes out.
   vi.mocked(pericopeRepo.findVersesNeedingSuggestions).mockImplementation(
     async (_u, _b, _c, _ch, verses) => verses
@@ -139,7 +152,7 @@ describe('queueNextVerses (#417)', () => {
   });
 
   it('falls back to the fixed look-ahead when the project has no pericope set', async () => {
-    vi.mocked(pericopeRepo.getChapterPericopeVerseGroups).mockResolvedValue([]);
+    vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok([]));
     vi.mocked(repo.findNextUntranslatedVerses).mockResolvedValue([3, 4, 5]);
 
     await service.queueNextVerses(UNIT, BIBLE, BOOK, CHAPTER, 2);
@@ -211,7 +224,7 @@ describe('handleChapterAssigned (#417)', () => {
   });
 
   it('falls back to the initial verse count without a pericope set', async () => {
-    vi.mocked(pericopeRepo.getChapterPericopeVerseGroups).mockResolvedValue([]);
+    vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok([]));
     vi.mocked(repo.findNextUntranslatedVerses).mockResolvedValue([1, 2, 3]);
 
     await service.handleChapterAssigned(UNIT, BIBLE, 11, CHAPTER);
@@ -245,8 +258,8 @@ describe('handleThresholdCrossed (#417)', () => {
   it('backfills the first pericope of the current chapter and of the next one', async () => {
     await service.handleThresholdCrossed(UNIT, TEXT_ID);
 
-    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 1);
-    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 2);
+    expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 1);
+    expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 2);
     // Both chapters share the fixture, so it is the first pericope twice.
     expect(sentVerses()).toEqual([1, 2, 3, 1, 2, 3]);
     expect(
@@ -292,7 +305,7 @@ describe('handleThresholdCrossed (#417)', () => {
     const result = await service.handleThresholdCrossed(UNIT, TEXT_ID);
 
     expect(result.ok).toBe(false);
-    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 1);
-    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 2);
+    expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 1);
+    expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 2);
   });
 });

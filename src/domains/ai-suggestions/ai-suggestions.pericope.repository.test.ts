@@ -10,8 +10,8 @@ import * as repo from './ai-suggestions.repository';
 vi.mock('@/db', () => ({ db: {} }));
 
 vi.mock('./ai-suggestions.repository', () => ({
+  familyHasReachedAiActivationThreshold: vi.fn(),
   getAiActivationFamily: vi.fn(),
-  hasReachedAiActivationThreshold: vi.fn(),
 }));
 
 const THRESHOLD = 500;
@@ -32,7 +32,7 @@ const write = vi.fn(async () => {
 
 /** The threshold as this save sees it: the unlocked pre-check, then `before`, then `after`. */
 function measures(...readings: boolean[]) {
-  vi.mocked(repo.hasReachedAiActivationThreshold).mockImplementation(async () => {
+  vi.mocked(repo.familyHasReachedAiActivationThreshold).mockImplementation(async () => {
     steps.push('measure');
     return readings.shift() ?? false;
   });
@@ -56,23 +56,42 @@ describe('claimAiActivationCrossing (#417)', () => {
     expect(steps).toEqual(['measure', 'lock', 'measure', 'write', 'measure']);
   });
 
-  it('locks on the family, not on the project unit', async () => {
+  it('reads the family once and hands it to every measurement', async () => {
+    measures(false, false, true);
+
+    await claimAiActivationCrossing(tx, 7, THRESHOLD, write);
+
+    expect(repo.getAiActivationFamily).toHaveBeenCalledTimes(1);
+    for (const call of vi.mocked(repo.familyHasReachedAiActivationThreshold).mock.calls) {
+      expect(call[0]).toBe(FAMILY);
+      expect(call[2]).toBe(tx);
+    }
+  });
+
+  it('locks on real integer keys for the family, never a hash of the triple', async () => {
     measures(false, false, true);
 
     await claimAiActivationCrossing(tx, 7, THRESHOLD, write);
 
     const [statement] = execute.mock.calls[0] as unknown as [{ queryChunks?: unknown[] }];
-    expect(JSON.stringify(statement)).toContain('ai-activation:1:2:3');
+    const rendered = JSON.stringify(statement);
+    expect(rendered).toContain('pg_advisory_xact_lock');
+    expect(rendered).not.toContain('hashtext');
+    // organization then source language, as bound parameters rather than text.
+    const params = (statement.queryChunks ?? []).filter((chunk) => typeof chunk === 'number');
+    expect(params).toEqual([FAMILY.organization, FAMILY.sourceLanguage]);
   });
 
   it('does not claim it for the save that lost the race, which finds the family already over', async () => {
     // Read 499 before the lock, then the winner commits, then this save reads 500 under it.
-    measures(false, true, true);
+    measures(false, true);
 
     const { crossed } = await claimAiActivationCrossing(tx, 7, THRESHOLD, write);
 
     expect(crossed).toBe(false);
     expect(write).toHaveBeenCalled();
+    // `before` was already over, so there is nothing `after` could add: it is not measured.
+    expect(steps).toEqual(['measure', 'lock', 'measure', 'write']);
   });
 
   it('skips the lock entirely for a family that is already over the threshold', async () => {

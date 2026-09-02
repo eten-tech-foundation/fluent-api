@@ -212,7 +212,7 @@ export async function findNextUntranslatedVerses(
 export async function getAiActivationFamily(
   projectUnitId: number,
   tx?: DbTransaction
-): Promise<{ sourceLanguage: number; targetLanguage: number; organization: number } | null> {
+): Promise<AiActivationFamily | null> {
   const conn = tx ?? db;
   const [family] = await conn
     .select({
@@ -232,18 +232,23 @@ export async function getAiActivationFamily(
  * Whether the project family holds at least `threshold` drafted verses. Pass `tx` to measure inside
  * a save transaction, which is the only way to see that transaction's own uncommitted row.
  */
-export async function hasReachedAiActivationThreshold(
-  projectUnitId: number,
+export interface AiActivationFamily {
+  sourceLanguage: number;
+  targetLanguage: number;
+  organization: number;
+}
+
+/**
+ * Whether a family already holds `threshold` drafted verses. Takes the family rather than looking
+ * it up, so a caller that already has it (the activation claim) does not re-read it on every
+ * measurement.
+ */
+export async function familyHasReachedAiActivationThreshold(
+  family: AiActivationFamily,
   threshold: number,
   tx?: DbTransaction
 ): Promise<boolean> {
   const conn = tx ?? db;
-  const family = await getAiActivationFamily(projectUnitId, tx);
-
-  if (!family) return false;
-
-  const { sourceLanguage, targetLanguage, organization } = family;
-
   const result = await conn
     .select({ id: translated_verses.id })
     .from(translated_verses)
@@ -251,9 +256,9 @@ export async function hasReachedAiActivationThreshold(
     .innerJoin(projects, eq(project_units.projectId, projects.id))
     .where(
       and(
-        eq(projects.sourceLanguage, sourceLanguage),
-        eq(projects.targetLanguage, targetLanguage),
-        eq(projects.organization, organization),
+        eq(projects.sourceLanguage, family.sourceLanguage),
+        eq(projects.targetLanguage, family.targetLanguage),
+        eq(projects.organization, family.organization),
         sql`length(trim(${translated_verses.content})) > 0`
       )
     )
@@ -261,6 +266,16 @@ export async function hasReachedAiActivationThreshold(
     .offset(threshold - 1);
 
   return result.length > 0;
+}
+
+export async function hasReachedAiActivationThreshold(
+  projectUnitId: number,
+  threshold: number,
+  tx?: DbTransaction
+): Promise<boolean> {
+  const family = await getAiActivationFamily(projectUnitId, tx);
+  if (!family) return false;
+  return familyHasReachedAiActivationThreshold(family, threshold, tx);
 }
 
 // ─── Internal (machine-facing) repository functions ───────────────────────────

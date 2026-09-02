@@ -1,5 +1,6 @@
 import type { DbTransaction, Result, User } from '@/lib/types';
 
+import * as pericopesService from '@/domains/pericopes/pericopes.service';
 import env from '@/env';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
@@ -20,7 +21,7 @@ import {
   claimAiActivationCrossing,
   findVersesNeedingSuggestions,
   getBibleTextLocation,
-  getChapterPericopeVerseGroups,
+  getProjectIdForProjectUnit,
 } from './ai-suggestions.pericope.repository';
 import {
   checkBibleTextsExist,
@@ -114,6 +115,25 @@ export async function queueNextVerses(
 }
 
 /**
+ * The chapter's pericopes as verse-number groups, from the same source the pericope view reads,
+ * so the queue and the translator can never disagree about where a pericope starts. Empty means
+ * no pericope set or a chapter the set does not cover: the verse-by-verse fallback.
+ */
+async function chapterPericopeVerseGroups(
+  projectUnitId: number,
+  bookCode: string,
+  chapterNumber: number
+): Promise<number[][]> {
+  const projectId = await getProjectIdForProjectUnit(projectUnitId);
+  if (projectId === null) return [];
+
+  const result = await pericopesService.getChapterPericopes(projectId, bookCode, chapterNumber);
+  if (!result.ok) return [];
+
+  return result.data.map((group) => group.verses.map((verse) => verse.verseNumber));
+}
+
+/**
  * The pericope the translator is in plus the one after it, never crossing into the next chapter
  * (#417): the next chapter's first pericope is only ever queued by its own assignment-time
  * trigger or the threshold backfill. A verse outside every pericope queues nothing.
@@ -128,7 +148,7 @@ async function queueFromVerse(
   chapterNumber: number,
   currentVerse: number
 ): Promise<Result<void>> {
-  const pericopes = await getChapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  const pericopes = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
 
   if (pericopes.length === 0) {
     const nextVerses = await findNextUntranslatedVerses(
@@ -167,7 +187,7 @@ async function queueFirstPericope(
   bookCode: string,
   chapterNumber: number
 ): Promise<Result<void>> {
-  const pericopes = await getChapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  const pericopes = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
 
   const wanted =
     pericopes.length === 0
