@@ -45,6 +45,25 @@ export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecor
 
 const USJ_SPEC_VERSION = '0.0.1';
 
+/**
+ * EXISTS subquery for assignment progress: true when any verse-audio unit in
+ * this assignment's bible/book/chapter is conflicted. Scoping by
+ * `chapter_assignments.bibleId` (not book/chapter alone) is what keeps a
+ * conflict in another Bible from lighting up the rollup.
+ */
+export function hasConflictRollupSql() {
+  return sql<boolean>`EXISTS (
+          SELECT 1
+          FROM verse_audio_recordings var
+          INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
+          WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
+            AND bt.bible_id = ${chapter_assignments.bibleId}
+            AND bt.book_id = ${chapter_assignments.bookId}
+            AND bt.chapter_number = ${chapter_assignments.chapterNumber}
+            AND var.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CONFLICT}
+        )`;
+}
+
 export async function findById(
   id: number,
   tx?: DbTransaction
@@ -451,16 +470,7 @@ export async function findAssignmentsProgress(
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
         claimConflictUserId: chapter_assignments.claimConflictUserId,
-        hasConflict: sql<boolean>`EXISTS (
-          SELECT 1
-          FROM verse_audio_recordings var
-          INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
-          WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
-            AND bt.bible_id = ${chapter_assignments.bibleId}
-            AND bt.book_id = ${chapter_assignments.bookId}
-            AND bt.chapter_number = ${chapter_assignments.chapterNumber}
-            AND var.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CONFLICT}
-        )`.mapWith(Boolean),
+        hasConflict: hasConflictRollupSql().mapWith(Boolean),
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))

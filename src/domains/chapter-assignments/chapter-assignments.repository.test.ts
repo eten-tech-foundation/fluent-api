@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,6 +9,49 @@ import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.t
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
+
+/** Walks Drizzle SQL chunks for stable substring assertions in unit tests. */
+function sqlText(fragment: SQL): string {
+  const parts: string[] = [];
+  const walk = (chunk: unknown): void => {
+    if (chunk == null) {
+      return;
+    }
+    if (typeof chunk === 'string') {
+      parts.push(chunk);
+      return;
+    }
+    if (typeof chunk !== 'object') {
+      parts.push(String(chunk));
+      return;
+    }
+    if ('value' in chunk && Array.isArray((chunk as { value: unknown }).value)) {
+      for (const piece of (chunk as { value: unknown[] }).value) {
+        walk(piece);
+      }
+      return;
+    }
+    if ('queryChunks' in chunk && Array.isArray((chunk as SQL).queryChunks)) {
+      for (const piece of (chunk as SQL).queryChunks) {
+        walk(piece);
+      }
+    }
+  };
+  walk(fragment);
+  return parts.join('');
+}
+
+function buildProgressSelectChain(rows: unknown[]) {
+  const orderBy = vi.fn().mockResolvedValue(rows);
+  const groupBy = vi.fn().mockReturnValue({ orderBy });
+  return {
+    from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    groupBy,
+  };
+}
 
 const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
   const updateChain = {
@@ -78,20 +123,31 @@ describe('chapter-assignments.repository claim helpers', () => {
     });
   });
 
-  describe('findAssignmentsProgress hasConflict rollup', () => {
-    it('wires the verse-audio conflict-status constant into the rollup', async () => {
-      // Guards against renaming VERSE_AUDIO_CONFLICT_STATUS.CONFLICT without
-      // updating the raw SQL rollup in findAssignmentsProgress.
-      expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
+  describe('hasConflictRollupSql', () => {
+    it('correlates verse bible to the assignment bible so other-Bible conflicts are excluded', () => {
+      const fragment = repo.hasConflictRollupSql();
+      const text = sqlText(fragment);
 
-      const orderBy = vi.fn().mockResolvedValue([
+      expect(text).toContain('bt.bible_id');
+      expect(text).toContain('bt.book_id');
+      expect(text).toContain('bt.chapter_number');
+      expect(text).toContain('var.project_unit_id');
+      expect(text).toContain('var.conflict_status');
+      expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
+      expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
+    });
+  });
+
+  describe('findAssignmentsProgress hasConflict rollup', () => {
+    it('surfaces hasConflict per assignment row from the bible-scoped EXISTS', async () => {
+      const rows = [
         {
           assignmentId: 1,
           projectId: 3,
           projectName: 'P',
           projectUnitId: 12,
           bibleId: 9,
-          bibleName: 'B',
+          bibleName: 'Target',
           bookId: 1,
           bookCode: 'JHN',
           bookNameEng: 'John',
@@ -114,22 +170,52 @@ describe('chapter-assignments.repository claim helpers', () => {
           claimConflictUserId: null,
           hasConflict: true,
         },
-      ]);
-      const groupBy = vi.fn().mockReturnValue({ orderBy });
-      const selectChain = {
-        from: vi.fn().mockReturnThis(),
-        innerJoin: vi.fn().mockReturnThis(),
-        leftJoin: vi.fn().mockReturnThis(),
-        where: vi.fn().mockReturnThis(),
-        groupBy,
-      };
-      vi.mocked(db.select).mockReturnValue(selectChain as any);
+        {
+          assignmentId: 2,
+          projectId: 3,
+          projectName: 'P',
+          projectUnitId: 12,
+          bibleId: 10,
+          bibleName: 'Source',
+          bookId: 1,
+          bookCode: 'JHN',
+          bookNameEng: 'John',
+          chapterNumber: 3,
+          status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+          targetLanguage: 'en',
+          targetLangCode: 'eng',
+          sourceLangCode: 'grc',
+          totalVerses: 1,
+          completedVerses: 0,
+          assignedUserId: 5,
+          assignedUserDisplayName: 'u',
+          peerCheckerId: null,
+          peerCheckerDisplayName: null,
+          submittedTime: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isAiEnabled: false,
+          hasClaimConflict: false,
+          claimConflictUserId: null,
+          hasConflict: false,
+        },
+      ];
+
+      let selection: Record<string, unknown> | undefined;
+      vi.mocked(db.select).mockImplementation((sel) => {
+        selection = sel as Record<string, unknown>;
+        return buildProgressSelectChain(rows) as any;
+      });
 
       const result = await repo.findAssignmentsProgress({ projectId: 3 });
 
+      expect(selection?.hasConflict).toBeDefined();
+      expect(sqlText(selection!.hasConflict as SQL)).toContain('bt.bible_id');
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data[0]?.hasConflict).toBe(true);
+        expect(result.data).toHaveLength(2);
+        expect(result.data.find((r) => r.bibleId === 9)?.hasConflict).toBe(true);
+        expect(result.data.find((r) => r.bibleId === 10)?.hasConflict).toBe(false);
       }
     });
   });
