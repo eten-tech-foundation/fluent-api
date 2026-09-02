@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -182,37 +182,34 @@ export async function addProjectUsers(
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
-      // 1. Delete the project-scoped grant first.
-      const deleted = await tx
-        .delete(user_roles)
-        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-        .returning({ userId: user_roles.userId });
-
-      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
-
-      // 2. Find all chapter_assignment IDs in this project where the user is assigned.
-      const affectedIds = await tx
+      // 1. Check if user is assigned as Drafter or Peer Checker on ANY chapter in this project
+      const [assignedWork] = await tx
         .select({ id: chapter_assignments.id })
         .from(chapter_assignments)
         .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
         .where(
           and(
             eq(project_units.projectId, projectId),
-            sql`(${chapter_assignments.assignedUserId} = ${userId} OR ${chapter_assignments.peerCheckerId} = ${userId})`
+            or(
+              eq(chapter_assignments.assignedUserId, userId),
+              eq(chapter_assignments.peerCheckerId, userId)
+            )
           )
-        );
+        )
+        .limit(1);
 
-      // 3. Null out the user's drafter / peer-checker columns on those assignments.
-      if (affectedIds.length > 0) {
-        const ids = affectedIds.map((r) => r.id);
-        await tx
-          .update(chapter_assignments)
-          .set({
-            assignedUserId: sql`CASE WHEN ${chapter_assignments.assignedUserId} = ${userId} THEN NULL ELSE ${chapter_assignments.assignedUserId} END`,
-            peerCheckerId: sql`CASE WHEN ${chapter_assignments.peerCheckerId} = ${userId} THEN NULL ELSE ${chapter_assignments.peerCheckerId} END`,
-          })
-          .where(inArray(chapter_assignments.id, ids));
+      // If assigned work exists, block removal immediately
+      if (assignedWork) {
+        return err(ErrorCode.USER_HAS_ASSIGNED_CONTENT);
       }
+
+      // 2. Delete the project-scoped grant (only reached if user has no assignments)
+      const deleted = await tx
+        .delete(user_roles)
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .returning({ userId: user_roles.userId });
+
+      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
 
       return ok(undefined);
     });

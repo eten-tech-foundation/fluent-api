@@ -1,5 +1,12 @@
-# Deploys Fluent API Node.js app to Azure Web Apps after merge
+# Deploys Fluent API to Azure Web Apps after a merge or a release cut.
+#
+#   push to main -> Development, automatically
+#   tag vYY.MM.N -> QA, automatically
+#
+# Production is deliberately NOT reachable from here. It is a manual dispatch
+# of `promote-to-prod.yml`, which refuses any tag with no successful QA deploy.
 name: Post-merge-deploy
+
 on:
   push:
     branches:
@@ -7,203 +14,69 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  meta:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Validate CalVer tag format
         if: github.ref_type == 'tag'
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
           if [[ ! "$TAG" =~ ^v[0-9]{2}\.(0[1-9]|1[0-2])\.[1-9][0-9]*$ ]]; then
             echo "::error::Tag '$TAG' does not match required CalVer format vYY.MM.SERIAL (e.g. v26.07.1)"
             exit 1
           fi
           echo "Tag '$TAG' is valid."
 
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js version
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.14.0
-          cache: npm
-
-      - name: Set version from tag
-        if: github.ref_type == 'tag'
+      # Empty for a branch push: dev keeps whatever package.json already says,
+      # and the deploy skips the version assertion.
+      - name: Resolve version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          jq ".version = \"$VERSION\"" package.json > tmp.json && mv tmp.json package.json
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Install all dependencies
-        run: npm install --legacy-peer-deps
-        env:
-          CXXFLAGS: '-std=c++20'
-
-      - name: Lint and format check
-        run: |
-          npm run lint
-          npm run format:check
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm run test
-
-      - name: Build application
-        run: npm run build
-
-      - name: Create deployment package directory
-        run: |
-          mkdir -p deployment
-          cp -r dist deployment/
-          cp package.json deployment/
-          cp package-lock.json deployment/ || true
-
-      - name: Install production dependencies
-        run: |
-          cd deployment
-          npm install --prod --legacy-peer-deps
-        env:
-          CXXFLAGS: '-std=c++20'
-
-      - name: Add WebJob to deployment package
-        run: |
-          export WEBJOB_ROOT=deployment
-          node scripts/setup-webjob.js
-
-      - name: Upload artifact for deployment job
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: node-app
-          path: deployment/
-
-  migrate-dev:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref_type == 'branch'
-    environment: Development
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js version
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.14.0
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-        env:
-          CXXFLAGS: '-std=c++20'
-
-      - name: Run database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
-        run: npm run db:migrate
-
-  migrate-prod:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref_type == 'tag'
-    environment: Production
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js version
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.14.0
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-        env:
-          CXXFLAGS: '-std=c++20'
-
-      - name: Run database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
-        run: npm run db:migrate
+  build:
+    needs: meta
+    uses: ./.github/workflows/build.yml
+    with:
+      # Pin to the SHA rather than the ref, so a tag moved while this run is in
+      # flight cannot make the deploy job build something else.
+      ref: ${{ github.sha }}
+      version: ${{ needs.meta.outputs.version }}
 
   deploy-dev:
-    runs-on: ubuntu-latest
-    needs: [build, migrate-dev]
     if: github.ref_type == 'branch'
-    environment:
-      name: Development
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: node-app
-          path: deployment/
+    needs: [meta, build]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      ref: ${{ github.sha }}
+      environment: Development
+      app_name: scribe-server-dev
+    # Required: without it `secrets.*` is EMPTY in deploy.yml, environment
+    # or not. See the secrets note at the top of deploy.yml.
+    secrets: inherit
 
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
-        with:
-          app-name: scribe-server-dev
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_947D34B0D69C4986A7E211253893C796 }}
-          package: deployment/
-          clean: true
-
-      - name: Verify deployment
-        run: |
-          sleep 30
-          for i in $(seq 1 10); do
-            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ steps.deploy-to-webapp.outputs.webapp-url }})
-            if [ "$response" -ge 200 ] && [ "$response" -lt 400 ]; then
-              echo "Dev deployment successful (HTTP $response)"
-              exit 0
-            else
-              echo "App not ready yet (HTTP $response). Retrying in 10 seconds..."
-              sleep 10
-            fi
-          done
-          echo "Dev deployment verification failed"
-          exit 1
-
-  deploy-prod:
-    runs-on: ubuntu-latest
-    needs: [build, migrate-prod]
+  deploy-qa:
     if: github.ref_type == 'tag'
-    environment:
-      name: Production
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: node-app
-          path: deployment/
-
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
-        with:
-          app-name: fluent-server-prod
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_PROD }}
-          package: deployment/
-          clean: true
-
-      - name: Verify deployment
-        run: |
-          sleep 45
-          for i in $(seq 1 12); do
-            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ steps.deploy-to-webapp.outputs.webapp-url }})
-            if [ "$response" -ge 200 ] && [ "$response" -lt 400 ]; then
-              echo "Production deployment successful (HTTP $response)"
-              exit 0
-            else
-              echo "App not ready yet (HTTP $response). Retrying in 15 seconds..."
-              sleep 15
-            fi
-          done
-          echo "Production deployment verification failed"
-          exit 1
+    needs: [meta, build]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      ref: ${{ github.sha }}
+      environment: QA
+      app_name: fluent-server-qa
+      expect_version: ${{ needs.meta.outputs.version }}
+    # Required: without it `secrets.*` is EMPTY in deploy.yml, environment
+    # or not. See the secrets note at the top of deploy.yml.
+    secrets: inherit
