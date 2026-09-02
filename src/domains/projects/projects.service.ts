@@ -11,9 +11,11 @@ import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
+import type { ParsedUsfmFile } from './usfm-import.service';
 
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
+import * as usfmImportService from './usfm-import.service';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
@@ -90,8 +92,21 @@ export async function recordProjectAssignmentActivity(
   await touchProjectActivity(projectUnitId, tx);
 }
 
-export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {
+export async function createProject(
+  requested: CreateProjectServiceInput
+): Promise<Result<Project>> {
+  // Create-from-existing-data (#419): every file is parsed before anything is written, and the
+  // books the files carry replace whatever the client listed, since the files are the authority.
+  let importedFiles: ParsedUsfmFile[] | null = null;
+  let input = requested;
   try {
+    if (requested.usfmFiles?.length) {
+      const parsed = await usfmImportService.parseUsfmFiles(requested.usfmFiles);
+      if (!parsed.ok) return parsed;
+      importedFiles = parsed.data;
+      input = { ...requested, bookId: importedFiles.map((file) => file.bookId) };
+    }
+
     const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
     const hasInvalidBooks = input.bookId.some((id) => !validBookIds.includes(id));
 
@@ -114,6 +129,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       }
     }
 
+    let createdProjectUnitId: number | null = null;
     const result = await db.transaction(async (tx) => {
       const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
 
@@ -146,8 +162,37 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
       }
 
+      if (importedFiles) {
+        await repo.insertUsfmImports(
+          importedFiles.map((file) => ({
+            projectUnitId: projectUnit.id,
+            bookId: file.bookId,
+            fileName: file.fileName,
+            usfm: file.usfm,
+          })),
+          tx
+        );
+        createdProjectUnitId = projectUnit.id;
+      }
+
       return ok(project);
     });
+
+    // Books whose source text is already ingested get their imported verses now; the rest are
+    // finished by the ingestion worker once the text lands. Never a reason to fail the creation.
+    if (result.ok && importedFiles && createdProjectUnitId !== null) {
+      const materialized = await usfmImportService.materializePendingUsfmImports(
+        createdProjectUnitId,
+        input.bibleId,
+        importedFiles.map((file) => file.bookId)
+      );
+      if (materialized.ok) {
+        logger.info('Imported USFM materialised at project creation', {
+          projectId: result.data.id,
+          ...materialized.data,
+        });
+      }
+    }
 
     // Enqueue the on-demand text ingestion job
     if (result.ok) {

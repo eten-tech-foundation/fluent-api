@@ -42,6 +42,12 @@ vi.mock('../lib/services/dbl/dbl.client', () => {
   };
 });
 
+vi.mock('../domains/projects/usfm-import.service', () => ({
+  materializePendingUsfmImports: vi
+    .fn()
+    .mockResolvedValue({ ok: true, data: { materialized: 0, pending: 0 } }),
+}));
+
 vi.mock('../domains/chapter-assignments/chapter-assignments.service', () => ({
   createChapterAssignmentForProjectUnit: vi.fn(),
 }));
@@ -201,6 +207,26 @@ describe('dblIngestTextWorker', () => {
         'Created chapter assignments for project unit after text ingestion',
         expect.objectContaining({ projectUnitId: 42 })
       );
+    });
+
+    it('finishes any imported USFM waiting on this text, once the assignments exist (#419)', async () => {
+      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      await registerDblIngestTextWorker(mockBoss);
+      const handler = mockBoss.work.mock.calls[0][2];
+
+      const chapterAssignmentsService = await import(
+        '../domains/chapter-assignments/chapter-assignments.service'
+      );
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue({
+        ok: true,
+        data: [],
+      } as any);
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+      setupProjectUnitsAndBooks([42], [7]);
+
+      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-6' }]);
+
+      expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(42, 1, [7]);
     });
 
     it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {

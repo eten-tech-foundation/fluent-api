@@ -190,6 +190,13 @@
       "when": 1787855401052,
       "tag": "0026_add_chapter_claim_conflict",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788361862669,
+      "tag": "0027_add_usfm_imports",
+      "breakpoints": true
     }
   ]
 }
