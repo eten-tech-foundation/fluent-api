@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as pericopesService from '@/domains/pericopes/pericopes.service';
 import { getQueue } from '@/lib/queue';
-import { ok } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as pericopeRepo from './ai-suggestions.pericope.repository';
 import * as repo from './ai-suggestions.repository';
@@ -159,6 +159,18 @@ describe('queueNextVerses (#417)', () => {
 
     expect(repo.findNextUntranslatedVerses).toHaveBeenCalledWith(UNIT, BIBLE, BOOK, CHAPTER, 2, 3);
     expect(sentVerses()).toEqual([3, 4, 5]);
+  });
+
+  it('surfaces a failed pericope lookup instead of quietly falling back', async () => {
+    vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+
+    const result = await service.queueNextVerses(UNIT, BIBLE, BOOK, CHAPTER, 2);
+
+    expect(result.ok).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(repo.findNextUntranslatedVerses).not.toHaveBeenCalled();
   });
 
   it('reports the threshold and queues nothing below it', async () => {

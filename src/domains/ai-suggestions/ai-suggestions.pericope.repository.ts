@@ -37,6 +37,10 @@ export async function findVersesNeedingSuggestions(
 ): Promise<number[]> {
   if (verseNumbers.length === 0) return [];
 
+  // The cap has to land before the query is built: LIMIT bounds the rows that come back, not
+  // the IN list a malformed pericope group could hand the planner.
+  const wanted = verseNumbers.slice(0, MAX_QUEUED_VERSES_PER_CALL);
+
   const rows = await db
     .select({ verseNumber: bible_texts.verseNumber })
     .from(bible_texts)
@@ -60,7 +64,7 @@ export async function findVersesNeedingSuggestions(
         eq(bible_texts.bibleId, bibleId),
         eq(books.code, bookCode),
         eq(bible_texts.chapterNumber, chapterNumber),
-        inArray(bible_texts.verseNumber, verseNumbers),
+        inArray(bible_texts.verseNumber, wanted),
         isNull(translated_verses.projectUnitId),
         isNull(ai_suggestions.projectUnitId)
       )

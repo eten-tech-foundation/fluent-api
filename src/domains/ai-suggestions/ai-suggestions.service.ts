@@ -116,21 +116,22 @@ export async function queueNextVerses(
 
 /**
  * The chapter's pericopes as verse-number groups, from the same source the pericope view reads,
- * so the queue and the translator can never disagree about where a pericope starts. Empty means
- * no pericope set or a chapter the set does not cover: the verse-by-verse fallback.
+ * so the queue and the translator can never disagree about where a pericope starts. An empty
+ * list means no pericope set or a chapter the set does not cover, which is the verse-by-verse
+ * fallback; a failed lookup is an error and stays one, rather than being mistaken for that.
  */
 async function chapterPericopeVerseGroups(
   projectUnitId: number,
   bookCode: string,
   chapterNumber: number
-): Promise<number[][]> {
+): Promise<Result<number[][]>> {
   const projectId = await getProjectIdForProjectUnit(projectUnitId);
-  if (projectId === null) return [];
+  if (projectId === null) return ok([]);
 
   const result = await pericopesService.getChapterPericopes(projectId, bookCode, chapterNumber);
-  if (!result.ok) return [];
+  if (!result.ok) return result;
 
-  return result.data.map((group) => group.verses.map((verse) => verse.verseNumber));
+  return ok(result.data.map((group) => group.verses.map((verse) => verse.verseNumber)));
 }
 
 /**
@@ -148,7 +149,9 @@ async function queueFromVerse(
   chapterNumber: number,
   currentVerse: number
 ): Promise<Result<void>> {
-  const pericopes = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  const pericopesResult = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  if (!pericopesResult.ok) return pericopesResult;
+  const pericopes = pericopesResult.data;
 
   if (pericopes.length === 0) {
     const nextVerses = await findNextUntranslatedVerses(
@@ -187,7 +190,9 @@ async function queueFirstPericope(
   bookCode: string,
   chapterNumber: number
 ): Promise<Result<void>> {
-  const pericopes = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  const pericopesResult = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
+  if (!pericopesResult.ok) return pericopesResult;
+  const pericopes = pericopesResult.data;
 
   const wanted =
     pericopes.length === 0
