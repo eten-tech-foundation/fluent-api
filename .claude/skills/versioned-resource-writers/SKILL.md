@@ -42,10 +42,10 @@ The omitted-token legacy path is a **deprecated** compatibility hatch. Upload lo
 
 ## Client conflict responses (verse audio)
 
-| HTTP | Body signal | Meaning |
-| ---- | ----------- | ------- |
-| `200` | `conflictStatus: 'conflict'` | Normal offline / stale-token upload — both takes kept; client resolves explicitly |
-| `409` | `currentVersionToken?` | CAS or storage cleanup race — retry with `baseVersionToken` set from `currentVersionToken` (same value as `versionToken` on a GET). Field omitted only when the recording row is gone |
+| HTTP  | Body signal                  | Meaning                                                                                                                                                                               |
+| ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `200` | `conflictStatus: 'conflict'` | Normal offline / stale-token upload — both takes kept; client resolves explicitly                                                                                                     |
+| `409` | `currentVersionToken?`       | CAS or storage cleanup race — retry with `baseVersionToken` set from `currentVersionToken` (same value as `versionToken` on a GET). Field omitted only when the recording row is gone |
 
 Do not treat `409` as the offline conflict path, and do not treat `200` + conflict as a blind retry loop.
 

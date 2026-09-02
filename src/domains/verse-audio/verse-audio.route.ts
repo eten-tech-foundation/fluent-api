@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+
 import { createRoute, z } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import { Buffer } from 'node:buffer';
@@ -6,10 +8,10 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import type { Context } from 'hono';
+import type { AppError } from '@/lib/types';
 
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
-import { ErrorCode, getHttpStatus, type AppError } from '@/lib/types';
+import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 

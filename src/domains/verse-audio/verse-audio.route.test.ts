@@ -305,15 +305,16 @@ describe('verse-audio routes', () => {
       });
     });
 
-    it.each([
-      [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
-    ])('maps %s to %i', async (code, status) => {
-      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
+    it.each([[ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404]])(
+      'maps %s to %i',
+      async (code, status) => {
+        vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
 
-      const res = await resolve();
+        const res = await resolve();
 
-      expect(res.status).toBe(status);
-    });
+        expect(res.status).toBe(status);
+      }
+    );
 
     it('returns 409 with currentVersionToken on version conflict', async () => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(
