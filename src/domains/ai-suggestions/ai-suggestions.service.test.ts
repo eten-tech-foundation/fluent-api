@@ -39,10 +39,10 @@ vi.mock('./ai-suggestions.repository', () => ({
 }));
 
 vi.mock('./ai-suggestions.pericope.repository', () => ({
+  claimAiActivationCrossing: vi.fn(),
   findVersesNeedingSuggestions: vi.fn(),
   getBibleTextLocation: vi.fn(),
   getChapterPericopeVerseGroups: vi.fn(),
-  isExactlyAtAiActivationThreshold: vi.fn(),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -170,6 +170,14 @@ describe('queueNextVerses (#417)', () => {
     await service.queueNextVerses(UNIT, BIBLE, 'gen', CHAPTER, 8);
     expect((send.mock.calls[0][1] as { bookCode: string }).bookCode).toBe('GEN');
   });
+
+  it('reports an error rather than queued: true when the send fails', async () => {
+    send.mockRejectedValue(new Error('queue is down'));
+
+    const result = await service.queueNextVerses(UNIT, BIBLE, BOOK, CHAPTER, 2);
+
+    expect(result.ok).toBe(false);
+  });
 });
 
 // ─── Assignment-time queuing ──────────────────────────────────────────────────
@@ -211,6 +219,14 @@ describe('handleChapterAssigned (#417)', () => {
     expect(repo.findNextUntranslatedVerses).toHaveBeenCalledWith(UNIT, BIBLE, 'GEN', CHAPTER, 0, 3);
     expect(sentVerses()).toEqual([1, 2, 3]);
   });
+
+  it('reports a failed enqueue instead of a success', async () => {
+    send.mockRejectedValue(new Error('queue is down'));
+
+    const result = await service.handleChapterAssigned(UNIT, BIBLE, 11, CHAPTER);
+
+    expect(result.ok).toBe(false);
+  });
 });
 
 // ─── Threshold backfill ───────────────────────────────────────────────────────
@@ -219,21 +235,11 @@ describe('handleThresholdCrossed (#417)', () => {
   const TEXT_ID = 900;
 
   beforeEach(() => {
-    vi.mocked(pericopeRepo.isExactlyAtAiActivationThreshold).mockResolvedValue(true);
     vi.mocked(pericopeRepo.getBibleTextLocation).mockResolvedValue({
       bibleId: BIBLE,
       bookCode: 'gen',
       chapterNumber: CHAPTER,
     });
-  });
-
-  it('is a no-op for any save that is not the crossing one', async () => {
-    vi.mocked(pericopeRepo.isExactlyAtAiActivationThreshold).mockResolvedValue(false);
-
-    await service.handleThresholdCrossed(UNIT, TEXT_ID);
-
-    expect(pericopeRepo.getBibleTextLocation).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
   });
 
   it('backfills the first pericope of the current chapter and of the next one', async () => {
@@ -278,5 +284,15 @@ describe('handleThresholdCrossed (#417)', () => {
     await service.handleThresholdCrossed(UNIT, TEXT_ID);
 
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('still attempts both chapters when the enqueue fails, and reports the failure', async () => {
+    send.mockRejectedValue(new Error('queue is down'));
+
+    const result = await service.handleThresholdCrossed(UNIT, TEXT_ID);
+
+    expect(result.ok).toBe(false);
+    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 1);
+    expect(pericopeRepo.getChapterPericopeVerseGroups).toHaveBeenCalledWith(UNIT, 'GEN', 2);
   });
 });

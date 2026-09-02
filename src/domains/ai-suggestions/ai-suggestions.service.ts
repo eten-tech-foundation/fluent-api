@@ -1,4 +1,4 @@
-import type { Result, User } from '@/lib/types';
+import type { DbTransaction, Result, User } from '@/lib/types';
 
 import env from '@/env';
 import { logger } from '@/lib/logger';
@@ -17,10 +17,10 @@ import type {
 
 import { MAX_CONTEXT_VERSES_TOTAL } from './ai-suggestions.constants';
 import {
+  claimAiActivationCrossing,
   findVersesNeedingSuggestions,
   getBibleTextLocation,
   getChapterPericopeVerseGroups,
-  isExactlyAtAiActivationThreshold,
 } from './ai-suggestions.pericope.repository';
 import {
   checkBibleTextsExist,
@@ -97,13 +97,14 @@ export async function queueNextVerses(
       return ok({ queued: false, thresholdMet: isThresholdMet });
     }
 
-    await queueFromVerse(
+    const queued = await queueFromVerse(
       projectUnitId,
       bibleId,
       bookCode.toUpperCase(),
       chapterNumber,
       currentVerse
     );
+    if (!queued.ok) return queued;
 
     return ok({ queued: true, thresholdMet: true });
   } catch (error) {
@@ -275,7 +276,7 @@ export async function handleChapterAssigned(
     ]);
 
     if (isThresholdMet && isAiEnabled) {
-      await queueFirstPericope(projectUnitId, bibleId, normalizedBookCode, chapterNumber);
+      return queueFirstPericope(projectUnitId, bibleId, normalizedBookCode, chapterNumber);
     }
 
     return ok(undefined);
@@ -290,30 +291,41 @@ export async function handleChapterAssigned(
 }
 
 /**
+ * Runs a draft save inside the caller's transaction and reports whether it is the save that took
+ * the project family over the AI activation threshold (#417). The claim has to happen in the same
+ * transaction as the write, so the caller hands its `tx` over rather than asking afterwards.
+ *
+ * `crossed: true` is the caller's cue to call handleThresholdCrossed — once the transaction has
+ * committed, never inside it.
+ */
+export async function claimActivationCrossing<T>(
+  tx: DbTransaction,
+  projectUnitId: number,
+  write: () => Promise<Result<T>>
+): Promise<{ written: Result<T>; crossed: boolean }> {
+  return claimAiActivationCrossing(tx, projectUnitId, env.AI_ACTIVATION_THRESHOLD_VERSES, write);
+}
+
+/**
  * Threshold backfill (#417). A chapter assigned before the project family reached the
  * activation threshold got no assignment-time queuing, so the save that crosses the threshold
  * makes up for it: the first pericope of the chapter being drafted, and of the chapter after it.
  *
- * Called after every draft save; it is a no-op unless this save is the crossing one. Both
- * chapters still go through the toggle, and the next chapter is skipped unless it is actually
- * assigned in this project unit. Duplicate sends from two saves racing on the threshold are
- * absorbed by the per-verse singletonKey.
+ * Only ever called for the save that claimed the crossing (see claimActivationCrossing), which is
+ * why there is no threshold check here. Both chapters still go through the toggle, and the next
+ * chapter is skipped unless it is actually assigned in this project unit.
  */
 export async function handleThresholdCrossed(
   projectUnitId: number,
   bibleTextId: number
 ): Promise<Result<void>> {
   try {
-    const crossed = await isExactlyAtAiActivationThreshold(
-      projectUnitId,
-      env.AI_ACTIVATION_THRESHOLD_VERSES
-    );
-    if (!crossed) return ok(undefined);
-
     const location = await getBibleTextLocation(bibleTextId);
     if (!location) return ok(undefined);
 
     const bookCode = location.bookCode.toUpperCase();
+    let failure: Result<void> | null = null;
+
     for (const chapterNumber of [location.chapterNumber, location.chapterNumber + 1]) {
       const isAiEnabled = await getChapterAssignmentAiStatus(
         projectUnitId,
@@ -324,10 +336,18 @@ export async function handleThresholdCrossed(
       // null is "not assigned in this unit"; false is the toggle. Neither gets queued.
       if (isAiEnabled !== true) continue;
 
-      await queueFirstPericope(projectUnitId, location.bibleId, bookCode, chapterNumber);
+      // Both chapters are attempted even if the first one fails to enqueue; the first failure is
+      // what gets reported.
+      const queued = await queueFirstPericope(
+        projectUnitId,
+        location.bibleId,
+        bookCode,
+        chapterNumber
+      );
+      if (!queued.ok && !failure) failure = queued;
     }
 
-    return ok(undefined);
+    return failure ?? ok(undefined);
   } catch (error) {
     logger.error({
       cause: error,

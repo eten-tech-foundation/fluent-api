@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
+import type { DbTransaction, Result } from '@/lib/types';
+
 import { db } from '@/db';
 import {
   ai_suggestions,
@@ -10,6 +12,11 @@ import {
   projects,
   translated_verses,
 } from '@/db/schema';
+
+import {
+  getAiActivationFamily,
+  hasReachedAiActivationThreshold,
+} from './ai-suggestions.repository';
 
 // ─── Pericope-level queuing (#417) ────────────────────────────────────────────
 
@@ -126,43 +133,48 @@ export async function getBibleTextLocation(
 }
 
 /**
- * True when the project family holds exactly `threshold` drafted verses, which is the state right
- * after the save that crossed the activation threshold. Same family scope as
- * hasReachedAiActivationThreshold; the difference is asking for one more row than the threshold
- * and checking that it is not there.
+ * Runs a draft save and reports whether that save is the one that took the project family over the
+ * AI activation threshold. Exactly one save ever gets `crossed: true` for a given crossing.
+ *
+ * Counting after the fact cannot answer this. Two saves committing from 499 both observe 501
+ * afterwards and both conclude they were not the crossing one, so the backfill is skipped for
+ * good; and every later edit of an already-activated family observes the threshold again and
+ * re-fires it. So the transition is claimed instead of measured, under a family-scoped advisory
+ * lock held for the rest of the save transaction:
+ *
+ *   A and B both save while the family sits at 499. A takes the lock, measures before = false,
+ *   writes (500), measures after = true, and claims the crossing. B blocks on the lock until A
+ *   commits, then measures before = true, so it does not claim it. An edit made later, with the
+ *   family already at 500, also sees before = true and claims nothing.
+ *
+ * `after` has to be measured on `tx`: the row `write` just inserted is invisible to every other
+ * connection until this transaction commits. The lock is transaction-scoped, so it is released on
+ * commit or rollback with no unlock call to leak.
  */
-export async function isExactlyAtAiActivationThreshold(
+export async function claimAiActivationCrossing<T>(
+  tx: DbTransaction,
   projectUnitId: number,
-  threshold: number
-): Promise<boolean> {
-  const [projectInfo] = await db
-    .select({
-      sourceLanguage: projects.sourceLanguage,
-      targetLanguage: projects.targetLanguage,
-      organization: projects.organization,
-    })
-    .from(project_units)
-    .innerJoin(projects, eq(project_units.projectId, projects.id))
-    .where(eq(project_units.id, projectUnitId))
-    .limit(1);
+  threshold: number,
+  write: () => Promise<Result<T>>
+): Promise<{ written: Result<T>; crossed: boolean }> {
+  // A family already over the threshold cannot be crossing it now, so the common case skips the
+  // lock entirely rather than serialising every save in an active organisation behind it.
+  const family = await getAiActivationFamily(projectUnitId, tx);
+  if (!family || (await hasReachedAiActivationThreshold(projectUnitId, threshold, tx))) {
+    return { written: await write(), crossed: false };
+  }
 
-  if (!projectInfo) return false;
+  const lockKey = `ai-activation:${family.sourceLanguage}:${family.targetLanguage}:${family.organization}`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`);
 
-  const rows = await db
-    .select({ id: translated_verses.id })
-    .from(translated_verses)
-    .innerJoin(project_units, eq(translated_verses.projectUnitId, project_units.id))
-    .innerJoin(projects, eq(project_units.projectId, projects.id))
-    .where(
-      and(
-        eq(projects.sourceLanguage, projectInfo.sourceLanguage),
-        eq(projects.targetLanguage, projectInfo.targetLanguage),
-        eq(projects.organization, projectInfo.organization),
-        sql`length(trim(${translated_verses.content})) > 0`
-      )
-    )
-    .limit(2)
-    .offset(threshold - 1);
+  // Re-measured under the lock: another save may have committed while this one waited for it.
+  const before = await hasReachedAiActivationThreshold(projectUnitId, threshold, tx);
+  const written = await write();
 
-  return rows.length === 1;
+  // A failed write leaves the transaction aborted, so nothing more may run on it.
+  if (!written.ok) return { written, crossed: false };
+
+  const after = await hasReachedAiActivationThreshold(projectUnitId, threshold, tx);
+
+  return { written, crossed: !before && after };
 }

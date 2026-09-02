@@ -157,6 +157,11 @@ export async function logAiSuggestionUsage(
   }
 }
 
+/**
+ * The fallback look-ahead for a project with no pericope set. Same two filters the pericope query
+ * applies: no saved draft for this project unit, and no suggestion already generated. Without the
+ * second one, re-navigating the chapter would regenerate text the translator already has.
+ */
 export async function findNextUntranslatedVerses(
   projectUnitId: number,
   bibleId: number,
@@ -176,13 +181,22 @@ export async function findNextUntranslatedVerses(
         eq(translated_verses.projectUnitId, projectUnitId)
       )
     )
+    // Cannot fan out rows: ai_suggestions is unique per (bible_text, project_unit).
+    .leftJoin(
+      ai_suggestions,
+      and(
+        eq(ai_suggestions.bibleTextId, bible_texts.id),
+        eq(ai_suggestions.projectUnitId, projectUnitId)
+      )
+    )
     .where(
       and(
         eq(bible_texts.bibleId, bibleId),
         eq(books.code, bookCode),
         eq(bible_texts.chapterNumber, chapterNumber),
         gt(bible_texts.verseNumber, currentVerse),
-        isNull(translated_verses.projectUnitId)
+        isNull(translated_verses.projectUnitId),
+        isNull(ai_suggestions.projectUnitId)
       )
     )
     .orderBy(asc(bible_texts.verseNumber))
@@ -191,11 +205,16 @@ export async function findNextUntranslatedVerses(
   return nextVerses.map((v) => v.verseNumber);
 }
 
-export async function hasReachedAiActivationThreshold(
+/**
+ * The (source language, target language, organization) triple the activation threshold is counted
+ * across. Several projects can share one, which is why the count is never per-project.
+ */
+export async function getAiActivationFamily(
   projectUnitId: number,
-  threshold: number
-): Promise<boolean> {
-  const projectInfo = await db
+  tx?: DbTransaction
+): Promise<{ sourceLanguage: number; targetLanguage: number; organization: number } | null> {
+  const conn = tx ?? db;
+  const [family] = await conn
     .select({
       sourceLanguage: projects.sourceLanguage,
       targetLanguage: projects.targetLanguage,
@@ -206,11 +225,26 @@ export async function hasReachedAiActivationThreshold(
     .where(eq(project_units.id, projectUnitId))
     .limit(1);
 
-  if (!projectInfo[0]) return false;
+  return family ?? null;
+}
 
-  const { sourceLanguage, targetLanguage, organization } = projectInfo[0];
+/**
+ * Whether the project family holds at least `threshold` drafted verses. Pass `tx` to measure inside
+ * a save transaction, which is the only way to see that transaction's own uncommitted row.
+ */
+export async function hasReachedAiActivationThreshold(
+  projectUnitId: number,
+  threshold: number,
+  tx?: DbTransaction
+): Promise<boolean> {
+  const conn = tx ?? db;
+  const family = await getAiActivationFamily(projectUnitId, tx);
 
-  const result = await db
+  if (!family) return false;
+
+  const { sourceLanguage, targetLanguage, organization } = family;
+
+  const result = await conn
     .select({ id: translated_verses.id })
     .from(translated_verses)
     .innerJoin(project_units, eq(translated_verses.projectUnitId, project_units.id))
