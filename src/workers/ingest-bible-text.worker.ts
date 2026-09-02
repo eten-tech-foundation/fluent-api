@@ -8,6 +8,7 @@ import type { WorkerMetricsHooks } from './usfm-export.worker';
 import { db } from '../db';
 import { bible_texts, project_units } from '../db/schema';
 import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
+import * as usfmImportService from '../domains/projects/usfm-import.service';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
 import { dblClient } from '../lib/services/dbl/dbl.client';
@@ -192,6 +193,25 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
                   projectUnitId: pu.id,
                   bookIds,
                 });
+
+                // #419: a project created from USFM before this text existed has its verses
+                // waiting on it. Not a reason to retry the ingestion, which has succeeded.
+                const imported = await usfmImportService.materializePendingUsfmImports(
+                  pu.id,
+                  bibleId,
+                  bookIds
+                );
+                if (imported.ok && imported.data.materialized > 0) {
+                  logger.info('Materialised imported USFM after text ingestion', {
+                    projectUnitId: pu.id,
+                    ...imported.data,
+                  });
+                } else if (!imported.ok) {
+                  logger.error('Failed to materialise imported USFM after text ingestion', {
+                    projectUnitId: pu.id,
+                    error: imported.error,
+                  });
+                }
               } else {
                 failedAssignments++;
                 logger.error('Failed to create chapter assignments for project unit', {
