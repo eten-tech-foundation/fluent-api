@@ -40,4 +40,13 @@ The omitted-token legacy path is a **deprecated** compatibility hatch. Upload lo
 - Document all four in OpenAPI and add a legacy-client test (omitted field).
 - Route parsing: empty form fields coerce to `0` — treat `''` as absent and require tokens `>= 1`. Where the framework validates a body it never sees (multipart read through `parseBody`), the declared schema is documentation only: validate in the handler.
 
+## Client conflict responses (verse audio)
+
+| HTTP | Body signal | Meaning |
+| ---- | ----------- | ------- |
+| `200` | `conflictStatus: 'conflict'` | Normal offline / stale-token upload — both takes kept; client resolves explicitly |
+| `409` | `currentVersionToken?` | CAS or storage cleanup race — retry with `baseVersionToken` set from `currentVersionToken` (same value as `versionToken` on a GET). Field omitted only when the recording row is gone |
+
+Do not treat `409` as the offline conflict path, and do not treat `200` + conflict as a blind retry loop.
+
 Mirrored from `.cursor/rules/versioned-resource-writers.mdc` — keep the two in sync.

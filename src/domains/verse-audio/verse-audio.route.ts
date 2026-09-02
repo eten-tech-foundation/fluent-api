@@ -6,8 +6,10 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import type { Context } from 'hono';
+
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
-import { getHttpStatus } from '@/lib/types';
+import { ErrorCode, getHttpStatus, type AppError } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -20,6 +22,7 @@ import {
   VERSE_AUDIO_ID_SOURCES,
   verseAudioListResponseSchema,
   verseAudioResponseSchema,
+  verseAudioVersionConflictSchema,
 } from './verse-audio.types';
 
 // Covers both ways audio storage can be out: credentials unset, or the bucket
@@ -68,6 +71,27 @@ const commonErrorResponses = {
     'Internal server error'
   ),
 } as const;
+
+async function respondVerseAudioError(
+  c: Context,
+  projectUnitId: number,
+  bibleTextId: number,
+  error: AppError
+) {
+  const status = getHttpStatus(error);
+  const body: { message: string; currentVersionToken?: number } = {
+    message: error.message,
+  };
+
+  if (error.code === ErrorCode.VERSE_AUDIO_VERSION_CONFLICT) {
+    const current = await verseAudioService.getCurrentVersionToken(projectUnitId, bibleTextId);
+    if (current.ok) {
+      body.currentVersionToken = current.data;
+    }
+  }
+
+  return c.json(body, status as never);
+}
 
 // ─── PUT /verse-audio/{projectUnitId}/{bibleTextId} ──────────────────────────
 
@@ -132,8 +156,8 @@ const uploadVerseAudioRoute = createRoute({
       'Missing/empty file, unsupported content type, or a malformed baseVersionToken'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
-      createMessageObjectSchema('Conflict'),
-      'A concurrent write or cleanup invalidated the upload; reload and retry'
+      verseAudioVersionConflictSchema,
+      'A concurrent write or cleanup invalidated the upload; refresh currentVersionToken and retry'
     ),
     413: jsonContent(
       createMessageObjectSchema('Payload too large'),
@@ -193,7 +217,7 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   });
 
   if (!result.ok) {
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+    return respondVerseAudioError(c, projectUnitId, bibleTextId, result.error);
   }
 
   return c.json(result.data, HttpStatusCodes.OK);
@@ -328,8 +352,8 @@ const resolveVerseAudioRoute = createRoute({
       'Invalid parameters'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
-      createMessageObjectSchema('Conflict'),
-      'Verse audio changed concurrently; reload and retry'
+      verseAudioVersionConflictSchema,
+      'Verse audio changed concurrently; refresh currentVersionToken and retry'
     ),
     ...commonErrorResponses,
   },
@@ -352,7 +376,7 @@ server.openapi(resolveVerseAudioRoute, async (c) => {
     takeId,
   });
   if (!result.ok) {
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+    return respondVerseAudioError(c, projectUnitId, bibleTextId, result.error);
   }
 
   return c.json(result.data, HttpStatusCodes.OK);

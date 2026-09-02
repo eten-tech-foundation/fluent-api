@@ -82,6 +82,7 @@ vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
 vi.mock('./verse-audio.service', () => ({
   uploadRecording: vi.fn(),
   getRecording: vi.fn(),
+  getCurrentVersionToken: vi.fn(),
   listChapterRecordings: vi.fn(),
   resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
@@ -237,16 +238,40 @@ describe('verse-audio routes', () => {
       );
     });
 
-    it('returns 409 when concurrent cleanup invalidates an upload reference', async () => {
+    it('returns 409 with currentVersionToken when concurrent cleanup invalidates an upload reference', async () => {
       vi.mocked(verseAudioService.uploadRecording).mockResolvedValue(
         err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT)
+      );
+      vi.mocked(verseAudioService.getCurrentVersionToken).mockResolvedValue({
+        ok: true,
+        data: 5,
+      });
+
+      const res = await upload('3');
+
+      expect(res.status).toBe(409);
+      expect(verseAudioService.getCurrentVersionToken).toHaveBeenCalledWith(1, 10);
+      expect(await res.json()).toEqual({
+        message:
+          'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
+        currentVersionToken: 5,
+      });
+    });
+
+    it('returns 409 without currentVersionToken when the recording no longer exists', async () => {
+      vi.mocked(verseAudioService.uploadRecording).mockResolvedValue(
+        err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT)
+      );
+      vi.mocked(verseAudioService.getCurrentVersionToken).mockResolvedValue(
+        err(ErrorCode.VERSE_AUDIO_NOT_FOUND)
       );
 
       const res = await upload('3');
 
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({
-        message: 'Verse audio changed concurrently; reload and retry',
+        message:
+          'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
       });
     });
   });
@@ -281,7 +306,6 @@ describe('verse-audio routes', () => {
     });
 
     it.each([
-      [ErrorCode.VERSE_AUDIO_VERSION_CONFLICT, 409],
       [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
     ])('maps %s to %i', async (code, status) => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
@@ -289,6 +313,26 @@ describe('verse-audio routes', () => {
       const res = await resolve();
 
       expect(res.status).toBe(status);
+    });
+
+    it('returns 409 with currentVersionToken on version conflict', async () => {
+      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(
+        err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT)
+      );
+      vi.mocked(verseAudioService.getCurrentVersionToken).mockResolvedValue({
+        ok: true,
+        data: 7,
+      });
+
+      const res = await resolve();
+
+      expect(res.status).toBe(409);
+      expect(verseAudioService.getCurrentVersionToken).toHaveBeenCalledWith(1, 10);
+      expect(await res.json()).toEqual({
+        message:
+          'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
+        currentVersionToken: 7,
+      });
     });
   });
 

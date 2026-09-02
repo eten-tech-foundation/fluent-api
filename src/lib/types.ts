@@ -113,7 +113,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
   VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
   VERSE_AUDIO_TAKE_NOT_FOUND: 'Verse audio take not found',
-  VERSE_AUDIO_VERSION_CONFLICT: 'Verse audio changed concurrently; reload and retry',
+  VERSE_AUDIO_VERSION_CONFLICT:
+    'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',

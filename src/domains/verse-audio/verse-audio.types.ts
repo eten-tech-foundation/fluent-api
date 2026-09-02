@@ -175,6 +175,16 @@ export const resolveConflictBodySchema = z.object({
   }),
 });
 
+/** 409 body for CAS / cleanup races — includes the live token so clients can retry without a GET. */
+export const verseAudioVersionConflictSchema = z.object({
+  message: z.string(),
+  currentVersionToken: z.number().int().positive().optional().openapi({
+    description:
+      'Live server token after the concurrent write; send as baseVersionToken on retry. Omitted only when the recording no longer exists.',
+    example: 4,
+  }),
+});
+
 // ── Const enumerations ───────────────────────────────────────────────────────
 
 export const VERSE_AUDIO_ACTIONS = {

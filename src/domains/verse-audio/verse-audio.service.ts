@@ -443,6 +443,18 @@ export async function getRecording(
   return loadUnitResponse(projectUnitId, bibleTextId);
 }
 
+/** Lightweight reload for 409 retry hints — no presigns or take hydration. */
+export async function getCurrentVersionToken(
+  projectUnitId: number,
+  bibleTextId: number
+): Promise<Result<number>> {
+  const recording = await repo.get(projectUnitId, bibleTextId);
+  if (!recording.ok) {
+    return recording;
+  }
+  return ok(recording.data.versionToken);
+}
+
 export async function listChapterRecordings(
   projectUnitId: number,
   bibleId: number,
