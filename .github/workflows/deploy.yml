@@ -110,11 +110,11 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MIGRATIONS_DATABASE_URL: ${{ secrets.MIGRATIONS_DATABASE_URL }}
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL is not set on the $ENVIRONMENT environment."
+          if [ -z "$MIGRATIONS_DATABASE_URL" ]; then
+            echo "::error::MIGRATIONS_DATABASE_URL is not set on the $ENVIRONMENT environment."
             exit 1
           fi
           npm run db:migrate
