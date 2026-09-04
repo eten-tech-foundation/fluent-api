@@ -167,7 +167,7 @@ Rather than modifying the existing `/projects` routes to handle both project-lev
 
 **Domain structure:**
 
-```
+```text
 src/domains/milestones/
 ├── milestones.route.ts
 ├── milestones.service.ts
@@ -248,12 +248,16 @@ The translation editor uses `ProjectItem.projectUnitId` to fetch verses, AI sugg
 > - _Option A:_ Strict columns (`name`, `type`, `connectivity_profile`) — simple, explicit, easy to query.
 > - _Option B:_ `name` column + JSONB `metadata` for `type` and `connectivityProfile` — more flexible for future milestone-level settings we haven't thought of yet, mirrors the pattern `projects` already uses.
 
+<!-- -->
+
 > [!IMPORTANT]
 > **Consolidated Project Naming:** This blocks the migration script. When merging old projects, what should the master be named?
 >
 > - _Option A:_ Name of the oldest project in the group.
 > - _Option B:_ Auto-generate from the language pair (e.g., "English → Spanish").
 > - _Option C:_ Let an admin rename after migration.
+
+<!-- -->
 
 > [!IMPORTANT]
 > **Merging User Roles — Access Expansion:** This blocks the migration script. When 5 projects merge into 1, all their PMs and Translators share access to all milestones. A PM who managed only "Genesis Translation" now has PM access to everything under the merged project. Is this acceptable, or do we need milestone-level role scoping (significantly larger change)?
