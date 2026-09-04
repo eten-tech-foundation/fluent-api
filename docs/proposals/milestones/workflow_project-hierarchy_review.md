@@ -164,7 +164,14 @@ Note this only works under Option A (§4.1); under Option B the same value has t
 - **Sum of chapters across milestones.** Double-counts when two milestones cover the same book — which §2.1 says consolidation will actively produce. A project showing "120 of 200 chapters" where 40 of them are the same 40 chapters twice is simply wrong.
 - **Unweighted mean of per-milestone percentages.** No double-counting, but a one-book milestone at 100% offsets a 30-book milestone at 10%.
 
-**Fix:** specify the denominator and the status-rollup rule before building either the API or the table that renders it. Given §2.1, my recommendation is chapter-sum with a documented statement that overlapping chapters are counted once per milestone, plus a visible overlap indicator on the Milestones table — or resolve §2.1 so overlap cannot occur, which makes the sum unambiguous.
+**Fix:** pick one of two units and apply it to the numerator _and_ the denominator, then name the metric after the unit you picked:
+
+- **Chapter-assignment instances.** Denominator is `COUNT(chapter_assignments)` under the project; numerator is the completed subset. A chapter covered by two milestones counts twice in both halves, because it genuinely is two pieces of assignable work. Consistent, one `GROUP BY`, and honest — provided the label says "chapters assigned / completed" and not "% of scripture scope".
+- **Unique `(book, chapter)` across the project.** Denominator de-duplicates; a chapter counts as done when _any_ milestone completes it. Answers "how much of the scope is translated", but needs a tie-break rule when two milestones disagree on the same chapter's status.
+
+My recommendation is the first: it matches how the data is actually keyed (`chapter_assignments` is per `project_unit_id`), it needs no tie-break rule, and the ambiguity it carries is a labeling problem rather than a correctness one. Pair it with a visible overlap indicator on the Milestones table so the duplication is legible rather than silent.
+
+Either way, if §2.1 is resolved so that overlap cannot occur, the two units converge and this stops mattering — which is another argument for settling §2.1 first.
 
 ### 2.9 The skip-and-warn edge case contradicts the rollout gate
 
@@ -204,7 +211,9 @@ The widening happens at **step 8** — the moment grants are re-pointed at the m
 
 **Phase A — dry run, no writes.** Compute the merge groups, elect masters, and emit the full plan: every `(user, role, old_project → master_project)` move, and, called out separately, every user whose effective access widens as a result. Write nothing.
 
-**Phase B — execute, after sign-off.** Run steps 5–9 in a single transaction against the _same_ plan Phase A produced, aborting if the underlying data changed in between (compare a checksum of the group membership). Steps 8 and 9 are then atomic with respect to each other, so the cascade hazard in §1.2 cannot open a window.
+**Phase B — execute, after sign-off.** Run steps 5–9 in a single transaction against the _same_ plan Phase A produced, aborting if the inputs changed in between. Steps 8 and 9 are then mutually atomic, so the cascade hazard in §1.2 cannot open a window.
+
+The freshness check has to cover **everything the report was derived from**, not just the merge-group membership. Group membership can be identical while the grants underneath it changed: a role granted on a to-be-merged project between Phase A and Phase B would be silently re-pointed at the master without ever appearing in the reviewed report — exactly the unreviewed widening the sign-off exists to prevent. So checksum the full move input — the in-scope `user_roles` rows as `(id, user_id, org_id, project_id, role_id)` — alongside group membership, or `SELECT ... FOR UPDATE` those rows at the top of Phase B and re-derive the report inside the transaction, failing if it differs from the approved one. The lock is the stronger option: it closes the race rather than detecting it after the fact.
 
 Keep the pre-merge `user_roles` contents as a backup table for the length of the rollback window. That converts an invisible change into a reviewed one without requiring the larger scoping work.
 
