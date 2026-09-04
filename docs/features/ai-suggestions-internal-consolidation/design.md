@@ -2,7 +2,7 @@
 
 **Audience:** whoever picks up the follow-up cleanup after `draft/ai-suggestions`.
 **Status:** proposed design — not yet implemented. See "Rollout" before starting.
-**Related:** `docs/http-decoupling-transition.md`, `docs/ai-suggestions-workflow.md`, `docs/cross-schema-types.md`, `ARCHITECTURE.md`.
+**Related:** `docs/features/http-decoupling-transition/plan.md`, `docs/ai-suggestions-workflow.md`, `docs/cross-schema-types.md`, `ARCHITECTURE.md`.
 **Companion:** `fluent-ai/docs/http-decoupling-transition.md`. The two endpoints this doc moves are called exclusively by that service's worker (`suggestion_processor.py`), so this is a wire-contract change — coordinate before merging.
 
 ## Why
@@ -17,7 +17,7 @@ That split is an internal/public API drawn along "who calls it," not "what it ow
 - **Duplicate table ownership.** `ai-internal.repository.ts::upsertAiSuggestions` and `ai-suggestions.repository.ts::getAiSuggestions` / `logAiSuggestionUsage` both read/write `ai_suggestions` from two different domain folders. `ARCHITECTURE.md`'s Cross-Domain Relationships section says repositories shouldn't be reachable from outside their own domain — here there are two domains both claiming to be "inside" for the same table.
 - **Inconsistent error handling.** Every other domain (including `ai-suggestions.service.ts` itself) returns `Result<T>` and lets the route layer call `getHttpStatus`. `ai-internal` throws raw `Error`s and does `error.name === 'ZodError'` string checks instead.
 - **No test coverage.** `ai-suggestions` has both repository and route tests; `ai-internal` has none.
-- **The original transition doc already named this alternative.** `docs/http-decoupling-transition.md` (Workstream 3) proposed either "a new internal domain/route group (suggested: `src/domains/ai-internal/`" **or** "extend `ai-suggestions` with an `*.internal.route.ts`". Implementation took the first option; this doc is about switching to the second.
+- **The original transition doc already named this alternative.** `docs/features/http-decoupling-transition/plan.md` (Workstream 3) proposed either "a new internal domain/route group (suggested: `src/domains/ai-internal/`" **or** "extend `ai-suggestions` with an `*.internal.route.ts`". Implementation took the first option; this doc is about switching to the second.
 
 None of this changes what the endpoints do — this is a same-behavior reorganization, plus one deliberate URL change (below).
 
