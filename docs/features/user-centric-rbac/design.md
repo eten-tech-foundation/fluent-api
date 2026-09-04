@@ -23,7 +23,7 @@ Kevin Smith is simultaneously an org owner in Org A, an org-level manager in
 Org B, a translator in Org C, and an observer in Org D.
 
 **The user must be the central tenant.** A user has an identity; orgs and
-projects are things they are *associated with*, carrying a role per association.
+projects are things they are _associated with_, carrying a role per association.
 
 ## Goals
 
@@ -43,49 +43,49 @@ projects are things they are *associated with*, carrying a role per association.
 
 ## Core Insight — Scope Lives on the Grant, Not the Role
 
-A role's *reach* is determined by the **scope of the grant**, not by the role
+A role's _reach_ is determined by the **scope of the grant**, not by the role
 itself. A `Project Manager` grant can be:
 
-- **Org-wide** (`project_id` null): manages and creates *all* projects in the
+- **Org-wide** (`project_id` null): manages and creates _all_ projects in the
   org, including ones created later.
 - **Project-pinned** (`project_id` set): that one project only.
 
 Same role, different reach. This is what lets today's org-wide `Manager` and the
-new "invited to one project" PM be the *same role* — and makes the migration one
+new "invited to one project" PM be the _same role_ — and makes the migration one
 row per user.
 
 ## Data Model
 
 ### New table: `user_roles`
 
-| Column       | Type      | Notes                                            |
-|--------------|-----------|--------------------------------------------------|
-| `id`         | serial PK |                                                  |
-| `user_id`    | int FK    | → `users.id`, **NOT NULL**, `onDelete: cascade`  |
-| `org_id`     | int FK    | → `organizations.id`, **NULLABLE**               |
+| Column       | Type      | Notes                                              |
+| ------------ | --------- | -------------------------------------------------- |
+| `id`         | serial PK |                                                    |
+| `user_id`    | int FK    | → `users.id`, **NOT NULL**, `onDelete: cascade`    |
+| `org_id`     | int FK    | → `organizations.id`, **NULLABLE**                 |
 | `project_id` | int FK    | → `projects.id`, **NULLABLE**, `onDelete: cascade` |
-| `role_id`    | int FK    | → `roles.id`, **NOT NULL**                       |
-| `created_by` | int FK    | → `users.id`, nullable                           |
-| `created_at` | timestamp | default now                                      |
-| `updated_at` | timestamp | `$onUpdate`                                      |
+| `role_id`    | int FK    | → `roles.id`, **NOT NULL**                         |
+| `created_by` | int FK    | → `users.id`, nullable                             |
+| `created_at` | timestamp | default now                                        |
+| `updated_at` | timestamp | `$onUpdate`                                        |
 
 - **Unique** on `(user_id, org_id, project_id, role_id)`.
 - **Indexes** on `user_id`, `org_id`, `project_id`.
 
 Grant-shape semantics:
 
-| Grant shape                          | Meaning                                  |
-|--------------------------------------|------------------------------------------|
-| `(user, null, null, SuperAdmin)`     | System-wide, every permission            |
-| `(user, O, null, Org Owner/Manager)` | Org-wide role over org O                 |
-| `(user, O, null, Project Manager)`   | Org-wide PM (manages all projects in O)  |
-| `(user, O, P, Project Manager/…)`    | Role pinned to project P in org O        |
+| Grant shape                          | Meaning                                 |
+| ------------------------------------ | --------------------------------------- |
+| `(user, null, null, SuperAdmin)`     | System-wide, every permission           |
+| `(user, O, null, Org Owner/Manager)` | Org-wide role over org O                |
+| `(user, O, null, Project Manager)`   | Org-wide PM (manages all projects in O) |
+| `(user, O, P, Project Manager/…)`    | Role pinned to project P in org O       |
 
 ### Org membership is emergent
 
 A user belongs to org O **iff** they have ≥1 `user_roles` row with `org_id = O`.
 There is no separate membership table. Inviting a user to a project (which
-creates a `(user, O, P, role)` row) *is* what associates them with org O.
+creates a `(user, O, P, role)` row) _is_ what associates them with org O.
 
 ### Removed from `users`
 
@@ -122,20 +122,20 @@ Existing strings are retained. Two new permissions are added:
   the actor manages.
 - `role:assign:org_manager` — grant Org Manager roles (Org Owner only).
 
-`user:delete` (deleting the *account record* itself) is **removed from all
+`user:delete` (deleting the _account record_ itself) is **removed from all
 org/project roles**. Account deletion is owner-of-the-account (self) territory
 and is deferred to a future ticket.
 
 ### Role → permission map (seed)
 
-| Role               | Permissions                                                                                                   |
-|--------------------|---------------------------------------------------------------------------------------------------------------|
-| **SuperAdmin**     | All permissions                                                                                               |
-| **Org Owner**      | `project:*`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`, `role:assign:org_manager` |
-| **Org Manager**    | Same as Org Owner **minus** `role:assign:org_manager`                                                         |
-| **Project Manager**| `project:view/create/update/delete`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project` |
-| **Project Translator** | `project:view`, `content:view/update`, `user:view`, `user:update` (self)                                 |
-| **Project Observer**   | `project:view`, `content:view`                                                                            |
+| Role                   | Permissions                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SuperAdmin**         | All permissions                                                                                                                             |
+| **Org Owner**          | `project:*`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`, `role:assign:org_manager` |
+| **Org Manager**        | Same as Org Owner **minus** `role:assign:org_manager`                                                                                       |
+| **Project Manager**    | `project:view/create/update/delete`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`    |
+| **Project Translator** | `project:view`, `content:view/update`, `user:view`, `user:update` (self)                                                                    |
+| **Project Observer**   | `project:view`, `content:view`                                                                                                              |
 
 Notes:
 
@@ -160,11 +160,15 @@ this is negligible and keeps every downstream check in-memory.
 
 ```ts
 // before
-interface AppPolicyUser { id: number; roleName: string; organization: number; }
+interface AppPolicyUser {
+  id: number;
+  roleName: string;
+  organization: number;
+}
 // after
 interface AppPolicyUser {
   id: number;
-  grants: Grant[];                 // { orgId: number|null, projectId: number|null, permissions: Set<string> }
+  grants: Grant[]; // { orgId: number|null, projectId: number|null, permissions: Set<string> }
   can(permission: Permission, scope: { orgId?: number; projectId?: number }): boolean;
 }
 ```
@@ -185,8 +189,8 @@ authorize(user, permission, { orgId?, projectId? }):
 ```
 
 - **Project-scoped action** (update project P in org O): a PM pinned to a
-  *different* project in O does **not** apply — PMs can't reach across projects.
-  An org-wide PM grant (`project_id` null) *does* apply.
+  _different_ project in O does **not** apply — PMs can't reach across projects.
+  An org-wide PM grant (`project_id` null) _does_ apply.
 - **Org-scoped action** (create a project in O, where there's no `project_id`
   yet): any grant in O applies; the role's permission set is the gate.
 - **SuperAdmin** is a global grant whose role has every permission → satisfies
@@ -215,7 +219,7 @@ Run inside a transaction:
      future, create projects, manage users); no project enumeration; handles
      managers in empty orgs.
    - **`Translator`** → one grant `(user, organization, project, Project
-     Translator)` for each `project_users` row.
+Translator)` for each `project_users` row.
 3. Verify row counts (every migrated user has ≥1 grant).
 4. Drop `users.organization`, `users.role`, and the `project_users` table.
 

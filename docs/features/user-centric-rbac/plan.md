@@ -15,6 +15,7 @@
 ## File Structure
 
 **New files**
+
 - `src/domains/user-roles/user-roles.repository.ts` — load a user's grants (joined to permissions), grouped into `Grant[]`.
 - `src/domains/user-roles/user-roles.service.ts` — grant CRUD used by migration + invitation (create/revoke a grant).
 - `src/lib/services/permissions/authorize.ts` — the `authorize` / `collectPermissions` / `isGrantApplicable` engine (pure, no DB).
@@ -22,6 +23,7 @@
 - `src/db/scripts/migrate-to-user-central-rbac.ts` — one-shot data migration.
 
 **Modified files**
+
 - `src/lib/roles.ts` — full role-name set.
 - `src/lib/permissions.ts` — add `content:view`, `membership:revoke`, `role:assign:project`, `role:assign:org_manager`.
 - `src/db/schema.ts` — add `user_roles` table + zod schemas (Phase 0); drop `users.organization`, `users.role`, `project_users` (Phase 4).
@@ -40,6 +42,7 @@
 ### Task 1: Expand role-name constants
 
 **Files:**
+
 - Modify: `src/lib/roles.ts`
 
 - [ ] **Step 1: Replace the constants file**
@@ -74,6 +77,7 @@ git commit -m "feat(rbac): expand role-name constants for user-central model"
 ### Task 2: Add new permission constants
 
 **Files:**
+
 - Modify: `src/lib/permissions.ts`
 
 - [ ] **Step 1: Add the four new permission entries**
@@ -109,6 +113,7 @@ git commit -m "feat(rbac): add content:view, membership:revoke, role:assign:* pe
 ### Task 3: Add the `user_roles` table to the schema
 
 **Files:**
+
 - Modify: `src/db/schema.ts`
 
 - [ ] **Step 1: Add the table after `role_permissions` (around line 479)**
@@ -133,12 +138,7 @@ export const user_roles = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex('uq_user_role_grant').on(
-      table.userId,
-      table.orgId,
-      table.projectId,
-      table.roleId
-    ),
+    uniqueIndex('uq_user_role_grant').on(table.userId, table.orgId, table.projectId, table.roleId),
     index('idx_user_roles_user').on(table.userId),
     index('idx_user_roles_org').on(table.orgId),
     index('idx_user_roles_project').on(table.projectId),
@@ -187,6 +187,7 @@ git commit -m "feat(rbac): add user_roles grant table"
 ### Task 4: Define `Grant`, `AuthScope`, and the new `AppPolicyUser`
 
 **Files:**
+
 - Modify: `src/lib/types.ts:153-160`
 
 - [ ] **Step 1: Add types near the existing `AppPolicyUser` (replace that interface)**
@@ -233,6 +234,7 @@ git commit -m "feat(rbac): introduce Grant/AuthScope and grant-based AppPolicyUs
 ### Task 5: Implement the authorization engine (TDD)
 
 **Files:**
+
 - Create: `src/lib/services/permissions/authorize.ts`
 - Test: `src/lib/services/permissions/authorize.test.ts`
 
@@ -247,11 +249,11 @@ import { PERMISSIONS } from '@/lib/permissions';
 
 import { authorize, collectPermissions } from './authorize';
 
-const grant = (
-  orgId: number | null,
-  projectId: number | null,
-  perms: string[]
-): Grant => ({ orgId, projectId, permissions: new Set(perms) as ReadonlySet<any> });
+const grant = (orgId: number | null, projectId: number | null, perms: string[]): Grant => ({
+  orgId,
+  projectId,
+  permissions: new Set(perms) as ReadonlySet<any>,
+});
 
 describe('authorize', () => {
   const ORG = 1;
@@ -268,13 +270,17 @@ describe('authorize', () => {
   it('org-wide PM grant applies to any project in that org', () => {
     const user = { id: 1, grants: [grant(ORG, null, [PERMISSIONS.PROJECT_UPDATE])] };
     expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(true);
-    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: OTHER_PROJ })).toBe(true);
+    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: OTHER_PROJ })).toBe(
+      true
+    );
   });
 
   it('project-pinned grant does NOT apply to a sibling project', () => {
     const user = { id: 1, grants: [grant(ORG, PROJ, [PERMISSIONS.PROJECT_UPDATE])] };
     expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(true);
-    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: OTHER_PROJ })).toBe(false);
+    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: OTHER_PROJ })).toBe(
+      false
+    );
   });
 
   it('project-pinned PM grant counts for an org-scoped action (create project)', () => {
@@ -289,7 +295,9 @@ describe('authorize', () => {
 
   it('grants in a different org never apply', () => {
     const user = { id: 1, grants: [grant(OTHER_ORG, null, [PERMISSIONS.PROJECT_UPDATE])] };
-    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(false);
+    expect(authorize(user, PERMISSIONS.PROJECT_UPDATE, { orgId: ORG, projectId: PROJ })).toBe(
+      false
+    );
   });
 
   it('collectPermissions unions across applicable grants', () => {
@@ -328,11 +336,7 @@ import type { AppPolicyUser, AuthScope, Grant } from '@/lib/types';
  *  - the request is org-scoped (no project) and the grant lives in that org
  *    (org-wide OR pinned to any project in it).
  */
-function isGrantApplicable(
-  grant: Grant,
-  orgId: number | null,
-  projectId: number | null
-): boolean {
+function isGrantApplicable(grant: Grant, orgId: number | null, projectId: number | null): boolean {
   if (grant.orgId === null && grant.projectId === null) return true;
 
   if (projectId !== null) {
@@ -360,11 +364,7 @@ export function collectPermissions(grants: Grant[], scope: AuthScope): Set<Permi
   return out;
 }
 
-export function authorize(
-  user: AppPolicyUser,
-  permission: Permission,
-  scope: AuthScope
-): boolean {
+export function authorize(user: AppPolicyUser, permission: Permission, scope: AuthScope): boolean {
   return collectPermissions(user.grants, scope).has(permission);
 }
 ```
@@ -384,6 +384,7 @@ git commit -m "feat(rbac): scope-based authorize() engine with unit tests"
 ### Task 6: Load a user's grants from the DB (TDD)
 
 **Files:**
+
 - Create: `src/domains/user-roles/user-roles.repository.ts`
 - Test: `src/domains/user-roles/user-roles.repository.test.ts`
 
@@ -445,7 +446,10 @@ const key = (orgId: number | null, projectId: number | null): string =>
 
 /** Pure: fold flat (scope, permission) rows into one Grant per distinct scope. */
 export function groupGrantRows(rows: GrantRow[]): Grant[] {
-  const byScope = new Map<string, { orgId: number | null; projectId: number | null; permissions: Set<Permission> }>();
+  const byScope = new Map<
+    string,
+    { orgId: number | null; projectId: number | null; permissions: Set<Permission> }
+  >();
   for (const row of rows) {
     const k = key(row.orgId, row.projectId);
     let entry = byScope.get(k);
@@ -493,6 +497,7 @@ git commit -m "feat(rbac): load and group user grants from user_roles"
 ### Task 7: Grant mutation service (create / revoke)
 
 **Files:**
+
 - Create: `src/domains/user-roles/user-roles.service.ts`
 
 - [ ] **Step 1: Implement (used by migration + invitation; thin wrapper)**
@@ -566,6 +571,7 @@ git commit -m "feat(rbac): grant/revoke role mutations"
 ### Task 8: Rework the context `User` type and load grants at authentication
 
 **Files:**
+
 - Modify: `src/lib/types.ts:9-17` (context `User` interface)
 - Modify: `src/middlewares/authenticate.ts:122-130`
 
@@ -590,19 +596,19 @@ Remove `role`, `roleName`, `organization` from this interface (they are no longe
 Replace the block at `authenticate.ts:122-130`:
 
 ```ts
-    // Look up the application user and load their grants
-    const userResult = await getUserByEmail(session.user.email);
-    if (userResult.ok) {
-      const grantsResult = await findGrantsByUserId(userResult.data.id);
-      c.set('user', {
-        ...userResult.data,
-        grants: grantsResult.ok ? grantsResult.data : [],
-      });
-    } else {
-      logger.debug('Authenticated auth_user has no linked application user', {
-        email: session.user.email,
-      });
-    }
+// Look up the application user and load their grants
+const userResult = await getUserByEmail(session.user.email);
+if (userResult.ok) {
+  const grantsResult = await findGrantsByUserId(userResult.data.id);
+  c.set('user', {
+    ...userResult.data,
+    grants: grantsResult.ok ? grantsResult.data : [],
+  });
+} else {
+  logger.debug('Authenticated auth_user has no linked application user', {
+    email: session.user.email,
+  });
+}
 ```
 
 Add import at top of `authenticate.ts`:
@@ -621,6 +627,7 @@ git commit -m "feat(rbac): attach resolved grants to the request user"
 ### Task 9: `requirePermission(permission, scopeFn)` and self-access
 
 **Files:**
+
 - Modify: `src/middlewares/role-auth.ts`
 - Modify: `src/lib/services/permissions/permissions.service.ts`
 
@@ -695,6 +702,7 @@ git commit -m "feat(rbac): scope-aware requirePermission; retire roleHasPermissi
 ### Task 10: Rewrite `project.policy.ts`
 
 **Files:**
+
 - Modify: `src/domains/projects/project.policy.ts`
 - Modify: `src/domains/projects/projects.types.ts` (ensure `ProjectWithLanguageNames` exposes `id` and `organization`)
 
@@ -751,6 +759,7 @@ git commit -m "refactor(rbac): project policy uses authorize()"
 ### Task 11: Rewrite project auth middleware, route handlers, and project listing/creation
 
 **Files:**
+
 - Modify: `src/domains/projects/project-auth.middleware.ts`
 - Modify: `src/domains/projects/projects.route.ts:57-108`
 - Modify: `src/domains/projects/projects.service.ts` (add `getProjectsForUser`)
@@ -762,7 +771,7 @@ git commit -m "refactor(rbac): project policy uses authorize()"
 Replace the `policyUser` literal (lines 19-24) with:
 
 ```ts
-    const policyUser = { id: user.id, grants: user.grants };
+const policyUser = { id: user.id, grants: user.grants };
 ```
 
 `resolveIsProjectMember(projectId, user.id)` loses its `roleName` arg (see Task 14). Update the two call sites in this file accordingly.
@@ -781,7 +790,9 @@ import { collectPermissions } from '@/lib/services/permissions/authorize';
  * Org IDs where the user holds project:view org-wide (project_id null),
  * and project IDs where they hold a project-pinned view grant.
  */
-export async function getProjectsForUser(user: AppPolicyUser): Promise<Result<ProjectWithLanguageNames[]>> {
+export async function getProjectsForUser(
+  user: AppPolicyUser
+): Promise<Result<ProjectWithLanguageNames[]>> {
   const orgIds = new Set<number>();
   const projectIds = new Set<number>();
   for (const g of user.grants) {
@@ -846,26 +857,26 @@ In `projects.route.ts`, change the create route middleware to resolve scope from
 Add `import { orgFromBody } from '@/middlewares/role-auth';` and update the handler (`:96-108`) to use `projectData.organization` instead of `currentUser.organization`:
 
 ```ts
-  const result = await projectService.createProject({
-    ...projectData,
-    createdBy: currentUser.id,
-    organization: projectData.organization,
-  });
+const result = await projectService.createProject({
+  ...projectData,
+  createdBy: currentUser.id,
+  organization: projectData.organization,
+});
 ```
 
 After a project is created, grant the creator a project-pinned PM role (so they manage what they create):
 
 ```ts
-  if (result.ok) {
-    await grantRole({
-      userId: currentUser.id,
-      orgId: projectData.organization,
-      projectId: result.data.id,
-      roleId: await getRoleId(ROLES.PROJECT_MANAGER),
-      createdBy: currentUser.id,
-    });
-    return c.json(result.data, HttpStatusCodes.CREATED);
-  }
+if (result.ok) {
+  await grantRole({
+    userId: currentUser.id,
+    orgId: projectData.organization,
+    projectId: result.data.id,
+    roleId: await getRoleId(ROLES.PROJECT_MANAGER),
+    createdBy: currentUser.id,
+  });
+  return c.json(result.data, HttpStatusCodes.CREATED);
+}
 ```
 
 Add a small cached `getRoleId(name)` helper in `user-roles.service.ts`:
@@ -896,6 +907,7 @@ git commit -m "refactor(rbac): project routes resolve org/project scope from gra
 ### Task 12: Rewrite `chapter-assignments.policy.ts` + auth middleware
 
 **Files:**
+
 - Modify: `src/domains/chapter-assignments/chapter-assignments.policy.ts`
 - Modify: `src/domains/chapter-assignments/chapter-assignment-auth.middleware.ts`
 
@@ -990,8 +1002,12 @@ export const ChapterAssignmentPolicy = {
     });
   },
 
-  assignDrafter(user, assignment): boolean { return this._assign(user, assignment); },
-  assignPeerChecker(user, assignment): boolean { return this._assign(user, assignment); },
+  assignDrafter(user, assignment): boolean {
+    return this._assign(user, assignment);
+  },
+  assignPeerChecker(user, assignment): boolean {
+    return this._assign(user, assignment);
+  },
 
   submit(user, assignment, isProjectMember): boolean {
     const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
@@ -1010,10 +1026,13 @@ export const ChapterAssignmentPolicy = {
   },
 
   isParticipant(user, assignment): boolean {
-    if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, {
-      orgId: assignment.organizationId,
-      projectId: assignment.projectId,
-    })) return false;
+    if (
+      !authorize(user, PERMISSIONS.CONTENT_UPDATE, {
+        orgId: assignment.organizationId,
+        projectId: assignment.projectId,
+      })
+    )
+      return false;
     return assignment.assignedUserId === user.id || assignment.peerCheckerId === user.id;
   },
 };
@@ -1037,6 +1056,7 @@ git commit -m "refactor(rbac): chapter-assignment policy/middleware use authoriz
 ### Task 13: Update project-scoped chapter-assignment route & service
 
 **Files:**
+
 - Modify: `src/domains/projects/chapter-assignments/project-chapter-assignments.route.ts:108-290`
 - Modify: `src/domains/projects/chapter-assignments/project-chapter-assignments.service.ts:60-140`
 
@@ -1071,6 +1091,7 @@ git commit -m "refactor(rbac): project chapter-assignment routes use grant-based
 ### Task 14: `resolveIsProjectMember` + translated-verse middleware
 
 **Files:**
+
 - Modify: `src/domains/projects/users/project-users.service.ts`
 - Modify: `src/domains/translated-verses/translated-verse-auth.middleware.ts`
 - Modify: `src/domains/chapter-assignments/chapter-assignments.repository.ts` (drop `roleName` param, add `projectId`)
@@ -1123,6 +1144,7 @@ git commit -m "refactor(rbac): project membership derived from user_roles"
 ### Task 15: Users domain — policy, middleware, listing, invitation; restore green
 
 **Files:**
+
 - Modify: `src/domains/users/user.policy.ts`
 - Modify: `src/domains/users/user-auth.middleware.ts`
 - Modify: `src/domains/users/users.service.ts` + `users.repository.ts` (replace `findByOrganization`/`findByEmail`)
@@ -1225,6 +1247,7 @@ git commit -m "refactor(rbac): users domain + invitation use grants; build green
 ### Task 16: Seed the new roles and permission map
 
 **Files:**
+
 - Modify: `src/db/seeds/roles.ts`
 - Modify: `src/db/seeds/rbac.ts`
 
@@ -1254,14 +1277,28 @@ const PERMISSION_DEFINITIONS = [
 
 const ALL = PERMISSION_DEFINITIONS.map((p) => p.name);
 const PROJECT_MANAGER_PERMS = [
-  PERMISSIONS.PROJECT_VIEW, PERMISSIONS.PROJECT_CREATE, PERMISSIONS.PROJECT_UPDATE, PERMISSIONS.PROJECT_DELETE,
-  PERMISSIONS.CONTENT_VIEW, PERMISSIONS.CONTENT_ASSIGN, PERMISSIONS.CONTENT_UPDATE,
-  PERMISSIONS.USER_VIEW, PERMISSIONS.USER_CREATE, PERMISSIONS.USER_UPDATE,
-  PERMISSIONS.MEMBERSHIP_REVOKE, PERMISSIONS.ROLE_ASSIGN_PROJECT,
+  PERMISSIONS.PROJECT_VIEW,
+  PERMISSIONS.PROJECT_CREATE,
+  PERMISSIONS.PROJECT_UPDATE,
+  PERMISSIONS.PROJECT_DELETE,
+  PERMISSIONS.CONTENT_VIEW,
+  PERMISSIONS.CONTENT_ASSIGN,
+  PERMISSIONS.CONTENT_UPDATE,
+  PERMISSIONS.USER_VIEW,
+  PERMISSIONS.USER_CREATE,
+  PERMISSIONS.USER_UPDATE,
+  PERMISSIONS.MEMBERSHIP_REVOKE,
+  PERMISSIONS.ROLE_ASSIGN_PROJECT,
 ];
 const ORG_MANAGER_PERMS = PROJECT_MANAGER_PERMS;
 const ORG_OWNER_PERMS = [...ORG_MANAGER_PERMS, PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER];
-const TRANSLATOR_PERMS = [PERMISSIONS.PROJECT_VIEW, PERMISSIONS.CONTENT_VIEW, PERMISSIONS.CONTENT_UPDATE, PERMISSIONS.USER_VIEW, PERMISSIONS.USER_UPDATE];
+const TRANSLATOR_PERMS = [
+  PERMISSIONS.PROJECT_VIEW,
+  PERMISSIONS.CONTENT_VIEW,
+  PERMISSIONS.CONTENT_UPDATE,
+  PERMISSIONS.USER_VIEW,
+  PERMISSIONS.USER_UPDATE,
+];
 const OBSERVER_PERMS = [PERMISSIONS.PROJECT_VIEW, PERMISSIONS.CONTENT_VIEW];
 
 const ROLE_PERMISSION_MAP = [
@@ -1291,6 +1328,7 @@ git commit -m "feat(rbac): seed full role set and permission map"
 ### Task 17: Data migration script (TDD against a fixture DB)
 
 **Files:**
+
 - Create: `src/db/scripts/migrate-to-user-central-rbac.ts`
 - Test: `src/db/scripts/migrate-to-user-central-rbac.test.ts`
 
@@ -1336,7 +1374,10 @@ export async function migrateToUserCentralRbac(): Promise<void> {
   await db.transaction(async (tx) => {
     // 1. Rename legacy role rows so name FKs line up with the new constants.
     await tx.update(roles).set({ name: ROLES.PROJECT_MANAGER }).where(eq(roles.name, 'Manager'));
-    await tx.update(roles).set({ name: ROLES.PROJECT_TRANSLATOR }).where(eq(roles.name, 'Translator'));
+    await tx
+      .update(roles)
+      .set({ name: ROLES.PROJECT_TRANSLATOR })
+      .where(eq(roles.name, 'Translator'));
 
     const roleRows = await tx.select({ id: roles.id, name: roles.name }).from(roles);
     const roleId = new Map(roleRows.map((r) => [r.name, r.id]));
@@ -1409,6 +1450,7 @@ git commit -m "feat(rbac): one-shot data migration to user-central grants"
 > Run only AFTER the data migration (Task 17) has executed against each environment. The schema drop and the data migration are deployed together: seed roles/permissions → `db:migrate-rbac` → `db:migrate` (the drop).
 
 **Files:**
+
 - Modify: `src/db/schema.ts`
 
 - [ ] **Step 1: Remove `users.organization` and `users.role`**
@@ -1439,6 +1481,7 @@ git commit -m "feat(rbac)!: drop users.organization, users.role, project_users"
 ### Task 19: Integration sweep — multi-org user
 
 **Files:**
+
 - Test: `src/middlewares/authenticate.test.ts` (extend) or a new `src/test/rbac-integration.test.ts`
 
 - [ ] **Step 1: Write an end-to-end test for a user who is PM in org A and Translator in org B**
@@ -1476,7 +1519,7 @@ Source reference (with ER diagram): `docs/features/user-centric-rbac/reference/2
 
 ### A.1 Problem statement
 
-The current RBAC system assumes the **Org** is the central tenant of the application. It is not. **The User is the central tenant.** A user has an identity; orgs and projects are entities the user is *associated with*, each association carrying a role.
+The current RBAC system assumes the **Org** is the central tenant of the application. It is not. **The User is the central tenant.** A user has an identity; orgs and projects are entities the user is _associated with_, each association carrying a role.
 
 ### A.2 User stories (Kevin Smith)
 
@@ -1525,14 +1568,14 @@ These imply a single user simultaneously holding different roles across multiple
 
 ### A.6 Role → permission map (target)
 
-| Role               | Permissions                                                                                                   |
-|--------------------|---------------------------------------------------------------------------------------------------------------|
-| **SuperAdmin**     | All permissions (incl. `user:delete`)                                                                         |
-| **Org Owner**      | `project:*`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`, `role:assign:org_manager` |
-| **Org Manager**    | Same as Org Owner **minus** `role:assign:org_manager`                                                         |
-| **Project Manager**| `project:view/create/update/delete`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project` |
-| **Project Translator** | `project:view`, `content:view/update`, `user:view`, `user:update` (self)                                 |
-| **Project Observer**   | `project:view`, `content:view`                                                                            |
+| Role                   | Permissions                                                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SuperAdmin**         | All permissions (incl. `user:delete`)                                                                                                       |
+| **Org Owner**          | `project:*`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`, `role:assign:org_manager` |
+| **Org Manager**        | Same as Org Owner **minus** `role:assign:org_manager`                                                                                       |
+| **Project Manager**    | `project:view/create/update/delete`, `content:view/assign/update`, `user:view/create/update`, `membership:revoke`, `role:assign:project`    |
+| **Project Translator** | `project:view`, `content:view/update`, `user:view`, `user:update` (self)                                                                    |
+| **Project Observer**   | `project:view`, `content:view`                                                                                                              |
 
 ### A.7 Out of scope (confirmed)
 

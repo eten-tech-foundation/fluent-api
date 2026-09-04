@@ -12,24 +12,25 @@
 
 ## File Map
 
-| Action | File | Responsibility |
-|--------|------|----------------|
-| Modify | `src/db/scripts/create-user.ts` | Fix missing `auth_user` duplicate check; standardize to `console` |
-| Modify | `src/db/scripts/set-password.ts` | Replace `logger.error` with `console.error` |
-| Modify | `src/db/scripts/migrate-users-to-betterauth.ts` | Replace `logger.error`/`logger.info` with `console` |
-| Modify | `src/db/seeds/roles.ts` | Export `seedRoles()`; add standalone guard |
-| Modify | `src/db/seeds/rbac.ts` | Export `seedRbac()`; add standalone guard |
-| Create | `src/db/seeds/organizations.ts` | `seedOrganizations()` — inserts default org idempotently |
-| Create | `src/db/seeds/dev-users.ts` | `seedDevUsers()` — creates Manager + Translator dev accounts |
-| Create | `src/db/scripts/setup.ts` | Orchestrates migrate → all seeds in dependency order |
-| Modify | `package.json` | Add `db:setup`, `db:seed:org`, `db:seed:dev-users` scripts |
-| Modify | `.env.example` | Add `SEED_*` env var documentation |
+| Action | File                                            | Responsibility                                                    |
+| ------ | ----------------------------------------------- | ----------------------------------------------------------------- |
+| Modify | `src/db/scripts/create-user.ts`                 | Fix missing `auth_user` duplicate check; standardize to `console` |
+| Modify | `src/db/scripts/set-password.ts`                | Replace `logger.error` with `console.error`                       |
+| Modify | `src/db/scripts/migrate-users-to-betterauth.ts` | Replace `logger.error`/`logger.info` with `console`               |
+| Modify | `src/db/seeds/roles.ts`                         | Export `seedRoles()`; add standalone guard                        |
+| Modify | `src/db/seeds/rbac.ts`                          | Export `seedRbac()`; add standalone guard                         |
+| Create | `src/db/seeds/organizations.ts`                 | `seedOrganizations()` — inserts default org idempotently          |
+| Create | `src/db/seeds/dev-users.ts`                     | `seedDevUsers()` — creates Manager + Translator dev accounts      |
+| Create | `src/db/scripts/setup.ts`                       | Orchestrates migrate → all seeds in dependency order              |
+| Modify | `package.json`                                  | Add `db:setup`, `db:seed:org`, `db:seed:dev-users` scripts        |
+| Modify | `.env.example`                                  | Add `SEED_*` env var documentation                                |
 
 ---
 
 ## Task 1: Fix `create-user.ts`
 
 **Files:**
+
 - Modify: `src/db/scripts/create-user.ts`
 
 - [ ] **Step 1: Replace the file contents**
@@ -66,7 +67,9 @@ async function createNewUser() {
       .where(eq(schema.authUser.email, email));
 
     if (existingAuthUser) {
-      console.error(`User with email ${email} already exists in auth_user. Use db:set-password instead.`);
+      console.error(
+        `User with email ${email} already exists in auth_user. Use db:set-password instead.`
+      );
       process.exit(1);
     }
 
@@ -76,7 +79,9 @@ async function createNewUser() {
       .where(eq(schema.users.email, email));
 
     if (existingUser) {
-      console.error(`User with email ${email} already exists in users. Use db:set-password instead.`);
+      console.error(
+        `User with email ${email} already exists in users. Use db:set-password instead.`
+      );
       process.exit(1);
     }
 
@@ -148,6 +153,7 @@ git commit -m "fix: check auth_user for duplicate email in create-user script"
 ## Task 2: Fix logger usage in `set-password.ts` and `migrate-users-to-betterauth.ts`
 
 **Files:**
+
 - Modify: `src/db/scripts/set-password.ts`
 - Modify: `src/db/scripts/migrate-users-to-betterauth.ts`
 
@@ -173,10 +179,7 @@ async function setPassword() {
   const rawPassword = args[1];
 
   try {
-    const [user] = await db
-      .select()
-      .from(schema.authUser)
-      .where(eq(schema.authUser.email, email));
+    const [user] = await db.select().from(schema.authUser).where(eq(schema.authUser.email, email));
 
     if (!user) {
       console.error(`User with email ${email} not found in auth_user table.`);
@@ -268,10 +271,7 @@ async function migrateUsers() {
         updatedAt: user.updatedAt || new Date(),
       });
 
-      await db
-        .update(schema.users)
-        .set({ authUserId })
-        .where(eq(schema.users.id, user.id));
+      await db.update(schema.users).set({ authUserId }).where(eq(schema.users.id, user.id));
 
       console.log(`Migrated user ${user.username} → authUserId: ${authUserId}`);
     }
@@ -307,6 +307,7 @@ git commit -m "fix: replace logger with console in dev scripts"
 ## Task 3: Refactor `roles.ts` seed to export a function
 
 **Files:**
+
 - Modify: `src/db/seeds/roles.ts`
 
 - [ ] **Step 1: Replace file contents**
@@ -371,6 +372,7 @@ git commit -m "refactor: export seedRoles function from roles seed"
 ## Task 4: Refactor `rbac.ts` seed to export a function
 
 **Files:**
+
 - Modify: `src/db/seeds/rbac.ts`
 
 - [ ] **Step 1: Replace file contents**
@@ -479,6 +481,7 @@ git commit -m "refactor: export seedRbac function from rbac seed"
 ## Task 5: Create `organizations.ts` seed
 
 **Files:**
+
 - Create: `src/db/seeds/organizations.ts`
 
 - [ ] **Step 1: Create the file**
@@ -545,6 +548,7 @@ git commit -m "feat: add organizations seed"
 ## Task 6: Create `dev-users.ts` seed
 
 **Files:**
+
 - Create: `src/db/seeds/dev-users.ts`
 
 - [ ] **Step 1: Create the file**
@@ -611,10 +615,7 @@ export async function seedDevUsers() {
       continue;
     }
 
-    const [existingUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, config.email));
+    const [existingUser] = await db.select().from(users).where(eq(users.email, config.email));
 
     if (existingUser) {
       console.log(`Skipping ${config.email} — already exists in users.`);
@@ -700,6 +701,7 @@ git commit -m "feat: add dev-users seed with extensible config and env var fallb
 ## Task 7: Create `setup.ts` orchestrator
 
 **Files:**
+
 - Create: `src/db/scripts/setup.ts`
 
 - [ ] **Step 1: Create the file**
@@ -737,7 +739,9 @@ async function setup() {
 
   console.log('=== Setup complete ===');
   console.log('Manager:    admin@fluent.local     / Manager@1234    (or SEED_MANAGER_* env vars)');
-  console.log('Translator: translator@fluent.local / Translator@1234 (or SEED_TRANSLATOR_* env vars)');
+  console.log(
+    'Translator: translator@fluent.local / Translator@1234 (or SEED_TRANSLATOR_* env vars)'
+  );
   process.exit(0);
 }
 
@@ -775,6 +779,7 @@ git commit -m "feat: add db:setup orchestrator script"
 ## Task 8: Update `.env.example`
 
 **Files:**
+
 - Modify: `.env.example`
 
 - [ ] **Step 1: Add seed env vars**
@@ -798,6 +803,7 @@ npm run db:setup
 ```
 
 Expected output (in order):
+
 ```
 === Fluent DB Setup ===
 

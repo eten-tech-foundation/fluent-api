@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-02
 **Status:** Placeholder / future ticket (not scheduled)
-**Related:** `2026-06-02-user-central-tenant-rbac-design.md`
+**Related:** `../user-centric-rbac/design.md`
 
 ## Why this exists
 
@@ -10,7 +10,7 @@ The User-Central RBAC change draws a deliberate line between two operations that
 the old model conflated under a single `user:delete` permission:
 
 1. **Disassociation** — removing a user's role(s) within an org or project.
-   This *is* in scope of the RBAC change, via the `membership:revoke` permission.
+   This _is_ in scope of the RBAC change, via the `membership:revoke` permission.
    Any org (Owner/Manager) or project (Project Manager) actor can disassociate a
    user from the scope they control. It deletes `user_roles` rows, never the
    account.

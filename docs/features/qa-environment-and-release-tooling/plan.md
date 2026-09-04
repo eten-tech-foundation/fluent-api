@@ -39,9 +39,11 @@
 ### Task 1: Commit picker input on `cut-release.yml`
 
 **Files:**
+
 - Modify: `.github/workflows/cut-release.yml`
 
 **Interfaces:**
+
 - Produces: a `commit` workflow input, defaulting to blank (meaning `main`'s tip). Downstream: the `tag` job checks out `inputs.commit || 'main'`.
 
 - [ ] **Step 1: Install `actionlint` locally for validation**
@@ -145,6 +147,7 @@ Expected: no output (zero errors). If actionlint flags the new step, fix before 
 - [ ] **Step 5: Manual dry-run verification (real workflow, real repo)**
 
 This step can't be unit-tested — it's GitHub Actions behavior against live tag/branch state. Verify by hand once:
+
 1. Push this change to a branch, open a PR, merge to `main` (or push directly if repo policy allows for this verification).
 2. From the Actions tab, run "Cut release" with `commit` left blank — confirm it tags `main`'s current tip as usual (no behavior change from before).
 3. Run "Cut release" again with `commit` set to an older SHA on `main` (e.g. `git log --oneline -5` and pick one two commits back) — confirm the tag is created pointing at that older commit, not at `main`'s tip.
@@ -163,10 +166,12 @@ git commit -m "feat(release): allow cutting a release from an explicit commit on
 ### Task 2: Local commit-picker script
 
 **Files:**
+
 - Create: `scripts/cut-release.sh`
 - Modify: `README.md` (or `CONTRIBUTING.md`, whichever documents local dev prerequisites — check which one lists things like Node version before choosing)
 
 **Interfaces:**
+
 - Consumes: `inputs.commit` from Task 1's `cut-release.yml`.
 - Produces: a `gh workflow run cut-release.yml -f commit=<sha>` invocation — no other task depends on this script's internals.
 
@@ -266,9 +271,11 @@ Note the resource group, region, and App Service Plan tier used for `fluent-serv
 ### Task 4: QA deploy stage + prod approval gate
 
 **Files:**
+
 - Modify: `.github/workflows/post-merge-deploy.yml`
 
 **Interfaces:**
+
 - Consumes: `AZUREAPPSERVICE_PUBLISHPROFILE_QA`, `DATABASE_URL_QA` secrets from Task 3; the `QA` and `Production-Approval` GitHub Environments.
 - Produces: `deploy-qa` job output `webapp-url` (mirrors `deploy-dev`/`deploy-prod`'s existing pattern). `migrate-prod` now depends on `approve-prod` in addition to `build`.
 
@@ -286,87 +293,87 @@ Repo → Settings → Environments → New environment → name it exactly `Prod
 Edit `.github/workflows/post-merge-deploy.yml`, adding these three jobs (insert after `migrate-prod`, before `deploy-dev`/`deploy-prod` — job order in the file doesn't affect execution order, `needs:` does, but keeping related jobs grouped helps readability):
 
 ```yaml
-  migrate-qa:
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref_type == 'tag'
-    environment: QA
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+migrate-qa:
+  runs-on: ubuntu-latest
+  needs: build
+  if: github.ref_type == 'tag'
+  environment: QA
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Set up Node.js version
-        uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 24.14.0
-          cache: npm
+    - name: Set up Node.js version
+      uses: actions/setup-node@v6.4.0
+      with:
+        node-version: 24.14.0
+        cache: npm
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-        env:
-          CXXFLAGS: '-std=c++20'
+    - name: Install dependencies
+      run: npm install --legacy-peer-deps
+      env:
+        CXXFLAGS: '-std=c++20'
 
-      - name: Run database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_QA }}
-        run: npm run db:migrate
+    - name: Run database migrations
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL_QA }}
+      run: npm run db:migrate
 
-  deploy-qa:
-    runs-on: ubuntu-latest
-    needs: [build, migrate-qa]
-    if: github.ref_type == 'tag'
-    environment:
-      name: QA
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v8
-        with:
-          name: node-app
-          path: deployment/
+deploy-qa:
+  runs-on: ubuntu-latest
+  needs: [build, migrate-qa]
+  if: github.ref_type == 'tag'
+  environment:
+    name: QA
+    url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+  steps:
+    - name: Download artifact from build job
+      uses: actions/download-artifact@v8
+      with:
+        name: node-app
+        path: deployment/
 
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3.0.8
-        with:
-          app-name: fluent-server-qa
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_QA }}
-          package: deployment/
-          clean: true
+    - name: Deploy to Azure Web App
+      id: deploy-to-webapp
+      uses: azure/webapps-deploy@v3.0.8
+      with:
+        app-name: fluent-server-qa
+        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_QA }}
+        package: deployment/
+        clean: true
 
-      - name: Verify deployment
-        run: |
-          sleep 30
-          for i in $(seq 1 10); do
-            response=$(curl -s -o /dev/null -w "%{http_code}" ${{ steps.deploy-to-webapp.outputs.webapp-url }})
-            if [ "$response" -ge 200 ] && [ "$response" -lt 400 ]; then
-              echo "QA deployment successful (HTTP $response)"
-              exit 0
-            else
-              echo "App not ready yet (HTTP $response). Retrying in 10 seconds..."
-              sleep 10
-            fi
-          done
-          echo "QA deployment verification failed"
-          exit 1
+    - name: Verify deployment
+      run: |
+        sleep 30
+        for i in $(seq 1 10); do
+          response=$(curl -s -o /dev/null -w "%{http_code}" ${{ steps.deploy-to-webapp.outputs.webapp-url }})
+          if [ "$response" -ge 200 ] && [ "$response" -lt 400 ]; then
+            echo "QA deployment successful (HTTP $response)"
+            exit 0
+          else
+            echo "App not ready yet (HTTP $response). Retrying in 10 seconds..."
+            sleep 10
+          fi
+        done
+        echo "QA deployment verification failed"
+        exit 1
 
-      - name: Post deployment marker
-        env:
-          WEBHOOK: ${{ secrets.DEPLOY_MARKER_WEBHOOK_URL }}
-        run: |
-          if [ -z "$WEBHOOK" ]; then echo "No DEPLOY_MARKER_WEBHOOK_URL configured; skipping marker"; exit 0; fi
-          curl -fsS -X POST -H 'Content-Type: application/json' \
-            -d "{\"service\":\"fluent-api\",\"environment\":\"qa\",\"tag\":\"${GITHUB_REF_NAME}\",\"sha\":\"${GITHUB_SHA}\"}" \
-            "$WEBHOOK"
+    - name: Post deployment marker
+      env:
+        WEBHOOK: ${{ secrets.DEPLOY_MARKER_WEBHOOK_URL }}
+      run: |
+        if [ -z "$WEBHOOK" ]; then echo "No DEPLOY_MARKER_WEBHOOK_URL configured; skipping marker"; exit 0; fi
+        curl -fsS -X POST -H 'Content-Type: application/json' \
+          -d "{\"service\":\"fluent-api\",\"environment\":\"qa\",\"tag\":\"${GITHUB_REF_NAME}\",\"sha\":\"${GITHUB_SHA}\"}" \
+          "$WEBHOOK"
 
-  approve-prod:
-    runs-on: ubuntu-latest
-    needs: deploy-qa
-    if: github.ref_type == 'tag'
-    environment:
-      name: Production-Approval
-    steps:
-      - run: echo "QA sign-off received — proceeding to production deploy."
+approve-prod:
+  runs-on: ubuntu-latest
+  needs: deploy-qa
+  if: github.ref_type == 'tag'
+  environment:
+    name: Production-Approval
+  steps:
+    - run: echo "QA sign-off received — proceeding to production deploy."
 ```
 
 - [ ] **Step 4: Gate `migrate-prod` on `approve-prod`**
@@ -374,12 +381,12 @@ Edit `.github/workflows/post-merge-deploy.yml`, adding these three jobs (insert 
 Find the existing `migrate-prod` job and change its `needs:`:
 
 ```yaml
-  migrate-prod:
-    runs-on: ubuntu-latest
-    needs: [build, approve-prod]
-    if: github.ref_type == 'tag'
-    environment: Production
-    # ...rest unchanged
+migrate-prod:
+  runs-on: ubuntu-latest
+  needs: [build, approve-prod]
+  if: github.ref_type == 'tag'
+  environment: Production
+  # ...rest unchanged
 ```
 
 `deploy-prod` already has `needs: [build, migrate-prod]`, so it transitively waits on the approval — no change needed to its dependencies. Do add the same "Post deployment marker" step shown in `deploy-qa` above to the end of `deploy-prod` (with `"environment":"production"`), per the design spec's observability requirement: every successful `deploy-qa`/`deploy-prod` posts a one-line greppable marker. `DEPLOY_MARKER_WEBHOOK_URL` is a repo-level secret pointing at wherever the org's monitoring lives (a Slack incoming webhook is the minimum viable version); the step degrades to a logged skip when the secret isn't configured yet, so the pipeline doesn't block on the monitoring decision.
@@ -409,9 +416,11 @@ git commit -m "feat(release): add QA deploy stage with manual approval gate befo
 ### Task 5: Deploy-only rollback path
 
 **Files:**
+
 - Create: `.github/workflows/deploy-rollback.yml`
 
 **Interfaces:**
+
 - Consumes: an existing `vYY.MM.SERIAL` tag (`inputs.tag`), the already-built artifact conventions from `post-merge-deploy.yml`'s `build` job (same `npm run build` + webjob packaging steps — duplicated here rather than shared, since GitHub Actions has no first-class job-sharing across workflow files without a reusable workflow, and this file intentionally stays self-contained and simple to audit during an incident).
 - Produces: a `deploy-to-webapp` step identical in shape to `deploy-prod`'s, deployed against `fluent-server-prod`.
 
@@ -546,6 +555,7 @@ Expected: no errors.
 - [ ] **Step 3: Manual verification — prove the rollback path works, in dev first**
 
 Do not test this against real prod on the first try. Options, in order of preference:
+
 1. Temporarily point a copy of this workflow at the `Development` environment/`fluent-server-dev` app name and run it against an existing tag, confirming it deploys without touching any migration job, then revert the temporary change.
 2. If a safe prod window exists, run it for real against the current live tag (redeploying what's already running is a no-op from the user's perspective) purely to prove the mechanism, watching that no `migrate-prod` job appears anywhere in the run.
 
@@ -569,6 +579,7 @@ Determine what `secrets.BOT_TOKEN` actually authenticates as (a machine-user PAT
 - [ ] **Step 2: Create Ruleset A — "Restrict release tag creation"**
 
 Repo → Settings → Rules → Rulesets → New ruleset → New tag ruleset:
+
 - Target: include by pattern `v*.*.*`
 - Enforcement status: Active
 - Rules: enable "Restrict creations" only
@@ -577,6 +588,7 @@ Repo → Settings → Rules → Rulesets → New ruleset → New tag ruleset:
 - [ ] **Step 3: Create Ruleset B — "Protect release tag immutability"**
 
 Same target pattern `v*.*.*`, separate ruleset:
+
 - Enforcement status: Active
 - Rules: enable "Restrict deletions" + "Block force pushes"
 - Bypass list: leave empty (or repo-admins-only) — deliberately excluding the bot
@@ -590,6 +602,7 @@ Attempt (as a non-bypassed, non-admin account) to push a tag matching `v*.*.*` d
 ### Task 7: Runbooks and docs update
 
 **Files:**
+
 - Create: `docs/runbooks/deployment/prod-release-cut.md`
 - Create: `docs/runbooks/deployment/prod-hotfix-during-qa.md`
 - Create: `docs/runbooks/deployment/prod-emergency-hotfix.md`
@@ -613,7 +626,7 @@ Attempt (as a non-bypassed, non-admin account) to push a tag matching `v*.*.*` d
 
 - [ ] **Step 2: Create `docs/runbooks/deployment/prod-hotfix-during-qa.md`**
 
-```markdown
+````markdown
 # Runbook: Hotfix a bug found during QA sign-off
 
 A release tag is currently in QA and a bug is found before prod approval.
@@ -631,6 +644,7 @@ A release tag is currently in QA and a bug is found before prod approval.
    git cherry-pick <fix-commit-sha>
    git push -u origin hotfix/26.07.4
    ```
+````
 
 3. `cut-release.yml` only runs against `main` today. Tag the hotfix branch tip manually, following the same `vYY.MM.N` contract cut-release.yml enforces (next serial for the current month):
 
@@ -640,7 +654,8 @@ A release tag is currently in QA and a bug is found before prod approval.
    ```
 
 4. This triggers the same QA → approval → prod chain as a normal release.
-```
+
+````
 
 - [ ] **Step 3: Create `docs/runbooks/deployment/prod-emergency-hotfix.md`**
 
@@ -656,7 +671,7 @@ A release tag is currently in QA and a bug is found before prod approval.
    ```bash
    git fetch --tags
    git checkout -b hotfix/<next-tag> v<current-prod-tag>
-   ```
+````
 
 3. Fix the issue on this branch.
 4. Open a PR to `main` for the historical record (can land after the emergency tag, doesn't block it).
@@ -668,7 +683,8 @@ A release tag is currently in QA and a bug is found before prod approval.
    ```
 
 6. This still goes through QA → `Production-Approval` → prod. If the emergency genuinely can't wait for a QA cycle, that's a call for whoever holds `Production-Approval` reviewer access to make explicitly — not a path this pipeline currently automates around.
-```
+
+````
 
 - [ ] **Step 4: Create `docs/runbooks/deployment/prod-rollback.md`**
 
@@ -682,7 +698,7 @@ A release tag is currently in QA and a bug is found before prod approval.
 3. Trigger the "Deploy rollback (no migration)" workflow from the Actions tab, with `tag` set to the prior tag.
 4. Confirm the deployment succeeds and `/health` reflects the rolled-back version.
 5. This does **not** go through `Production-Approval` — a rollback is itself the emergency response (decided cross-repo policy, per the design spec; same as fluent-web/fluent-ai). It runs under the `Production` environment and inherits its protection rules.
-```
+````
 
 - [ ] **Step 5: Update `docs/calver-versioning.md`**
 
@@ -708,6 +724,7 @@ git commit -m "docs(release): add deployment runbooks and document QA stage + co
 ### Task 8: Coverage threshold gate on PR checks
 
 **Files:**
+
 - Modify: `.github/workflows/pre-merge.yml` (and `vitest.config.ts` if thresholds are configured there rather than via CLI flags)
 
 Per the design spec's "Test/coverage gates": enforce a coverage threshold natively via Vitest, starting at the repo's **measured current baseline** (not an arbitrary target), ratcheting up over time.
