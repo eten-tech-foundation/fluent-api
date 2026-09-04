@@ -10,9 +10,50 @@ import { authenticateUser, requireSuperAdmin } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import * as bibleService from './bibles.service';
-import { bibleResponseSchema } from './bibles.types';
+import { bibleResponseSchema, sourceSearchResponseSchema } from './bibles.types';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
+
+// ─── GET /bibles/search ────────────────────────────────────────────────────────
+
+const searchBiblesRoute = createRoute({
+  tags: ['Bibles'],
+  method: 'get',
+  path: '/bibles/search',
+  middleware: [authenticateUser] as const,
+  request: {
+    query: z.object({
+      q: z.string().optional().default(''),
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      sourceSearchResponseSchema.openapi('SourceBibleSearchResults'),
+      'Search results containing languages and bibles'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'User account is inactive'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'Search source bibles and languages',
+  description: 'Search languages and bibles by name, code, or abbreviation',
+});
+
+server.openapi(searchBiblesRoute, async (c) => {
+  const { q } = c.req.valid('query');
+  const result = await bibleService.searchSourceBibles(q);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
 
 // ─── GET /bibles ──────────────────────────────────────────────────────────────
 
