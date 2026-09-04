@@ -1517,7 +1517,7 @@ These imply a single user simultaneously holding different roles across multiple
 6. **Invitation flow:** when a PM invites a user to their project, the system creates a `user_roles` row `(invitee, org, project, designatedRole)` — which simultaneously **associates the invitee with the project's org** (emergent membership) and grants the project role the PM designated (PM or PT).
 7. **Disassociation vs. account deletion (distinct concepts):**
    - **Disassociation** = revoking a user's grants within a scope. In scope now via the `membership:revoke` permission. Any org (Owner/Manager) or project (PM) actor can disassociate a user from the scope they control (PM: project-pinned grants on their projects only; Org roles: any grant in their org).
-   - **Account deletion** belongs to the **user** (the account ultimately belongs to them; they control it). **Out of scope — future ticket.** `user:delete` is seeded to SuperAdmin only. Placeholder: `docs/superpowers/specs/2026-06-02-account-self-management-placeholder.md`.
+   - **Account deletion** belongs to the **user** (the account ultimately belongs to them; they control it). **Out of scope — future ticket.** `user:delete` is seeded to SuperAdmin only. Placeholder: `docs/features/account-self-management/design.md`.
 8. **Existing data:** ~24 real production users. One-shot backfill migration (no dual-write):
    - Today's **`Manager` = Project Manager** (there is no Org Manager/Owner in the app today). Migrated to a single **org-wide PM grant** `(user, org, null, Project Manager)` — preserves all current behavior, covers future projects, handles managers in empty orgs.
    - Today's **`Translator` = Project Translator**. Migrated to a **project-pinned PT grant** per `project_users` row.

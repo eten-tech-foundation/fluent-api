@@ -39,7 +39,7 @@ projects are things they are *associated with*, carrying a role per association.
   beyond what the project-invitation flow already implies. Those are follow-up
   tickets.
 - **Account self-management / account deletion** — deferred. See
-  `2026-06-02-account-self-management-placeholder.md`.
+  `docs/features/account-self-management/design.md`.
 
 ## Core Insight — Scope Lives on the Grant, Not the Role
 
@@ -237,4 +237,4 @@ assigned going forward.
 ## Open Items
 
 None blocking. Account self-management / deletion is tracked separately in
-`2026-06-02-account-self-management-placeholder.md`.
+`docs/features/account-self-management/design.md`.
