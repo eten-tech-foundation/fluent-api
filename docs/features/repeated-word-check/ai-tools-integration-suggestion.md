@@ -352,7 +352,7 @@ Notes:
 > ```ts
 > // Intentional snake_case — verbatim wire contract with fluent-ai (decision D8).
 > // Approved in review: https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343677813
-> // Rationale: docs/proposals/repeated-word-check/ai-tools-integration-suggestion.md §8.1
+> // Rationale: docs/features/repeated-word-check/ai-tools-integration-suggestion.md §8.1
 > // Please keep these in snake_case; renaming to camelCase would break the fluent-ai contract.
 > ```
 

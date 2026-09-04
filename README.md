@@ -58,7 +58,7 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
 
 - **[Permissions & Authorization](./docs/permissions.md)** - Roles, RBAC, grants, scopes, middleware chain, and domain policies
 
-- **[Authentication Migration](./docs/authentication-migration.md)** - Guide for BetterAuth migration and admin tools
+- **[Authentication Migration](./docs/features/authentication-migration/design.md)** - Guide for BetterAuth migration and admin tools
 
 - **[Quick Reference](./docs/quick-reference.md)** - Common patterns and examples
 

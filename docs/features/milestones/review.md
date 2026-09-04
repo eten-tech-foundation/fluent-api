@@ -1,6 +1,6 @@
 # Review: Project → Milestone Hierarchy Workflow
 
-A response to [`workflow_project-hierarchy.md`](./workflow_project-hierarchy.md), with every claim checked against `fluent-api/src` as of 2026-09-03.
+A response to [`proposal.md`](./proposal.md), with every claim checked against `fluent-api/src` as of 2026-09-03.
 
 **Verdict:** the shape is right. Re-parenting `project_units` rather than restructuring them is the correct call, and standing up a separate `milestones` domain instead of overloading `projects.service.ts` is the right separation. What follows are five blocking defects, nine significant gaps, and a recommendation on each open question.
 
