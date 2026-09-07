@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -186,6 +186,57 @@ export async function upsertFromDbl(
       cause: error,
       message: 'Failed to upsert books from DBL',
       context: { bibleId, rowCount: rows.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Updates `has_audio` on `bible_books` rows for a given Bible.
+ *
+ * Sets `has_audio = true` for books whose code is in `audioBookCodes`,
+ * and `has_audio = false` for all other books of that Bible.
+ */
+export async function updateAudioAvailability(
+  bibleId: number,
+  audioBookCodes: string[]
+): Promise<Result<{ updated: number }>> {
+  try {
+    let updated = 0;
+
+    await db.transaction(async (tx) => {
+      // Resolve book codes to IDs
+      const audioBookRows =
+        audioBookCodes.length > 0
+          ? await tx.select({ id: books.id }).from(books).where(inArray(books.code, audioBookCodes))
+          : [];
+      const audioBookIds = new Set(audioBookRows.map((b) => b.id));
+
+      // Fetch all bible_book rows for this Bible
+      const allLinks = await tx
+        .select({ bookId: bible_books.bookId, hasAudio: bible_books.hasAudio })
+        .from(bible_books)
+        .where(eq(bible_books.bibleId, bibleId));
+
+      // Update rows that need changing
+      for (const link of allLinks) {
+        const shouldHaveAudio = audioBookIds.has(link.bookId);
+        if (link.hasAudio !== shouldHaveAudio) {
+          await tx
+            .update(bible_books)
+            .set({ hasAudio: shouldHaveAudio })
+            .where(and(eq(bible_books.bibleId, bibleId), eq(bible_books.bookId, link.bookId)));
+          updated++;
+        }
+      }
+    });
+
+    return ok({ updated });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to update audio availability',
+      context: { bibleId, audioBookCodeCount: audioBookCodes.length },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

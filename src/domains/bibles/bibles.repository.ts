@@ -84,6 +84,7 @@ export interface DblBibleUpsertInput {
   abbreviation: string;
   provider: 'dbl';
   externalId: string;
+  hasAudio: boolean;
 }
 
 export interface DblBibleUpsertSummary {
@@ -118,6 +119,7 @@ export async function upsertFromDbl(
               name: sql`excluded.name`,
               abbreviation: sql`excluded.abbreviation`,
               languageId: sql`excluded.language_id`,
+              hasAudio: sql`excluded.has_audio`,
               updatedAt: sql`now()`,
             },
           })

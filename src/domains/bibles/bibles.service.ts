@@ -12,6 +12,7 @@ function toBibleResponse(bible: Bible): BibleResponse {
     name: bible.name,
     abbreviation: bible.abbreviation,
     languageId: bible.languageId,
+    hasAudio: bible.hasAudio,
   };
 }
 

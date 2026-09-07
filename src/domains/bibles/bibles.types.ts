@@ -13,6 +13,7 @@ export const bibleResponseSchema = z.object({
   name: z.string(),
   abbreviation: z.string(),
   languageId: z.number().int(),
+  hasAudio: z.boolean(),
 });
 
 export type BibleResponse = z.infer<typeof bibleResponseSchema>;
