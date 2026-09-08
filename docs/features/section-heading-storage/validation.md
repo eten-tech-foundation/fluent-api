@@ -6,9 +6,11 @@ The base branch passed all 591 tests in 65 files. Ten new regressions failed bef
 
 The failures showed heading words appended to the preceding verse, missing imported markers, omission of a heading on an empty verse, acceptance of more headings than the API supports, missing paragraph boundaries after a mid-chapter heading, and missing headings in chapter content.
 
+The final review also found two compatibility regressions involving semantic divisions: valid textless `sd` input blocked materialization, and legacy stored `sd` entries containing text broke chapter reads. Seven additional failing regressions reproduced these cases, including all five `sd` spellings. After the correction, all 53 tests in the four affected suites passed. The PostgreSQL smoke also reproduced the valid-file import failure and passed after the correction.
+
 ## Local checks
 
-On Node 24.14.0, all precheck commands passed (`npm run lint`, `npm run format:check`, `npm run typecheck`, and `npm test -- --run`): ESLint reported no errors, Prettier and TypeScript passed, and all 600 tests in 66 files passed. ESLint still reports three existing file-length warnings in the verse-audio repository and service files. `npm run build` and the documentation-structure check also passed.
+On Node 24.14.0, the initial implementation passed all precheck commands (`npm run lint`, `npm run format:check`, `npm run typecheck`, and `npm test -- --run`): ESLint reported no errors, Prettier and TypeScript passed, and all 600 tests in 66 files passed. ESLint still reports three existing file-length warnings in the verse-audio repository and service files. `npm run build` and the documentation-structure check also passed. After the semantic-division fix, the four affected suites passed all 53 tests, and focused ESLint, Prettier, TypeScript and diff checks passed again.
 
 ## PostgreSQL round trip
 
@@ -24,6 +26,8 @@ The smoke failed on the base: `First.` became `First. A Later Section`, `Second.
 - Re-materializing an import did not overwrite an edited verse or heading, or create duplicate rows.
 - The original uploaded file remained unchanged.
 - Project deletion removed its imported-file rows through the existing cascade.
+- Valid textless semantic divisions did not block cached or delayed import, and the original file retained their layout.
+- A legacy stored division with an invalid text payload remained readable as chapter content; serialization omitted those invalid words while leaving the stored marker object and verse text unchanged.
 
 This tests database persistence and service contracts; it is not a browser or route-authentication test. No shared database or external storage was used.
 
