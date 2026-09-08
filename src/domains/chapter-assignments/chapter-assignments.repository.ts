@@ -240,6 +240,7 @@ export async function getContent(
         bibleTextId: bible_texts.id,
         bookCode: books.code,
         bookName: books.eng_display_name,
+        markers: translated_verses.markers,
       })
       .from(translated_verses)
       .innerJoin(bible_texts, eq(translated_verses.bibleTextId, bible_texts.id))
@@ -269,6 +270,7 @@ export async function getContent(
       chapterNumber: assignment.chapterNumber,
       verseNumber: v.verseNumber,
       translatedContent: v.content,
+      markers: v.markers,
     }));
 
     const conversionResult = convertUSFMToUSJ(generateUSFMText(verseData));

@@ -44,6 +44,8 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 const GEN = '\\id GEN Genesis\n\\c 1\n\\p\n\\v 1 In the beginning.\n\\v 2 The earth.';
+const GEN_WITH_HEADING =
+  '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 The Creation\n\\p\n\\v 2 Second.';
 const MAT = '\\id MAT Matthew\n\\c 1\n\\p\n\\v 1 The genealogy.';
 
 beforeEach(() => {
@@ -72,6 +74,24 @@ describe('parseUsfmFiles (#419)', () => {
     expect(result.data.map((f) => [f.bookCode, f.bookId, f.verses.length])).toEqual([
       ['GEN', 1, 2],
       ['MAT', 40, 1],
+    ]);
+  });
+
+  it('keeps a section heading separate from verse text and anchors it to the following verse', async () => {
+    const result = await parseUsfmFiles([
+      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN_WITH_HEADING },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data[0].verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      },
     ]);
   });
 
@@ -146,6 +166,74 @@ describe('materializeUsfmImport (#419)', () => {
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(9, db);
   });
 
+  it('reparses a delayed import and stores heading markers separately from content', async () => {
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+
+    const result = await materializeUsfmImport({ ...row, usfm: GEN_WITH_HEADING }, 3);
+
+    expect(result).toEqual({ ok: true, data: 'materialized' });
+    expect(inserted).toEqual([
+      [
+        { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
+        {
+          projectUnitId: 5,
+          bibleTextId: 102,
+          content: 'Second.',
+          markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+        },
+      ],
+    ]);
+  });
+
+  it('stores an empty verse when it carries a heading', async () => {
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+    const usfm = '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Empty Section\n\\p\n\\v 2';
+
+    await materializeUsfmImport({ ...row, usfm }, 3);
+
+    expect(inserted[0]).toContainEqual({
+      projectUnitId: 5,
+      bibleTextId: 102,
+      content: '',
+      markers: { headings: [{ marker: 's1', text: 'Empty Section' }] },
+    });
+  });
+
+  it('rejects invalid imported heading structure before inserting or marking the import', async () => {
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+
+    const result = await materializeUsfmImport(row, 3, db, [
+      { chapterNumber: 1, verseNumber: 1, text: 'Valid.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Invalid.',
+        markers: {
+          headings: [
+            { marker: 's1', text: 'One' },
+            { marker: 's1', text: 'Two' },
+            { marker: 's1', text: 'Three' },
+            { marker: 's1', text: 'Four' },
+            { marker: 's1', text: 'Five' },
+          ],
+        },
+      },
+    ]);
+
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
+    expect(inserted).toEqual([]);
+    expect(repo.markUsfmImportMaterialized).not.toHaveBeenCalled();
+  });
+
   it('skips verses the source does not have instead of inventing rows', async () => {
     rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
 
@@ -173,22 +261,33 @@ describe('materializePendingUsfmImports (#419)', () => {
     expect(repo.getPendingUsfmImports).toHaveBeenCalledWith(5, [1, 40]);
   });
 
-  it('reuses validation verses during creation without parsing each file twice', async () => {
+  it('reuses validation verses during creation and stores heading markers separately', async () => {
     const parse = vi.spyOn(converter, 'convertUSFMToUSJ');
-    const result = await parseUsfmFiles([{ fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN }]);
+    const result = await parseUsfmFiles([
+      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN_WITH_HEADING },
+    ]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
-      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN_WITH_HEADING },
     ]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
 
     const imported = await materializePendingUsfmImports(5, 3, [1], result.data);
 
     expect(imported).toEqual({ ok: true, data: { materialized: 1, pending: 0 } });
     expect(parse).toHaveBeenCalledTimes(1);
     expect(inserted[0]).toEqual([
-      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+      { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
+      {
+        projectUnitId: 5,
+        bibleTextId: 102,
+        content: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      },
     ]);
   });
 

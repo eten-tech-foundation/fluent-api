@@ -4,7 +4,7 @@ import type { DbTransaction, Result } from '@/lib/types';
 import type { UsjVerseText } from '@/lib/usfm-converter';
 
 import { db } from '@/db';
-import { bible_texts, books, translated_verses } from '@/db/schema';
+import { bible_texts, books, translated_verses, verseMarkersSchema } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
@@ -91,16 +91,38 @@ export async function materializeUsfmImport(
     verses = usjToVerseTexts(usj.data);
   }
 
+  const validatedVerses: UsjVerseText[] = [];
+  for (const verse of verses) {
+    if (verse.markers === undefined) {
+      validatedVerses.push(verse);
+      continue;
+    }
+
+    const markers = verseMarkersSchema.safeParse(verse.markers);
+    if (!markers.success) return err(ErrorCode.USFM_INVALID);
+    validatedVerses.push({
+      ...verse,
+      ...(markers.data === null ? { markers: undefined } : { markers: markers.data }),
+    });
+  }
+
   const idByRef = new Map(sourceTexts.map((t) => [`${t.chapterNumber}:${t.verseNumber}`, t.id]));
   let unmatched = 0;
-  const rows = verses.flatMap((verse) => {
+  const rows = validatedVerses.flatMap((verse) => {
     const bibleTextId = idByRef.get(`${verse.chapterNumber}:${verse.verseNumber}`);
     if (bibleTextId === undefined) {
       unmatched += 1;
       return [];
     }
-    if (verse.text.length === 0) return [];
-    return [{ projectUnitId: row.projectUnitId, bibleTextId, content: verse.text }];
+    if (verse.text.length === 0 && verse.markers === undefined) return [];
+    return [
+      {
+        projectUnitId: row.projectUnitId,
+        bibleTextId,
+        content: verse.text,
+        ...(verse.markers === undefined ? {} : { markers: verse.markers }),
+      },
+    ];
   });
 
   if (rows.length > 0) {

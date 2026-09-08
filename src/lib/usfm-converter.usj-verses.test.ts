@@ -50,6 +50,56 @@ describe('usjToVerseTexts (#419)', () => {
     expect(texts.some((t) => t.includes('Genesis'))).toBe(false);
   });
 
+  it('anchors a mid-chapter heading to the following verse without mixing its text into either verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 The Creation\n\\p\n\\v 2 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      },
+    ]);
+  });
+
+  it('keeps several headings in source order on an empty following verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\ms1 Book One\n\\s1 The Creation\n\\p\n\\v 2'
+    );
+
+    expect(verses[1]).toEqual({
+      chapterNumber: 1,
+      verseNumber: 2,
+      text: '',
+      markers: {
+        headings: [
+          { marker: 'ms1', text: 'Book One' },
+          { marker: 's1', text: 'The Creation' },
+        ],
+      },
+    });
+  });
+
+  it('carries a heading across a chapter boundary to that chapter first verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 A New Chapter\n\\c 2\n\\p\n\\v 1 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 2,
+        verseNumber: 1,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'A New Chapter' }] },
+      },
+    ]);
+  });
+
   it('carries a verse across a paragraph break rather than cutting it', () => {
     const verses = versesOf(
       '\\id GEN\n\\c 1\n\\p\n\\v 1 First half\n\\p\nsecond half.\n\\v 2 Next.'

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { convertUSFMToUSJ } from '@/lib/usfm-converter';
+
 import type { BookFields, VerseData } from './usfm.types';
 
 import { createUSFMStreamForBook } from './usfm.service';
@@ -208,6 +210,30 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toContain(
       '\\v 1 In the beginning.\n\\s1 A Later Section\n\\p\n\\v 2 Second verse.\n'
     );
+  });
+
+  it('opens a default paragraph after a mid-chapter heading when none was stored', async () => {
+    const usfm = await renderUSFM([
+      verse({ verseNumber: 1, translatedContent: 'First.' }),
+      verse({
+        verseNumber: 2,
+        translatedContent: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      }),
+    ]);
+
+    expect(usfm).toContain('\\s1 The Creation\n\\p\n\\v 2 Second.\n');
+
+    const parsed = convertUSFMToUSJ(usfm);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const heading = parsed.data.content.find(
+      (node) => node.type === 'para' && node.marker === 's1'
+    );
+    expect(heading?.type).toBe('para');
+    if (heading?.type !== 'para') return;
+    expect(heading.content.every((node) => typeof node === 'string')).toBe(true);
+    expect(heading.content.join('').trim()).toBe('The Creation');
   });
 
   // ─── fluent-web#398: table-of-contents fields ──────────────────────────────
