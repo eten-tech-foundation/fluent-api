@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Result } from '@/lib/types';
 
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { TranslatedVerseRecord } from './translated-verses.types';
@@ -88,6 +89,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.committed = false;
   vi.mocked(repo.upsert).mockResolvedValue(ok(SAVED));
+  vi.mocked(aiSuggestionsService.handleThresholdCrossed).mockResolvedValue(ok(undefined));
   claimWith(false, false);
 });
 
@@ -151,6 +153,21 @@ describe('upsertTranslatedVerse (#417)', () => {
 
     expect(result.ok).toBe(false);
     expect(aiSuggestionsService.handleThresholdCrossed).not.toHaveBeenCalled();
+  });
+
+  it('logs a returned backfill error with the crossing save while keeping the draft saved', async () => {
+    claimWith(false, true);
+    const failure = err(ErrorCode.INTERNAL_ERROR);
+    vi.mocked(aiSuggestionsService.handleThresholdCrossed).mockResolvedValue(failure);
+
+    const result = await service.upsertTranslatedVerse(INPUT);
+
+    expect(result.ok).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith({
+      cause: failure.error,
+      message: 'AI threshold backfill failed after crossing save; no automatic retry',
+      context: { projectUnitId: UNIT, bibleTextId: TEXT_ID },
+    });
   });
 
   it('keeps the draft saved when the backfill throws', async () => {

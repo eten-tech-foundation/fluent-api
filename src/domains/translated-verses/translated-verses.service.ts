@@ -69,14 +69,24 @@ export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
   // into an error for the translator.
   if (crossed) {
     try {
-      await aiSuggestionsService.handleThresholdCrossed(
+      const backfill = await aiSuggestionsService.handleThresholdCrossed(
         written.data.projectUnitId,
         written.data.bibleTextId
       );
+      if (!backfill.ok) {
+        logger.error({
+          cause: backfill.error,
+          message: 'AI threshold backfill failed after crossing save; no automatic retry',
+          context: {
+            projectUnitId: written.data.projectUnitId,
+            bibleTextId: written.data.bibleTextId,
+          },
+        });
+      }
     } catch (error) {
       logger.error({
         cause: error,
-        message: 'AI threshold backfill failed after draft save',
+        message: 'AI threshold backfill failed after crossing save; no automatic retry',
         context: {
           projectUnitId: written.data.projectUnitId,
           bibleTextId: written.data.bibleTextId,

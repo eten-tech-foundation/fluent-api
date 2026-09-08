@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as pericopesService from '@/domains/pericopes/pericopes.service';
+import { logger } from '@/lib/logger';
 import { getQueue } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import * as pericopeRepo from './ai-suggestions.pericope.repository';
 import * as repo from './ai-suggestions.repository';
 import * as service from './ai-suggestions.service';
 
@@ -30,6 +30,9 @@ vi.mock('@/lib/queue', () => ({
 
 vi.mock('./ai-suggestions.repository', () => ({
   checkBibleTextsExist: vi.fn(),
+  findVersesNeedingSuggestions: vi.fn(),
+  getBibleTextLocation: vi.fn(),
+  getProjectIdForProjectUnit: vi.fn(),
   findNextUntranslatedVerses: vi.fn(),
   getAiSuggestions: vi.fn(),
   getBookCodeById: vi.fn(),
@@ -42,13 +45,6 @@ vi.mock('./ai-suggestions.repository', () => ({
 
 vi.mock('@/domains/pericopes/pericopes.service', () => ({
   getChapterPericopes: vi.fn(),
-}));
-
-vi.mock('./ai-suggestions.pericope.repository', () => ({
-  claimAiActivationCrossing: vi.fn(),
-  findVersesNeedingSuggestions: vi.fn(),
-  getBibleTextLocation: vi.fn(),
-  getProjectIdForProjectUnit: vi.fn(),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -79,7 +75,7 @@ const sentVerses = () =>
 
 /** The verses a call asked to have checked, so a test can see the pericope decision itself. */
 const askedToCheck = () =>
-  vi.mocked(pericopeRepo.findVersesNeedingSuggestions).mock.calls.map((call) => call[4]);
+  vi.mocked(repo.findVersesNeedingSuggestions).mock.calls.map((call) => call[4]);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -87,10 +83,10 @@ beforeEach(() => {
   vi.mocked(getQueue).mockResolvedValue({ send } as never);
   vi.mocked(repo.hasReachedAiActivationThreshold).mockResolvedValue(true);
   vi.mocked(repo.getChapterAssignmentAiStatus).mockResolvedValue(true);
-  vi.mocked(pericopeRepo.getProjectIdForProjectUnit).mockResolvedValue(PROJECT);
+  vi.mocked(repo.getProjectIdForProjectUnit).mockResolvedValue(PROJECT);
   vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok(PERICOPE_GROUPS));
   // By default nothing is drafted or suggested yet, so whatever is asked for is what goes out.
-  vi.mocked(pericopeRepo.findVersesNeedingSuggestions).mockImplementation(
+  vi.mocked(repo.findVersesNeedingSuggestions).mockImplementation(
     async (_u, _b, _c, _ch, verses) => verses
   );
 });
@@ -119,7 +115,7 @@ describe('queueNextVerses (#417)', () => {
   });
 
   it('leaves out verses that already have a draft or a suggestion', async () => {
-    vi.mocked(pericopeRepo.findVersesNeedingSuggestions).mockResolvedValue([3, 6, 7]);
+    vi.mocked(repo.findVersesNeedingSuggestions).mockResolvedValue([3, 6, 7]);
 
     await service.queueNextVerses(UNIT, BIBLE, BOOK, CHAPTER, 1);
 
@@ -148,7 +144,11 @@ describe('queueNextVerses (#417)', () => {
     await service.queueNextVerses(UNIT, BIBLE, BOOK, CHAPTER, 42);
 
     expect(send).not.toHaveBeenCalled();
-    expect(pericopeRepo.findVersesNeedingSuggestions).not.toHaveBeenCalled();
+    expect(repo.findVersesNeedingSuggestions).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(
+      { projectUnitId: UNIT, bookCode: BOOK, chapterNumber: CHAPTER, currentVerse: 42 },
+      'AI queue skipped because the current verse is outside every pericope'
+    );
   });
 
   it('falls back to the fixed look-ahead when the project has no pericope set', async () => {
@@ -260,23 +260,27 @@ describe('handleThresholdCrossed (#417)', () => {
   const TEXT_ID = 900;
 
   beforeEach(() => {
-    vi.mocked(pericopeRepo.getBibleTextLocation).mockResolvedValue({
+    vi.mocked(repo.getBibleTextLocation).mockResolvedValue({
       bibleId: BIBLE,
       bookCode: 'gen',
       chapterNumber: CHAPTER,
+      verseNumber: 5,
     });
   });
 
-  it('backfills the first pericope of the current chapter and of the next one', async () => {
+  it('backfills from the saved verse and starts the next chapter at its first pericope', async () => {
     await service.handleThresholdCrossed(UNIT, TEXT_ID);
 
     expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 1);
     expect(pericopesService.getChapterPericopes).toHaveBeenCalledWith(PROJECT, 'GEN', 2);
-    // Both chapters share the fixture, so it is the first pericope twice.
-    expect(sentVerses()).toEqual([1, 2, 3, 1, 2, 3]);
+    expect(askedToCheck()).toEqual([
+      [4, 5, 6, 7, 8, 9],
+      [1, 2, 3],
+    ]);
+    expect(sentVerses()).toEqual([4, 5, 6, 7, 8, 9, 1, 2, 3]);
     expect(
       send.mock.calls.map((call) => (call[1] as { chapterNumber: number }).chapterNumber)
-    ).toEqual([1, 1, 1, 2, 2, 2]);
+    ).toEqual([1, 1, 1, 1, 1, 1, 2, 2, 2]);
   });
 
   it('skips the next chapter when it is not assigned in this unit', async () => {
@@ -289,7 +293,39 @@ describe('handleThresholdCrossed (#417)', () => {
     expect(
       send.mock.calls.every((call) => (call[1] as { chapterNumber: number }).chapterNumber === 1)
     ).toBe(true);
-    expect(sentVerses()).toEqual([1, 2, 3]);
+    expect(sentVerses()).toEqual([4, 5, 6, 7, 8, 9]);
+  });
+
+  it('backfills the last pericope on a final-verse save without needing another navigation', async () => {
+    vi.mocked(repo.getBibleTextLocation).mockResolvedValue({
+      bibleId: BIBLE,
+      bookCode: BOOK,
+      chapterNumber: CHAPTER,
+      verseNumber: 9,
+    });
+    // The crossing verse is now saved, but an earlier verse still needs a suggestion.
+    vi.mocked(repo.findVersesNeedingSuggestions).mockImplementation(
+      async (_u, _b, _c, chapter, verses) =>
+        chapter === CHAPTER ? verses.filter((verse) => verse !== 9) : verses
+    );
+
+    await service.handleThresholdCrossed(UNIT, TEXT_ID);
+
+    expect(askedToCheck()).toEqual([
+      [8, 9],
+      [1, 2, 3],
+    ]);
+    expect(sentVerses()).toEqual([8, 1, 2, 3]);
+  });
+
+  it('uses look-ahead from the saved verse when no pericope set exists', async () => {
+    vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok([]));
+    vi.mocked(repo.findNextUntranslatedVerses).mockResolvedValue([]);
+
+    await service.handleThresholdCrossed(UNIT, TEXT_ID);
+
+    expect(repo.findNextUntranslatedVerses).toHaveBeenCalledWith(UNIT, BIBLE, BOOK, 1, 5, 3);
+    expect(repo.findNextUntranslatedVerses).toHaveBeenCalledWith(UNIT, BIBLE, BOOK, 2, 0, 3);
   });
 
   it('applies the AI toggle to each chapter separately', async () => {
@@ -304,7 +340,7 @@ describe('handleThresholdCrossed (#417)', () => {
   });
 
   it('does nothing when the saved verse cannot be located', async () => {
-    vi.mocked(pericopeRepo.getBibleTextLocation).mockResolvedValue(null);
+    vi.mocked(repo.getBibleTextLocation).mockResolvedValue(null);
 
     await service.handleThresholdCrossed(UNIT, TEXT_ID);
 

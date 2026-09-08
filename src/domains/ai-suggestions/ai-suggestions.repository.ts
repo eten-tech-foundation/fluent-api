@@ -20,7 +20,11 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type { ProjectUnitAuthContext } from './ai-suggestions.policy';
 import type { AiSuggestionItem, SuggestionContextResponse } from './ai-suggestions.types';
 
-import { getContextBookCodes, getFtsConfig } from './ai-suggestions.constants';
+import {
+  getContextBookCodes,
+  getFtsConfig,
+  MAX_QUEUED_VERSES_PER_CALL,
+} from './ai-suggestions.constants';
 
 export async function findProjectUnitAuthContext(
   projectUnitId: number
@@ -205,6 +209,92 @@ export async function findNextUntranslatedVerses(
   return nextVerses.map((v) => v.verseNumber);
 }
 
+// ─── Pericope-level queuing (#417) ────────────────────────────────────────────
+
+/** The project a unit belongs to, so the pericopes domain can be asked for its grouping. */
+export async function getProjectIdForProjectUnit(projectUnitId: number): Promise<number | null> {
+  const [unit] = await db
+    .select({ projectId: project_units.projectId })
+    .from(project_units)
+    .where(eq(project_units.id, projectUnitId))
+    .limit(1);
+  return unit?.projectId ?? null;
+}
+
+/**
+ * Which of the given verses still need a suggestion: no saved draft for this project unit, and no
+ * suggestion already generated. The second filter is what keeps re-navigating a pericope from
+ * regenerating text the translator already has.
+ */
+export async function findVersesNeedingSuggestions(
+  projectUnitId: number,
+  bibleId: number,
+  bookCode: string,
+  chapterNumber: number,
+  verseNumbers: number[]
+): Promise<number[]> {
+  if (verseNumbers.length === 0) return [];
+
+  // The cap has to land before the query is built: LIMIT bounds the rows that come back, not
+  // the IN list a malformed pericope group could hand the planner.
+  const wanted = verseNumbers.slice(0, MAX_QUEUED_VERSES_PER_CALL);
+
+  const rows = await db
+    .select({ verseNumber: bible_texts.verseNumber })
+    .from(bible_texts)
+    .innerJoin(books, eq(bible_texts.bookId, books.id))
+    .leftJoin(
+      translated_verses,
+      and(
+        eq(translated_verses.bibleTextId, bible_texts.id),
+        eq(translated_verses.projectUnitId, projectUnitId)
+      )
+    )
+    .leftJoin(
+      ai_suggestions,
+      and(
+        eq(ai_suggestions.bibleTextId, bible_texts.id),
+        eq(ai_suggestions.projectUnitId, projectUnitId)
+      )
+    )
+    .where(
+      and(
+        eq(bible_texts.bibleId, bibleId),
+        eq(books.code, bookCode),
+        eq(bible_texts.chapterNumber, chapterNumber),
+        inArray(bible_texts.verseNumber, wanted),
+        isNull(translated_verses.projectUnitId),
+        isNull(ai_suggestions.projectUnitId)
+      )
+    )
+    .orderBy(asc(bible_texts.verseNumber))
+    .limit(MAX_QUEUED_VERSES_PER_CALL);
+
+  return rows.map((r) => r.verseNumber);
+}
+
+/** Where a bible_texts row sits, so a saved verse can be turned back into its chapter. */
+export async function getBibleTextLocation(bibleTextId: number): Promise<{
+  bibleId: number;
+  bookCode: string;
+  chapterNumber: number;
+  verseNumber: number;
+} | null> {
+  const [row] = await db
+    .select({
+      bibleId: bible_texts.bibleId,
+      bookCode: books.code,
+      chapterNumber: bible_texts.chapterNumber,
+      verseNumber: bible_texts.verseNumber,
+    })
+    .from(bible_texts)
+    .innerJoin(books, eq(bible_texts.bookId, books.id))
+    .where(eq(bible_texts.id, bibleTextId))
+    .limit(1);
+
+  return row ?? null;
+}
+
 /**
  * The (source language, target language, organization) triple the activation threshold is counted
  * across. Several projects can share one, which is why the count is never per-project.
@@ -266,6 +356,18 @@ export async function familyHasReachedAiActivationThreshold(
     .offset(threshold - 1);
 
   return result.length > 0;
+}
+
+/** Serialize threshold measurements and writes until this transaction ends. */
+export async function lockAiActivationFamily(
+  family: AiActivationFamily,
+  tx: DbTransaction
+): Promise<void> {
+  // Separate integer keys prevent different organizations sharing a lock. Target languages
+  // with the same organization and source language still contend, though their counts do not.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${family.organization}::int, ${family.sourceLanguage}::int)`
+  );
 }
 
 export async function hasReachedAiActivationThreshold(
