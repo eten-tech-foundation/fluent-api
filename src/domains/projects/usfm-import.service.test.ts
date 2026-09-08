@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { bible_texts, books } from '@/db/schema';
+import { logger } from '@/lib/logger';
 import { ErrorCode } from '@/lib/types';
 import * as converter from '@/lib/usfm-converter';
 
@@ -158,6 +159,49 @@ describe('materializeUsfmImport (#419)', () => {
 });
 
 describe('materializePendingUsfmImports (#419)', () => {
+  it('continues after an invalid stored file and still reports the failure', async () => {
+    vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: 'corrupted stored file' },
+      { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
+    ]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    const result = await materializePendingUsfmImports(5, 3, [1, 40]);
+
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
+    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, db);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ importId: 1, projectUnitId: 5, bibleId: 3, bookId: 1 }),
+      })
+    );
+  });
+
+  it('continues after a per-book database failure and still reports the failure', async () => {
+    vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
+      { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
+    ]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    const failure = new Error('Import write failed');
+    vi.mocked(db.insert).mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    const result = await materializePendingUsfmImports(5, 3, [1, 40]);
+
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
+    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, db);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: failure,
+        context: { importId: 1, projectUnitId: 5, bibleId: 3, bookId: 1 },
+      })
+    );
+  });
+
   it('finishes whatever is pending and counts what still waits', async () => {
     vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
