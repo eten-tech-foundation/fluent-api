@@ -38,6 +38,7 @@ const makeProgressInfo = (
   isAiEnabled: false,
   hasClaimConflict: false,
   claimConflictUserId: null,
+  hasConflict: false,
   ...over,
 });
 

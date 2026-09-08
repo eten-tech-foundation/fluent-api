@@ -46,7 +46,7 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     if (!usj.ok) return err(ErrorCode.USFM_INVALID);
 
     const idNode = usj.data.content.find((node) => node.type === 'book');
-    if (idNode && idNode.type === 'book' && idNode.code.toUpperCase() !== bookCode) {
+    if (!idNode || idNode.type !== 'book' || idNode.code?.toUpperCase() !== bookCode) {
       return err(ErrorCode.USFM_BOOK_MISMATCH);
     }
 
@@ -70,7 +70,8 @@ export type MaterializeOutcome = 'materialized' | 'pending';
 export async function materializeUsfmImport(
   row: { id: number; projectUnitId: number; bookId: number; usfm: string },
   bibleId: number,
-  executor: DbTransaction | typeof db = db
+  executor: DbTransaction | typeof db = db,
+  parsedVerses?: UsjVerseText[]
 ): Promise<Result<MaterializeOutcome>> {
   const sourceTexts = await executor
     .select({
@@ -83,12 +84,16 @@ export async function materializeUsfmImport(
 
   if (sourceTexts.length === 0) return ok('pending');
 
-  const usj = convertUSFMToUSJ(row.usfm);
-  if (!usj.ok) return err(ErrorCode.USFM_INVALID);
+  let verses = parsedVerses;
+  if (!verses) {
+    const usj = convertUSFMToUSJ(row.usfm);
+    if (!usj.ok) return err(ErrorCode.USFM_INVALID);
+    verses = usjToVerseTexts(usj.data);
+  }
 
   const idByRef = new Map(sourceTexts.map((t) => [`${t.chapterNumber}:${t.verseNumber}`, t.id]));
   let unmatched = 0;
-  const rows = usjToVerseTexts(usj.data).flatMap((verse) => {
+  const rows = verses.flatMap((verse) => {
     const bibleTextId = idByRef.get(`${verse.chapterNumber}:${verse.verseNumber}`);
     if (bibleTextId === undefined) {
       unmatched += 1;
@@ -129,15 +134,17 @@ export async function materializeUsfmImport(
 export async function materializePendingUsfmImports(
   projectUnitId: number,
   bibleId: number,
-  bookIds: number[]
+  bookIds: number[],
+  parsedFiles: ParsedUsfmFile[] = []
 ): Promise<Result<{ materialized: number; pending: number }>> {
   try {
     const imports = await repo.getPendingUsfmImports(projectUnitId, bookIds);
+    const versesByBook = new Map(parsedFiles.map((file) => [file.bookId, file.verses]));
     let materialized = 0;
     let pending = 0;
 
     for (const row of imports) {
-      const outcome = await materializeUsfmImport(row, bibleId);
+      const outcome = await materializeUsfmImport(row, bibleId, db, versesByBook.get(row.bookId));
       if (!outcome.ok) return outcome;
       if (outcome.data === 'materialized') materialized += 1;
       else pending += 1;

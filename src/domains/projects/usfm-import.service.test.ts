@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { bible_texts, books } from '@/db/schema';
 import { ErrorCode } from '@/lib/types';
+import * as converter from '@/lib/usfm-converter';
 
 import * as repo from './projects.repository';
 import {
@@ -55,6 +56,10 @@ beforeEach(() => {
   ]);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('parseUsfmFiles (#419)', () => {
   it('resolves each file to its book and its verses', async () => {
     const result = await parseUsfmFiles([
@@ -87,6 +92,17 @@ describe('parseUsfmFiles (#419)', () => {
   it('rejects a file whose \\id disagrees with the book it was uploaded as', async () => {
     // Claims Matthew, but the file says it is Genesis.
     const result = await parseUsfmFiles([{ fileName: 'mat.usfm', bookCode: 'MAT', usfm: GEN }]);
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
+  });
+
+  it('rejects a parsed file without a book identifier', async () => {
+    vi.spyOn(converter, 'convertUSFMToUSJ').mockReturnValueOnce({
+      ok: true,
+      data: { type: 'USJ', version: '3.1', content: [] },
+    });
+    const result = await parseUsfmFiles([
+      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: '\\c 1\n\\p\n\\v 1 Text without a book.' },
+    ]);
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
   });
 
@@ -155,6 +171,25 @@ describe('materializePendingUsfmImports (#419)', () => {
 
     expect(result.ok).toBe(true);
     expect(repo.getPendingUsfmImports).toHaveBeenCalledWith(5, [1, 40]);
+  });
+
+  it('reuses validation verses during creation without parsing each file twice', async () => {
+    const parse = vi.spyOn(converter, 'convertUSFMToUSJ');
+    const result = await parseUsfmFiles([{ fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN }]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
+    ]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    const imported = await materializePendingUsfmImports(5, 3, [1], result.data);
+
+    expect(imported).toEqual({ ok: true, data: { materialized: 1, pending: 0 } });
+    expect(parse).toHaveBeenCalledTimes(1);
+    expect(inserted[0]).toEqual([
+      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+    ]);
   });
 
   it('asks for nothing when there are no books', async () => {

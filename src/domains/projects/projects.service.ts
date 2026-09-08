@@ -184,12 +184,22 @@ export async function createProject(
       const materialized = await usfmImportService.materializePendingUsfmImports(
         createdProjectUnitId,
         input.bibleId,
-        importedFiles.map((file) => file.bookId)
+        importedFiles.map((file) => file.bookId),
+        importedFiles
       );
       if (materialized.ok) {
         logger.info('Imported USFM materialised at project creation', {
           projectId: result.data.id,
           ...materialized.data,
+        });
+      } else {
+        logger.error({
+          message: 'Failed to materialise imported USFM at project creation',
+          context: {
+            projectId: result.data.id,
+            projectUnitId: createdProjectUnitId,
+            error: materialized.error,
+          },
         });
       }
     }

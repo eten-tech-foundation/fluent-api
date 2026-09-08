@@ -1,5 +1,5 @@
 {
-  "id": "29a49873-cf34-464d-ac1f-870263547f59",
+  "id": "1a5633c5-a85c-4a7c-ac6f-db75b70d0a18",
   "prevId": "784b0554-d5dd-46c6-9203-5d2d4415416a",
   "version": "7",
   "dialect": "postgresql",
@@ -2113,103 +2113,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.project_unit_usfm_imports": {
-      "name": "project_unit_usfm_imports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_unit_id": {
-          "name": "project_unit_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "book_id": {
-          "name": "book_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_name": {
-          "name": "file_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "usfm": {
-          "name": "usfm",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "materialized_at": {
-          "name": "materialized_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uq_usfm_import_per_unit_book": {
-          "name": "uq_usfm_import_per_unit_book",
-          "columns": [
-            {
-              "expression": "project_unit_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "book_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_unit_usfm_imports_project_unit_id_project_units_id_fk": {
-          "name": "project_unit_usfm_imports_project_unit_id_project_units_id_fk",
-          "tableFrom": "project_unit_usfm_imports",
-          "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "project_unit_usfm_imports_book_id_books_id_fk": {
-          "name": "project_unit_usfm_imports_book_id_books_id_fk",
-          "tableFrom": "project_unit_usfm_imports",
-          "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.project_units": {
       "name": "project_units",
       "schema": "",
@@ -3202,6 +3105,27 @@
           "primaryKey": false,
           "notNull": false
         },
+        "version_token": {
+          "name": "version_token",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "conflict_status": {
+          "name": "conflict_status",
+          "type": "verse_audio_conflict_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'clean'"
+        },
+        "active_take_id": {
+          "name": "active_take_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -3276,6 +3200,155 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "verse_audio_recordings_active_take_id_verse_audio_takes_id_fk": {
+          "name": "verse_audio_recordings_active_take_id_verse_audio_takes_id_fk",
+          "tableFrom": "verse_audio_recordings",
+          "tableTo": "verse_audio_takes",
+          "columnsFrom": ["active_take_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.verse_audio_takes": {
+      "name": "verse_audio_takes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "recording_id": {
+          "name": "recording_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "uploaded_by": {
+          "name": "uploaded_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage_object_id": {
+          "name": "storage_object_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duration_seconds": {
+          "name": "duration_seconds",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_verse_audio_takes_recording": {
+          "name": "idx_verse_audio_takes_recording",
+          "columns": [
+            {
+              "expression": "recording_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_verse_audio_take_content_hash": {
+          "name": "uq_verse_audio_take_content_hash",
+          "columns": [
+            {
+              "expression": "recording_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "content_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "verse_audio_takes_recording_id_verse_audio_recordings_id_fk": {
+          "name": "verse_audio_takes_recording_id_verse_audio_recordings_id_fk",
+          "tableFrom": "verse_audio_takes",
+          "tableTo": "verse_audio_recordings",
+          "columnsFrom": ["recording_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "verse_audio_takes_uploaded_by_users_id_fk": {
+          "name": "verse_audio_takes_uploaded_by_users_id_fk",
+          "tableFrom": "verse_audio_takes",
+          "tableTo": "users",
+          "columnsFrom": ["uploaded_by"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "verse_audio_takes_storage_object_id_storage_objects_id_fk": {
+          "name": "verse_audio_takes_storage_object_id_storage_objects_id_fk",
+          "tableFrom": "verse_audio_takes",
+          "tableTo": "storage_objects",
+          "columnsFrom": ["storage_object_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3329,6 +3402,11 @@
       "name": "user_status",
       "schema": "public",
       "values": ["invited", "verified", "inactive"]
+    },
+    "public.verse_audio_conflict_status": {
+      "name": "verse_audio_conflict_status",
+      "schema": "public",
+      "values": ["clean", "conflict"]
     }
   },
   "schemas": {},

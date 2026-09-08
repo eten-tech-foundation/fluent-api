@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { createChapterAssignmentForProjectUnit } from '@/domains/chapter-assignments/chapter-assignments.service';
+import { logger } from '@/lib/logger';
 import { getQueue } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -129,7 +130,25 @@ describe('createProject from USFM files (#419)', () => {
   it('materialises the verses after the transaction, for the imported books only', async () => {
     await createProject({ ...BASE, usfmFiles: FILES });
 
-    expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(600, 3, [1, 40]);
+    expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(
+      600,
+      3,
+      [1, 40],
+      PARSED
+    );
+  });
+
+  it('logs materialisation failures without failing a committed project creation', async () => {
+    const failure = err(ErrorCode.USFM_INVALID);
+    vi.mocked(usfmImportService.materializePendingUsfmImports).mockResolvedValue(failure);
+
+    const result = await createProject({ ...BASE, usfmFiles: FILES });
+
+    expect(result).toEqual(ok({ id: 500 }));
+    expect(logger.error).toHaveBeenCalledWith({
+      message: 'Failed to materialise imported USFM at project creation',
+      context: { projectId: 500, projectUnitId: 600, error: failure.error },
+    });
   });
 
   it('writes nothing when a file fails to parse', async () => {
