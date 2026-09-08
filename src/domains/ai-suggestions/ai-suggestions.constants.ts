@@ -115,3 +115,11 @@ export function getContextBookCodes(targetBookCode: string): string[] {
 
   return [code];
 }
+
+/**
+ * Backstop on how many verses one queuing call may enqueue (#417). The pericope path queues up
+ * to two whole pericopes, which a bad pericope set could make arbitrarily large; the old fixed
+ * look-ahead never exceeded three. Two pericopes fit inside one chapter and the longest chapter
+ * (Psalm 119) has 176 verses, so this never trims a well-formed set.
+ */
+export const MAX_QUEUED_VERSES_PER_CALL = 200;
