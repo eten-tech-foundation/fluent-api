@@ -6,7 +6,7 @@ import type { Result, USJDocument, USJNode } from '@/lib/types';
 import { USFM_HEADING_MARKERS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { ErrorCode } from '@/lib/types';
-import { serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
+import { isUSFMSemanticDivisionMarker, serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
 
 const { USFMParser } = usfmGrammar;
 
@@ -113,8 +113,9 @@ export interface UsjVerseText {
  * Flattens a USJ document into one entry per verse: chapters are top-level milestones, verses
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
- * is filed under its first number. Headings and anything before the first verse are not text of
- * any verse and are left out; the raw file is the record of them.
+ * is filed under its first number. Heading words and anything before the first verse are not
+ * included in verse text. Supported headings are preserved as markers on the following verse;
+ * other unsupported structure remains available in the raw imported file.
  */
 export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
   const verses: UsjVerseText[] = [];
@@ -167,6 +168,15 @@ export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
           if (current) current.text += textOf(node);
           break;
         case 'para': {
+          if (isUSFMSemanticDivisionMarker(node.marker)) {
+            flush();
+            const firstVerse = node.content.findIndex(
+              (child) => typeof child !== 'string' && child.type === 'verse'
+            );
+            if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+            break;
+          }
+
           if (!headingMarkers.has(node.marker)) {
             walk(node.content);
             break;

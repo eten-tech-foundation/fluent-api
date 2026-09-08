@@ -93,4 +93,58 @@ describe('chapter-assignments.repository getContent', () => {
         .trim()
     ).toBe('Second.');
   });
+
+  it('keeps chapter content readable when an accepted legacy sd heading contains text', async () => {
+    const tx = transactionWithVerses([
+      {
+        id: 1,
+        content: 'In the beginning.',
+        verseNumber: 1,
+        bibleTextId: 101,
+        bookCode: 'GEN',
+        bookName: 'Genesis',
+        markers: { headings: [{ marker: 'sd1', text: 'Legacy invalid words' }] },
+      },
+    ]);
+
+    const result = await getContent(tx, {
+      id: 7,
+      projectUnitId: 5,
+      bibleId: 3,
+      bookId: 1,
+      chapterNumber: 1,
+      assignedUserId: null,
+      peerCheckerId: null,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+      submittedTime: null,
+      isAiEnabled: false,
+      hasClaimConflict: false,
+      claimConflictUserId: null,
+      createdAt: null,
+      updatedAt: null,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(JSON.stringify(result.data)).not.toContain('Legacy invalid words');
+    expect(result.data.content).toContainEqual(
+      expect.objectContaining({ type: 'para', marker: 'sd1' })
+    );
+    const body = result.data.content.find(
+      (node) =>
+        node.type === 'para' &&
+        node.marker === 'p' &&
+        node.content.some(
+          (child) => typeof child !== 'string' && child.type === 'verse' && child.number === '1'
+        )
+    );
+    expect(body?.type).toBe('para');
+    if (body?.type !== 'para') return;
+    expect(
+      body.content
+        .filter((node) => typeof node === 'string')
+        .join('')
+        .trim()
+    ).toBe('In the beginning.');
+  });
 });

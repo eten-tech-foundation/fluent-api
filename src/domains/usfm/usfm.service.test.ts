@@ -6,6 +6,8 @@ import type { BookFields, VerseData } from './usfm.types';
 
 import { createUSFMStreamForBook } from './usfm.service';
 
+const SEMANTIC_DIVISION_MARKERS = ['sd', 'sd1', 'sd2', 'sd3', 'sd4'] as const;
+
 async function renderUSFM(
   verses: VerseData[],
   book?: Parameters<typeof createUSFMStreamForBook>[1]
@@ -235,6 +237,21 @@ describe('createUSFMStreamForBook', () => {
     expect(heading.content.every((node) => typeof node === 'string')).toBe(true);
     expect(heading.content.join('').trim()).toBe('The Creation');
   });
+
+  it.each(SEMANTIC_DIVISION_MARKERS)(
+    'renders a legacy %s heading as a valid textless semantic division',
+    async (marker) => {
+      const usfm = await renderUSFM([
+        verse({
+          markers: { headings: [{ marker, text: 'Legacy invalid words' }] },
+        }),
+      ]);
+
+      expect(usfm).toContain(`\\${marker}\n\\p\n\\v 1 In the beginning.\n`);
+      expect(usfm).not.toContain('Legacy invalid words');
+      expect(convertUSFMToUSJ(usfm).ok).toBe(true);
+    }
+  );
 
   // ─── fluent-web#398: table-of-contents fields ──────────────────────────────
 

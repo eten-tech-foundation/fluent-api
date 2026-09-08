@@ -1,5 +1,11 @@
 import type { VerseMarkers } from '@/db/schema';
 
+const USFM_SEMANTIC_DIVISION_MARKERS = new Set(['sd', 'sd1', 'sd2', 'sd3', 'sd4']);
+
+export function isUSFMSemanticDivisionMarker(marker: string): boolean {
+  return USFM_SEMANTIC_DIVISION_MARKERS.has(marker);
+}
+
 export interface USFMVerseBodyData {
   verseNumber: number;
   translatedContent: string | null;
@@ -21,7 +27,9 @@ export function serializeUSFMVerseBody(verse: USFMVerseBodyData, isChapterStart:
 
   let body = '';
   for (const heading of headings) {
-    body += `\\${heading.marker} ${heading.text}\n`;
+    body += isUSFMSemanticDivisionMarker(heading.marker)
+      ? `\\${heading.marker}\n`
+      : `\\${heading.marker} ${heading.text}\n`;
   }
 
   if (opening) {

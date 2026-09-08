@@ -205,6 +205,24 @@ describe('materializeUsfmImport (#419)', () => {
     });
   });
 
+  it('materializes verses around a textless semantic division without treating it as a heading', async () => {
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+    const usfm = '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\sd1\n\\p\n\\v 2 Second.';
+
+    const result = await materializeUsfmImport({ ...row, usfm }, 3);
+
+    expect(result).toEqual({ ok: true, data: 'materialized' });
+    expect(inserted).toEqual([
+      [
+        { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
+        { projectUnitId: 5, bibleTextId: 102, content: 'Second.' },
+      ],
+    ]);
+  });
+
   it('rejects invalid imported heading structure before inserting or marking the import', async () => {
     rowsByTable.set(bible_texts, [
       { id: 101, chapterNumber: 1, verseNumber: 1 },
