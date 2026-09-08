@@ -13,7 +13,7 @@
  * renaming to camelCase would silently break the fluent-ai contract.
  * Approved in review:
  * https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343677813
- * Rationale: docs/proposals/repeated-word-check/ai-tools-integration-suggestion.md §8.1
+ * Rationale: docs/features/repeated-word-check/ai-tools-integration-suggestion.md §8.1
  */
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';

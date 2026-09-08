@@ -95,7 +95,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 bun.lock*
 
 # AI files
-docs/superpowers/
 .superpowers
 # Agent-created worktrees of other branches (full repo copies)
 .claude/worktrees/

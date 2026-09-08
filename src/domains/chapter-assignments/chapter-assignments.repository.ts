@@ -20,6 +20,7 @@ import {
   users,
 } from '@/db/schema';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
@@ -43,6 +44,25 @@ export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecor
 }
 
 const USJ_SPEC_VERSION = '0.0.1';
+
+/**
+ * EXISTS subquery for assignment progress: true when any verse-audio unit in
+ * this assignment's bible/book/chapter is conflicted. Scoping by
+ * `chapter_assignments.bibleId` (not book/chapter alone) is what keeps a
+ * conflict in another Bible from lighting up the rollup.
+ */
+export function hasConflictRollupSql() {
+  return sql<boolean>`EXISTS (
+          SELECT 1
+          FROM verse_audio_recordings var
+          INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
+          WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
+            AND bt.bible_id = ${chapter_assignments.bibleId}
+            AND bt.book_id = ${chapter_assignments.bookId}
+            AND bt.chapter_number = ${chapter_assignments.chapterNumber}
+            AND var.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CONFLICT}
+        )`;
+}
 
 export async function findById(
   id: number,
@@ -145,7 +165,11 @@ export async function findForVerse(
 ): Promise<Result<PolicyChapterAssignment>> {
   try {
     const [bibleText] = await db
-      .select({ bookId: bible_texts.bookId, chapterNumber: bible_texts.chapterNumber })
+      .select({
+        bibleId: bible_texts.bibleId,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+      })
       .from(bible_texts)
       .where(eq(bible_texts.id, bibleTextId))
       .limit(1);
@@ -166,6 +190,7 @@ export async function findForVerse(
       .where(
         and(
           eq(chapter_assignments.projectUnitId, projectUnitId),
+          eq(chapter_assignments.bibleId, bibleText.bibleId),
           eq(chapter_assignments.bookId, bibleText.bookId),
           eq(chapter_assignments.chapterNumber, bibleText.chapterNumber)
         )
@@ -445,6 +470,7 @@ export async function findAssignmentsProgress(
         isAiEnabled: chapter_assignments.isAiEnabled,
         hasClaimConflict: chapter_assignments.hasClaimConflict,
         claimConflictUserId: chapter_assignments.claimConflictUserId,
+        hasConflict: hasConflictRollupSql().mapWith(Boolean),
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
