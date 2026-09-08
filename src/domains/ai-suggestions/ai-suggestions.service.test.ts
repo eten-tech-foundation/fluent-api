@@ -266,6 +266,11 @@ describe('handleThresholdCrossed (#417)', () => {
       chapterNumber: CHAPTER,
       verseNumber: 5,
     });
+    // Backfill runs after the crossing verse has been committed, so it already has a draft.
+    vi.mocked(repo.findVersesNeedingSuggestions).mockImplementation(
+      async (_u, _b, _c, chapter, verses) =>
+        chapter === CHAPTER ? verses.filter((verse) => verse !== 5) : verses
+    );
   });
 
   it('backfills from the saved verse and starts the next chapter at its first pericope', async () => {
@@ -277,10 +282,10 @@ describe('handleThresholdCrossed (#417)', () => {
       [4, 5, 6, 7, 8, 9],
       [1, 2, 3],
     ]);
-    expect(sentVerses()).toEqual([4, 5, 6, 7, 8, 9, 1, 2, 3]);
+    expect(sentVerses()).toEqual([4, 6, 7, 8, 9, 1, 2, 3]);
     expect(
       send.mock.calls.map((call) => (call[1] as { chapterNumber: number }).chapterNumber)
-    ).toEqual([1, 1, 1, 1, 1, 1, 2, 2, 2]);
+    ).toEqual([1, 1, 1, 1, 1, 2, 2, 2]);
   });
 
   it('skips the next chapter when it is not assigned in this unit', async () => {
@@ -293,7 +298,7 @@ describe('handleThresholdCrossed (#417)', () => {
     expect(
       send.mock.calls.every((call) => (call[1] as { chapterNumber: number }).chapterNumber === 1)
     ).toBe(true);
-    expect(sentVerses()).toEqual([4, 5, 6, 7, 8, 9]);
+    expect(sentVerses()).toEqual([4, 6, 7, 8, 9]);
   });
 
   it('backfills the last pericope on a final-verse save without needing another navigation', async () => {
