@@ -40,6 +40,15 @@
  *   bootstrap superuser and grants DML to role_pgboss_user (step 5). This is
  *   what allows queue.ts to run with createSchema: false — the runtime role
  *   (web_user) never needs CREATE ON DATABASE.
+ *
+ *   OWNERSHIP: Step 6 reassigns ownership of every existing table, sequence,
+ *   view, and enum type in public/ai/drizzle to `migrations`. GRANT
+ *   (even ALL PRIVILEGES) never confers DDL rights on an existing object —
+ *   ALTER/DROP requires being the owner — so without this, a migration that
+ *   runs ALTER TABLE against an object created before this role split (or by
+ *   some other admin login) fails with "must be owner of ...". Reassigning
+ *   ownership does not touch existing GRANTs, which are independent of the
+ *   owner, so web_user/ai_user access is unaffected.
  */
 // Load .env for local convenience — dotenv never overwrites real env vars,
 // so shell / CI / Azure App Config values always win.
@@ -125,7 +134,7 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     const dbIdent = await ident(sql, dbName);
 
     // ── 1. Group roles (no LOGIN) ──────────────────────────────────────────
-    console.log('\n[1/6] Creating group roles...');
+    console.log('\n[1/7] Creating group roles...');
     for (const role of [
       'role_web_data',
       'role_ai_data',
@@ -137,14 +146,14 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     }
 
     // ── 2. Login users ──────────────────────────────────────────────────────
-    console.log('\n[2/6] Creating login users...');
+    console.log('\n[2/7] Creating login users...');
     await upsertLoginRole(sql, 'db_admin', cfg.dbAdminPassword, 'CREATEROLE');
     await upsertLoginRole(sql, 'migrations', cfg.migrationsPassword);
     await upsertLoginRole(sql, 'web_user', cfg.webUserPassword);
     await upsertLoginRole(sql, 'ai_user', cfg.aiUserPassword);
 
     // ── 3. Role membership ─────────────────────────────────────────────────
-    console.log('\n[3/6] Granting group roles to login users...');
+    console.log('\n[3/7] Granting group roles to login users...');
     await grantRole(sql, 'role_web_data', 'web_user');
     await grantRole(sql, 'role_pgboss_user', 'web_user');
     await grantRole(sql, 'role_ai_data', 'ai_user');
@@ -161,7 +170,7 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     console.log('  Done.');
 
     // ── 4. Schemas ─────────────────────────────────────────────────────────
-    console.log('\n[4/6] Creating schemas and transferring ownership...');
+    console.log('\n[4/7] Creating schemas and transferring ownership...');
     const dbAdmin = await ident(sql, 'db_admin');
     const webUser = await ident(sql, 'web_user');
     for (const schema of ['public', 'ai', 'drizzle']) {
@@ -176,13 +185,12 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     console.log(`  Schema pgboss — owner: web_user`);
 
     // ── 5. Schema-level grants ──────────────────────────────────────────────
-    console.log('\n[5/6] Applying schema usage grants...');
+    console.log('\n[5/7] Applying schema usage grants...');
 
     const roleWebData = await ident(sql, 'role_web_data');
     const roleAiData = await ident(sql, 'role_ai_data');
     const roleAiReader = await ident(sql, 'role_ai_reader');
     const roleMigrations = await ident(sql, 'role_migrations');
-    const migrationsLoginRole = await ident(sql, 'migrations');
 
     // role_web_data: full DML on public
     await sql.unsafe(`GRANT USAGE ON SCHEMA public TO ${roleWebData}`);
@@ -222,8 +230,73 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
 
     console.log('  Done.');
 
-    // ── 6. Default privileges (for future tables created by db_admin) ───────
-    console.log('\n[6/6] Setting default privileges for future objects...');
+    // ── 6. Reassign ownership of pre-existing objects to `migrations` ───────
+    // GRANT (even "ALL PRIVILEGES") never confers DDL rights on an existing
+    // object — ALTER/DROP requires being the object's owner. Tables created
+    // before this least-privilege role split (or by some other admin login)
+    // are still owned by whoever created them, so the first migration that
+    // runs ALTER TABLE against one of them fails with "must be owner of
+    // table ..." even though role_migrations has ALL PRIVILEGES via GRANT.
+    // Reassigning ownership here (idempotent — ALTER ... OWNER TO a role that
+    // already owns the object is a no-op) fixes that without touching any
+    // existing GRANTs, which live on the object independent of its owner.
+    //
+    // Must run AFTER the schema grants above: ALTER ... OWNER TO <role>
+    // requires the *new* owner to already have CREATE on the object's schema
+    // (Postgres docs: "that role must have CREATE privilege on the ...
+    // schema"), unless the connection is a true superuser — which the
+    // bootstrap connection is not on Azure Flexible Server (see
+    // upsertLoginRole's comment on azure_pg_admin).
+    console.log('\n[6/7] Reassigning ownership of existing objects to migrations...');
+    const migrationsLoginRole = await ident(sql, 'migrations');
+    for (const schema of ['public', 'ai', 'drizzle']) {
+      const s = await ident(sql, schema);
+
+      const tables = await sql`
+        SELECT tablename FROM pg_tables WHERE schemaname = ${schema}
+      `;
+      for (const { tablename } of tables) {
+        const t = await ident(sql, tablename as string);
+        await sql.unsafe(`ALTER TABLE ${s}.${t} OWNER TO ${migrationsLoginRole}`);
+      }
+
+      const sequences = await sql`
+        SELECT sequencename FROM pg_sequences WHERE schemaname = ${schema}
+      `;
+      for (const { sequencename } of sequences) {
+        const seq = await ident(sql, sequencename as string);
+        await sql.unsafe(`ALTER SEQUENCE ${s}.${seq} OWNER TO ${migrationsLoginRole}`);
+      }
+
+      const views = await sql`
+        SELECT viewname FROM pg_views WHERE schemaname = ${schema}
+      `;
+      for (const { viewname } of views) {
+        const v = await ident(sql, viewname as string);
+        await sql.unsafe(`ALTER VIEW ${s}.${v} OWNER TO ${migrationsLoginRole}`);
+      }
+
+      // Enums — future migrations may need ALTER TYPE (e.g. ADD VALUE), which
+      // is also an owner-only DDL operation. Every table's implicit row type
+      // is also typtype = 'c', but those aren't real standalone types (ALTER
+      // TYPE on one errors with "is a table's row type" — Postgres wants
+      // ALTER TABLE instead), so this only targets actual enums.
+      const types = await sql`
+        SELECT t.typname
+        FROM pg_type t
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE n.nspname = ${schema} AND t.typtype = 'e'
+      `;
+      for (const { typname } of types) {
+        const ty = await ident(sql, typname as string);
+        await sql.unsafe(`ALTER TYPE ${s}.${ty} OWNER TO ${migrationsLoginRole}`);
+      }
+
+      console.log(`  Schema ${schema} — existing objects reassigned to migrations`);
+    }
+
+    // ── 7. Default privileges (for future tables created by db_admin) ───────
+    console.log('\n[7/7] Setting default privileges for future objects...');
 
     // public schema
     await sql.unsafe(
