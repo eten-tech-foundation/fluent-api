@@ -1,9 +1,12 @@
 import usfmGrammar from 'usfm-grammar';
 
+import type { VerseMarkers } from '@/db/schema';
 import type { Result, USJDocument, USJNode } from '@/lib/types';
 
+import { USFM_HEADING_MARKERS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { ErrorCode } from '@/lib/types';
+import { isUSFMSemanticDivisionMarker, serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
 
 const { USFMParser } = usfmGrammar;
 
@@ -14,6 +17,7 @@ export interface VerseData {
   chapterNumber: number;
   verseNumber: number;
   translatedContent: string | null;
+  markers?: VerseMarkers;
 }
 
 /**
@@ -87,11 +91,12 @@ function generateUSFMText(verses: VerseData[]): string {
   let currentChapter: number | null = null;
 
   for (const verse of verses) {
-    if (currentChapter !== verse.chapterNumber) {
-      usfmText += `\\c ${verse.chapterNumber}\n\\p\n`;
+    const isChapterStart = currentChapter !== verse.chapterNumber;
+    if (isChapterStart) {
+      usfmText += `\\c ${verse.chapterNumber}\n`;
       currentChapter = verse.chapterNumber;
     }
-    usfmText += `\\v ${verse.verseNumber} ${verse.translatedContent ?? ''}\n`;
+    usfmText += serializeUSFMVerseBody(verse, isChapterStart);
   }
 
   return `${usfmText}\n`;
@@ -101,19 +106,23 @@ export interface UsjVerseText {
   chapterNumber: number;
   verseNumber: number;
   text: string;
+  markers?: NonNullable<VerseMarkers>;
 }
 
 /**
  * Flattens a USJ document into one entry per verse: chapters are top-level milestones, verses
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
- * is filed under its first number. Headings and anything before the first verse are not text of
- * any verse and are left out; the raw file is the record of them.
+ * is filed under its first number. Heading words and anything before the first verse are not
+ * included in verse text. Supported headings are preserved as markers on the following verse;
+ * other unsupported structure remains available in the raw imported file.
  */
 export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
   const verses: UsjVerseText[] = [];
+  const headingMarkers = new Set<string>(USFM_HEADING_MARKERS);
   let chapter: number | null = null;
   let current: UsjVerseText | null = null;
+  let pendingHeadings: NonNullable<NonNullable<VerseMarkers>['headings']> = [];
 
   const flush = () => {
     if (!current) return;
@@ -145,16 +154,51 @@ export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
           flush();
           const number = Number.parseInt(node.number, 10);
           if (chapter !== null && Number.isFinite(number)) {
-            current = { chapterNumber: chapter, verseNumber: number, text: '' };
+            current = {
+              chapterNumber: chapter,
+              verseNumber: number,
+              text: '',
+              ...(pendingHeadings.length > 0 ? { markers: { headings: pendingHeadings } } : {}),
+            };
+            pendingHeadings = [];
           }
           break;
         }
         case 'char':
           if (current) current.text += textOf(node);
           break;
-        case 'para':
-          walk(node.content);
+        case 'para': {
+          if (isUSFMSemanticDivisionMarker(node.marker)) {
+            flush();
+            const firstVerse = node.content.findIndex(
+              (child) => typeof child !== 'string' && child.type === 'verse'
+            );
+            if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+            break;
+          }
+
+          if (!headingMarkers.has(node.marker)) {
+            walk(node.content);
+            break;
+          }
+
+          flush();
+          const firstVerse = node.content.findIndex(
+            (child) => typeof child !== 'string' && child.type === 'verse'
+          );
+          const headingContent =
+            firstVerse === -1 ? node.content : node.content.slice(0, firstVerse);
+          const headingText = headingContent.map(textOf).join('').replace(/\s+/g, ' ').trim();
+          pendingHeadings.push({
+            marker: node.marker as (typeof USFM_HEADING_MARKERS)[number],
+            text: headingText,
+          });
+
+          // A missing body paragraph can make the parser nest the following verse
+          // in the heading node. Keep the heading prefix and still walk that verse.
+          if (firstVerse !== -1) walk(node.content.slice(firstVerse));
           break;
+        }
         default:
           // book metadata, milestones and anything else carry no verse text
           break;
