@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '../db';
+import { bible_books } from '../db/schema';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
 
 // Mock dependencies
@@ -114,6 +115,7 @@ describe('dblIngestTextWorker', () => {
     // It should have continued to chapter 2 despite the error in chapter 1
     expect(mockDblClientInstance.getChapter).toHaveBeenCalledTimes(2);
     expect(db.insert).toHaveBeenCalledTimes(1); // Only for chapter 2
+    expect(db.insert).not.toHaveBeenCalledWith(bible_books);
   });
 
   it('logs a warning and skips the book instead of silently ignoring it when no matching book exists', async () => {
@@ -182,8 +184,42 @@ describe('dblIngestTextWorker', () => {
         externalId: 'ext-bible-1',
       } as any);
       vi.mocked(db.query.books.findFirst).mockResolvedValue({ id: 7, code: 'GEN' } as any);
-      mockDblClientInstance.getChapters.mockResolvedValue({ ok: true, data: [] });
+      mockDblClientInstance.getChapters.mockResolvedValue({
+        ok: true,
+        data: [{ id: 'GEN.1', number: '1' }],
+      });
+      mockDblClientInstance.getChapter.mockResolvedValue({
+        ok: true,
+        data: { content: '[1] In the beginning.' },
+      });
     });
+
+    it.each(['empty chapter list', 'empty chapter text', 'invalid chapter number'])(
+      'does not mark a source book complete with %s',
+      async (failure) => {
+        if (failure === 'empty chapter list') {
+          mockDblClientInstance.getChapters.mockResolvedValue({ ok: true, data: [] });
+        } else if (failure === 'empty chapter text') {
+          mockDblClientInstance.getChapter.mockResolvedValue({ ok: true, data: { content: '' } });
+        } else {
+          mockDblClientInstance.getChapters.mockResolvedValue({
+            ok: true,
+            data: [{ id: 'GEN.bad', number: 'bad' }],
+          });
+        }
+        const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+        await registerDblIngestTextWorker(mockBoss);
+        const handler = mockBoss.work.mock.calls[0][2];
+
+        await expect(
+          handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'incomplete' }])
+        ).rejects.toThrow(/trigger retry/);
+
+        expect(db.insert).not.toHaveBeenCalledWith(bible_books);
+        const usfmImportService = await import('../domains/projects/usfm-import.service');
+        expect(usfmImportService.materializePendingUsfmImports).not.toHaveBeenCalled();
+      }
+    );
 
     it('logs success only when the assignment Result is ok', async () => {
       const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
@@ -227,6 +263,19 @@ describe('dblIngestTextWorker', () => {
       await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-6' }]);
 
       expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(42, 1, [7]);
+      const completionIndex = vi
+        .mocked(db.insert)
+        .mock.calls.findIndex(([table]) => table === bible_books);
+      expect(completionIndex).toBeGreaterThanOrEqual(0);
+      const completionInsert = vi.mocked(db.insert).mock.results[completionIndex].value;
+      expect(completionInsert.values).toHaveBeenCalledWith({
+        bibleId: 1,
+        bookId: 7,
+        textIngestedAt: expect.any(Date),
+      });
+      expect(vi.mocked(db.insert).mock.invocationCallOrder[completionIndex]).toBeLessThan(
+        vi.mocked(usfmImportService.materializePendingUsfmImports).mock.invocationCallOrder[0]
+      );
     });
 
     it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {

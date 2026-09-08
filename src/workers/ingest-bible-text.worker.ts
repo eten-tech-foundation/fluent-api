@@ -6,7 +6,7 @@ import type { DblIngestTextJob } from '../lib/queue';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { db } from '../db';
-import { bible_texts, project_units } from '../db/schema';
+import { bible_books, bible_texts, project_units } from '../db/schema';
 import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
 import * as usfmImportService from '../domains/projects/usfm-import.service';
 import { logger } from '../lib/logger';
@@ -71,6 +71,8 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
           continue;
         }
         const chapters = chaptersResult.data;
+        const failuresBeforeBook = jobFailedChapters;
+        let ingestedChapters = 0;
 
         for (const chapter of chapters) {
           // API.Bible returns an 'intro' pseudo-chapter for some Bibles;
@@ -82,6 +84,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
             logger.warn(`Skipping chapter with unparseable number: ${chapter.number}`, {
               chapterId: chapter.id,
             });
+            jobFailedChapters++;
             continue;
           }
 
@@ -145,12 +148,29 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
               logger.info(
                 `Ingested chapter ${chapter.number} (${values.length} verses) for book ${code}`
               );
+              ingestedChapters++;
+            } else {
+              logger.warn(`Chapter ${chapter.id} returned no verse text`, { bibleId });
+              jobFailedChapters++;
             }
           } catch (error) {
             // Log and continue so a single failed chapter doesn't crash the book sync
             logger.error(`Error ingesting chapter ${chapter.id}`, { error });
             jobFailedChapters++;
           }
+        }
+
+        if (jobFailedChapters === failuresBeforeBook && ingestedChapters > 0) {
+          await db
+            .insert(bible_books)
+            .values({ bibleId, bookId: dbBook.id, textIngestedAt: new Date() })
+            .onConflictDoUpdate({
+              target: [bible_books.bibleId, bible_books.bookId],
+              set: { textIngestedAt: sql`now()` },
+            });
+        } else if (jobFailedChapters === failuresBeforeBook) {
+          logger.warn(`Book ${code} returned no numbered chapters`, { bibleId });
+          jobFailedChapters++;
         }
       }
 

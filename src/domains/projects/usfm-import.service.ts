@@ -4,7 +4,7 @@ import type { DbTransaction, Result } from '@/lib/types';
 import type { UsjVerseText } from '@/lib/usfm-converter';
 
 import { db } from '@/db';
-import { bible_texts, books, translated_verses } from '@/db/schema';
+import { bible_books, bible_texts, books, translated_verses } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
@@ -46,7 +46,10 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     if (!usj.ok) return err(ErrorCode.USFM_INVALID);
 
     const idNode = usj.data.content.find((node) => node.type === 'book');
-    if (!idNode || idNode.type !== 'book' || idNode.code?.toUpperCase() !== bookCode) {
+    if (!idNode || idNode.type !== 'book' || !idNode.code) {
+      return err(ErrorCode.USFM_BOOK_MISSING);
+    }
+    if (idNode.code.toUpperCase() !== bookCode) {
       return err(ErrorCode.USFM_BOOK_MISMATCH);
     }
 
@@ -73,6 +76,13 @@ export async function materializeUsfmImport(
   executor: DbTransaction | typeof db = db,
   parsedVerses?: UsjVerseText[]
 ): Promise<Result<MaterializeOutcome>> {
+  const [sourceBook] = await executor
+    .select({ textIngestedAt: bible_books.textIngestedAt })
+    .from(bible_books)
+    .where(and(eq(bible_books.bibleId, bibleId), eq(bible_books.bookId, row.bookId)));
+
+  if (!sourceBook?.textIngestedAt) return ok('pending');
+
   const sourceTexts = await executor
     .select({
       id: bible_texts.id,

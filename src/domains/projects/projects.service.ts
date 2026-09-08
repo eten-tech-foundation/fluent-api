@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bible_texts, pericope_sets } from '@/db/schema';
+import { bible_books, bible_texts, pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -178,42 +178,24 @@ export async function createProject(
       return ok(project);
     });
 
-    // Books whose source text is already ingested get their imported verses now; the rest are
-    // finished by the ingestion worker once the text lands. Never a reason to fail the creation.
-    if (result.ok && importedFiles && createdProjectUnitId !== null) {
-      const materialized = await usfmImportService.materializePendingUsfmImports(
-        createdProjectUnitId,
-        input.bibleId,
-        importedFiles.map((file) => file.bookId),
-        importedFiles
-      );
-      if (materialized.ok) {
-        logger.info('Imported USFM materialised at project creation', {
-          projectId: result.data.id,
-          ...materialized.data,
-        });
-      } else {
-        logger.error({
-          message: 'Failed to materialise imported USFM at project creation',
-          context: {
-            projectId: result.data.id,
-            projectUnitId: createdProjectUnitId,
-            error: materialized.error,
-          },
-        });
-      }
-    }
-
     // Enqueue the on-demand text ingestion job
     if (result.ok) {
       try {
         const queue = await getQueue();
 
-        // Detect which books have already been ingested for this Bible
-        const ingestedBooks = await db
-          .selectDistinct({ bookId: bible_texts.bookId })
-          .from(bible_texts)
-          .where(eq(bible_texts.bibleId, input.bibleId));
+        // Imported verses need a complete source book, including when another project is
+        // still ingesting it. Preserve the existing queue policy for blank projects.
+        const ingestedBooks = importedFiles
+          ? await db
+              .select({ bookId: bible_books.bookId })
+              .from(bible_books)
+              .where(
+                and(eq(bible_books.bibleId, input.bibleId), isNotNull(bible_books.textIngestedAt))
+              )
+          : await db
+              .selectDistinct({ bookId: bible_texts.bookId })
+              .from(bible_texts)
+              .where(eq(bible_texts.bibleId, input.bibleId));
         const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
 
         // Get all available books for this Bible
@@ -272,6 +254,33 @@ export async function createProject(
         // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
+      }
+    }
+
+    // Decide ingestion first so completion racing with this request cannot leave an import
+    // pending without its own job. Completed books are materialized here; the worker handles
+    // the rest. Never fail a committed project creation because materialization failed.
+    if (result.ok && importedFiles && createdProjectUnitId !== null) {
+      const materialized = await usfmImportService.materializePendingUsfmImports(
+        createdProjectUnitId,
+        input.bibleId,
+        importedFiles.map((file) => file.bookId),
+        importedFiles
+      );
+      if (materialized.ok) {
+        logger.info('Imported USFM materialised at project creation', {
+          projectId: result.data.id,
+          ...materialized.data,
+        });
+      } else {
+        logger.error({
+          message: 'Failed to materialise imported USFM at project creation',
+          context: {
+            projectId: result.data.id,
+            projectUnitId: createdProjectUnitId,
+            error: materialized.error,
+          },
+        });
       }
     }
 

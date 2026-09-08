@@ -298,6 +298,8 @@ export const bible_books = pgTable(
     bookId: integer('book_id')
       .notNull()
       .references(() => books.id),
+    // Set only after the full source book is ingested, never from partial verse presence.
+    textIngestedAt: timestamp('text_ingested_at'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -1110,6 +1112,7 @@ export const insertBibleBooksSchema = createInsertSchema(bible_books)
     bookId: true,
   })
   .omit({
+    textIngestedAt: true,
     createdAt: true,
     updatedAt: true,
   });

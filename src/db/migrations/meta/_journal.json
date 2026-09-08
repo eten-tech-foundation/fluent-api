@@ -204,6 +204,13 @@
       "when": 1788849706258,
       "tag": "0028_add_usfm_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788892254245,
+      "tag": "0029_add_bible_book_text_ingestion_completion",
+      "breakpoints": true
     }
   ]
 }

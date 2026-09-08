@@ -1,0 +1,1 @@
+ALTER TABLE "bible_books" ADD COLUMN "text_ingested_at" timestamp;

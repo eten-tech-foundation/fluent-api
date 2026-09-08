@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import { bible_texts, books } from '@/db/schema';
+import { bible_books, bible_texts, books } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { ErrorCode } from '@/lib/types';
 import * as converter from '@/lib/usfm-converter';
@@ -55,6 +55,7 @@ beforeEach(() => {
     { id: 1, code: 'GEN' },
     { id: 40, code: 'MAT' },
   ]);
+  rowsByTable.set(bible_books, [{ textIngestedAt: new Date() }]);
 });
 
 afterEach(() => {
@@ -93,7 +94,13 @@ describe('parseUsfmFiles (#419)', () => {
   it('rejects a file whose \\id disagrees with the book it was uploaded as', async () => {
     // Claims Matthew, but the file says it is Genesis.
     const result = await parseUsfmFiles([{ fileName: 'mat.usfm', bookCode: 'MAT', usfm: GEN }]);
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: ErrorCode.USFM_BOOK_MISMATCH,
+        message: 'USFM book code is invalid or does not match the uploaded file',
+      },
+    });
   });
 
   it('rejects a parsed file without a book identifier', async () => {
@@ -104,7 +111,10 @@ describe('parseUsfmFiles (#419)', () => {
     const result = await parseUsfmFiles([
       { fileName: 'gen.usfm', bookCode: 'GEN', usfm: '\\c 1\n\\p\n\\v 1 Text without a book.' },
     ]);
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.USFM_BOOK_MISSING, message: 'Missing book data' },
+    });
   });
 
   it('rejects two files for the same book', async () => {
@@ -118,6 +128,28 @@ describe('parseUsfmFiles (#419)', () => {
 
 describe('materializeUsfmImport (#419)', () => {
   const row = { id: 9, projectUnitId: 5, bookId: 1, usfm: GEN };
+
+  it('waits for confirmed book completion even when some source verses already exist', async () => {
+    rowsByTable.set(bible_books, [{ textIngestedAt: null }]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'pending' });
+    expect(inserted).toEqual([]);
+    expect(repo.markUsfmImportMaterialized).not.toHaveBeenCalled();
+
+    rowsByTable.set(bible_books, [{ textIngestedAt: new Date() }]);
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+
+    expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
+    expect(inserted[0]).toEqual([
+      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+      { projectUnitId: 5, bibleTextId: 102, content: 'The earth.' },
+    ]);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+  });
 
   it('reports pending and writes nothing while the source text is not ingested', async () => {
     rowsByTable.set(bible_texts, []);
@@ -150,11 +182,16 @@ describe('materializeUsfmImport (#419)', () => {
   it('skips verses the source does not have instead of inventing rows', async () => {
     rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
 
-    await materializeUsfmImport(row, 3);
+    expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
 
     expect(inserted[0]).toEqual([
       { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
     ]);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Imported USFM verses with no matching source verse were skipped',
+      { projectUnitId: 5, bookId: 1, unmatched: 1 }
+    );
   });
 });
 
