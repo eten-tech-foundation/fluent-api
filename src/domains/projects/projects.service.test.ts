@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
-import { err, ErrorCode, ok } from '@/lib/types';
+import { ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './projects.repository';
 import {
@@ -103,7 +102,7 @@ describe('projects service', () => {
       expect(result).toEqual(mockResult);
     });
 
-    it('deleteProject should call repo', async () => {
+    it('deleteProject should call repo if no milestones exist', async () => {
       const mockResult = ok(undefined);
       vi.mocked(repo.remove).mockResolvedValue(mockResult);
 
@@ -111,6 +110,26 @@ describe('projects service', () => {
 
       expect(repo.remove).toHaveBeenCalledWith(1);
       expect(result).toEqual(mockResult);
+    });
+
+    it('deleteProject should return PROJECT_HAS_MILESTONES if milestones exist', async () => {
+      vi.mocked(db.select).mockImplementationOnce(() => {
+        const chainable = {
+          from: vi.fn().mockReturnThis(),
+          where: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          then: (resolve: any) => resolve([{ id: 1 }]),
+        };
+        return chainable as any;
+      });
+
+      const result = await deleteProject(1);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.PROJECT_HAS_MILESTONES);
+      }
+      expect(repo.remove).not.toHaveBeenCalled();
     });
 
     it('getProjectIdByUnitId should call repo', async () => {
@@ -124,161 +143,49 @@ describe('projects service', () => {
     });
   });
 
-  describe('createProject (Orchestration)', () => {
+  describe('createProject', () => {
     const mockInput = {
       name: 'New Project',
       sourceLanguage: 1,
       targetLanguage: 2,
-      bibleId: 10,
-      bookId: [1, 2],
-      projectUnitStatus: 'not_started' as const,
+      sourceBibleId: 10,
       organization: 1,
       createdBy: 99,
     };
 
-    it('should orchestrate project creation successfully', async () => {
+    it('should create project successfully', async () => {
       const mockProject = { id: 100, name: 'New Project' } as any;
-      const mockUnit = { id: 200, projectId: 100 } as any;
 
-      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
       vi.mocked(repo.insertProjectRecord).mockResolvedValue(mockProject);
-      vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue(mockUnit);
-      vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
-      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
-        ok([])
-      );
 
       const result = await createProject(mockInput as any);
 
-      expect(repo.getValidBookIdsForBible).toHaveBeenCalledWith(10);
       expect(repo.insertProjectRecord).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'New Project', organization: 1, createdBy: 99 }),
+        expect.objectContaining({
+          name: 'New Project',
+          organization: 1,
+          createdBy: 99,
+          status: 'not_assigned',
+        }),
         mockTx
       );
-      expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
-        { projectId: 100, status: 'not_started' },
-        mockTx
-      );
-      expect(repo.insertBibleBookLinks).toHaveBeenCalledWith(
-        [
-          { projectUnitId: 200, bibleId: 10, bookId: 1 },
-          { projectUnitId: 200, bibleId: 10, bookId: 2 },
-        ],
-        mockTx
-      );
-      expect(chapterAssignmentsService.createChapterAssignmentForProjectUnit).toHaveBeenCalledWith(
-        200,
-        10,
-        [1, 2],
-        mockTx
-      );
-
-      // Verify that the db queries for the queue logic were called (since we didn't mock exact responses, they just run)
-      expect(db.selectDistinct).toHaveBeenCalled();
-      expect(db.query.books.findMany).toHaveBeenCalled();
 
       expect(result).toEqual(ok(mockProject));
-    });
-
-    it('skips the ingest-queue lookup instead of crashing when no books are synced for the Bible yet', async () => {
-      const mockProject = { id: 100, name: 'New Project' } as any;
-      const mockUnit = { id: 200, projectId: 100 } as any;
-      const { logger } = await import('@/lib/logger');
-
-      // First call (input validation) sees the requested books as valid;
-      // second call (inside the enqueue block) comes back empty — e.g. the
-      // Bible's book-level DBL sync hasn't populated bible_books yet.
-      vi.mocked(repo.getValidBookIdsForBible)
-        .mockResolvedValueOnce([1, 2])
-        .mockResolvedValueOnce([]);
-      vi.mocked(repo.insertProjectRecord).mockResolvedValue(mockProject);
-      vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue(mockUnit);
-      vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
-      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
-        ok([])
-      );
-
-      const result = await createProject(mockInput as any);
-
-      // The project itself was created successfully — only the ingest-job
-      // lookup is skipped.
-      expect(result).toEqual(ok(mockProject));
-      expect(logger.warn).toHaveBeenCalledWith(
-        'No valid books found for Bible, skipping text ingestion',
-        expect.objectContaining({ bibleId: 10 })
-      );
-      // Must never reach the inArray(books.id, []) query — that's the crash
-      // this guard exists to prevent (`IN ()` is invalid Postgres syntax).
-      expect(db.query.books.findMany).not.toHaveBeenCalled();
-    });
-
-    it('should return INVALID_BIBLE_BOOKS if any book is invalid', async () => {
-      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1]);
-
-      const result = await createProject(mockInput as any);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe(ErrorCode.INVALID_BIBLE_BOOKS);
-      }
-
-      expect(db.transaction).not.toHaveBeenCalled();
-      expect(repo.insertProjectRecord).not.toHaveBeenCalled();
-    });
-
-    it('should rollback (return error) if cross-domain assignment fails', async () => {
-      const mockProject = { id: 100 } as any;
-      const mockUnit = { id: 200 } as any;
-
-      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
-      vi.mocked(repo.insertProjectRecord).mockResolvedValue(mockProject);
-      vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue(mockUnit);
-
-      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
-        err(ErrorCode.INTERNAL_ERROR)
-      );
-
-      const result = await createProject(mockInput as any);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
-      }
     });
   });
 
-  describe('updateProject (Orchestration)', () => {
-    it('should update project and conditionally update unit status', async () => {
+  describe('updateProject', () => {
+    it('should update project successfully', async () => {
       const mockUpdatedProject = { id: 1, name: 'Updated' } as any;
       vi.mocked(repo.updateProjectRecord).mockResolvedValue(mockUpdatedProject);
-      vi.mocked(repo.updateProjectUnitStatusByProjectId).mockResolvedValue(undefined);
 
-      const result = await updateProject(1, {
-        name: 'Updated',
-        projectUnitStatus: 'in_progress',
-      });
+      const result = await updateProject(1, { name: 'Updated' });
 
       expect(repo.updateProjectRecord).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ name: 'Updated' }),
         mockTx
       );
-      expect(repo.updateProjectUnitStatusByProjectId).toHaveBeenCalledWith(
-        1,
-        'in_progress',
-        mockTx
-      );
-      expect(result).toEqual(ok(mockUpdatedProject));
-    });
-
-    it('should skip updating unit status if it is not provided in input', async () => {
-      const mockUpdatedProject = { id: 1, name: 'Updated' } as any;
-      vi.mocked(repo.updateProjectRecord).mockResolvedValue(mockUpdatedProject);
-
-      const result = await updateProject(1, { name: 'Updated' });
-
-      expect(repo.updateProjectRecord).toHaveBeenCalled();
-      expect(repo.updateProjectUnitStatusByProjectId).not.toHaveBeenCalled();
       expect(result).toEqual(ok(mockUpdatedProject));
     });
 
@@ -291,7 +198,6 @@ describe('projects service', () => {
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.PROJECT_NOT_FOUND);
       }
-      expect(repo.updateProjectUnitStatusByProjectId).not.toHaveBeenCalled();
     });
   });
 });

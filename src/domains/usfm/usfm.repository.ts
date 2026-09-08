@@ -8,7 +8,6 @@ import {
   books,
   project_unit_bible_books,
   project_units,
-  projects,
   translated_verses,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
@@ -21,14 +20,13 @@ const BATCH_SIZE = 25;
 export async function getProjectName(projectUnitId: number): Promise<Result<string>> {
   try {
     const result = await db
-      .select({ name: projects.name })
-      .from(projects)
-      .innerJoin(project_units, eq(projects.id, project_units.projectId))
+      .select({ name: project_units.name })
+      .from(project_units)
       .where(eq(project_units.id, projectUnitId))
       .limit(1);
 
     if (result.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
-    return ok(result[0].name);
+    return ok(result[0].name || 'Milestone');
   } catch (error) {
     logger.error({
       cause: error,

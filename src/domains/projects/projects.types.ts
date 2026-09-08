@@ -31,20 +31,19 @@ export const projectWithLanguageNamesSchema = selectProjectsSchema
     targetLanguageId: z.number().int(),
     sourceLanguageName: z.string(),
     targetLanguageName: z.string(),
-    sourceName: z.string(),
+    sourceName: z.string().nullable(),
     lastChapterActivity: z.union([z.date(), z.string()]).nullable(),
     createdAt: z.union([z.date(), z.string()]).nullable(),
     updatedAt: z.union([z.date(), z.string()]).nullable(),
     chapterStatusCounts: chapterStatusCountsSchema,
+    milestoneCount: z.number().int().optional(),
     workflowConfig: z.array(workflowStepSchema),
   });
 
 export const createProjectWithUnitsSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({
-    bibleId: z.number().int(),
-    bookId: z.array(z.number().int()),
-    projectUnitStatus: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
+    sourceBibleId: z.number().int(),
     // organization is optional — omitting it triggers solo-workflow auto-provisioning:
     // the route will create a personal org for users with zero existing orgs.
     organization: z.number().int().optional(),
@@ -54,9 +53,7 @@ export const createProjectWithUnitsSchema = insertProjectsSchema
 export const updateProjectWithUnitsSchema = patchProjectsClientSchema
   .omit({ status: true })
   .extend({
-    bibleId: z.number().int().optional(),
-    bookId: z.array(z.number().int()).optional(),
-    projectUnitStatus: z.enum(['not_started', 'in_progress', 'completed']).optional(),
+    sourceBibleId: z.number().int().optional(),
   });
 
 // Domain types inferred from Zod

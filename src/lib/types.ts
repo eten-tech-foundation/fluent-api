@@ -49,6 +49,7 @@ export const ErrorCode = {
   // Resource not found — one per domain entity so routes can do
   // `code === ErrorCode.BIBLE_NOT_FOUND` instead of message string matching
   PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
+  PROJECT_HAS_MILESTONES: 'PROJECT_HAS_MILESTONES',
   PROJECT_UNIT_NOT_FOUND: 'PROJECT_UNIT_NOT_FOUND',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_NOT_IN_PROJECT: 'USER_NOT_IN_PROJECT',
@@ -103,6 +104,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   UNAUTHORIZED: 'Authentication required',
   FORBIDDEN: 'You do not have permission to perform this action',
   PROJECT_NOT_FOUND: 'Project not found',
+  PROJECT_HAS_MILESTONES: 'Project cannot be deleted because it contains milestones',
   PROJECT_UNIT_NOT_FOUND: 'Project unit not found',
   USER_NOT_FOUND: 'User not found',
   USER_NOT_IN_PROJECT: 'User not found in project',
@@ -166,6 +168,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   CHAPTER_LIMIT_EXCEEDED: 400,
   INVALID_REFERENCE: 400,
   INVALID_BIBLE_BOOKS: 400,
+  PROJECT_HAS_MILESTONES: 409,
   NOT_FOUND: 404,
   PROJECT_NOT_FOUND: 404,
   PROJECT_UNIT_NOT_FOUND: 404,

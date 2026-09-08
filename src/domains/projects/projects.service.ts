@@ -3,11 +3,9 @@ import { eq } from 'drizzle-orm';
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bible_texts, pericope_sets } from '@/db/schema';
-import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
+import { pericope_sets, project_units } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
-import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
@@ -51,7 +49,17 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
-export function deleteProject(id: number) {
+export async function deleteProject(id: number): Promise<Result<void>> {
+  const units = await db
+    .select({ id: project_units.id })
+    .from(project_units)
+    .where(eq(project_units.projectId, id))
+    .limit(1);
+
+  if (units.length > 0) {
+    return err(ErrorCode.PROJECT_HAS_MILESTONES);
+  }
+
   return repo.remove(id);
 }
 
@@ -92,17 +100,6 @@ export async function recordProjectAssignmentActivity(
 
 export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {
   try {
-    const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
-    const hasInvalidBooks = input.bookId.some((id) => !validBookIds.includes(id));
-
-    if (hasInvalidBooks) {
-      logger.error({
-        message: 'Invalid bible books requested',
-        context: { requestedBooks: input.bookId, bibleId: input.bibleId },
-      });
-      return err(ErrorCode.INVALID_BIBLE_BOOKS);
-    }
-
     if (input.pericopeSetId != null) {
       const [exists] = await db
         .select({ id: pericope_sets.id })
@@ -115,110 +112,9 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
     }
 
     const result = await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
-
-      const project = await repo.insertProjectRecord(
-        { ...projectData, status: 'not_assigned' },
-        tx
-      );
-
-      const projectUnit = await repo.insertProjectUnitRecord(
-        { projectId: project.id, status: projectUnitStatus },
-        tx
-      );
-
-      const bibleBookEntries = bookId.map((id) => ({
-        projectUnitId: projectUnit.id,
-        bibleId,
-        bookId: id,
-      }));
-      await repo.insertBibleBookLinks(bibleBookEntries, tx);
-
-      const assignmentsResult =
-        await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-          projectUnit.id,
-          bibleId,
-          bookId,
-          tx
-        );
-
-      if (!assignmentsResult.ok) {
-        throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
-      }
-
+      const project = await repo.insertProjectRecord({ ...input, status: 'not_assigned' }, tx);
       return ok(project);
     });
-
-    // Enqueue the on-demand text ingestion job
-    if (result.ok) {
-      try {
-        const queue = await getQueue();
-
-        // Detect which books have already been ingested for this Bible
-        const ingestedBooks = await db
-          .selectDistinct({ bookId: bible_texts.bookId })
-          .from(bible_texts)
-          .where(eq(bible_texts.bibleId, input.bibleId));
-        const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
-
-        // Get all available books for this Bible
-        const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
-        if (validBookIds.length === 0) {
-          logger.warn('No valid books found for Bible, skipping text ingestion', {
-            bibleId: input.bibleId,
-          });
-          return result;
-        }
-        const dbBooks = await db.query.books.findMany({
-          where: (books, { inArray }) => inArray(books.id, validBookIds),
-        });
-
-        const priorityBookCodes = dbBooks
-          .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
-          .map((b) => b.code);
-
-        // As per discussion: only pulling up selected books for now.
-        // Background ingestion of remaining Bible books is disabled until
-        // we have proper rate-limit budgeting and a clear product need.
-        // const backgroundBookCodes = dbBooks
-        //   .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
-        //   .map((b) => b.code);
-
-        // Enqueue priority ingestion for the exact requested books
-        if (priorityBookCodes.length > 0) {
-          await queue.send(
-            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
-            {
-              projectId: result.data.id,
-              bibleId: input.bibleId,
-              bookCodes: priorityBookCodes,
-            },
-            { priority: 10 }
-          );
-          logger.info('Enqueued text ingestion job for requested books', {
-            projectId: result.data.id,
-            bookCodes: priorityBookCodes,
-          });
-        }
-
-        // As per discussion: only pulling up selected books for now.
-        // Uncomment the block below to enable background ingestion of
-        // remaining books in the Bible for future projects.
-        // if (backgroundBookCodes.length > 0) {
-        //   await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
-        //     projectId: result.data.id,
-        //     bibleId: input.bibleId,
-        //     bookCodes: backgroundBookCodes,
-        //   });
-        //   logger.info('Enqueued text ingestion job for remaining books', {
-        //     projectId: result.data.id,
-        //     bookCodes: backgroundBookCodes,
-        //   });
-        // }
-      } catch (error) {
-        logger.error('Failed to enqueue text ingestion job', { error });
-      }
-    }
 
     return result;
   } catch (error) {
@@ -227,8 +123,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       message: 'Failed to create project',
       context: {
         organization: input.organization,
-        bibleId: input.bibleId,
-        bookId: input.bookId,
+        sourceBibleId: input.sourceBibleId,
       },
     });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -252,16 +147,10 @@ export async function updateProject(
     }
 
     return await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus, ...projectData } = input;
-
-      const updatedProject = await repo.updateProjectRecord(id, projectData, tx);
+      const updatedProject = await repo.updateProjectRecord(id, input, tx);
 
       if (!updatedProject) {
         return err(ErrorCode.PROJECT_NOT_FOUND);
-      }
-
-      if (projectUnitStatus !== undefined) {
-        await repo.updateProjectUnitStatusByProjectId(id, projectUnitStatus, tx);
       }
 
       return ok(updatedProject);

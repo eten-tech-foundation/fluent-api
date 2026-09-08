@@ -190,31 +190,6 @@ export const pericope_sets = pgTable('pericope_sets', {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const projects = pgTable('projects', {
-  id: serial('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  sourceLanguage: integer('source_language')
-    .notNull()
-    .references(() => languages.id),
-  targetLanguage: integer('target_language')
-    .notNull()
-    .references(() => languages.id),
-  organization: integer('organization')
-    .notNull()
-    .references(() => organizations.id),
-  isActive: boolean('is_active').default(true),
-  status: projectAssignmentStatusEnum('status').notNull().default('not_assigned'),
-  createdBy: integer('created_by').references(() => users.id),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-  metadata: jsonb('metadata').$type<Json>().notNull().default({}),
-  // Nullable — existing projects have no pericope set; new projects may select one
-  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
-  lastActivityAt: timestamp('last_activity_at'),
-});
-
 export const bibles = pgTable(
   'bibles',
   {
@@ -239,6 +214,32 @@ export const bibles = pgTable(
       .where(sql`${table.externalId} IS NOT NULL`),
   ]
 );
+
+export const projects = pgTable('projects', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  sourceLanguage: integer('source_language')
+    .notNull()
+    .references(() => languages.id),
+  targetLanguage: integer('target_language')
+    .notNull()
+    .references(() => languages.id),
+  organization: integer('organization')
+    .notNull()
+    .references(() => organizations.id),
+  isActive: boolean('is_active').default(true),
+  status: projectAssignmentStatusEnum('status').notNull().default('not_assigned'),
+  createdBy: integer('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+  metadata: jsonb('metadata').$type<Json>().notNull().default({}),
+  sourceBibleId: integer('source_bible_id').references(() => bibles.id),
+  // Nullable — existing projects have no pericope set; new projects may select one
+  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
+  lastActivityAt: timestamp('last_activity_at'),
+});
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),
@@ -311,6 +312,9 @@ export const project_units = pgTable('project_units', {
   projectId: integer('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull().default(''),
+  type: varchar('type', { length: 50 }).notNull().default('text'),
+  connectivityProfile: varchar('connectivity_profile', { length: 50 }),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')

@@ -2,57 +2,12 @@ import { eq, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db';
-import {
-  bibles,
-  chapter_assignments,
-  languages,
-  project_unit_bible_books,
-  project_units,
-  projects,
-} from '@/db/schema';
+import { bibles, languages, projects } from '@/db/schema';
 
 // Aliases
 export const sourceLanguages = alias(languages, 'sourceLanguages');
 export const targetLanguages = alias(languages, 'targetLanguages');
 export const sourceBibles = alias(bibles, 'sourceBibles');
-
-// Subqueries
-export const lastActivitySubquery = db
-  .select({
-    projectId: project_units.projectId,
-    lastChapterActivity: sql<Date>`MAX(${chapter_assignments.updatedAt})`.as(
-      'last_chapter_activity'
-    ),
-  })
-  .from(chapter_assignments)
-  .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-  .groupBy(project_units.projectId)
-  .as('last_activity');
-
-export const rawCountsSubquery = db
-  .select({
-    projectId: project_units.projectId,
-    status: chapter_assignments.status,
-    count: sql<number>`count(*)::int`.as('count'),
-  })
-  .from(chapter_assignments)
-  .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-  .groupBy(project_units.projectId, chapter_assignments.status)
-  .as('raw_counts');
-
-export const chapterStatusCountsSubquery = db
-  .select({
-    projectId: rawCountsSubquery.projectId,
-    counts: sql<Record<string, number>>`
-      jsonb_object_agg(
-        ${rawCountsSubquery.status}, 
-        ${rawCountsSubquery.count}
-      )
-    `.as('counts'),
-  })
-  .from(rawCountsSubquery)
-  .groupBy(rawCountsSubquery.projectId)
-  .as('chapter_status_counts');
 
 // Projection
 export const projectWithLangNames = {
@@ -66,14 +21,30 @@ export const projectWithLangNames = {
   updatedAt: projects.updatedAt,
   metadata: projects.metadata,
   pericopeSetId: projects.pericopeSetId,
+  sourceBibleId: projects.sourceBibleId,
   sourceLanguageId: projects.sourceLanguage,
   targetLanguageId: projects.targetLanguage,
   sourceLanguageName: sourceLanguages.langName,
   targetLanguageName: targetLanguages.langName,
   sourceName: sourceBibles.name,
-  lastChapterActivity: lastActivitySubquery.lastChapterActivity,
+  lastChapterActivity: sql<Date>`(
+    SELECT MAX(chapter_assignments.updated_at) FROM chapter_assignments
+    INNER JOIN project_units ON chapter_assignments.project_unit_id = project_units.id
+    WHERE project_units.project_id = ${projects.id}
+  )`.as('last_chapter_activity'),
   lastActivityAt: projects.lastActivityAt,
-  counts: chapterStatusCountsSubquery.counts,
+  counts: sql<Record<string, number>>`(
+    SELECT jsonb_object_agg(t.chapter_status, t.count) FROM (
+      SELECT chapter_assignments.chapter_status, count(*) as count FROM chapter_assignments
+      INNER JOIN project_units ON chapter_assignments.project_unit_id = project_units.id
+      WHERE project_units.project_id = ${projects.id}
+      GROUP BY chapter_assignments.chapter_status
+    ) t
+  )`.as('counts'),
+  milestoneCount: sql<number>`(
+    SELECT count(*)::int FROM project_units
+    WHERE project_id = ${projects.id}
+  )`.as('milestone_count'),
 } as const;
 
 // Base join query
@@ -83,22 +54,8 @@ export const baseJoinQuery = () =>
     .from(projects)
     .innerJoin(sourceLanguages, eq(projects.sourceLanguage, sourceLanguages.id))
     .innerJoin(targetLanguages, eq(projects.targetLanguage, targetLanguages.id))
-    .innerJoin(project_units, eq(project_units.projectId, projects.id))
-    .innerJoin(
-      project_unit_bible_books,
-      eq(project_unit_bible_books.projectUnitId, project_units.id)
-    )
-    .innerJoin(sourceBibles, eq(sourceBibles.id, project_unit_bible_books.bibleId))
-    .leftJoin(lastActivitySubquery, eq(projects.id, lastActivitySubquery.projectId))
-    .leftJoin(chapterStatusCountsSubquery, eq(projects.id, chapterStatusCountsSubquery.projectId))
-    .groupBy(
-      projects.id,
-      sourceLanguages.id,
-      targetLanguages.id,
-      sourceBibles.id,
-      lastActivitySubquery.lastChapterActivity,
-      chapterStatusCountsSubquery.counts
-    );
+    .leftJoin(sourceBibles, eq(sourceBibles.id, projects.sourceBibleId))
+    .groupBy(projects.id, sourceLanguages.id, targetLanguages.id, sourceBibles.id);
 
 // Derived types
 export type BaseJoinQueryResult = Awaited<ReturnType<typeof baseJoinQuery>>;

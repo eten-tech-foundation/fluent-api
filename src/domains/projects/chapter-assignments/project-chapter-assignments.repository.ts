@@ -12,8 +12,16 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { ChapterAssignmentWithProjectId } from './project-chapter-assignments.types';
 
-export async function getByProject(projectId: number): Promise<Result<ChapterAssignmentRecord[]>> {
+export async function getByProject(
+  projectId: number,
+  milestoneId?: number
+): Promise<Result<ChapterAssignmentRecord[]>> {
   try {
+    const conditions = [eq(project_units.projectId, projectId)];
+    if (milestoneId) {
+      conditions.push(eq(project_units.id, milestoneId));
+    }
+
     const assignments = await db
       .select({
         id: chapter_assignments.id,
@@ -33,7 +41,7 @@ export async function getByProject(projectId: number): Promise<Result<ChapterAss
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-      .where(eq(project_units.projectId, projectId));
+      .where(and(...conditions));
 
     return ok(assignments);
   } catch (error) {

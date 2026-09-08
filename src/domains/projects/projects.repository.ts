@@ -42,7 +42,7 @@ const WORKFLOW_DEFINITION: WorkflowStep[] = chapterStatusEnum.enumValues.map((st
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
 export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
-  const { counts, ...rest } = rawProject;
+  const { counts, milestoneCount, ...rest } = rawProject;
   const defaultCounts = chapterStatusEnum.enumValues.reduce((acc, status) => {
     acc[status] = 0;
     return acc;
@@ -51,6 +51,7 @@ export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWit
   return {
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
+    milestoneCount: milestoneCount ?? 0,
     workflowConfig: WORKFLOW_DEFINITION,
   };
 }
