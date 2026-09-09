@@ -33,9 +33,6 @@ export const config: EnvConfig = {
   // DEV_DATABASE_URL wins; DATABASE_URL is a last resort fallback.
   // setup.ts will error if neither is set.
   databaseUrl: process.env.DEV_DATABASE_URL ?? process.env.DATABASE_URL,
-  // For drizzle-kit migrate — runs as the DDL-capable migrations role.
-  // Falls back to DATABASE_URL via drizzle.config.ts if unset.
-  migrationsUrl: process.env.DEV_MIGRATIONS_DATABASE_URL,
 
   // Lazy getter — validation runs only when setup.ts accesses seedUsers.
   // provision-db.ts imports this config for provision.* credentials but never

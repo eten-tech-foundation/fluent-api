@@ -48,6 +48,34 @@ async function verifyOwnershipReassigned(sql: postgres.Sql) {
     issues++;
   }
 
+  // pg_class covers tables/views/materialized views/sequences/indexes, but
+  // not types (enums) or functions/procedures — check those separately so a
+  // legacy-owned enum or function can't slip past this precondition and get
+  // silently removed by DROP OWNED BY below.
+  const typesAndFunctions = await sql`
+    SELECT n.nspname AS schema, t.typname AS object_name, r.rolname AS owner, 'type' AS kind
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    JOIN pg_roles r ON t.typowner = r.oid
+    WHERE n.nspname IN ('public', 'ai', 'drizzle', 'pgboss')
+    AND r.rolname IN ('db_admin', 'migrations', 'web_user')
+    UNION ALL
+    SELECT n.nspname AS schema, p.proname AS object_name, r.rolname AS owner, 'function' AS kind
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_roles r ON p.proowner = r.oid
+    WHERE n.nspname IN ('public', 'ai', 'drizzle', 'pgboss')
+    AND r.rolname IN ('db_admin', 'migrations', 'web_user');
+  `;
+
+  if (typesAndFunctions.length > 0) {
+    console.error('❌ Pre-condition failed: Found types/functions still owned by legacy roles:');
+    for (const row of typesAndFunctions) {
+      console.error(`   - ${row.schema}.${row.object_name} (${row.kind}, owned by ${row.owner})`);
+    }
+    issues++;
+  }
+
   if (issues > 0) {
     console.error(
       '\nCannot proceed with cleanup. Run provision-db.ts first to reassign ownership.'

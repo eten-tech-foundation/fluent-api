@@ -50,29 +50,29 @@ You can configure database URLs and credentials in three places — listed in **
 
 ### Environment Variable Catalog
 
-| Variable Name                 | Required By         | Description / Format                                                                          | Example Value                                              |
-| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`                | `setup.ts` (local)  | Runtime role URL injected by docker-compose for local. Last-resort fallback for dev/qa.       | `postgres://api_user:pass@localhost:5432/fluentdb`         |
-| `MIGRATIONS_DATABASE_URL`     | `drizzle.config.ts` | Direct DDL migration connection URL (read directly by drizzle-kit).                           | `postgres://api_migrator:pass@localhost:5432/fluentdb`     |
-| `DEV_DATABASE_URL`            | `setup.ts` (dev)    | Runtime role URL for dev — **wins over** `DATABASE_URL` when `SETUP_ENV=dev`.                 | `postgres://api_user:pass@dev-host:5432/fluentdb`          |
-| `DEV_MIGRATIONS_DATABASE_URL` | `setup.ts` (dev)    | Migrations role URL for dev — passed to `drizzle-kit migrate` (DDL rights).                   | `postgres://api_migrator:pass@dev-host:5432/fluentdb`      |
-| `QA_DATABASE_URL`             | `setup.ts` (qa)     | Runtime role URL for QA — **wins over** `DATABASE_URL` when `SETUP_ENV=qa`.                   | `postgres://api_user:pass@qa-host:5432/fluentdb`           |
-| `QA_MIGRATIONS_DATABASE_URL`  | `setup.ts` (qa)     | Migrations role URL for QA — passed to `drizzle-kit migrate` (DDL rights).                    | `postgres://api_migrator:pass@qa-host:5432/fluentdb`       |
-| `BOOTSTRAP_DATABASE_URL`      | `provision-db.ts`   | Superuser / Admin URL to create roles & schemas                                               | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
-| `API_MIGRATOR_PASSWORD`       | `provision-db.ts`   | Password for the schema-owner `api_migrator` role                                             | `SecretApiMigratorPass123`                                 |
-| `API_USER_PASSWORD`           | `provision-db.ts`   | Password for the API runtime `api_user` account                                               | `SecretApiUserPass123`                                     |
-| `AI_MIGRATOR_PASSWORD`        | `provision-db.ts`   | Password for the AI schema-owner `ai_migrator` role                                           | `SecretAiMigratorPass123`                                  |
-| `AI_USER_PASSWORD`            | `provision-db.ts`   | Password for the AI service `ai_user` account                                                 | `SecretAiUserPass123`                                      |
-| `QA_PM_EMAIL`                 | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `pm@yourorg.com`                                           |
-| `QA_PM_PASSWORD`              | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `StrongPassword!1`                                         |
-| `DEV_PM_EMAIL`                | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it. | `pm@yourorg.com`                                           |
-| `DEV_PM_PASSWORD`             | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it. | `StrongPassword!1`                                         |
-| `DEV_SEED_PASSWORD`           | `setup.ts` (dev)    | Shared password for the 3 translator accounts (`alice.smith`, `bob.johnson`, `carol.davis`).  | `StrongPassword!2`                                         |
+| Variable Name             | Required By         | Description / Format                                                                                                                                                                                                                                 | Example Value                                              |
+| ------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`            | `setup.ts` (local)  | Runtime role URL injected by docker-compose for local. Last-resort fallback for dev/qa.                                                                                                                                                              | `postgres://api_user:pass@localhost:5432/fluentdb`         |
+| `MIGRATIONS_DATABASE_URL` | `drizzle.config.ts` | Direct DDL migration connection URL, read directly by drizzle-kit — same variable for every environment (local, dev, qa). No `DEV_`/`QA_` prefixed variant; set this one directly wherever it's needed, the same way `BOOTSTRAP_DATABASE_URL` works. | `postgres://api_migrator:pass@dev-host:5432/fluentdb`      |
+| `DEV_DATABASE_URL`        | `setup.ts` (dev)    | Runtime role URL for dev — **wins over** `DATABASE_URL` when `SETUP_ENV=dev`.                                                                                                                                                                        | `postgres://api_user:pass@dev-host:5432/fluentdb`          |
+| `QA_DATABASE_URL`         | `setup.ts` (qa)     | Runtime role URL for QA — **wins over** `DATABASE_URL` when `SETUP_ENV=qa`.                                                                                                                                                                          | `postgres://api_user:pass@qa-host:5432/fluentdb`           |
+| `BOOTSTRAP_DATABASE_URL`  | `provision-db.ts`   | Superuser / Admin URL to create roles & schemas                                                                                                                                                                                                      | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
+| `API_MIGRATOR_PASSWORD`   | `provision-db.ts`   | Password for the schema-owner `api_migrator` role                                                                                                                                                                                                    | `SecretApiMigratorPass123`                                 |
+| `API_USER_PASSWORD`       | `provision-db.ts`   | Password for the API runtime `api_user` account                                                                                                                                                                                                      | `SecretApiUserPass123`                                     |
+| `AI_MIGRATOR_PASSWORD`    | `provision-db.ts`   | Password for the AI schema-owner `ai_migrator` role                                                                                                                                                                                                  | `SecretAiMigratorPass123`                                  |
+| `AI_USER_PASSWORD`        | `provision-db.ts`   | Password for the AI service `ai_user` account                                                                                                                                                                                                        | `SecretAiUserPass123`                                      |
+| `QA_PM_EMAIL`             | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.                                                                                                                                                         | `pm@yourorg.com`                                           |
+| `QA_PM_PASSWORD`          | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.                                                                                                                                                         | `StrongPassword!1`                                         |
+| `DEV_PM_EMAIL`            | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it.                                                                                                                                                        | `pm@yourorg.com`                                           |
+| `DEV_PM_PASSWORD`         | `setup.ts` (dev)    | Required at seed time — validated lazily so `provision-db.ts` can import `dev.ts` without it.                                                                                                                                                        | `StrongPassword!1`                                         |
+| `DEV_SEED_PASSWORD`       | `setup.ts` (dev)    | Shared password for the 3 translator accounts (`alice.smith`, `bob.johnson`, `carol.davis`).                                                                                                                                                         | `StrongPassword!2`                                         |
 
 > **URL resolution order for `db:setup:dev`:**
-> `DEV_DATABASE_URL` → `DATABASE_URL` (last resort). `DEV_MIGRATIONS_DATABASE_URL` is passed to
-> `drizzle-kit migrate` so it runs as the DDL-capable `api_migrator` role rather than `api_user`.
-> This matches `drizzle.config.ts` which prefers `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`.
+> `DEV_DATABASE_URL` → `DATABASE_URL` (last resort) for the runtime connection.
+> `MIGRATIONS_DATABASE_URL`, if set, is passed straight through to
+> `drizzle-kit migrate` so it runs as the DDL-capable `api_migrator` role
+> rather than `api_user` — this is the same variable in every environment,
+> per `drizzle.config.ts`'s `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`.
 
 ---
 
@@ -188,7 +188,7 @@ AI_USER_PASSWORD=<ai_user_password>
 
 # ── Step 2: Setup (.env entries for npm run db:setup:dev) ────────────────────
 DEV_DATABASE_URL=postgres://api_user:<api_user_password>@<dev-host>:5432/<dbname>?sslmode=require
-DEV_MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<dev-host>:5432/<dbname>?sslmode=require
+MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<dev-host>:5432/<dbname>?sslmode=require
 DEV_PM_EMAIL=<pm_email>
 DEV_PM_PASSWORD=<pm_password>
 DEV_SEED_PASSWORD=<seed_translator_password>
@@ -214,7 +214,7 @@ npm run dev
 BOOTSTRAP_DATABASE_URL="..." API_MIGRATOR_PASSWORD="..." API_USER_PASSWORD="..." AI_MIGRATOR_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:dev
 
 # 2. Setup (Migrations & Seeding)
-DEV_DATABASE_URL="..." DEV_MIGRATIONS_DATABASE_URL="..." DEV_PM_EMAIL="..." DEV_PM_PASSWORD="..." DEV_SEED_PASSWORD="..." npm run db:setup:dev
+DEV_DATABASE_URL="..." MIGRATIONS_DATABASE_URL="..." DEV_PM_EMAIL="..." DEV_PM_PASSWORD="..." DEV_SEED_PASSWORD="..." npm run db:setup:dev
 ```
 
 ---
@@ -235,7 +235,7 @@ AI_USER_PASSWORD=<ai_user_password>
 
 # ── Step 2: Setup (.env entries for npm run db:setup:qa) ─────────────────────
 QA_DATABASE_URL=postgres://api_user:<api_user_password>@<qa-host>:5432/<dbname>?sslmode=require
-QA_MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<qa-host>:5432/<dbname>?sslmode=require
+MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<qa-host>:5432/<dbname>?sslmode=require
 QA_PM_EMAIL=<qapm_email>
 QA_PM_PASSWORD=<qapm_password>
 ```
@@ -260,7 +260,7 @@ npm run start
 BOOTSTRAP_DATABASE_URL="..." API_MIGRATOR_PASSWORD="..." API_USER_PASSWORD="..." AI_MIGRATOR_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:qa
 
 # 2. Setup (Migrations & Seeding)
-QA_DATABASE_URL="..." QA_MIGRATIONS_DATABASE_URL="..." QA_PM_EMAIL="..." QA_PM_PASSWORD="..." npm run db:setup:qa
+QA_DATABASE_URL="..." MIGRATIONS_DATABASE_URL="..." QA_PM_EMAIL="..." QA_PM_PASSWORD="..." npm run db:setup:qa
 ```
 
 ---

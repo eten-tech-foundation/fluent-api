@@ -52,16 +52,6 @@ export interface EnvConfig {
   databaseUrl?: string;
 
   /**
-   * Optional database URL for the migrations role.
-   * When set, `setup.ts` will assign it to `MIGRATIONS_DATABASE_URL` before
-   * invoking `drizzle-kit migrate`, so Drizzle runs as the DDL-capable
-   * `migrations` login role rather than the runtime `web_user`.
-   * Matches the preference in `drizzle.config.ts`:
-   *   `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`
-   */
-  migrationsUrl?: string;
-
-  /**
    * Users to seed.
    * Empty array → no application users are seeded (useful for a QA env that
    * wants a fully blank slate beyond the PM account, or if you want none at all).

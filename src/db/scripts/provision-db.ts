@@ -12,7 +12,7 @@
  *   creates the role hierarchy used in production-grade environments:
  *
  *   Login users:
- *     api_migrator (CREATE on database, owns public and drizzle schemas)
+ *     api_migrator (GRANT CREATE ON DATABASE; owns public and drizzle schemas)
  *     api_user     (DML on public via default privileges from api_migrator; owns pgboss)
  *     ai_migrator  (owns ai schema)
  *     ai_user      (DML on ai via default privileges from ai_migrator)
@@ -23,23 +23,31 @@
  *     pgboss           (owned by api_user — pg-boss manages its own objects)
  *
  * IDEMPOTENT:
- *   Safe to re-run — roles are created or altered, never dropped.
+ *   Safe to re-run — roles are created or altered, never dropped. api_migrator
+ *   gets CREATE ON DATABASE as an object privilege (GRANT), not the CREATEDB
+ *   role attribute — CREATEDB would let it create whole new databases, far
+ *   more than the "create the drizzle tracking schema" need it exists for.
  *
  * NOTE:
  *   This script is NOT called by docker-entrypoint.sh or db:setup.
  *   It is a one-time provisioning step that must be run before db:setup on a
  *   fresh Azure Flexible Server. Local docker uses bootstrap.ts instead.
  *
- *   PGBOSS CONTRACT: This script creates the pgboss schema (step 3) as the
+ *   PGBOSS CONTRACT: This script creates the pgboss schema (step 2) as the
  *   bootstrap superuser and grants ownership to api_user. This is
  *   what allows queue.ts to run with createSchema: false — the runtime role
- *   (api_user) never needs CREATE ON DATABASE.
+ *   (api_user) never needs CREATE ON DATABASE. Ownership is set with both
+ *   `AUTHORIZATION` (first creation) and an explicit `ALTER SCHEMA ... OWNER
+ *   TO` (re-runs against a pre-existing pgboss schema, e.g. one still owned
+ *   by the legacy web_user) — AUTHORIZATION alone is a no-op once the schema
+ *   already exists.
  *
- *   OWNERSHIP: Step 5 reassigns ownership of every existing table, sequence,
- *   view, and enum type in public/drizzle to `api_migrator`, and in ai to
- *   `ai_migrator`. GRANT (even ALL PRIVILEGES) never confers DDL rights on an
- *   existing object — ALTER/DROP requires being the owner — so without this,
- *   a migration that runs ALTER TABLE against an object created before this
+ *   OWNERSHIP: Step 4 reassigns ownership of every existing table, sequence,
+ *   view, materialized view, and enum type in public/drizzle to
+ *   `api_migrator`, in ai to `ai_migrator`, and in pgboss to `api_user`.
+ *   GRANT (even ALL PRIVILEGES) never confers DDL rights on an existing
+ *   object — ALTER/DROP requires being the owner — so without this, a
+ *   migration that runs ALTER TABLE against an object created before this
  *   role split (or by some other admin login) fails with "must be owner of ...".
  */
 // Load .env for local convenience — dotenv never overwrites real env vars,
@@ -101,7 +109,7 @@ async function grantRole(sql: Sql, groupRole: string, loginRole: string) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-async function provision(cfg: DbProvisionConfig, _dbName: string) {
+async function provision(cfg: DbProvisionConfig, dbName: string) {
   const sql = postgres(cfg.bootstrapDatabaseUrl, { max: 1 });
 
   try {
@@ -110,8 +118,7 @@ async function provision(cfg: DbProvisionConfig, _dbName: string) {
 
     // ── 1. Login users ──────────────────────────────────────────────────────
     console.log('\n[1/5] Creating login users...');
-    // Only API migrator needs CREATE on database for Drizzle
-    await upsertLoginRole(sql, 'api_migrator', cfg.apiMigratorPassword, 'CREATEDB');
+    await upsertLoginRole(sql, 'api_migrator', cfg.apiMigratorPassword);
     await upsertLoginRole(sql, 'api_user', cfg.apiUserPassword);
     await upsertLoginRole(sql, 'ai_migrator', cfg.aiMigratorPassword);
     await upsertLoginRole(sql, 'ai_user', cfg.aiUserPassword);
@@ -125,10 +132,16 @@ async function provision(cfg: DbProvisionConfig, _dbName: string) {
     console.log('  Done.');
 
     // ── 2. Schemas ─────────────────────────────────────────────────────────
-    console.log('\n[2/5] Creating schemas and transferring ownership...');
+    console.log('\n[2/5] Creating schemas, granting CREATE, and transferring ownership...');
     const apiMigrator = await ident(sql, 'api_migrator');
     const aiMigrator = await ident(sql, 'ai_migrator');
     const apiUser = await ident(sql, 'api_user');
+
+    // api_migrator needs CREATE on the database itself (object privilege, not
+    // the CREATEDB role attribute) so Drizzle's `CREATE SCHEMA IF NOT EXISTS
+    // drizzle` check passes Postgres ACL checks.
+    const dbIdent = await ident(sql, dbName);
+    await sql.unsafe(`GRANT CREATE ON DATABASE ${dbIdent} TO ${apiMigrator}`);
 
     for (const schema of ['public', 'drizzle']) {
       const s = await ident(sql, schema);
@@ -142,9 +155,15 @@ async function provision(cfg: DbProvisionConfig, _dbName: string) {
     await sql.unsafe(`ALTER SCHEMA ${aiS} OWNER TO ${aiMigrator}`);
     console.log(`  Schema ai — owner: ai_migrator`);
 
-    // pgboss is owned by api_user so pg-boss can manage
-    // its own tables/enums/functions at runtime without needing CREATE ON DATABASE.
-    await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS pgboss AUTHORIZATION ${apiUser}`);
+    // pgboss is owned by api_user so pg-boss can manage its own
+    // tables/enums/functions at runtime without needing CREATE ON DATABASE.
+    // `AUTHORIZATION` only sets the owner on first creation, so on a database
+    // that already has a pgboss schema (e.g. from the legacy model, still
+    // owned by web_user) an explicit ALTER is needed too — otherwise this
+    // step is silently a no-op on re-runs against an existing schema.
+    const pgbossS = await ident(sql, 'pgboss');
+    await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${pgbossS} AUTHORIZATION ${apiUser}`);
+    await sql.unsafe(`ALTER SCHEMA ${pgbossS} OWNER TO ${apiUser}`);
     console.log(`  Schema pgboss — owner: api_user`);
 
     // ── 3. Schema-level grants ──────────────────────────────────────────────
@@ -198,6 +217,13 @@ async function provision(cfg: DbProvisionConfig, _dbName: string) {
         await sql.unsafe(`ALTER VIEW ${s}.${v} OWNER TO ${ownerIdent}`);
       }
 
+      // pg_views excludes materialized views — handle them separately.
+      const matviews = await sql`SELECT matviewname FROM pg_matviews WHERE schemaname = ${schema}`;
+      for (const { matviewname } of matviews) {
+        const mv = await ident(sql, matviewname as string);
+        await sql.unsafe(`ALTER MATERIALIZED VIEW ${s}.${mv} OWNER TO ${ownerIdent}`);
+      }
+
       const types = await sql`
         SELECT t.typname
         FROM pg_type t
@@ -214,6 +240,9 @@ async function provision(cfg: DbProvisionConfig, _dbName: string) {
     await reassignSchemaObjects('public', 'api_migrator');
     await reassignSchemaObjects('drizzle', 'api_migrator');
     await reassignSchemaObjects('ai', 'ai_migrator');
+    // pgboss objects too — on a database migrating from the legacy model,
+    // pg-boss's own tables/enums may still be owned by the legacy web_user.
+    await reassignSchemaObjects('pgboss', 'api_user');
 
     // ── 5. Default privileges (for future tables) ───────────────────────────
     console.log('\n[5/5] Setting default privileges for future objects...');
