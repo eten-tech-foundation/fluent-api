@@ -298,6 +298,8 @@ export const bible_books = pgTable(
     bookId: integer('book_id')
       .notNull()
       .references(() => books.id),
+    // Set only after the full source book is ingested, never from partial verse presence.
+    textIngestedAt: timestamp('text_ingested_at'),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -663,6 +665,32 @@ export const chapter_assignments = pgTable(
     index('idx_chapter_assignments_peer_checker_status').on(table.peerCheckerId, table.status),
     index('idx_chapter_assignments_project_unit').on(table.projectUnitId),
   ]
+);
+
+/**
+ * A USFM file imported to create a book in a project unit, kept verbatim (#419). This is the
+ * passthrough store: every tag in the file survives here whether or not Fluent renders it, which
+ * a parsed form cannot promise (usfm-grammar drops the text after an unknown \z tag, for one).
+ * The editable rows in translated_verses are derived from it, and only once the source bible's
+ * text exists to attach them to; until then materialized_at stays null and the text-ingestion
+ * worker finishes the job.
+ */
+export const project_unit_usfm_imports = pgTable(
+  'project_unit_usfm_imports',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    fileName: varchar('file_name', { length: 255 }).notNull(),
+    usfm: text('usfm').notNull(),
+    materializedAt: timestamp('materialized_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('uq_usfm_import_per_unit_book').on(table.projectUnitId, table.bookId)]
 );
 
 export const chapter_assignment_snapshots = pgTable(
@@ -1084,6 +1112,7 @@ export const insertBibleBooksSchema = createInsertSchema(bible_books)
     bookId: true,
   })
   .omit({
+    textIngestedAt: true,
     createdAt: true,
     updatedAt: true,
   });
