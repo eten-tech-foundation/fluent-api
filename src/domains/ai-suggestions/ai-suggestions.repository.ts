@@ -143,7 +143,8 @@ export async function logAiSuggestionUsage(
           ai_suggestion_usage_log.bibleTextId,
           ai_suggestion_usage_log.projectUnitId,
         ],
-        set: { wasUsed }, // Update if the user later accepts it
+        // Exposure and acceptance requests can arrive out of order.
+        set: { wasUsed: sql`${ai_suggestion_usage_log.wasUsed} OR EXCLUDED.was_used` },
       });
 
     return ok(undefined);

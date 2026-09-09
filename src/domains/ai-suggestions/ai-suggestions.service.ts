@@ -1,3 +1,4 @@
+import type { AiSuggestionTriggerJob } from '@/lib/queue';
 import type { Result, User } from '@/lib/types';
 
 import env from '@/env';
@@ -9,12 +10,21 @@ import type {
   AiSuggestionItem,
   AiSuggestionsListResponse,
   GetAiSuggestionsQuery,
+  PericopeRequest,
+  PericopeSuggestionItem,
+  PericopeSuggestionsResponse,
+  PericopeUsageRequest,
   QueueNextVersesResponse,
   SuggestionContextRequest,
   SuggestionContextResponse,
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
+import {
+  logPericopeUsage,
+  resolvePericopes,
+  savePericopeSuggestion,
+} from './ai-pericope.repository';
 import { MAX_CONTEXT_VERSES_TOTAL } from './ai-suggestions.constants';
 import {
   checkBibleTextsExist,
@@ -86,7 +96,7 @@ export async function queueNextVerses(
       return ok({ queued: false, thresholdMet: isThresholdMet });
     }
 
-    await queueNextVersesForAssignment(
+    const queued = await queueNextVersesForAssignment(
       projectUnitId,
       bibleId,
       bookCode.toUpperCase(),
@@ -94,6 +104,7 @@ export async function queueNextVerses(
       currentVerse,
       env.AI_DEFAULT_LOOKAHEAD
     );
+    if (!queued.ok) return queued;
 
     return ok({ queued: true, thresholdMet: true });
   } catch (error) {
@@ -215,7 +226,39 @@ export async function getSuggestionContext(
 ): Promise<Result<SuggestionContextResponse>> {
   const { projectUnitId, bibleId, bookCode, chapterNumber, verseStart, verseEnd } = params;
 
-  return getSuggestionContextData(
+  let heading: SuggestionContextResponse['sectionHeading'];
+  let sourceIds: Set<number> | undefined;
+  if (params.pericopeNumber !== undefined) {
+    const resolved = await resolvePericopes({
+      projectUnitId,
+      bibleId,
+      bookCode,
+      chapterNumber,
+      pericopeNumbers: [params.pericopeNumber],
+    });
+    if (!resolved.ok) return resolved;
+    const group = resolved.data.groups[0];
+    if (
+      (params.pericopeSetId !== undefined &&
+        params.pericopeSetId !== resolved.data.pericopeSetId) ||
+      verseStart !== group.verses[0].verseNumber ||
+      verseEnd !== group.verses[group.verses.length - 1].verseNumber
+    ) {
+      return err(ErrorCode.INVALID_REFERENCE);
+    }
+    sourceIds = new Set(group.verses.map((verse) => verse.bibleTextId));
+    heading =
+      group.sourceTitle && resolved.data.isAiEnabled && !group.verses[0].hasAuthoredHeading
+        ? {
+            pericopeNumber: group.pericopeNumber,
+            pericopeSetId: resolved.data.pericopeSetId,
+            bibleTextId: group.verses[0].bibleTextId,
+            sourceTitle: group.sourceTitle,
+          }
+        : null;
+  }
+
+  const result = await getSuggestionContextData(
     projectUnitId,
     bibleId,
     bookCode,
@@ -225,8 +268,119 @@ export async function getSuggestionContext(
     verseEnd,
     MAX_CONTEXT_VERSES_TOTAL
   );
+  if (!result.ok) return result;
+  return ok({
+    ...result.data,
+    ...(params.pericopeNumber !== undefined
+      ? {
+          sectionHeading: heading ?? null,
+          sourceVerses: result.data.sourceVerses.filter((verse) => sourceIds?.has(verse.id)),
+        }
+      : {}),
+  });
 }
 
-export async function saveAiSuggestions(items: AiSuggestionItem[]): Promise<Result<void>> {
+export async function saveAiSuggestions(
+  items: AiSuggestionItem[],
+  heading?: PericopeSuggestionItem
+): Promise<Result<void>> {
+  if (heading) {
+    if (items.length) return err(ErrorCode.VALIDATION_ERROR);
+    try {
+      return await savePericopeSuggestion(heading);
+    } catch (error) {
+      logger.error(error);
+      return err(ErrorCode.INTERNAL_ERROR);
+    }
+  }
   return upsertAiSuggestions(items);
+}
+
+export async function queuePericopes(
+  params: PericopeRequest
+): Promise<Result<QueueNextVersesResponse>> {
+  try {
+    const resolved = await resolvePericopes(params);
+    if (!resolved.ok) return resolved;
+    const thresholdMet = await hasReachedAiActivationThreshold(
+      params.projectUnitId,
+      env.AI_ACTIVATION_THRESHOLD_VERSES
+    );
+    if (!thresholdMet || !resolved.data.isAiEnabled) return ok({ queued: false, thresholdMet });
+    const jobs: AiSuggestionTriggerJob[] = [];
+    const base = {
+      projectUnitId: params.projectUnitId,
+      bibleId: params.bibleId,
+      bookCode: params.bookCode.toUpperCase(),
+      chapterNumber: params.chapterNumber,
+    };
+    for (const group of resolved.data.groups) {
+      for (const verse of group.verses) {
+        if (!verse.content?.trim() && !verse.hasSuggestion) {
+          jobs.push({ ...base, verseStart: verse.verseNumber, verseEnd: verse.verseNumber });
+        }
+      }
+      if (group.sourceTitle && !group.verses[0].hasAuthoredHeading && !group.suggestion) {
+        jobs.push({
+          ...base,
+          verseStart: group.verses[0].verseNumber,
+          verseEnd: group.verses[group.verses.length - 1].verseNumber,
+          pericopeNumber: group.pericopeNumber,
+          pericopeSetId: resolved.data.pericopeSetId,
+        });
+      }
+    }
+    if (jobs.length === 0) return ok({ queued: false, thresholdMet });
+    const boss = await getQueue();
+    // Keep verse singleton keys identical to queue-next. Titles have their own identity.
+    for (const job of jobs) {
+      const verseKey = `${job.projectUnitId}:${job.bibleId}:${job.bookCode}:${job.chapterNumber}:${job.verseStart}`;
+      await boss.send(QUEUE_NAMES.AI_SUGGESTIONS, job, {
+        singletonKey:
+          job.pericopeNumber === undefined
+            ? verseKey
+            : `heading:${verseKey}:${job.verseEnd}:${job.pericopeSetId}:${job.pericopeNumber}`,
+      });
+    }
+    return ok({ queued: true, thresholdMet });
+  } catch (error) {
+    logger.error(error);
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function getPericopeSuggestions(
+  params: PericopeRequest
+): Promise<Result<PericopeSuggestionsResponse>> {
+  try {
+    const resolved = await resolvePericopes(params);
+    if (!resolved.ok) return resolved;
+    const data = resolved.data.groups.flatMap((group) => {
+      if (!group.sourceTitle || group.verses[0].hasAuthoredHeading || !group.suggestion) return [];
+      return [
+        {
+          pericopeNumber: group.pericopeNumber,
+          bibleTextId: group.suggestion.bibleTextId,
+          suggestedText: group.suggestion.suggestedText,
+          modelInfo: group.suggestion.modelInfo,
+        },
+      ];
+    });
+    return ok({ data });
+  } catch (error) {
+    logger.error(error);
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function trackPericopeUsage(
+  user: User,
+  data: PericopeUsageRequest
+): Promise<Result<void>> {
+  try {
+    return await logPericopeUsage(user.id, data);
+  } catch (error) {
+    logger.error(error);
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
