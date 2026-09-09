@@ -208,7 +208,15 @@ export async function updateAudioAvailability(
       // Resolve book codes to IDs
       const audioBookRows =
         audioBookCodes.length > 0
-          ? await tx.select({ id: books.id }).from(books).where(inArray(books.code, audioBookCodes))
+          ? await tx
+              .select({ id: books.id })
+              .from(books)
+              .where(
+                inArray(
+                  books.code,
+                  audioBookCodes.map((c) => c.toUpperCase())
+                )
+              )
           : [];
       const audioBookIds = new Set(audioBookRows.map((b) => b.id));
 

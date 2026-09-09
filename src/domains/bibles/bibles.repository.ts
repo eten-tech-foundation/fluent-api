@@ -86,6 +86,7 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
         bibleName: bibles.name,
         bibleAbbreviation: bibles.abbreviation,
         bibleProvider: bibles.provider,
+        bibleHasAudio: bibles.hasAudio,
         languageId: languages.id,
         langName: languages.langName,
         langCodeIso6393: languages.langCodeIso6393,
@@ -111,7 +112,13 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
         id: number;
         langName: string;
         langCodeIso6393: string | null;
-        bibles: { id: number; name: string; abbreviation: string; provider: string }[];
+        bibles: {
+          id: number;
+          name: string;
+          abbreviation: string;
+          provider: string;
+          hasAudio: boolean;
+        }[];
       }
     >();
 
@@ -120,6 +127,7 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
       name: string;
       abbreviation: string;
       provider: string;
+      hasAudio: boolean;
       languageId: number;
       languageName: string;
       languageCode: string | null;
@@ -141,6 +149,7 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
         name: row.bibleName,
         abbreviation: row.bibleAbbreviation,
         provider: row.bibleProvider,
+        hasAudio: row.bibleHasAudio,
       });
 
       matchingBiblesList.push({
@@ -148,6 +157,7 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
         name: row.bibleName,
         abbreviation: row.bibleAbbreviation,
         provider: row.bibleProvider,
+        hasAudio: row.bibleHasAudio,
         languageId: row.languageId,
         languageName: row.langName,
         languageCode: row.langCodeIso6393,

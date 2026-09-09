@@ -83,7 +83,7 @@ describe('syncAudioAvailability', () => {
     vi.mocked(booksRepo.updateAudioAvailability).mockResolvedValue(ok({ updated: 1 }));
   });
 
-  it('skips bibles without audio', async () => {
+  it('clears audio for bibles without audio (fast-path)', async () => {
     mockGetAllBibles.mockResolvedValue(
       ok([{ id: 1, externalId: 'b1', provider: 'dbl', hasAudio: false }] as Bible[])
     );
@@ -92,9 +92,10 @@ describe('syncAudioAvailability', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.data.totalBiblesProcessed).toBe(0);
+      expect(result.data.totalBiblesProcessed).toBe(1);
     }
     expect(client.getBible).not.toHaveBeenCalled();
+    expect(booksRepo.updateAudioAvailability).toHaveBeenCalledWith(1, []);
   });
 
   it('fetches audio bibles and updates availability for bibles with audio', async () => {
@@ -124,5 +125,25 @@ describe('syncAudioAvailability', () => {
     expect(updateCall[1]).toContain('GEN');
     expect(updateCall[1]).toContain('EXO');
     expect(updateCall[1]).toHaveLength(2);
+  });
+  it('does NOT persist partial results when one audio bible book fetch fails', async () => {
+    mockGetAllBibles.mockResolvedValue(
+      ok([{ id: 1, externalId: 'b1', provider: 'dbl', hasAudio: true }] as Bible[])
+    );
+    const client = fakeClient({});
+    vi.mocked(client.getBible).mockResolvedValue(
+      ok({ audioBibles: [{ id: 'ab1' }, { id: 'ab2' }] } as any)
+    );
+    vi.mocked(client.getAudioBibleBooks).mockImplementation(async (audioId) => {
+      if (audioId === 'ab1') return ok([{ id: 'GEN' }] as any);
+      return { ok: false, error: { code: ErrorCode.DBL_SERVICE_UNAVAILABLE, message: 'timeout' } };
+    });
+
+    const result = await syncAudioAvailability(client);
+
+    // Since it's the ONLY bible in the test and it failed, the overall sync returns an error
+    expect(result.ok).toBe(false);
+    // Partial data must NOT be persisted
+    expect(booksRepo.updateAudioAvailability).not.toHaveBeenCalled();
   });
 });

@@ -30,6 +30,7 @@ export const sourceSearchLanguageItemSchema = z.object({
       name: z.string(),
       abbreviation: z.string(),
       provider: z.string(),
+      hasAudio: z.boolean(),
     })
   ),
 });
@@ -42,6 +43,7 @@ export const sourceSearchBibleItemSchema = z.object({
   languageId: z.number().int(),
   languageName: z.string(),
   languageCode: z.string().nullable(),
+  hasAudio: z.boolean(),
 });
 
 export const sourceSearchResponseSchema = z.object({

@@ -89,13 +89,19 @@ export interface AudioAvailabilitySyncSummary {
 }
 
 /**
- * Syncs book-level audio availability for Bibles that have associated Audio
- * Bibles in DBL. For each such Bible, queries `GET /audio-bibles/{id}/books`
+ * Syncs book-level audio availability for all DBL Bibles.
+ *
+ * For each Bible with `has_audio = true`, queries `GET /audio-bibles/{id}/books`
  * to determine which books have audio, then updates the `has_audio` flag on
  * the `bible_books` junction table.
  *
- * Delta-sync: only Bibles with `has_audio = true` are processed. Bibles
- * without any Audio Bible are skipped entirely, avoiding unnecessary API calls.
+ * Full-sync: ALL DBL Bibles are processed. Bibles with `has_audio = false`
+ * are fast-pathed to clear any stale `has_audio` flags on their books (handles
+ * the case where a publisher removes an Audio Bible from DBL). Bibles with
+ * `has_audio = true` fetch their audio book list from DBL and update accordingly.
+ *
+ * If any `getAudioBibleBooks` request fails for a given Bible, the entire
+ * update for that Bible is skipped to avoid persisting partial data.
  *
  * Note: `syncBooksFromDbl` should be called BEFORE this to ensure the
  * `bible_books` junction table is fully populated.
@@ -107,21 +113,30 @@ export async function syncAudioAvailability(
   const biblesResult = await biblesRepository.getAll();
   if (!biblesResult.ok) return biblesResult;
 
-  const audioBibles = biblesResult.data.filter(
-    (b) => b.externalId && b.provider === 'dbl' && b.hasAudio
-  );
+  const dblBibles = biblesResult.data.filter((b) => b.externalId && b.provider === 'dbl');
 
-  if (audioBibles.length === 0) {
+  if (dblBibles.length === 0) {
     return { ok: true, data: { totalBiblesProcessed: 0, totalBooksUpdated: 0 } };
   }
 
   let totalBooksUpdated = 0;
   let errorCount = 0;
 
-  for (const bible of audioBibles) {
+  for (const bible of dblBibles) {
     if (!bible.externalId) continue;
 
     try {
+      if (!bible.hasAudio) {
+        // Fast-path: clear audio availability for all books if the Bible has no audio.
+        // This handles cases where DBL removed the last audio Bible.
+        const updateResult = await booksRepository.updateAudioAvailability(bible.id, []);
+        if (!updateResult.ok) {
+          errorCount++;
+        } else {
+          totalBooksUpdated += updateResult.data.updated;
+        }
+        continue;
+      }
       // 2. Fetch the full Bible metadata from DBL to get audioBible IDs
       const dblBibleResult = await client.getBible(bible.externalId);
       if (!dblBibleResult.ok) {
@@ -139,6 +154,7 @@ export async function syncAudioAvailability(
 
       // 3. Collect audio book codes from all associated Audio Bibles
       const audioBookCodes = new Set<string>();
+      let audioBookFetchFailed = false;
       for (const audioBible of dblAudioBibles) {
         const audioBooksResult = await client.getAudioBibleBooks(audioBible.id);
         if (!audioBooksResult.ok) {
@@ -146,11 +162,18 @@ export async function syncAudioAvailability(
             `Failed to fetch audio books for audioBible ${audioBible.id} (text bible ${bible.externalId})`,
             { error: audioBooksResult.error }
           );
-          continue; // Skip this audio bible, try others
+          audioBookFetchFailed = true;
+          continue;
         }
         for (const book of audioBooksResult.data) {
           audioBookCodes.add(book.id);
         }
+      }
+
+      if (audioBookFetchFailed) {
+        // Do not persist a partial Audio Bible result.
+        errorCount++;
+        continue;
       }
 
       // 4. Update bible_books.has_audio for this Bible
@@ -171,7 +194,7 @@ export async function syncAudioAvailability(
     }
   }
 
-  if (errorCount > 0 && errorCount === audioBibles.length) {
+  if (errorCount > 0 && errorCount === dblBibles.length) {
     logger.error('Failed to sync audio availability for all bibles', { errorCount });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -179,7 +202,7 @@ export async function syncAudioAvailability(
   return {
     ok: true,
     data: {
-      totalBiblesProcessed: audioBibles.length - errorCount,
+      totalBiblesProcessed: dblBibles.length - errorCount,
       totalBooksUpdated,
     },
   };
