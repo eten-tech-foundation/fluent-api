@@ -6,14 +6,14 @@ For the full role/schema/grant reference, see
 
 ## The three scripts, in order
 
-```
+```text
 1. provision-db.ts                → one-time-ish, superuser, idempotent
    (npm run db:provision:<env>)      Creates/reconciles roles, schemas, grants.
 
 2. setup.ts                       → every deploy / data reset
    (npm run db:setup:<env>)          Runs Drizzle migrations, then seeds.
 
-3. cleanup-legacy-provisioning.ts → one-time, run manually, NOT idempotent
+3. cleanup-legacy-provisioning.ts → one-time, run manually, one-way
    (no npm script — run directly)   Drops the legacy pre-separation roles.
 ```
 
