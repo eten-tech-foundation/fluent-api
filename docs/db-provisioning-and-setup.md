@@ -13,7 +13,7 @@ To keep our database secure and maintainable across environments, database tasks
 ```text
 1. Infrastructure Setup (provision-db.ts)
    └── Run ONCE per fresh Database Host
-       ├── Create DB Roles & Accounts: web_user, ai_user, db_admin
+       ├── Create DB Roles & Accounts: api_user, ai_user, api_migrator, ai_migrator
        └── Create Schemas & Set Default Permissions
             │
             ▼
@@ -26,7 +26,7 @@ To keep our database secure and maintainable across environments, database tasks
 
 - **Database Provisioning (`provision-db.ts`)** = **Setting up DB Server Rules & Security.**
   - Think of this like setting up the doors, locks, and permissions on a new database server host.
-  - Creates database logins (`web_user`, `ai_user`, `migrations`, `db_admin`), schemas (`public`, `ai`, `pgboss`), and security privileges.
+  - Creates database logins (`api_user`, `ai_user`, `api_migrator`, `ai_migrator`), schemas (`public`, `ai`, `drizzle`, `pgboss`), and security privileges.
   - Executed **once** when initializing a fresh cloud database instance (e.g. Azure PostgreSQL Flexible Server).
 
 - **Data Seeding & Setup (`setup.ts`)** = **Populating Tables & Initial Data.**
@@ -52,16 +52,16 @@ You can configure database URLs and credentials in three places — listed in **
 
 | Variable Name                 | Required By         | Description / Format                                                                          | Example Value                                              |
 | ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`                | `setup.ts` (local)  | Runtime role URL injected by docker-compose for local. Last-resort fallback for dev/qa.       | `postgres://web_user:pass@localhost:5432/fluentdb`         |
-| `MIGRATIONS_DATABASE_URL`     | `drizzle.config.ts` | Direct DDL migration connection URL (read directly by drizzle-kit).                           | `postgres://migrations:pass@localhost:5432/fluentdb`       |
-| `DEV_DATABASE_URL`            | `setup.ts` (dev)    | Runtime role URL for dev — **wins over** `DATABASE_URL` when `SETUP_ENV=dev`.                 | `postgres://web_user:pass@dev-host:5432/fluentdb`          |
-| `DEV_MIGRATIONS_DATABASE_URL` | `setup.ts` (dev)    | Migrations role URL for dev — passed to `drizzle-kit migrate` (DDL rights).                   | `postgres://migrations:pass@dev-host:5432/fluentdb`        |
-| `QA_DATABASE_URL`             | `setup.ts` (qa)     | Runtime role URL for QA — **wins over** `DATABASE_URL` when `SETUP_ENV=qa`.                   | `postgres://web_user:pass@qa-host:5432/fluentdb`           |
-| `QA_MIGRATIONS_DATABASE_URL`  | `setup.ts` (qa)     | Migrations role URL for QA — passed to `drizzle-kit migrate` (DDL rights).                    | `postgres://migrations:pass@qa-host:5432/fluentdb`         |
+| `DATABASE_URL`                | `setup.ts` (local)  | Runtime role URL injected by docker-compose for local. Last-resort fallback for dev/qa.       | `postgres://api_user:pass@localhost:5432/fluentdb`         |
+| `MIGRATIONS_DATABASE_URL`     | `drizzle.config.ts` | Direct DDL migration connection URL (read directly by drizzle-kit).                           | `postgres://api_migrator:pass@localhost:5432/fluentdb`     |
+| `DEV_DATABASE_URL`            | `setup.ts` (dev)    | Runtime role URL for dev — **wins over** `DATABASE_URL` when `SETUP_ENV=dev`.                 | `postgres://api_user:pass@dev-host:5432/fluentdb`          |
+| `DEV_MIGRATIONS_DATABASE_URL` | `setup.ts` (dev)    | Migrations role URL for dev — passed to `drizzle-kit migrate` (DDL rights).                   | `postgres://api_migrator:pass@dev-host:5432/fluentdb`      |
+| `QA_DATABASE_URL`             | `setup.ts` (qa)     | Runtime role URL for QA — **wins over** `DATABASE_URL` when `SETUP_ENV=qa`.                   | `postgres://api_user:pass@qa-host:5432/fluentdb`           |
+| `QA_MIGRATIONS_DATABASE_URL`  | `setup.ts` (qa)     | Migrations role URL for QA — passed to `drizzle-kit migrate` (DDL rights).                    | `postgres://api_migrator:pass@qa-host:5432/fluentdb`       |
 | `BOOTSTRAP_DATABASE_URL`      | `provision-db.ts`   | Superuser / Admin URL to create roles & schemas                                               | `postgres://admin:pass@host:5432/fluentdb?sslmode=require` |
-| `DB_ADMIN_PASSWORD`           | `provision-db.ts`   | Password for the schema-owner `db_admin` role                                                 | `SecretDbAdminPass123`                                     |
-| `MIGRATIONS_PASSWORD`         | `provision-db.ts`   | Password for the DDL migration runner `migrations` user                                       | `SecretMigrationsPass123`                                  |
-| `WEB_USER_PASSWORD`           | `provision-db.ts`   | Password for the API runtime `web_user` account                                               | `SecretWebUserPass123`                                     |
+| `API_MIGRATOR_PASSWORD`       | `provision-db.ts`   | Password for the schema-owner `api_migrator` role                                             | `SecretApiMigratorPass123`                                 |
+| `API_USER_PASSWORD`           | `provision-db.ts`   | Password for the API runtime `api_user` account                                               | `SecretApiUserPass123`                                     |
+| `AI_MIGRATOR_PASSWORD`        | `provision-db.ts`   | Password for the AI schema-owner `ai_migrator` role                                           | `SecretAiMigratorPass123`                                  |
 | `AI_USER_PASSWORD`            | `provision-db.ts`   | Password for the AI service `ai_user` account                                                 | `SecretAiUserPass123`                                      |
 | `QA_PM_EMAIL`                 | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `pm@yourorg.com`                                           |
 | `QA_PM_PASSWORD`              | `setup.ts` (qa)     | Required at seed time — validated lazily so `provision-db.ts` can import `qa.ts` without it.  | `StrongPassword!1`                                         |
@@ -71,7 +71,7 @@ You can configure database URLs and credentials in three places — listed in **
 
 > **URL resolution order for `db:setup:dev`:**
 > `DEV_DATABASE_URL` → `DATABASE_URL` (last resort). `DEV_MIGRATIONS_DATABASE_URL` is passed to
-> `drizzle-kit migrate` so it runs as the DDL-capable `migrations` role rather than `web_user`.
+> `drizzle-kit migrate` so it runs as the DDL-capable `api_migrator` role rather than `api_user`.
 > This matches `drizzle.config.ts` which prefers `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`.
 
 ---
@@ -117,28 +117,18 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ## 🔒 1. Database Role & Security Hierarchy (`provision-db.ts`)
 
-`provision-db.ts` enforces **least-privilege security**. Instead of running the web server as a database superuser, access is partitioned into **Group Roles** (un-loggable permissions) and **Login Accounts**.
+`provision-db.ts` enforces **least-privilege security**. Access is partitioned into distinct Login Accounts for each service.
 
-### PostgreSQL Group Roles (No `LOGIN`)
+### Login Users & Schemas
 
-| Group Role         | Target Schema | Granted Privileges                                           | Purpose                                                                                                |
-| ------------------ | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `role_web_data`    | `public`      | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the Web API server.                                                                |
-| `role_ai_data`     | `ai`          | `USAGE`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `SEQUENCES` | Full DML access for the AI processing service.                                                         |
-| `role_ai_reader`   | `public`      | `USAGE`, `SELECT`                                            | Read-only access to `public` schema for cross-schema AI analysis.                                      |
-| `role_pgboss_user` | `pgboss`      | Schema owner via `web_user` (see below)                      | Anchor group role — `web_user` owns the pgboss schema so pg-boss can manage its own tables at runtime. |
-| `role_migrations`  | All schemas   | `USAGE`, `CREATE`, `ALL PRIVILEGES`                          | DDL + DML rights across all schemas for migration runners.                                             |
+| Login Account  | Type     | Target Schemas / Privileges                    |
+| -------------- | -------- | ---------------------------------------------- |
+| `api_migrator` | Migrator | DDL/Owner: `public` and `drizzle`              |
+| `api_user`     | Runtime  | DML on `public` and `drizzle`; Owner: `pgboss` |
+| `ai_migrator`  | Migrator | DDL/Owner: `ai`                                |
+| `ai_user`      | Runtime  | DML on `ai` only (No cross-schema read)        |
 
-### Login Users & Membership Mapping
-
-| Login Account | Granted Group Roles                                  | Target Schemas / Privileges                   |
-| ------------- | ---------------------------------------------------- | --------------------------------------------- |
-| `web_user`    | `role_web_data`, `role_pgboss_user`                  | DML on `public` and `pgboss` schemas          |
-| `ai_user`     | `role_ai_data`, `role_ai_reader`, `role_pgboss_user` | DML on `ai` & `pgboss`, Read-only on `public` |
-| `migrations`  | `role_migrations`                                    | DDL + DML across all schemas                  |
-| `db_admin`    | _(Schema Owner)_                                     | Schema owner: `public`, `ai`, `drizzle`       |
-
-> **pgboss schema:** Owned by `web_user` (not `db_admin`) so pg-boss can create its own tables,
+> **pgboss schema:** Owned by `api_user` (not `api_migrator`) so pg-boss can create its own tables,
 > enums, and functions at runtime without needing `CREATE ON DATABASE`. This mirrors how
 > `bootstrap.ts` sets it up for local Docker (`CREATE SCHEMA pgboss AUTHORIZATION api_user`).
 
@@ -191,14 +181,14 @@ Add the following to `.env`:
 ```env
 # ── Step 1: Provisioning (.env entries for npm run db:provision:dev) ─────────
 BOOTSTRAP_DATABASE_URL=postgres://<postgres_admin>:<password>@<dev-host>:5432/<dbname>?sslmode=require
-DB_ADMIN_PASSWORD=<db_admin_password>
-MIGRATIONS_PASSWORD=<migrations_password>
-WEB_USER_PASSWORD=<web_user_password>
+API_MIGRATOR_PASSWORD=<api_migrator_password>
+API_USER_PASSWORD=<api_user_password>
+AI_MIGRATOR_PASSWORD=<ai_migrator_password>
 AI_USER_PASSWORD=<ai_user_password>
 
 # ── Step 2: Setup (.env entries for npm run db:setup:dev) ────────────────────
-DEV_DATABASE_URL=postgres://web_user:<web_user_password>@<dev-host>:5432/<dbname>?sslmode=require
-DEV_MIGRATIONS_DATABASE_URL=postgres://migrations:<migrations_password>@<dev-host>:5432/<dbname>?sslmode=require
+DEV_DATABASE_URL=postgres://api_user:<api_user_password>@<dev-host>:5432/<dbname>?sslmode=require
+DEV_MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<dev-host>:5432/<dbname>?sslmode=require
 DEV_PM_EMAIL=<pm_email>
 DEV_PM_PASSWORD=<pm_password>
 DEV_SEED_PASSWORD=<seed_translator_password>
@@ -221,7 +211,7 @@ npm run dev
 
 ```bash
 # 1. Provisioning (Superuser step)
-BOOTSTRAP_DATABASE_URL="..." DB_ADMIN_PASSWORD="..." MIGRATIONS_PASSWORD="..." WEB_USER_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:dev
+BOOTSTRAP_DATABASE_URL="..." API_MIGRATOR_PASSWORD="..." API_USER_PASSWORD="..." AI_MIGRATOR_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:dev
 
 # 2. Setup (Migrations & Seeding)
 DEV_DATABASE_URL="..." DEV_MIGRATIONS_DATABASE_URL="..." DEV_PM_EMAIL="..." DEV_PM_PASSWORD="..." DEV_SEED_PASSWORD="..." npm run db:setup:dev
@@ -238,14 +228,14 @@ Add the following to `.env`:
 ```env
 # ── Step 1: Provisioning (.env entries for npm run db:provision:qa) ──────────
 BOOTSTRAP_DATABASE_URL=postgres://<postgres_admin>:<password>@<qa-host>:5432/<dbname>?sslmode=require
-DB_ADMIN_PASSWORD=<db_admin_password>
-MIGRATIONS_PASSWORD=<migrations_password>
-WEB_USER_PASSWORD=<web_user_password>
+API_MIGRATOR_PASSWORD=<api_migrator_password>
+API_USER_PASSWORD=<api_user_password>
+AI_MIGRATOR_PASSWORD=<ai_migrator_password>
 AI_USER_PASSWORD=<ai_user_password>
 
 # ── Step 2: Setup (.env entries for npm run db:setup:qa) ─────────────────────
-QA_DATABASE_URL=postgres://web_user:<web_user_password>@<qa-host>:5432/<dbname>?sslmode=require
-QA_MIGRATIONS_DATABASE_URL=postgres://migrations:<migrations_password>@<qa-host>:5432/<dbname>?sslmode=require
+QA_DATABASE_URL=postgres://api_user:<api_user_password>@<qa-host>:5432/<dbname>?sslmode=require
+QA_MIGRATIONS_DATABASE_URL=postgres://api_migrator:<api_migrator_password>@<qa-host>:5432/<dbname>?sslmode=require
 QA_PM_EMAIL=<qapm_email>
 QA_PM_PASSWORD=<qapm_password>
 ```
@@ -267,7 +257,7 @@ npm run start
 
 ```bash
 # 1. Provisioning (Superuser step)
-BOOTSTRAP_DATABASE_URL="..." DB_ADMIN_PASSWORD="..." MIGRATIONS_PASSWORD="..." WEB_USER_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:qa
+BOOTSTRAP_DATABASE_URL="..." API_MIGRATOR_PASSWORD="..." API_USER_PASSWORD="..." AI_MIGRATOR_PASSWORD="..." AI_USER_PASSWORD="..." npm run db:provision:qa
 
 # 2. Setup (Migrations & Seeding)
 QA_DATABASE_URL="..." QA_MIGRATIONS_DATABASE_URL="..." QA_PM_EMAIL="..." QA_PM_PASSWORD="..." npm run db:setup:qa

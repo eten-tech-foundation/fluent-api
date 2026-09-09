@@ -85,7 +85,7 @@ async function setup() {
   // ── Resolve MIGRATIONS_DATABASE_URL ───────────────────────────────────────
   // drizzle.config.ts prefers MIGRATIONS_DATABASE_URL over DATABASE_URL so
   // drizzle-kit migrate can run as the migrations role (DDL rights) rather
-  // than web_user (DML only). For dev/qa, derive it from the same env-config
+  // than api_user (DML only). For dev/qa, derive it from the same env-config
   // source if not already set.
   if (!process.env.MIGRATIONS_DATABASE_URL && config.migrationsUrl) {
     process.env.MIGRATIONS_DATABASE_URL = config.migrationsUrl;

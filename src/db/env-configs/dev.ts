@@ -78,9 +78,9 @@ export const config: EnvConfig = {
   // ── DB-level provisioning (used by provision-db.ts only) ─────────────────
   provision: {
     bootstrapDatabaseUrl: process.env.BOOTSTRAP_DATABASE_URL ?? '',
-    dbAdminPassword: process.env.DB_ADMIN_PASSWORD ?? '',
-    migrationsPassword: process.env.MIGRATIONS_PASSWORD ?? '',
-    webUserPassword: process.env.WEB_USER_PASSWORD ?? '',
+    apiMigratorPassword: process.env.API_MIGRATOR_PASSWORD ?? '',
+    apiUserPassword: process.env.API_USER_PASSWORD ?? '',
+    aiMigratorPassword: process.env.AI_MIGRATOR_PASSWORD ?? '',
     aiUserPassword: process.env.AI_USER_PASSWORD ?? '',
   },
 };
