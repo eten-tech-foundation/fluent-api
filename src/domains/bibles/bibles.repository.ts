@@ -77,7 +77,8 @@ export async function remove(id: number): Promise<Result<void>> {
 export async function searchSourceBibles(query: string): Promise<Result<SourceSearchResponse>> {
   try {
     const cleanQuery = query.trim();
-    const searchPattern = `%${cleanQuery}%`;
+    const escapedQuery = cleanQuery.replace(/[\\%_]/g, '\\$&');
+    const searchPattern = `%${escapedQuery}%`;
 
     const rows = await db
       .select({
@@ -94,13 +95,14 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
       .where(
         cleanQuery.length > 0
           ? or(
-              ilike(languages.langName, searchPattern),
-              ilike(languages.langCodeIso6393, searchPattern),
-              ilike(bibles.name, searchPattern),
-              ilike(bibles.abbreviation, searchPattern)
-            )
+            ilike(languages.langName, searchPattern),
+            ilike(languages.langCodeIso6393, searchPattern),
+            ilike(bibles.name, searchPattern),
+            ilike(bibles.abbreviation, searchPattern)
+          )
           : undefined
       )
+      .orderBy(languages.langName, bibles.name)
       .limit(100);
 
     const languageMap = new Map<
