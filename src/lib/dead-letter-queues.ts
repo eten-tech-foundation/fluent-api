@@ -4,6 +4,7 @@ import { logger } from '@/lib/logger';
 
 /** Time to investigate new DLQ entries before pg-boss maintenance removes them. */
 export const DLQ_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+export const DLQ_SHUTDOWN_TIMEOUT_MS = 5_000;
 
 /** Create a durable diagnostic destination before enabling dead-letter routing. */
 export async function ensureWorkerQueue(
@@ -12,21 +13,35 @@ export async function ensureWorkerQueue(
   options: Omit<Queue, 'name' | 'deadLetter'> = {}
 ): Promise<void> {
   const deadLetter = `${name}-dlq`;
-  const existing = await boss.getQueue(deadLetter);
+  const [existing, source] = await Promise.all([boss.getQueue(deadLetter), boss.getQueue(name)]);
   const retentionOptions = {
     // Do not shorten an operator's longer retention policy. Queue updates only
     // affect new jobs; existing keep_until/deletion_seconds remain untouched.
     retentionSeconds: Math.max(existing?.retentionSeconds ?? 0, DLQ_RETENTION_SECONDS),
     deleteAfterSeconds: Math.max(existing?.deleteAfterSeconds ?? 0, DLQ_RETENTION_SECONDS),
   };
-  // pg-boss mutates createQueue options (including adding an immutable policy).
-  // Do not pass that mutated object back into updateQueue.
-  await boss.createQueue(deadLetter, { ...retentionOptions });
-  await boss.updateQueue(deadLetter, retentionOptions);
+  if (existing) {
+    await boss.updateQueue(deadLetter, retentionOptions);
+  } else {
+    await boss.createQueue(deadLetter, retentionOptions);
+  }
 
-  await boss.createQueue(name, { ...options, deadLetter });
-  // createQueue is a no-op for existing queues. Reconcile mutable settings
-  // without deleting any queue or modifying jobs that have already been sent.
+  if (!source) {
+    await boss.createQueue(name, { ...options, deadLetter });
+    return;
+  }
+  if (options.policy && source.policy !== options.policy) {
+    logger.warn(
+      {
+        event: 'worker_queue_policy_mismatch',
+        queueName: name,
+        previousPolicy: source.policy,
+        expectedPolicy: options.policy,
+      },
+      'Worker queue policy differs; run the explicit worker queue policy migration'
+    );
+  }
+  // Policy and partition are immutable in pg-boss. Preserve existing jobs.
   const { policy: _policy, partition: _partition, ...mutableOptions } = options;
   await boss.updateQueue(name, { ...mutableOptions, deadLetter });
 }
@@ -43,48 +58,50 @@ export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
       if (queue.name.endsWith('-dlq')) targets.add(queue.name);
     }
 
-    for (const queueName of targets) {
-      try {
-        // pg-boss 12.1.1 getQueueStats falls back to cached counters when a
-        // queue becomes empty. Read an aggregate without GROUP BY so a cleared
-        // queue always reports zero. The parent job table includes partitions.
-        const { rows } = await boss.getDb().executeSql(
-          `SELECT count(*)::int AS depth,
+    await Promise.allSettled(
+      [...targets].map(async (queueName) => {
+        try {
+          // pg-boss 12.1.1 getQueueStats falls back to cached counters when a
+          // queue becomes empty. Read an aggregate without GROUP BY so a cleared
+          // queue always reports zero. The parent job table includes partitions.
+          const { rows } = await boss.getDb().executeSql(
+            `SELECT count(*)::int AS depth,
                   count(*) FILTER (WHERE state < 'active')::int AS "queuedCount",
                   count(*) FILTER (WHERE state = 'active')::int AS "activeCount",
                   count(*) FILTER (WHERE start_after > now())::int AS "deferredCount",
                   min(created_on) AS "oldestCreatedOn"
              FROM pgboss.job WHERE name = $1`,
-          [queueName]
-        );
-        const stats = rows[0];
-        const properties = {
-          event: 'worker_dlq_depth',
-          queueName,
-          depth: stats.depth,
-          queuedCount: stats.queuedCount,
-          activeCount: stats.activeCount,
-          deferredCount: stats.deferredCount,
-          oldestCreatedOn: stats.oldestCreatedOn?.toISOString() ?? null,
-        };
-        // Object first keeps dimensions queryable in both Pino and App Insights.
-        // Count rows once: deferred jobs are also queued.
-        if (properties.depth > 0) {
-          logger.warn(properties, 'Worker dead-letter queue contains jobs');
-        } else {
-          logger.info(properties, 'Worker dead-letter queue is empty');
-        }
-      } catch (error) {
-        logger.error(
-          {
-            event: 'worker_dlq_monitor_error',
+            [queueName]
+          );
+          const stats = rows[0];
+          const properties = {
+            event: 'worker_dlq_depth',
             queueName,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'Worker dead-letter queue inspection failed'
-        );
-      }
-    }
+            depth: stats.depth,
+            queuedCount: stats.queuedCount,
+            activeCount: stats.activeCount,
+            deferredCount: stats.deferredCount,
+            oldestCreatedOn: stats.oldestCreatedOn?.toISOString() ?? null,
+          };
+          // Object first keeps dimensions queryable in both Pino and App Insights.
+          // Count rows once: deferred jobs are also queued.
+          if (properties.depth > 0) {
+            logger.warn(properties, 'Worker dead-letter queue contains jobs');
+          } else {
+            logger.info(properties, 'Worker dead-letter queue is empty');
+          }
+        } catch (error) {
+          logger.error(
+            {
+              event: 'worker_dlq_monitor_error',
+              queueName,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Worker dead-letter queue inspection failed'
+          );
+        }
+      })
+    );
   } catch (error) {
     logger.error(
       {
@@ -111,6 +128,23 @@ export function startDeadLetterMonitor(boss: PgBoss): () => Promise<void> {
 
   return async () => {
     clearInterval(interval);
-    await running;
+    if (!running) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        running,
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(() => {
+            logger.warn(
+              { event: 'worker_dlq_monitor_shutdown_timeout', timeoutMs: DLQ_SHUTDOWN_TIMEOUT_MS },
+              'Continuing shutdown while a dead-letter queue inspection is still pending'
+            );
+            resolve();
+          }, DLQ_SHUTDOWN_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   };
 }

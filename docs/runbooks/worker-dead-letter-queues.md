@@ -14,9 +14,12 @@ per-job event or a count of new failures.
 The API runs the monitor because the export WebJob refuses to boot without R2.
 Monitoring therefore continues when that worker cannot start. It uses the existing
 Pino/Application Insights logger, needs no new service or fluent-platform change,
-and stops its timer and waits for an active sweep before stopping pg-boss.
+and stops its timer and waits up to five seconds for an active sweep before
+continuing API and pg-boss shutdown. A timeout logs
+`worker_dlq_monitor_shutdown_timeout`; it does not cancel the database query.
 Slow sweeps never overlap. Discovery failures and individual queue read failures
 emit `worker_dlq_monitor_error`; a failure in one queue does not skip the others.
+Queue reads run concurrently so one slow target does not delay healthy samples.
 
 Every API replica reports independently. Treat depth as a gauge and use the latest
 sample, not a sum of samples or instances. Production Application Insights requires
@@ -69,10 +72,10 @@ previous failures, or move old jobs to a new DLQ. In particular:
   expires. Do not assume rollout grants those rows another 30 days.
 - AI/DBL jobs sent before their source had `deadLetter` still have no DLQ target.
   Inspect their failed source rows and per-attempt logs during rollout.
-- Legacy export queues with a different immutable policy are preserved, including
+- Legacy export or AI queues with a different immutable policy are preserved, including
   completed/failed history. Startup emits `worker_queue_policy_mismatch`. Resolve
-  that policy through an explicit migration after reviewing and preserving all
-  work; startup no longer drops and recreates a queue. New export queues use
+  that policy through the explicit migration below after reviewing all
+  work; startup no longer drops and recreates a queue. New export and AI queues use
   `exclusive` as before.
 
 There is no automated replay or application cleanup. pg-boss's existing maintenance
@@ -80,6 +83,42 @@ schedule controls when expired entries are removed. Roll back the application co
 without dropping the queues; existing messages and their stored routing still need
 their DLQ destinations. An older binary may resume its old queue-recreation logic,
 so check legacy policy mismatches before rolling back.
+
+### Migrate a legacy exclusive policy
+
+Run this separately from deployment only when `worker_queue_policy_mismatch`
+identifies `usfm-export` or `ai-suggestions`. The script is pinned to pg-boss
+**12.1.1, schema 26** and refuses another schema version or queue name. It uses
+`WORKER_QUEUE_MIGRATION_DATABASE_URL` explicitly, never `.env` or the application's
+`DATABASE_URL`. Use the approved environment connection and pg-boss schema owner.
+Do not paste the connection string into logs or commit it.
+
+1. Inspect without changing queue or job data:
+   `npm run queue:migrate-policy -- usfm-export`.
+   The result contains only the policy and retained/pending counts, not payloads.
+2. Pause producers, including API replicas, scheduled producers and administrative
+   scripts. Let queued, deferred and active jobs finish, or have an operator review
+   and cancel specific jobs if appropriate. Then stop **all** workers and pg-boss
+   maintenance processes for the maintenance window. Keep producers stopped.
+3. Run `npm run queue:migrate-policy -- usfm-export --apply`.
+   Repeat for `ai-suggestions` if its inspection showed a mismatch.
+4. Inspect again, confirm `exclusive`, then restart workers and API replicas.
+   Restarting clears pg-boss's cached policy. Verify a normal request completes
+   and the mismatch warning no longer appears.
+
+The apply transaction locks the queue and job tables, including partitions, and
+refuses any queued, deferred, retrying or active work. Lock acquisition is limited
+to five seconds and statements to thirty seconds; an error rolls back the whole
+migration. The maintenance window affects all queues because the job table lock
+covers their partitions. Retry only after checking the reported blocker.
+
+No queue or job is deleted. The migration changes the queue's policy and retained
+jobs' policy metadata so a later operator retry also respects singleton dedupe.
+IDs, payloads, outputs, states, retry counters, routing and original deadlines stay
+unchanged; DLQ rows are untouched. Dedicated partitions receive the exclusive
+index; the shared partition's existing index is checked. Re-running after success
+is a no-op. Do not switch back to a non-exclusive policy as an application rollback;
+older binaries already expect exclusive dedupe.
 
 ## Investigate and recover
 
@@ -155,7 +194,10 @@ discovery, structured logs, partial failures, timer recovery and shutdown.
 The opt-in PostgreSQL suite uses the real pg-boss engine and export/AI worker
 handlers, replacing only their external export/storage/AI dependencies and logger.
 It checks failed retries, terminal routing, recovery, payload/output preservation,
-legacy rows, worker timeout, retention expiry, and a return to zero depth.
+legacy rows, worker timeout, retention expiry, and a return to zero depth. It also
+executes the policy migration against shared and dedicated partitions, verifies
+pending-work refusal and preserved history, and proves duplicate singleton keys
+are rejected afterward.
 
 Use a fresh, isolated PostgreSQL 16 container with a random loopback port:
 

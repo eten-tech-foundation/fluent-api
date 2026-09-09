@@ -91,19 +91,6 @@ const EXPORT_QUEUE_OPTIONS = {
  * migration instead of deleting a queue during API/worker startup.
  */
 export async function ensureExportQueues(boss: PgBoss): Promise<void> {
-  const existing = await boss.getQueue(QUEUE_NAMES.USFM_EXPORT);
-  if (existing && existing.policy !== 'exclusive') {
-    logger.warn(
-      {
-        event: 'worker_queue_policy_mismatch',
-        queueName: QUEUE_NAMES.USFM_EXPORT,
-        previousPolicy: existing.policy,
-        expectedPolicy: 'exclusive',
-      },
-      'Worker queue policy differs; preserving jobs until an explicit migration'
-    );
-  }
-
   await ensureWorkerQueue(boss, QUEUE_NAMES.USFM_EXPORT, {
     policy: 'exclusive',
     ...EXPORT_QUEUE_OPTIONS,

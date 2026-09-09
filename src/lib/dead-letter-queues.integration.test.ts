@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { PgBoss } from 'pg-boss';
+import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createUSFMZipStreamAsync, getProjectName } from '@/domains/usfm/usfm.service';
@@ -9,6 +10,7 @@ import {
   ensureWorkerQueue,
   reportDeadLetterQueues,
 } from '@/lib/dead-letter-queues';
+import { migrateExclusiveWorkerQueue } from '@/lib/exclusive-worker-queue-migration';
 import { logger } from '@/lib/logger';
 import { ensureAiSuggestionQueue, ensureExportQueues, QUEUE_NAMES } from '@/lib/queue';
 import { triggerAiSuggestions } from '@/lib/services/fluent-ai/fluent-ai.client';
@@ -29,6 +31,7 @@ const connectionString = process.env.DLQ_TEST_DATABASE_URL;
 // DATABASE_URL or a shared database. See docs/runbooks/worker-dead-letter-queues.md.
 describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-boss 12', () => {
   let boss: PgBoss;
+  let migrationSql: postgres.Sql;
   const errors: Error[] = [];
   const exportQueue = QUEUE_NAMES.USFM_EXPORT;
   const exportDlq = QUEUE_NAMES.USFM_EXPORT_DLQ;
@@ -61,9 +64,11 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
     if ((await boss.getQueues()).some((queue) => !queue.name.startsWith('__'))) {
       throw new Error('DLQ tests require an empty disposable database');
     }
+    migrationSql = postgres(connectionString!, { max: 1 });
   });
 
   afterAll(async () => {
+    await migrationSql?.end();
     await boss?.stop({ graceful: true });
     expect(errors).toEqual([]);
   });
@@ -88,6 +93,61 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
     expect(await boss.getQueue(exportDlq)).toMatchObject({
       retentionSeconds: DLQ_RETENTION_SECONDS,
     });
+  });
+
+  it('migrates a legacy queue without losing history and enforces singleton dedupe', async () => {
+    const deferredId = await boss.send(
+      exportQueue,
+      { fixture: 'pending migration' },
+      {
+        startAfter: new Date(Date.now() + 60_000),
+      }
+    );
+    const before = await rows(exportQueue);
+    const dlqBefore = await rows(exportDlq);
+    await expect(migrateExclusiveWorkerQueue(migrationSql, exportQueue)).resolves.toMatchObject({
+      changed: false,
+      previousPolicy: 'standard',
+      pendingJobs: 1,
+    });
+    expect(await rows(exportQueue)).toEqual(before);
+    await expect(migrateExclusiveWorkerQueue(migrationSql, exportQueue, true)).rejects.toThrow(
+      'still has 1'
+    );
+    expect((await boss.getQueue(exportQueue))?.policy).toBe('standard');
+    expect(await rows(exportQueue)).toEqual(before);
+
+    await boss.cancel(exportQueue, deferredId!);
+    const drained = await rows(exportQueue);
+    await expect(
+      migrateExclusiveWorkerQueue(migrationSql, exportQueue, true)
+    ).resolves.toMatchObject({ changed: true });
+    expect(await rows(exportQueue)).toEqual(
+      drained.map((row) => ({ ...row, policy: 'exclusive' }))
+    );
+    expect(await rows(exportDlq)).toEqual(dlqBefore);
+    expect((await boss.getQueue(exportQueue))?.policy).toBe('exclusive');
+    await expect(
+      migrateExclusiveWorkerQueue(migrationSql, exportQueue, true)
+    ).resolves.toMatchObject({ changed: false });
+
+    const key = { singletonKey: 'migration-dedupe-proof' };
+    const first = await boss.send(exportQueue, { fixture: 'first' }, key);
+    expect(first).toBeTruthy();
+    expect(await boss.send(exportQueue, { fixture: 'duplicate' }, key)).toBeNull();
+    await boss.cancel(exportQueue, first!);
+  });
+
+  it('adds the exclusive index when migrating a dedicated AI queue partition', async () => {
+    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTIONS, { policy: 'standard', partition: true });
+    await expect(
+      migrateExclusiveWorkerQueue(migrationSql, QUEUE_NAMES.AI_SUGGESTIONS, true)
+    ).resolves.toMatchObject({ changed: true });
+    const options = { singletonKey: 'partition-dedupe-proof' };
+    const id = await boss.send(QUEUE_NAMES.AI_SUGGESTIONS, { fixture: 'partition' }, options);
+    expect(id).toBeTruthy();
+    expect(await boss.send(QUEUE_NAMES.AI_SUGGESTIONS, {}, options)).toBeNull();
+    await boss.cancel(QUEUE_NAMES.AI_SUGGESTIONS, id!);
   });
 
   it('reports a retry separately from a real terminal DLQ arrival and preserves payload/output', async () => {

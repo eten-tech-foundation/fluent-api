@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DLQ_RETENTION_SECONDS,
+  DLQ_SHUTDOWN_TIMEOUT_MS,
   ensureWorkerQueue,
   reportDeadLetterQueues,
   startDeadLetterMonitor,
@@ -36,16 +37,26 @@ afterEach(() => vi.useRealTimers());
 describe('worker queue convention', () => {
   it('creates the DLQ first and converges routing on an existing source queue', async () => {
     const fake = fakeBoss();
+    fake.getQueue.mockImplementation(async (name) => (name === 'ingestion' ? { name } : null));
     await ensureWorkerQueue(fake.boss, 'ingestion');
     expect(fake.createQueue.mock.calls).toEqual([
       [
         'ingestion-dlq',
         { retentionSeconds: DLQ_RETENTION_SECONDS, deleteAfterSeconds: DLQ_RETENTION_SECONDS },
       ],
-      ['ingestion', { deadLetter: 'ingestion-dlq' }],
     ]);
     expect(fake.updateQueue).toHaveBeenCalledWith('ingestion', { deadLetter: 'ingestion-dlq' });
     expect(fake.deleteQueue).not.toHaveBeenCalled();
+  });
+
+  it('creates new queues with their final settings without redundant updates', async () => {
+    const fake = fakeBoss();
+    await ensureWorkerQueue(fake.boss, 'ingestion', { retryLimit: 3 });
+    expect(fake.createQueue).toHaveBeenCalledWith('ingestion', {
+      retryLimit: 3,
+      deadLetter: 'ingestion-dlq',
+    });
+    expect(fake.updateQueue).not.toHaveBeenCalled();
   });
 
   it('preserves longer retention and never updates immutable source policy', async () => {
@@ -67,7 +78,9 @@ describe('worker queue convention', () => {
 
   it('keeps legacy export queues even if only diagnostic history remains', async () => {
     const fake = fakeBoss();
-    fake.getQueue.mockResolvedValueOnce({ policy: 'standard' });
+    fake.getQueue.mockImplementation(async (name) =>
+      name === 'usfm-export' ? { policy: 'standard' } : null
+    );
     await ensureExportQueues(fake.boss);
     expect(fake.deleteQueue).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
@@ -85,6 +98,9 @@ describe('worker queue convention', () => {
 
   it('adds a DLQ to the current AI queue and keeps its retry contract', async () => {
     const fake = fakeBoss();
+    fake.getQueue.mockImplementation(async (name) =>
+      name === 'ai-suggestions' ? { policy: 'standard' } : null
+    );
     await ensureAiSuggestionQueue(fake.boss);
     expect(fake.updateQueue).toHaveBeenCalledWith('ai-suggestions', {
       retryLimit: 3,
@@ -93,10 +109,48 @@ describe('worker queue convention', () => {
       expireInSeconds: 3600,
       deadLetter: 'ai-suggestions-dlq',
     });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'worker_queue_policy_mismatch',
+        queueName: 'ai-suggestions',
+        previousPolicy: 'standard',
+        expectedPolicy: 'exclusive',
+      }),
+      expect.any(String)
+    );
+  });
+
+  it('does not warn for an existing exclusive queue', async () => {
+    const fake = fakeBoss();
+    fake.getQueue.mockImplementation(async (name) =>
+      name === 'ai-suggestions' ? { policy: 'exclusive' } : null
+    );
+    await ensureAiSuggestionQueue(fake.boss);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 
 describe('dead-letter monitoring', () => {
+  it('reports another queue while the first query is still pending', async () => {
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([{ name: 'slow-dlq' }, { name: 'fast-dlq' }]);
+    let finish!: () => void;
+    fake.executeSql.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () => resolve({ rows: [{ depth: 0 }] });
+      })
+    );
+    const report = reportDeadLetterQueues(fake.boss);
+    await vi.waitFor(() =>
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ queueName: 'fast-dlq', depth: 0 }),
+        expect.any(String)
+      )
+    );
+    finish();
+    await report;
+  });
+
   it('discovers custom, shared and orphaned DLQs without counting source retries', async () => {
     const fake = fakeBoss();
     fake.getQueues.mockResolvedValue([
@@ -185,5 +239,24 @@ describe('dead-letter monitoring', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fake.getQueues).toHaveBeenCalledTimes(2);
     await stop();
+  });
+
+  it('bounds shutdown when a query never returns and never starts another sweep', async () => {
+    vi.useFakeTimers();
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([{ name: 'stuck-dlq' }]);
+    fake.executeSql.mockReturnValue(new Promise(() => {}));
+    const stop = startDeadLetterMonitor(fake.boss);
+    await vi.advanceTimersByTimeAsync(0);
+    const shutdown = stop();
+    await vi.advanceTimersByTimeAsync(DLQ_SHUTDOWN_TIMEOUT_MS);
+    await shutdown;
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'worker_dlq_monitor_shutdown_timeout' }),
+      expect.any(String)
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fake.getQueues).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
