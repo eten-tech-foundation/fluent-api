@@ -443,7 +443,7 @@ export const USFM_HEADING_MARKERS = [
  * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
  * text, and a heading belongs to no verse (fluent-web#397).
  */
-const verseHeadingSchema = z.object({
+export const verseHeadingSchema = z.object({
   marker: z.enum(USFM_HEADING_MARKERS),
   text: z
     .string()
@@ -957,6 +957,52 @@ export const ai_suggestion_usage_log = pgTable(
     index('idx_ai_usage_project_unit').on(table.projectUnitId),
     uniqueIndex('uq_ai_usage_user_text').on(table.userId, table.bibleTextId, table.projectUnitId),
   ]
+);
+
+// Suggestions never modify translated_verses or its authored markers. The set
+// identity keeps cached titles separate when a project changes pericope sets.
+export const ai_pericope_suggestions = pgTable(
+  'ai_pericope_suggestions',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    pericopeSetId: integer('pericope_set_id')
+      .notNull()
+      .references(() => pericope_sets.id, { onDelete: 'cascade' }),
+    pericopeNumber: varchar('pericope_number', { length: 100 }).notNull(),
+    suggestedText: varchar('suggested_text', { length: 300 }).notNull(),
+    modelInfo: varchar('model_info', { length: 100 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_ai_pericope_suggestion').on(
+      table.projectUnitId,
+      table.bibleTextId,
+      table.pericopeSetId,
+      table.pericopeNumber
+    ),
+  ]
+);
+
+export const ai_pericope_suggestion_usage = pgTable(
+  'ai_pericope_suggestion_usage',
+  {
+    id: serial('id').primaryKey(),
+    suggestionId: integer('suggestion_id')
+      .notNull()
+      .references(() => ai_pericope_suggestions.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    wasUsed: boolean('was_used').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('uq_ai_pericope_usage_user').on(table.suggestionId, table.userId)]
 );
 
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({

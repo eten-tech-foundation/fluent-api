@@ -133,6 +133,42 @@ describe('ai-suggestions internal routes', () => {
   // ─── POST /ai-suggestions/internal/results ────────────────────────────────
 
   describe('pOST /ai-suggestions/internal/results', () => {
+    const heading = {
+      projectUnitId: 1,
+      bibleTextId: 10,
+      pericopeNumber: '4a',
+      pericopeSetId: 5,
+      suggestedText: 'The creation',
+    };
+    it('accepts a heading-only result separately from scripture', async () => {
+      vi.mocked(aiSuggestionsService.saveAiSuggestions).mockResolvedValue({
+        ok: true,
+        data: undefined,
+      });
+      expect((await postResults({ items: [], heading })).status).toBe(200);
+      expect(aiSuggestionsService.saveAiSuggestions).toHaveBeenCalledWith([], heading);
+    });
+    it.each([
+      '',
+      '   ',
+      'x'.repeat(301),
+      'title\\v 1',
+      'line\nbreak',
+      'line\rbreak',
+      'line\u2028break',
+      'line\u2029break',
+    ])('rejects unsafe heading %j', async (suggestedText) => {
+      expect(
+        (await postResults({ items: [], heading: { ...heading, suggestedText } })).status
+      ).toBe(400);
+      expect(aiSuggestionsService.saveAiSuggestions).not.toHaveBeenCalled();
+    });
+    it('requires the source set and rejects mixed heading/scripture results', async () => {
+      expect(
+        (await postResults({ items: [], heading: { ...heading, pericopeSetId: undefined } })).status
+      ).toBe(400);
+      expect((await postResults({ ...VALID_RESULTS_BODY, heading })).status).toBe(400);
+    });
     it('returns 400 on invalid body (items must be array)', async () => {
       const res = await postResults({ items: 'not-an-array' });
       expect(res.status).toBe(400);
