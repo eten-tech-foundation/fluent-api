@@ -26,6 +26,8 @@ describe('dblSyncWorker', () => {
 
   it('registers the on-demand worker and handles execution lifecycle', async () => {
     const mockBoss = {
+      getQueue: vi.fn().mockResolvedValue(null),
+      updateQueue: vi.fn(),
       createQueue: vi.fn().mockResolvedValue(undefined),
       work: vi.fn().mockResolvedValue(undefined),
     } as any;
