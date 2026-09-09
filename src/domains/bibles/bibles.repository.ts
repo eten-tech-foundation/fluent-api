@@ -95,11 +95,11 @@ export async function searchSourceBibles(query: string): Promise<Result<SourceSe
       .where(
         cleanQuery.length > 0
           ? or(
-            ilike(languages.langName, searchPattern),
-            ilike(languages.langCodeIso6393, searchPattern),
-            ilike(bibles.name, searchPattern),
-            ilike(bibles.abbreviation, searchPattern)
-          )
+              ilike(languages.langName, searchPattern),
+              ilike(languages.langCodeIso6393, searchPattern),
+              ilike(bibles.name, searchPattern),
+              ilike(bibles.abbreviation, searchPattern)
+            )
           : undefined
       )
       .orderBy(languages.langName, bibles.name)
