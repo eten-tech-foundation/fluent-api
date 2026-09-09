@@ -28,7 +28,8 @@ describe('searchSourceBibles', () => {
     ];
 
     const limitFn = vi.fn().mockResolvedValue(fakeRows);
-    const whereFn = vi.fn().mockReturnValue({ limit: limitFn });
+    const orderByFn = vi.fn().mockReturnValue({ limit: limitFn });
+    const whereFn = vi.fn().mockReturnValue({ orderBy: orderByFn });
     const innerJoinFn = vi.fn().mockReturnValue({ where: whereFn });
     const fromFn = vi.fn().mockReturnValue({ innerJoin: innerJoinFn });
     mockDb.select.mockReturnValue({ from: fromFn });
