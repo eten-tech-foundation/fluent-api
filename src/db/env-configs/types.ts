@@ -18,12 +18,12 @@ export interface SeedUser {
 export interface DbProvisionConfig {
   /** Superuser / azure_pg_admin connection URL — used to create roles. */
   bootstrapDatabaseUrl: string;
-  /** Password for the `db_admin` login role (schema owner, CREATEROLE). */
-  dbAdminPassword: string;
-  /** Password for the `migrations` login role (Drizzle kit). */
-  migrationsPassword: string;
-  /** Password for the `web_user` login role (API runtime). */
-  webUserPassword: string;
+  /** Password for the `api_migrator` login role (API migrations + public/drizzle ownership). */
+  apiMigratorPassword: string;
+  /** Password for the `api_user` login role (API runtime). */
+  apiUserPassword: string;
+  /** Password for the `ai_migrator` login role (AI migrations + ai schema ownership). */
+  aiMigratorPassword: string;
   /** Password for the `ai_user` login role (AI service runtime). */
   aiUserPassword: string;
 }
@@ -50,16 +50,6 @@ export interface EnvConfig {
    * When absent for `local`, docker-compose injects `DATABASE_URL` directly.
    */
   databaseUrl?: string;
-
-  /**
-   * Optional database URL for the migrations role.
-   * When set, `setup.ts` will assign it to `MIGRATIONS_DATABASE_URL` before
-   * invoking `drizzle-kit migrate`, so Drizzle runs as the DDL-capable
-   * `migrations` login role rather than the runtime `web_user`.
-   * Matches the preference in `drizzle.config.ts`:
-   *   `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`
-   */
-  migrationsUrl?: string;
 
   /**
    * Users to seed.
