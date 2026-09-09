@@ -43,12 +43,14 @@
  *   already exists.
  *
  *   OWNERSHIP: Step 4 reassigns ownership of every existing table, sequence,
- *   view, materialized view, and enum type in public/drizzle to
- *   `api_migrator`, in ai to `ai_migrator`, and in pgboss to `api_user`.
- *   GRANT (even ALL PRIVILEGES) never confers DDL rights on an existing
- *   object — ALTER/DROP requires being the owner — so without this, a
- *   migration that runs ALTER TABLE against an object created before this
- *   role split (or by some other admin login) fails with "must be owner of ...".
+ *   view, materialized view, enum type, function, and procedure in
+ *   public/drizzle to `api_migrator`, in ai to `ai_migrator`, and in pgboss
+ *   to `api_user`. GRANT (even ALL PRIVILEGES) never confers DDL rights on
+ *   an existing object — ALTER/DROP requires being the owner — so without
+ *   this, a migration that runs ALTER TABLE against an object created
+ *   before this role split (or by some other admin login) fails with "must
+ *   be owner of ...". pg-boss's own functions (create_queue, delete_queue,
+ *   etc.) are exactly this case in the pgboss schema.
  */
 // Load .env for local convenience — dotenv never overwrites real env vars,
 // so shell / CI / Azure App Config values always win.
@@ -234,6 +236,25 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
         const ty = await ident(sql, typname as string);
         await sql.unsafe(`ALTER TYPE ${s}.${ty} OWNER TO ${ownerIdent}`);
       }
+
+      // pg_class/pg_tables/pg_views cover tables/sequences/views/matviews,
+      // but functions and procedures live in pg_proc and are missed by all
+      // of the above — e.g. pg-boss's own create_queue/delete_queue
+      // functions, still owned by the legacy web_user. `oid::regprocedure`
+      // renders each routine's fully schema- and argument-qualified
+      // signature (from the catalog, not user input), which ALTER
+      // FUNCTION/PROCEDURE needs to disambiguate overloads.
+      const routines = await sql`
+        SELECT p.oid::regprocedure::text AS signature, p.prokind
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = ${schema}
+      `;
+      for (const { signature, prokind } of routines) {
+        const kind = prokind === 'p' ? 'PROCEDURE' : 'FUNCTION';
+        await sql.unsafe(`ALTER ${kind} ${signature} OWNER TO ${ownerIdent}`);
+      }
+
       console.log(`  Schema ${schema} — existing objects reassigned to ${newOwner}`);
     }
 
