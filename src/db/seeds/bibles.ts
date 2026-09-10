@@ -13,7 +13,8 @@ const IRV_BIBLE = {
 const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;
 
 /**
- * A Bible that source AUDIO can actually be demonstrated against.
+ * BSB is the local end-to-end source-audio fixture: John 3 is the verified chapter.
+ * Its John text seeds in every environment; only local setup adds a demo project/assignment.
  *
  * The IRV row above cannot: it is Gujarati, and Aquifer's only Gujarati Bible (`IRV`, id 27)
  * reports `hasAudio: false`, so every provider returns an empty item list for it. That is a
@@ -62,6 +63,8 @@ async function seedIrvGujarati() {
       name: IRV_BIBLE.name,
       abbreviation: IRV_BIBLE.abbreviation,
       languageId: language.id,
+      // No reviewed TTS licence fact for IRV; preserve any later ops decision on re-seed.
+      ttsLicenseStatus: 'unknown',
     })
     .onConflictDoNothing({ target: bibles.abbreviation });
 
@@ -145,11 +148,14 @@ async function seedBereanStandardBible() {
       abbreviation: BSB_BIBLE.abbreviation,
       languageId: language.id,
       aquiferBibleId: BSB_BIBLE.aquiferBibleId,
+      // BSB text is public domain, not merely a provider-labelled "open" publication.
+      ttsLicenseStatus: 'allowed',
+      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
     })
     .onConflictDoNothing({ target: bibles.abbreviation });
 
   const [bible] = await db
-    .select({ id: bibles.id, aquiferBibleId: bibles.aquiferBibleId })
+    .select({ id: bibles.id })
     .from(bibles)
     .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
     .limit(1);
@@ -161,12 +167,14 @@ async function seedBereanStandardBible() {
   // Idempotent, and it also repairs a row seeded before this column existed -- otherwise a
   // developer who ran the old seed keeps a BSB with a NULL peg and no audio, with nothing
   // pointing at why.
-  if (bible.aquiferBibleId !== BSB_BIBLE.aquiferBibleId) {
-    await db
-      .update(bibles)
-      .set({ aquiferBibleId: BSB_BIBLE.aquiferBibleId })
-      .where(eq(bibles.id, bible.id));
-  }
+  await db
+    .update(bibles)
+    .set({
+      aquiferBibleId: BSB_BIBLE.aquiferBibleId,
+      ttsLicenseStatus: 'allowed',
+      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+    })
+    .where(eq(bibles.id, bible.id));
 
   const bookRows = await db
     .select({ id: books.id, code: books.code })

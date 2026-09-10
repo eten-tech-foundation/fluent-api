@@ -148,8 +148,8 @@ function parseVerseTimestampWindow(value: unknown): {
 }
 
 /**
- * DBL publishes timecodes as STRINGS whose format is undocumented (see `self-notes/dbl/audio.md`
- * §4, open question 2). Seconds-as-decimal matches ABS's own example (`'0.0'` / `'4.5'`) and is
+ * DBL publishes timecodes as STRINGS whose format is undocumented.
+ * Seconds-as-decimal matches ABS's own example (`'0.0'` / `'4.5'`) and is
  * what this file already assumed, but `HH:MM:SS.mmm` is not excluded by the contract -- and a
  * bare `Number.parseFloat('01:23.4')` returns `1`, silently, wrong by 83 seconds. Both readings
  * are handled so the DBL path is right under either.
@@ -254,6 +254,8 @@ function dblTracksToResponse(params: {
 
   return {
     provider: 'dbl',
+    ttsLicenseStatus: params.fluentBible.ttsLicenseStatus,
+    licenseNotice: params.fluentBible.licenseNotice,
     bible: {
       name: primary.name,
       abbreviation: params.fluentBible.abbreviation,
@@ -282,6 +284,8 @@ function emptyAquiferChapterResponse(
 ): SourceAudioResponse {
   return {
     provider: 'aquifer',
+    ttsLicenseStatus: fluentBible.ttsLicenseStatus,
+    licenseNotice: fluentBible.licenseNotice,
     bible: {
       name: fluentBible.name,
       abbreviation: fluentBible.abbreviation,
@@ -321,6 +325,8 @@ async function getAquiferChapterSourceAudio(
 
   return ok({
     provider: 'aquifer',
+    ttsLicenseStatus: fluentBible.ttsLicenseStatus,
+    licenseNotice: fluentBible.licenseNotice,
     bible: {
       aquiferBibleId: aquiferBible.id,
       name: text.data.bibleName || aquiferBible.name,

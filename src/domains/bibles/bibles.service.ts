@@ -14,6 +14,8 @@ function toBibleResponse(bible: Bible): BibleResponse {
     languageId: bible.languageId,
     hasAudio: bible.hasAudio,
     provider: bible.provider,
+    ttsLicenseStatus: bible.ttsLicenseStatus,
+    licenseNotice: bible.licenseNotice,
   };
 }
 

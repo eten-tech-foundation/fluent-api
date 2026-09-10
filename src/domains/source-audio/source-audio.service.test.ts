@@ -41,6 +41,8 @@ const fluentBible: Bible = {
   externalId: null,
   hasAudio: false,
   aquiferBibleId: null,
+  ttsLicenseStatus: 'unknown',
+  licenseNotice: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
