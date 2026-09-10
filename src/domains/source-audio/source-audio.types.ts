@@ -1,5 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
+import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
 import {
   languageCodeQuerySchema,
   MAX_MANIFEST_CHAPTER_SPAN,
@@ -68,6 +69,13 @@ export const sourceAudioResponseSchema = z
   .object({
     provider: z.enum(SOURCE_AUDIO_PROVIDERS),
     bible: sourceAudioBibleSchema,
+    ttsLicenseStatus: ttsLicenseStatusSchema.optional().openapi({
+      description: 'TTS licence status of the requested Fluent text Bible; not a user permission',
+    }),
+    licenseNotice: z.string().nullable().optional().openapi({
+      description:
+        'Curated notice for the requested Fluent Bible, not an inferred recording licence',
+    }),
     bookCode: usfmBookCodeSchema,
     chapter: z.number().int().positive(),
     verse: z.number().int().positive().optional(),
