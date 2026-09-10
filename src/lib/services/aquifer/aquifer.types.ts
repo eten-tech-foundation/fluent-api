@@ -48,6 +48,36 @@ export const aquiferResourceSearchResponseSchema = z.object({
 
 export type AquiferResourceSearchResponse = z.infer<typeof aquiferResourceSearchResponseSchema>;
 
+// One wire model for online resources and offline manifests. Known fields are optional to
+// tolerate partial upstream metadata; unknown keys survive, including nested attribution fields.
+const aquiferLicenseLinkSchema = z
+  .object({
+    name: z.string().optional(),
+    url: z.string().optional(),
+  })
+  .passthrough();
+
+export const aquiferLicenseInfoSchema = z
+  .object({
+    title: z.string().optional(),
+    copyright: z
+      .object({
+        dates: z.string().optional(),
+        holder: aquiferLicenseLinkSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    licenses: z.array(z.record(aquiferLicenseLinkSchema)).optional(),
+    showAdaptationNoticeForEnglish: z.boolean().optional(),
+    showAdaptationNoticeForNonEnglish: z.boolean().optional(),
+  })
+  .passthrough();
+
+// Attribution must not make an otherwise usable resource disappear on provider drift.
+// Keep the known model available to renderers, but preserve the raw notice on an unexpected
+// shape rather than rejecting the resource or silently discarding its licence information.
+export const aquiferLicenseInfoWireSchema = z.union([aquiferLicenseInfoSchema, z.unknown()]);
+
 /**
  * Details payload — `content` is TipTap (text) or nested media objects (images).
  * Kept loose so we do not reject Aquifer shape drift; callers walk it as needed.
@@ -58,13 +88,13 @@ export const aquiferResourceDetailsSchema = z
     referenceId: z.number().int().optional(),
     name: z.string(),
     localizedName: z.string(),
-    content: z.any(),
+    content: z.unknown(),
     grouping: z
       .object({
         type: aquiferResourceTypeSchema.optional(),
         name: z.string().optional(),
         mediaType: z.string().optional(),
-        licenseInfo: z.any().optional(),
+        licenseInfo: aquiferLicenseInfoWireSchema.optional(),
         collectionCode: z.string().optional(),
       })
       .passthrough(),
