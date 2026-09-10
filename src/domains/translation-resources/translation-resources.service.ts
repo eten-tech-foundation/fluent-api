@@ -210,7 +210,7 @@ async function mapWithConcurrency<T, R>(
 
 async function hydrateTextItems(
   searchItems: AquiferResourceSearchItem[]
-): Promise<Result<Array<{ id: number; name: string; localizedName: string; content: unknown }>>> {
+): Promise<Result<TranslationNotesResponse['items']>> {
   return mapWithConcurrency(searchItems, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
@@ -219,6 +219,10 @@ async function hydrateTextItems(
       name: hit.name,
       localizedName: hit.localizedName,
       content: details.data.content,
+      // CC BY-SA attribution obligation: keep the notice from the actual API item.
+      ...(details.data.grouping.licenseInfo !== undefined
+        ? { licenseInfo: details.data.grouping.licenseInfo }
+        : {}),
     });
   });
 }
@@ -347,6 +351,10 @@ function buildManifestItem(params: {
     collectionCode: config.collectionCode ?? searchItem.grouping.collectionCode,
     resourceType: config.resourceType ?? searchItem.grouping.type,
     ...(includeContent && serialized ? { serializedContent: serialized.json } : {}),
+    // The offline consumer owes attribution too, even when content bodies are omitted.
+    ...(details.grouping.licenseInfo !== undefined
+      ? { licenseInfo: details.grouping.licenseInfo }
+      : {}),
   };
 }
 
