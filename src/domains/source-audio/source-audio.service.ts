@@ -72,6 +72,17 @@ export function matchAquiferBible(
   fluentBible: Bible,
   candidates: AquiferBible[]
 ): AquiferBible | undefined {
+  return (
+    matchAquiferBibleByPin(fluentBible, candidates) ??
+    matchAquiferBibleByHeuristic(fluentBible, candidates)
+  );
+}
+
+/** Rung 1: resolve only the explicit pin, without guessing a different publication. */
+export function matchAquiferBibleByPin(
+  fluentBible: Bible,
+  candidates: AquiferBible[]
+): AquiferBible | undefined {
   if (candidates.length === 0) return undefined;
 
   if (fluentBible.aquiferBibleId !== null && fluentBible.aquiferBibleId !== undefined) {
@@ -89,6 +100,14 @@ export function matchAquiferBible(
     });
   }
 
+  return undefined;
+}
+
+/** Rung 3: the original abbreviation-then-name heuristic, independent of the pin. */
+export function matchAquiferBibleByHeuristic(
+  fluentBible: Bible,
+  candidates: AquiferBible[]
+): AquiferBible | undefined {
   const abbrev = normalizeToken(fluentBible.abbreviation);
   const name = normalizeToken(fluentBible.name);
 
@@ -115,7 +134,7 @@ const START_KEYS = ['startSeconds', 'start', 'seconds', 'time'] as const;
 const END_KEYS = ['endSeconds', 'end', 'stop'] as const;
 
 function numericSeconds(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function pickSeconds(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
@@ -175,7 +194,7 @@ function dblTimecodeToSeconds(value: string): number | undefined {
   }
 
   const parsed = Number.parseFloat(trimmed);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function chapterAudioItems(
@@ -200,20 +219,39 @@ function chapterAudioItems(
   return items;
 }
 
-function verseTimestampsFromChapter(
-  chapter: AquiferBibleTextResponse['chapters'][number]
-): SourceAudioVerseTimestamp[] {
+function verseTimestampsFromChapter(chapter: AquiferBibleTextResponse['chapters'][number]): {
+  timestamps: SourceAudioVerseTimestamp[];
+  verseAddressable: boolean;
+  missing: number[];
+} {
   const timestamps: SourceAudioVerseTimestamp[] = [];
+  const missing: number[] = [];
   for (const verse of chapter.verses) {
     const { startSeconds, endSeconds } = parseVerseTimestampWindow(verse.audioTimestamp);
-    if (startSeconds === undefined) continue;
+    if (startSeconds === undefined) {
+      missing.push(verse.number);
+      continue;
+    }
     timestamps.push({
       verse: verse.number,
       startSeconds,
       ...(endSeconds !== undefined ? { endSeconds } : {}),
     });
   }
-  return timestamps;
+  // The text's own verse list is the extent; do not assume dense USFM numbering.
+  // A lone start is sufficient: clients close it at the next start or end-of-file.
+  return { timestamps, verseAddressable: timestamps.length > 0 && missing.length === 0, missing };
+}
+
+function warnMissingStarts(
+  provider: SourceAudioProvider,
+  missing: number[],
+  context: object
+): void {
+  logger.warn({
+    message: 'Source audio is not verse-addressable: verses are missing a start timestamp',
+    context: { provider, missing, ...context },
+  });
 }
 
 function fileExtFromUrl(url: string, fallback: string): string {
@@ -236,13 +274,19 @@ function dblTracksToResponse(params: {
 }): SourceAudioResponse {
   const primary = params.tracks[0]!;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
+  let verseAddressable = false;
   for (const track of params.tracks) {
+    const starts = new Set<number>();
+    let maxVerse = 0;
     for (const timecode of track.timecodes ?? []) {
       const versePart = timecode.verseId.split('.').pop();
       const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
       const startSeconds = dblTimecodeToSeconds(timecode.start);
       const endSeconds = dblTimecodeToSeconds(timecode.end);
-      if (!Number.isFinite(verse) || startSeconds === undefined) continue;
+      if (!Number.isSafeInteger(verse) || verse < 1) continue;
+      maxVerse = Math.max(maxVerse, verse);
+      if (startSeconds === undefined) continue;
+      starts.add(verse);
       verseTimestamps.push({
         verse,
         startSeconds,
@@ -250,10 +294,29 @@ function dblTracksToResponse(params: {
         dblAudioBibleId: track.audioBibleId,
       });
     }
+    // DBL has no text verse list: 1..highest verse seen is a weaker extent than Aquifer's.
+    // Check each track separately, never the union of different recordings' timestamps.
+    if (maxVerse > 0 && starts.size === maxVerse) {
+      verseAddressable = true;
+    } else if (maxVerse > 0) {
+      const missing: number[] = [];
+      // Bound diagnostic allocation even if an upstream verse id is corrupt.
+      for (let verse = 1; verse <= maxVerse && missing.length < 100; verse++) {
+        if (!starts.has(verse)) missing.push(verse);
+      }
+      warnMissingStarts('dbl', missing, {
+        fluentBibleId: params.fluentBible.id,
+        bookCode: params.bookCode,
+        chapter: params.chapter,
+        dblAudioBibleId: track.audioBibleId,
+        maxVerse,
+      });
+    }
   }
 
   return {
     provider: 'dbl',
+    verseAddressable,
     ttsLicenseStatus: params.fluentBible.ttsLicenseStatus,
     licenseNotice: params.fluentBible.licenseNotice,
     bible: {
@@ -284,6 +347,7 @@ function emptyAquiferChapterResponse(
 ): SourceAudioResponse {
   return {
     provider: 'aquifer',
+    verseAddressable: false,
     ttsLicenseStatus: fluentBible.ttsLicenseStatus,
     licenseNotice: fluentBible.licenseNotice,
     bible: {
@@ -300,13 +364,10 @@ function emptyAquiferChapterResponse(
 
 async function getAquiferChapterSourceAudio(
   input: ChapterSourceAudioInput,
-  fluentBible: Bible
+  fluentBible: Bible,
+  aquiferBible: AquiferBible
 ): Promise<Result<SourceAudioResponse>> {
-  const aquiferList = await getBibles(input.languageCode);
-  if (!aquiferList.ok) return aquiferList;
-
-  const aquiferBible = matchAquiferBible(fluentBible, aquiferList.data);
-  if (!aquiferBible || aquiferBible.hasAudio === false) {
+  if (aquiferBible.hasAudio === false) {
     return ok(emptyAquiferChapterResponse(fluentBible, input));
   }
 
@@ -321,10 +382,20 @@ async function getAquiferChapterSourceAudio(
 
   const chapter = text.data.chapters.find((entry) => entry.number === input.chapter);
   const items = chapter ? chapterAudioItems(chapter) : [];
-  const verseTimestamps = chapter ? verseTimestampsFromChapter(chapter) : [];
+  const timing = chapter ? verseTimestampsFromChapter(chapter) : undefined;
+  const verseTimestamps = timing?.timestamps ?? [];
+  if (items.length > 0 && timing && timing.missing.length > 0) {
+    warnMissingStarts('aquifer', timing.missing, {
+      fluentBibleId: fluentBible.id,
+      aquiferBibleId: aquiferBible.id,
+      bookCode: input.bookCode,
+      chapter: input.chapter,
+    });
+  }
 
   return ok({
     provider: 'aquifer',
+    verseAddressable: items.length > 0 && (timing?.verseAddressable ?? false),
     ttsLicenseStatus: fluentBible.ttsLicenseStatus,
     licenseNotice: fluentBible.licenseNotice,
     bible: {
@@ -368,34 +439,100 @@ async function getDblChapterSourceAudio(
 }
 
 /**
- * Chapter-level source/reference audio for drafting. Prefers DBL when the Fluent
- * bible is linked; falls back to Aquifer when DBL has no tracks or DBL is down.
- * Empty `items` when neither has audio (including unmatched Aquifer catalogues).
+ * Chapter-level source/reference audio: (1) windowed Aquifer pin, (2) windowed DBL link,
+ * (3) windowed Aquifer name match, (4) windowless audio, DBL first, (5) empty items (200).
+ * Windowed before windowless prevents a future DBL link from displacing BSB's pinned
+ * verse-addressable recording. Rung 4 preserves windowless audio in case other consumers
+ * still find it valuable; it is explicitly labelled, not mistaken for verse-addressable audio.
+ * Each passing rung returns immediately: extra round trips accrue only on the failing path.
+ * No cache across requests; timestamp coverage varies by chapter even within one Bible.
  */
 export async function getChapterSourceAudio(
   input: ChapterSourceAudioInput
 ): Promise<Result<SourceAudioResponse>> {
   const fluentBibleResult = await biblesRepo.getById(input.fluentBibleId);
   if (!fluentBibleResult.ok) return fluentBibleResult;
+  const fluentBible = fluentBibleResult.data;
+  let lastUnavailable: Extract<Result<never>, { ok: false }> | undefined;
+  let completedLookup = false;
 
-  const dblResult = await getDblChapterSourceAudio(input, fluentBibleResult.data);
-  if (dblResult.ok) {
-    if (dblResult.data) return ok(dblResult.data);
-  } else if (dblResult.error.code !== ErrorCode.DBL_SERVICE_UNAVAILABLE) {
-    return dblResult;
-  } else {
+  // Both providers obey one error policy. Only availability errors advance the ladder.
+  function tolerateUnavailable<T>(result: Result<T>): Result<T | null> {
+    if (result.ok) return result;
+    if (
+      result.error.code !== ErrorCode.AQUIFER_SERVICE_UNAVAILABLE &&
+      result.error.code !== ErrorCode.DBL_SERVICE_UNAVAILABLE
+    ) {
+      return result;
+    }
+    lastUnavailable = result;
     logger.warn({
-      cause: dblResult.error,
-      message: 'DBL source audio unavailable; trying Aquifer',
+      cause: result.error,
+      message: 'Source audio provider unavailable; trying the next resolver rung',
       context: {
         fluentBibleId: input.fluentBibleId,
         bookCode: input.bookCode,
         chapter: input.chapter,
       },
     });
+    return ok(null);
   }
 
-  return getAquiferChapterSourceAudio(input, fluentBibleResult.data);
+  function recordLookup<T>(result: Result<T>): Result<T | null> {
+    if (result.ok) completedLookup = true;
+    return tolerateUnavailable(result);
+  }
+
+  // Rungs 1 and 3 share even a failed catalogue fetch; no duplicate request or warning.
+  let catalogue: Promise<Result<AquiferBible[] | null>> | undefined;
+  let pinnedId: number | undefined;
+  async function aquiferRung(
+    match: typeof matchAquiferBible,
+    skipId?: number
+  ): Promise<Result<SourceAudioResponse | null>> {
+    catalogue ??= getBibles(input.languageCode).then(tolerateUnavailable);
+    const candidates = await catalogue;
+    if (!candidates.ok) return candidates;
+    if (candidates.data === null) return ok(null);
+    const bible = match(fluentBible, candidates.data);
+    if (!bible) {
+      // No heuristic match proves absence only if there was no resolvable pin either.
+      // Otherwise this says nothing about a pinned recording whose chapter fetch failed.
+      if (match === matchAquiferBibleByHeuristic && pinnedId === undefined) {
+        completedLookup = true;
+      }
+      return ok(null);
+    }
+    if (bible.id === skipId) return ok(null);
+    if (match === matchAquiferBibleByPin) pinnedId = bible.id;
+    return recordLookup(await getAquiferChapterSourceAudio(input, fluentBible, bible));
+  }
+
+  // Rung 1. A null pin makes no network request.
+  const pinned =
+    fluentBible.aquiferBibleId != null ? await aquiferRung(matchAquiferBibleByPin) : ok(null);
+  if (!pinned.ok) return pinned;
+  if (pinned.data?.verseAddressable) return ok(pinned.data);
+
+  // Rung 2. A null link skips even the redundant Bible/book DB lookups.
+  const dbl = fluentBible.externalId
+    ? recordLookup(await getDblChapterSourceAudio(input, fluentBible))
+    : ok(null);
+  if (!dbl.ok) return dbl;
+  if (dbl.data?.verseAddressable) return ok(dbl.data);
+
+  // Rung 3. Do not fetch the same pinned recording twice, even if it was unavailable.
+  const fuzzy = await aquiferRung(matchAquiferBibleByHeuristic, pinnedId);
+  if (!fuzzy.ok) return fuzzy;
+  if (fuzzy.data?.verseAddressable) return ok(fuzzy.data);
+
+  // Rung 4. Retain partial timing data honestly; never union timings across recordings.
+  const windowless = [dbl.data, pinned.data, fuzzy.data].find((audio) => audio?.items.length);
+  if (windowless) return ok(windowless);
+
+  // Rung 5. A complete outage is retryable, not an empty result a client may cache as truth.
+  if (!completedLookup && lastUnavailable) return lastUnavailable;
+  return ok(emptyAquiferChapterResponse(fluentBible, input));
 }
 
 /**
