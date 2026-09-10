@@ -232,7 +232,6 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
   }
 }
 
-
 export async function resolveIsProjectMember(projectId: number, userId: number): Promise<boolean> {
   const [pinned] = await db
     .select({ id: user_roles.id })
