@@ -190,7 +190,11 @@ export const dblAudioChapterSchema = z.object({
   bookId: z.string().nullish(),
   resourceUrl: z.string(),
   timecodes: z.array(dblTimecodeSchema).nullish(),
-  expiresAt: z.coerce.number().nullish(),
+  // Empty provider strings mean unknown expiry, not epoch zero (already expired).
+  expiresAt: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().nullish()
+  ),
   reference: z.string().nullish(),
   next: dblChapterNeighborSchema.nullish(),
   previous: dblChapterNeighborSchema.nullish(),

@@ -132,7 +132,7 @@ async function dblRequest<T>(
   config: DblClientConfig,
   path: string,
   query: Record<string, QueryValue>,
-  dataSchema: z.ZodType<T>,
+  dataSchema: z.ZodType<T, z.ZodTypeDef, unknown>,
   options?: DblRequestOptions
 ): Promise<Result<T>> {
   if (!config.apiKey) {

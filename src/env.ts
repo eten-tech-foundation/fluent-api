@@ -210,9 +210,11 @@ const EnvBaseSchema = z.object({
   EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
   // Source Audio — lets a drafter hear the source text, however it is produced:
   // a real recording where one exists, synthesized speech where one does not.
-  // ONE gate covers both provenances (Q11): two flags would create a
-  // "partially-playable playable" — a mixed pericope with one half gated off has
-  // segments that cannot resolve, and every response to that is bad.
+  // One gate because recorded audio and TTS ship as one feature, and runtime
+  // fallback needs both. Mixed availability is routine, not an impossible state.
+  // aiIsWired is a deployment hint for the unset default, not a runtime gate:
+  // without fluent-ai the whole feature defaults off on purpose. Explicit true
+  // without fluent-ai is unsupported — do not enable that configuration.
   //
   // Renamed from EN_FEATURE_SOURCE_TTS 2026-08-31, while free: the flag is not
   // on origin/main, nothing is merged or deployed, and no environment sets it.
