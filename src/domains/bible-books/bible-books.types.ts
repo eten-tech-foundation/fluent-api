@@ -12,6 +12,7 @@ export const createBibleBookSchema = z.object({
 export const bibleBookResponseSchema = z.object({
   bibleId: z.number().int(),
   bookId: z.number().int(),
+  hasAudio: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 });
@@ -19,6 +20,7 @@ export const bibleBookResponseSchema = z.object({
 export const bibleBookDetailResponseSchema = z.object({
   bibleId: z.number().int(),
   bookId: z.number().int(),
+  hasAudio: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
   book: z.object({
