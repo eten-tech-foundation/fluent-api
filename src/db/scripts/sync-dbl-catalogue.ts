@@ -1,12 +1,12 @@
 import { syncBiblesFromDbl } from '@/domains/bibles/sync/dbl-bible-sync';
-import { syncBooksFromDbl } from '@/domains/books/sync/dbl-book-sync';
+import { syncAudioAvailability, syncBooksFromDbl } from '@/domains/books/sync/dbl-book-sync';
 import { syncLanguagesFromDbl } from '@/domains/languages/sync/dbl-language-sync';
 import { logger } from '@/lib/logger';
 
 async function main() {
   logger.info('Starting manual DBL catalogue sync...');
 
-  logger.info('Step 1/3: Syncing languages from DBL...');
+  logger.info('Step 1/4: Syncing languages from DBL...');
   const langResult = await syncLanguagesFromDbl();
   if (!langResult.ok) {
     logger.error('Language sync failed', { error: langResult.error });
@@ -14,7 +14,7 @@ async function main() {
   }
   logger.info('Languages sync completed', { data: langResult.data });
 
-  logger.info('Step 2/3: Syncing bibles from DBL...');
+  logger.info('Step 2/4: Syncing bibles from DBL...');
   const biblesResult = await syncBiblesFromDbl();
   if (!biblesResult.ok) {
     logger.error('Bibles sync failed', { error: biblesResult.error });
@@ -22,13 +22,21 @@ async function main() {
   }
   logger.info('Bibles sync completed', { data: biblesResult.data });
 
-  logger.info('Step 3/3: Syncing books from DBL...');
+  logger.info('Step 3/4: Syncing books from DBL...');
   const booksResult = await syncBooksFromDbl();
   if (!booksResult.ok) {
     logger.error('Books sync failed', { error: booksResult.error });
     process.exit(1);
   }
   logger.info('Books sync completed', { data: booksResult.data });
+
+  logger.info('Step 4/4: Syncing audio availability from DBL...');
+  const audioResult = await syncAudioAvailability();
+  if (!audioResult.ok) {
+    logger.error('Audio availability sync failed', { error: audioResult.error });
+    process.exit(1);
+  }
+  logger.info('Audio availability sync completed', { data: audioResult.data });
 
   logger.info('DBL catalogue sync completed successfully!');
   process.exit(0);

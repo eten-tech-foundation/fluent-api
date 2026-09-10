@@ -197,6 +197,13 @@
       "when": 1787886800280,
       "tag": "0027_add_verse_audio_takes_and_conflict_status",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788971960061,
+      "tag": "0028_add_audio_availability",
+      "breakpoints": true
     }
   ]
 }

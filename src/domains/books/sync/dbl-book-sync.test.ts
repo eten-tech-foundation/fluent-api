@@ -6,7 +6,8 @@ import type { DblBook } from '@/lib/services/dbl/dbl.types';
 
 import { ErrorCode, ok } from '@/lib/types';
 
-import { syncBooksFromDbl } from './dbl-book-sync';
+import * as booksRepo from '../books.repository';
+import { syncAudioAvailability, syncBooksFromDbl } from './dbl-book-sync';
 
 const { mockUpsertFromDbl, mockGetAllBibles } = vi.hoisted(() => ({
   mockUpsertFromDbl: vi.fn(),
@@ -15,6 +16,7 @@ const { mockUpsertFromDbl, mockGetAllBibles } = vi.hoisted(() => ({
 
 vi.mock('../books.repository', () => ({
   upsertFromDbl: mockUpsertFromDbl,
+  updateAudioAvailability: vi.fn(),
 }));
 
 vi.mock('@/domains/bibles/bibles.repository', () => ({
@@ -27,6 +29,8 @@ function fakeClient(responses: Record<string, DblBook[]>): DblClient {
       if (responses[bibleId]) return Promise.resolve(ok(responses[bibleId]));
       return Promise.resolve({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
     }),
+    getBible: vi.fn(),
+    getAudioBibleBooks: vi.fn(),
   } as unknown as DblClient;
 }
 
@@ -71,5 +75,75 @@ describe('syncBooksFromDbl', () => {
     expect(mockUpsertFromDbl).toHaveBeenCalledWith(2, [
       { code: 'EXO', eng_display_name: 'Exodus' },
     ]);
+  });
+});
+
+describe('syncAudioAvailability', () => {
+  beforeEach(() => {
+    vi.mocked(booksRepo.updateAudioAvailability).mockResolvedValue(ok({ updated: 1 }));
+  });
+
+  it('clears audio for bibles without audio (fast-path)', async () => {
+    mockGetAllBibles.mockResolvedValue(
+      ok([{ id: 1, externalId: 'b1', provider: 'dbl', hasAudio: false }] as Bible[])
+    );
+    const client = fakeClient({});
+    const result = await syncAudioAvailability(client);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.totalBiblesProcessed).toBe(1);
+    }
+    expect(client.getBible).not.toHaveBeenCalled();
+    expect(booksRepo.updateAudioAvailability).toHaveBeenCalledWith(1, []);
+  });
+
+  it('fetches audio bibles and updates availability for bibles with audio', async () => {
+    mockGetAllBibles.mockResolvedValue(
+      ok([{ id: 1, externalId: 'b1', provider: 'dbl', hasAudio: true }] as Bible[])
+    );
+    const client = fakeClient({});
+    vi.mocked(client.getBible).mockResolvedValue(
+      ok({ audioBibles: [{ id: 'ab1' }, { id: 'ab2' }] } as any)
+    );
+    vi.mocked(client.getAudioBibleBooks).mockImplementation(async (audioId) => {
+      if (audioId === 'ab1') return ok([{ id: 'GEN' }] as any);
+      if (audioId === 'ab2') return ok([{ id: 'EXO' }] as any);
+      return ok([]);
+    });
+
+    const result = await syncAudioAvailability(client);
+
+    expect(result.ok).toBe(true);
+    expect(client.getBible).toHaveBeenCalledWith('b1');
+    expect(client.getAudioBibleBooks).toHaveBeenCalledWith('ab1');
+    expect(client.getAudioBibleBooks).toHaveBeenCalledWith('ab2');
+
+    // Set doesn't guarantee order, so we check the set of elements
+    const updateCall = vi.mocked(booksRepo.updateAudioAvailability).mock.calls[0];
+    expect(updateCall[0]).toBe(1);
+    expect(updateCall[1]).toContain('GEN');
+    expect(updateCall[1]).toContain('EXO');
+    expect(updateCall[1]).toHaveLength(2);
+  });
+  it('does NOT persist partial results when one audio bible book fetch fails', async () => {
+    mockGetAllBibles.mockResolvedValue(
+      ok([{ id: 1, externalId: 'b1', provider: 'dbl', hasAudio: true }] as Bible[])
+    );
+    const client = fakeClient({});
+    vi.mocked(client.getBible).mockResolvedValue(
+      ok({ audioBibles: [{ id: 'ab1' }, { id: 'ab2' }] } as any)
+    );
+    vi.mocked(client.getAudioBibleBooks).mockImplementation(async (audioId) => {
+      if (audioId === 'ab1') return ok([{ id: 'GEN' }] as any);
+      return { ok: false, error: { code: ErrorCode.DBL_SERVICE_UNAVAILABLE, message: 'timeout' } };
+    });
+
+    const result = await syncAudioAvailability(client);
+
+    // Since it's the ONLY bible in the test and it failed, the overall sync returns an error
+    expect(result.ok).toBe(false);
+    // Partial data must NOT be persisted
+    expect(booksRepo.updateAudioAvailability).not.toHaveBeenCalled();
   });
 });
