@@ -43,7 +43,8 @@ const fluentBible: Bible = {
 
 describe('source audio licence facts', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(getBibles).mockResolvedValue(ok([]));
     vi.mocked(biblesRepo.getById).mockResolvedValue(ok(fluentBible));
     vi.mocked(getBookByCode).mockResolvedValue(
       ok({ id: 41, code: 'MRK', eng_display_name: 'Mark' })
@@ -124,6 +125,7 @@ describe('source audio licence facts', () => {
     vi.mocked(biblesRepo.getById).mockResolvedValue(
       ok({
         ...fluentBible,
+        externalId: 'dbl-bsb',
         ttsLicenseStatus: 'forbidden',
         licenseNotice: 'Text licence notice',
       })
