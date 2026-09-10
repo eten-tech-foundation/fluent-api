@@ -91,9 +91,9 @@ const listBookDetailsRoute = createRoute({
   },
   summary: 'List book details for a project unit',
   description: [
-    'Returns the book-level USFM fields authored for each book in the unit: the running header (\\h), the legacy book title (\\mt) and the three table-of-contents fields (\\toc1 long name, \\toc2 short name, \\toc3 abbreviation).',
-    'Export precedence: \\mt is tocShortName, else bookTitle, else the book display name; \\h is runningHeader, else tocShortName, else the book display name. A null or blank \\toc field omits its line from the export entirely — the \\toc fields have no display-name fallback.',
-    'Pre-population rule for the metadata dialog: when tocShortName is null and bookTitle is not, seed the Short Name input from bookTitle. Long Name and Abbreviation are never pre-populated. bookTitle itself is never written by a TOC edit, so clearing Short Name again reveals the preserved legacy \\mt rather than falling through to the display name.',
+    'Returns the book-level USFM fields authored for each book in the unit: the running header (\\h), the legacy bookTitle field (exported as \\mt1) and the three table-of-contents fields (\\toc1 long name, \\toc2 short name, \\toc3 abbreviation).',
+    'Export precedence: \\mt1 is tocShortName, else bookTitle, else the book display name; \\h is runningHeader, else tocShortName, else the book display name. A null or blank \\toc field omits its line from the export entirely — the \\toc fields have no display-name fallback.',
+    'Pre-population rule for the metadata dialog: when tocShortName is null and bookTitle is not, seed the Short Name input from bookTitle. Long Name and Abbreviation are never pre-populated. bookTitle itself is never written by a TOC edit, so clearing Short Name again exports the preserved legacy title as \\mt1 rather than falling through to the display name.',
   ].join(' '),
 });
 
@@ -169,8 +169,8 @@ const updateBookDetailsRoute = createRoute({
   },
   summary: 'Update the book-level USFM fields of a book',
   description: [
-    'Sets any of the running header (\\h), the legacy book title (\\mt) and the table-of-contents fields (\\toc1 long name, \\toc2 short name, \\toc3 abbreviation) for one book of the unit. Only the fields named in the body are written; sending null or an empty string clears a field.',
-    'Export precedence: \\mt is tocShortName, else bookTitle, else the book display name; \\h is runningHeader, else tocShortName, else the book display name. \\mt is therefore derived at render time from the Short Name — this endpoint never writes bookTitle as a side effect of a TOC edit, so an existing \\mt is preserved and reappears in the export if the Short Name is later cleared. A null or blank \\toc field omits its line; the \\toc fields have no display-name fallback.',
+    'Sets any of the running header (\\h), the legacy bookTitle field (exported as \\mt1) and the table-of-contents fields (\\toc1 long name, \\toc2 short name, \\toc3 abbreviation) for one book of the unit. Only the fields named in the body are written; sending null or an empty string clears a field.',
+    'Export precedence: \\mt1 is tocShortName, else bookTitle, else the book display name; \\h is runningHeader, else tocShortName, else the book display name. \\mt1 is therefore derived at render time from the Short Name — this endpoint never writes bookTitle as a side effect of a TOC edit, so an existing legacy title is preserved and exported as \\mt1 if the Short Name is later cleared. A null or blank \\toc field omits its line; the \\toc fields have no display-name fallback.',
     'Authorization: gated on content:update plus project read access, i.e. a translator assigned to the project may edit these fields. Inherited from #263 and open for review.',
   ].join(' '),
 });

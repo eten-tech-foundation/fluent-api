@@ -1,3 +1,4 @@
+import usfmGrammar from 'usfm-grammar';
 import { describe, expect, it } from 'vitest';
 
 import type { BookFields, VerseData } from './usfm.types';
@@ -40,7 +41,7 @@ function book(overrides: Partial<BookFields> = {}): BookFields {
 }
 
 describe('createUSFMStreamForBook', () => {
-  it('renders legacy rows (no markers) exactly as before', async () => {
+  it('renders legacy rows (no markers) with a level-one main title', async () => {
     const usfm = await renderUSFM([
       verse({ verseNumber: 1 }),
       verse({ verseNumber: 2, translatedContent: 'Second verse.' }),
@@ -50,7 +51,7 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toBe(
       '\\id GEN\n' +
         '\\h Genesis\n' +
-        '\\mt Genesis\n' +
+        '\\mt1 Genesis\n' +
         '\\c 1\n\\p\n' +
         '\\v 1 In the beginning.\n' +
         '\\v 2 Second verse.\n' +
@@ -128,7 +129,7 @@ describe('createUSFMStreamForBook', () => {
       tocAbbreviation: null,
     });
     expect(withFields).toContain('\\h Gênesis\n');
-    expect(withFields).toContain('\\mt O Primeiro Livro de Moisés\n');
+    expect(withFields).toContain('\\mt1 O Primeiro Livro de Moisés\n');
 
     const withNulls = await renderUSFM([verse({})], {
       runningHeader: null,
@@ -138,7 +139,7 @@ describe('createUSFMStreamForBook', () => {
       tocAbbreviation: null,
     });
     expect(withNulls).toContain('\\h Genesis\n');
-    expect(withNulls).toContain('\\mt Genesis\n');
+    expect(withNulls).toContain('\\mt1 Genesis\n');
   });
 
   it('renders an untranslated verse with an opening marker without inventing text', async () => {
@@ -212,9 +213,9 @@ describe('createUSFMStreamForBook', () => {
 
   // ─── fluent-web#398: table-of-contents fields ──────────────────────────────
 
-  it('renders a #263-era row (book fields, no TOC) exactly as before', async () => {
+  it('renders a #263-era row (book fields, no TOC) with a level-one main title', async () => {
     // The population this change actually puts at risk. A full-document `toBe`,
-    // so a stray \toc line slipping in between \h and \mt fails here.
+    // so a stray \toc line slipping in between \h and \mt1 fails here.
     const usfm = await renderUSFM(
       [verse({})],
       book({ runningHeader: 'Gênesis', bookTitle: 'O Primeiro Livro de Moisés' })
@@ -223,16 +224,16 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toBe(
       '\\id GEN\n' +
         '\\h Gênesis\n' +
-        '\\mt O Primeiro Livro de Moisés\n' +
+        '\\mt1 O Primeiro Livro de Moisés\n' +
         '\\c 1\n\\p\n' +
         '\\v 1 In the beginning.\n' +
         '\n'
     );
   });
 
-  it('emits the toc block between \\h and \\mt', async () => {
+  it('emits the toc block between \\h and \\mt1', async () => {
     // Order is grammar-enforced, not cosmetic: usfm-grammar rejects a \toc line
-    // that follows \mt. One contiguous substring pins presence and order at once.
+    // that follows \mt1. One contiguous substring pins presence and order at once.
     const usfm = await renderUSFM(
       [verse({})],
       book({
@@ -244,7 +245,35 @@ describe('createUSFMStreamForBook', () => {
       })
     );
 
-    expect(usfm).toContain('\\h Gênesis\n\\toc1 Gênesis\n\\toc2 Gênesis\n\\toc3 Gn\n\\mt ');
+    expect(usfm).toContain('\\h Gênesis\n\\toc1 Gênesis\n\\toc2 Gênesis\n\\toc3 Gn\n\\mt1 ');
+  });
+
+  it('preserves the level-one main title through a USFM-USJ-USFM round trip', async () => {
+    const usfm = await renderUSFM(
+      [verse({})],
+      book({
+        runningHeader: 'Gênesis',
+        bookTitle: 'O Primeiro Livro de Moisés',
+        tocLongName: 'O Primeiro Livro de Moisés',
+        tocShortName: 'Gênesis',
+        tocAbbreviation: 'Gn',
+      })
+    );
+    const { USFMParser } = usfmGrammar;
+    const parsed = new USFMParser(usfm);
+    expect(parsed.errors).toEqual([]);
+
+    const usj = parsed.toUSJ();
+    expect(usj.content).toContainEqual({
+      type: 'para',
+      marker: 'mt1',
+      content: ['Gênesis\n'],
+    });
+
+    const roundTrip = new USFMParser(null, usj);
+    expect(roundTrip.errors).toEqual([]);
+    expect(roundTrip.usfm).toContain('\\mt1 Gênesis\n');
+    expect(roundTrip.toUSJ()).toEqual(usj);
   });
 
   it('omits a toc line when its field is null or blank', async () => {
@@ -269,20 +298,20 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toContain('\\toc3 Gn\n');
   });
 
-  it('\\mt prefers the short name without destroying the authored book title', async () => {
+  it('\\mt1 prefers the short name without destroying the authored book title', async () => {
     const withBoth = await renderUSFM(
       [verse({})],
       book({ bookTitle: 'O Primeiro Livro de Moisés', tocShortName: 'Gênesis' })
     );
-    expect(withBoth).toContain('\\mt Gênesis\n');
+    expect(withBoth).toContain('\\mt1 Gênesis\n');
 
-    // Clearing the short name reveals the preserved legacy \mt again, rather than
+    // Clearing the short name reveals the preserved authored title again, rather than
     // falling through to the display name: a TOC edit never rewrites book_title.
     const shortCleared = await renderUSFM(
       [verse({})],
       book({ bookTitle: 'O Primeiro Livro de Moisés', tocShortName: null })
     );
-    expect(shortCleared).toContain('\\mt O Primeiro Livro de Moisés\n');
+    expect(shortCleared).toContain('\\mt1 O Primeiro Livro de Moisés\n');
   });
 
   it('\\h falls back to the short name before the display name', async () => {
