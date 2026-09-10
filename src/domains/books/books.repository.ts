@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, notInArray } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -218,25 +218,39 @@ export async function updateAudioAvailability(
                 )
               )
           : [];
-      const audioBookIds = new Set(audioBookRows.map((b) => b.id));
+      const audioBookIds = audioBookRows.map((b) => b.id);
 
-      // Fetch all bible_book rows for this Bible
-      const allLinks = await tx
-        .select({ bookId: bible_books.bookId, hasAudio: bible_books.hasAudio })
-        .from(bible_books)
-        .where(eq(bible_books.bibleId, bibleId));
-
-      // Update rows that need changing
-      for (const link of allLinks) {
-        const shouldHaveAudio = audioBookIds.has(link.bookId);
-        if (link.hasAudio !== shouldHaveAudio) {
-          await tx
-            .update(bible_books)
-            .set({ hasAudio: shouldHaveAudio })
-            .where(and(eq(bible_books.bibleId, bibleId), eq(bible_books.bookId, link.bookId)));
-          updated++;
-        }
+      // Turn audio ON for books that should have it but currently don't
+      if (audioBookIds.length > 0) {
+        const turnedOn = await tx
+          .update(bible_books)
+          .set({ hasAudio: true })
+          .where(
+            and(
+              eq(bible_books.bibleId, bibleId),
+              eq(bible_books.hasAudio, false),
+              inArray(bible_books.bookId, audioBookIds)
+            )
+          )
+          .returning({ bookId: bible_books.bookId });
+        updated += turnedOn.length;
       }
+
+      // Turn audio OFF for books that shouldn't have it but currently do
+      const turnedOff = await tx
+        .update(bible_books)
+        .set({ hasAudio: false })
+        .where(
+          audioBookIds.length > 0
+            ? and(
+                eq(bible_books.bibleId, bibleId),
+                eq(bible_books.hasAudio, true),
+                notInArray(bible_books.bookId, audioBookIds)
+              )
+            : and(eq(bible_books.bibleId, bibleId), eq(bible_books.hasAudio, true))
+        )
+        .returning({ bookId: bible_books.bookId });
+      updated += turnedOff.length;
     });
 
     return ok({ updated });

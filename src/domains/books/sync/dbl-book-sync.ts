@@ -13,6 +13,8 @@ import * as booksRepository from '../books.repository';
 export interface DblBookSyncSummary {
   totalBiblesProcessed: number;
   totalBooksLinked: number;
+  errorCount: number;
+  partialFailure: boolean;
 }
 
 /**
@@ -72,11 +74,20 @@ export async function syncBooksFromDbl(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 
+  if (errorCount > 0) {
+    logger.warn('Completed book sync with partial failures', {
+      errorCount,
+      totalBibles: dbBibles.length,
+    });
+  }
+
   return {
     ok: true,
     data: {
       totalBiblesProcessed: dbBibles.length - errorCount,
       totalBooksLinked,
+      errorCount,
+      partialFailure: errorCount > 0,
     },
   };
 }
@@ -86,6 +97,8 @@ export async function syncBooksFromDbl(
 export interface AudioAvailabilitySyncSummary {
   totalBiblesProcessed: number;
   totalBooksUpdated: number;
+  errorCount: number;
+  partialFailure: boolean;
 }
 
 /**
@@ -116,7 +129,10 @@ export async function syncAudioAvailability(
   const dblBibles = biblesResult.data.filter((b) => b.externalId && b.provider === 'dbl');
 
   if (dblBibles.length === 0) {
-    return { ok: true, data: { totalBiblesProcessed: 0, totalBooksUpdated: 0 } };
+    return {
+      ok: true,
+      data: { totalBiblesProcessed: 0, totalBooksUpdated: 0, errorCount: 0, partialFailure: false },
+    };
   }
 
   let totalBooksUpdated = 0;
@@ -199,11 +215,20 @@ export async function syncAudioAvailability(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 
+  if (errorCount > 0) {
+    logger.warn('Completed audio availability sync with partial failures', {
+      errorCount,
+      totalBibles: dblBibles.length,
+    });
+  }
+
   return {
     ok: true,
     data: {
       totalBiblesProcessed: dblBibles.length - errorCount,
       totalBooksUpdated,
+      errorCount,
+      partialFailure: errorCount > 0,
     },
   };
 }
