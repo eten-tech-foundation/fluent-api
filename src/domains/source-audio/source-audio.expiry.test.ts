@@ -13,6 +13,11 @@ vi.mock('@/domains/books/books.repository', () => ({
   getById: vi.fn().mockResolvedValue({ ok: true, data: { id: 43, code: 'JHN' } }),
 }));
 vi.mock('@/domains/books/books.service', () => ({ getBookByCode: vi.fn() }));
+// Windowless DBL now probes Aquifer too; ordinary regression tests never call a provider.
+vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
+  getBibles: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+  getBibleText: vi.fn(),
+}));
 vi.mock('@/lib/services/dbl/dbl.client', () => ({
   dblClient: { getBible: vi.fn(), getAudioChapter: vi.fn() },
 }));

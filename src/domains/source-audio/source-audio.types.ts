@@ -80,6 +80,11 @@ export const sourceAudioResponseSchema = z
     chapter: z.number().int().positive(),
     verse: z.number().int().positive().optional(),
     items: z.array(sourceAudioItemSchema),
+    verseAddressable: z.boolean().openapi({
+      description:
+        'True when at least one recording has a start for every verse in the known chapter extent; ' +
+        'this field, not the absence of verseTimestamps, signals verse-addressability.',
+    }),
     verseTimestamps: z
       .array(sourceAudioVerseTimestampSchema)
       .optional()
@@ -109,7 +114,7 @@ export const sourceAudioQuerySchema = languageCodeQuerySchema.extend({
     .openapi({
       param: { name: 'bibleId', in: 'query' },
       description:
-        'Fluent bible id (from chapter assignment). Used to match the Aquifer Bible by abbreviation/name.',
+        'Fluent bible id (from chapter assignment). Resolves recordings by Aquifer pin, DBL link, then Aquifer abbreviation/name.',
     }),
   verse: z.coerce
     .number()

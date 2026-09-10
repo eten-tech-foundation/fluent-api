@@ -118,8 +118,11 @@ describe('matchAquiferBible', () => {
 
 describe('getChapterSourceAudio', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(biblesRepo.getById).mockResolvedValue(ok(fluentBible));
+    vi.resetAllMocks();
+    // DBL's real service returns no tracks without a link; fixtures must model that prerequisite.
+    vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, externalId: 'dbl-bsb' }));
+    // A partial DBL chapter now reaches the Aquifer rung before returning its original timestamps.
+    vi.mocked(getBibles).mockResolvedValue(ok([]));
     vi.mocked(getBookByCode).mockResolvedValue(
       ok({ id: 41, code: 'MRK', eng_display_name: 'Mark' })
     );
