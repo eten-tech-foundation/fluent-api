@@ -17,6 +17,7 @@ vi.mock('@/domains/bibles/sync/dbl-bible-sync', () => ({
 
 vi.mock('@/domains/books/sync/dbl-book-sync', () => ({
   syncBooksFromDbl: vi.fn(),
+  syncAudioAvailability: vi.fn(),
 }));
 
 describe('dblSyncWorker', () => {
@@ -39,11 +40,13 @@ describe('dblSyncWorker', () => {
     vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bibleSyncModule.syncBiblesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bookSyncModule.syncBooksFromDbl).mockResolvedValueOnce(ok({} as any));
+    vi.mocked(bookSyncModule.syncAudioAvailability).mockResolvedValueOnce(ok({} as any));
 
     await handler([{ id: 'job-1' }]);
     expect(languageSyncModule.syncLanguagesFromDbl).toHaveBeenCalledTimes(1);
     expect(bibleSyncModule.syncBiblesFromDbl).toHaveBeenCalledTimes(1);
     expect(bookSyncModule.syncBooksFromDbl).toHaveBeenCalledTimes(1);
+    expect(bookSyncModule.syncAudioAvailability).toHaveBeenCalledTimes(1);
 
     vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce({
       ok: false,
