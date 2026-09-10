@@ -33,9 +33,6 @@ export const config: EnvConfig = {
   // DEV_DATABASE_URL wins; DATABASE_URL is a last resort fallback.
   // setup.ts will error if neither is set.
   databaseUrl: process.env.DEV_DATABASE_URL ?? process.env.DATABASE_URL,
-  // For drizzle-kit migrate — runs as the DDL-capable migrations role.
-  // Falls back to DATABASE_URL via drizzle.config.ts if unset.
-  migrationsUrl: process.env.DEV_MIGRATIONS_DATABASE_URL,
 
   // Lazy getter — validation runs only when setup.ts accesses seedUsers.
   // provision-db.ts imports this config for provision.* credentials but never
@@ -78,9 +75,9 @@ export const config: EnvConfig = {
   // ── DB-level provisioning (used by provision-db.ts only) ─────────────────
   provision: {
     bootstrapDatabaseUrl: process.env.BOOTSTRAP_DATABASE_URL ?? '',
-    dbAdminPassword: process.env.DB_ADMIN_PASSWORD ?? '',
-    migrationsPassword: process.env.MIGRATIONS_PASSWORD ?? '',
-    webUserPassword: process.env.WEB_USER_PASSWORD ?? '',
+    apiMigratorPassword: process.env.API_MIGRATOR_PASSWORD ?? '',
+    apiUserPassword: process.env.API_USER_PASSWORD ?? '',
+    aiMigratorPassword: process.env.AI_MIGRATOR_PASSWORD ?? '',
     aiUserPassword: process.env.AI_USER_PASSWORD ?? '',
   },
 };

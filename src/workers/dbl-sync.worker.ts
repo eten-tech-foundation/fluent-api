@@ -1,7 +1,7 @@
 import type { PgBoss } from 'pg-boss';
 
 import { syncBiblesFromDbl } from '@/domains/bibles/sync/dbl-bible-sync';
-import { syncBooksFromDbl } from '@/domains/books/sync/dbl-book-sync';
+import { syncAudioAvailability, syncBooksFromDbl } from '@/domains/books/sync/dbl-book-sync';
 import { syncLanguagesFromDbl } from '@/domains/languages/sync/dbl-language-sync';
 
 import { logger } from '../lib/logger';
@@ -41,14 +41,19 @@ export async function registerDblSyncWorker(boss: PgBoss) {
       const biblesResult = await syncBiblesFromDbl();
       if (!biblesResult.ok) throw new Error(`Bibles sync failed: ${biblesResult.error.message}`);
 
-      logger.info('Starting step 3/3: Syncing books from DBL...');
+      logger.info('Starting step 3/4: Syncing books from DBL...');
       const booksResult = await syncBooksFromDbl();
       if (!booksResult.ok) throw new Error(`Books sync failed: ${booksResult.error.message}`);
+
+      logger.info('Starting step 4/4: Syncing audio availability from DBL...');
+      const audioResult = await syncAudioAvailability();
+      if (!audioResult.ok) throw new Error(`Audio sync failed: ${audioResult.error.message}`);
 
       logger.info('DBL sync job completed successfully', {
         languages: langResult.data,
         bibles: biblesResult.data,
         books: booksResult.data,
+        audio: audioResult.data,
       });
     } catch (error) {
       // Re-throw so pg-boss marks this job as failed and applies its

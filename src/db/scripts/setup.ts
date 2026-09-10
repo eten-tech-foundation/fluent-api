@@ -82,18 +82,11 @@ async function setup() {
     console.log(`ℹ  DATABASE_URL (from environment) → ${masked}\n`);
   }
 
-  // ── Resolve MIGRATIONS_DATABASE_URL ───────────────────────────────────────
-  // drizzle.config.ts prefers MIGRATIONS_DATABASE_URL over DATABASE_URL so
-  // drizzle-kit migrate can run as the migrations role (DDL rights) rather
-  // than web_user (DML only). For dev/qa, derive it from the same env-config
-  // source if not already set.
-  if (!process.env.MIGRATIONS_DATABASE_URL && config.migrationsUrl) {
-    process.env.MIGRATIONS_DATABASE_URL = config.migrationsUrl;
-    const masked = config.migrationsUrl.replace(/:([^@]+)@/, ':****@');
-    console.log(`ℹ  MIGRATIONS_DATABASE_URL → ${masked}\n`);
-  }
-
   // ── Migrations ────────────────────────────────────────────────────────────
+  // MIGRATIONS_DATABASE_URL, if set, is read directly by drizzle.config.ts
+  // (`MIGRATIONS_DATABASE_URL ?? DATABASE_URL`) — same pattern as
+  // BOOTSTRAP_DATABASE_URL. There's no per-environment DEV_/QA_ variant: set
+  // MIGRATIONS_DATABASE_URL itself in whichever environment needs it.
   console.log('[1/9] Running migrations...');
   execSync('npx drizzle-kit migrate', {
     stdio: 'inherit',
