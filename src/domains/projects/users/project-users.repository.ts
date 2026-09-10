@@ -182,6 +182,13 @@ export async function addProjectUsers(
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(user_roles)
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .returning({ userId: user_roles.userId });
+
+      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
+
       const unitRows = await tx
         .select({ id: project_units.id })
         .from(project_units)
@@ -213,14 +220,6 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
           );
       }
 
-      // 4. Delete the project-scoped user_role grant
-      const deleted = await tx
-        .delete(user_roles)
-        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-        .returning({ userId: user_roles.userId });
-
-      if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
-
       return ok(undefined);
     });
   } catch (error) {
@@ -232,6 +231,7 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
+
 
 export async function resolveIsProjectMember(projectId: number, userId: number): Promise<boolean> {
   const [pinned] = await db
