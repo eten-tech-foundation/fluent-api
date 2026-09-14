@@ -1,5 +1,5 @@
 {
-  "id": "106a00a1-d2a5-47c4-8448-226ebbd805d9",
+  "id": "af942093-a73e-4844-902e-66d138a8dda9",
   "prevId": "1a5633c5-a85c-4a7c-ac6f-db75b70d0a18",
   "version": "7",
   "dialect": "postgresql",
@@ -781,6 +781,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "has_audio": {
+          "name": "has_audio",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1029,6 +1036,13 @@
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
+        },
+        "has_audio": {
+          "name": "has_audio",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",
@@ -2100,103 +2114,6 @@
         "project_unit_bible_books_book_id_books_id_fk": {
           "name": "project_unit_bible_books_book_id_books_id_fk",
           "tableFrom": "project_unit_bible_books",
-          "tableTo": "books",
-          "columnsFrom": ["book_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.project_unit_usfm_imports": {
-      "name": "project_unit_usfm_imports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_unit_id": {
-          "name": "project_unit_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "book_id": {
-          "name": "book_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_name": {
-          "name": "file_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "usfm": {
-          "name": "usfm",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "materialized_at": {
-          "name": "materialized_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uq_usfm_import_per_unit_book": {
-          "name": "uq_usfm_import_per_unit_book",
-          "columns": [
-            {
-              "expression": "project_unit_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "book_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "project_unit_usfm_imports_project_unit_id_project_units_id_fk": {
-          "name": "project_unit_usfm_imports_project_unit_id_project_units_id_fk",
-          "tableFrom": "project_unit_usfm_imports",
-          "tableTo": "project_units",
-          "columnsFrom": ["project_unit_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        },
-        "project_unit_usfm_imports_book_id_books_id_fk": {
-          "name": "project_unit_usfm_imports_book_id_books_id_fk",
-          "tableFrom": "project_unit_usfm_imports",
           "tableTo": "books",
           "columnsFrom": ["book_id"],
           "columnsTo": ["id"],

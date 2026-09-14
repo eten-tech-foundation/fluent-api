@@ -8,9 +8,13 @@ The failures showed heading words appended to the preceding verse, missing impor
 
 The final review also found two compatibility regressions involving semantic divisions: valid textless `sd` input blocked materialization, and legacy stored `sd` entries containing text broke chapter reads. Seven additional failing regressions reproduced these cases, including all five `sd` spellings. After the correction, all 53 tests in the four affected suites passed. The PostgreSQL smoke also reproduced the valid-file import failure and passed after the correction.
 
+A follow-up review found that the five semantic-division spellings were duplicated, the write schema still accepted text that the legacy-compatible serializer must omit, and a final heading with no following verse was discarded. Seven regressions now cover the canonical marker list, rejection of new text-bearing `sd` headings, and explicit rejection of a trailing heading. The four affected suites pass all 72 tests.
+
 ## Local checks
 
 On Node 24.14.0, the initial implementation passed all precheck commands (`npm run lint`, `npm run format:check`, `npm run typecheck`, and `npm test -- --run`): ESLint reported no errors, Prettier and TypeScript passed, and all 600 tests in 66 files passed. ESLint still reports three existing file-length warnings in the verse-audio repository and service files. `npm run build` and the documentation-structure check also passed. After the semantic-division fix, the four affected suites passed all 53 tests, and focused ESLint, Prettier, TypeScript and diff checks passed again.
+
+After synchronizing the updated import base and addressing the follow-up review, the full precheck passes all 669 tests in 70 files with the same three existing warnings. The production build, `drizzle-kit check`, and the diff whitespace check also pass.
 
 ## PostgreSQL round trip
 
@@ -33,4 +37,4 @@ This tests database persistence and service contracts; it is not a browser or ro
 
 ## CI scope
 
-The feature is stacked on the open USFM import PR. The repository's full pre-merge workflow runs only for non-draft PRs targeting `main`; it does not validate a draft against the import branch. Local validation is recorded here until the dependency lands and the PR is retargeted.
+The feature is stacked on the open USFM import PR. The repository's full pre-merge workflow runs only for PRs targeting `main`, so local validation remains the complete gate until the dependency lands and this PR is retargeted.

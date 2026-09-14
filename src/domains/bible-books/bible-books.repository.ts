@@ -13,6 +13,8 @@ import type { BibleBook, BibleBookWithDetails, CreateBibleBookInput } from './bi
 const bibleBookSelect = {
   bibleId: bible_books.bibleId,
   bookId: bible_books.bookId,
+  hasAudio: bible_books.hasAudio,
+  textIngestedAt: bible_books.textIngestedAt,
   createdAt: bible_books.createdAt,
   updatedAt: bible_books.updatedAt,
   book: {

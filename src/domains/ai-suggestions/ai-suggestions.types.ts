@@ -1,6 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
-import { verseHeadingSchema } from '@/db/schema';
+import { verseHeadingTextSchema } from '@/db/schema';
 
 export const pericopeNumberSchema = z
   .string()
@@ -39,7 +39,7 @@ export const pericopeQuerySchema = pericopeRequestSchema.extend({
 export const pericopeSuggestionResponseSchema = z.object({
   pericopeNumber: pericopeNumberSchema,
   bibleTextId: z.number().int().positive(),
-  suggestedText: verseHeadingSchema.shape.text,
+  suggestedText: verseHeadingTextSchema,
   modelInfo: z.string().max(100).nullable().optional(),
 });
 export const pericopeSuggestionsResponseSchema = z.object({
@@ -109,16 +109,25 @@ export type TrackUsageRequest = z.infer<typeof trackUsageRequestSchema>;
 
 // ─── Internal (machine-facing) schemas ────────────────────────────────────────
 
-export const suggestionContextRequestSchema = z.object({
-  projectUnitId: z.number().int().positive(),
-  bibleId: z.number().int().positive(),
-  bookCode: z.string().min(3).max(4),
-  chapterNumber: z.number().int().positive(),
-  verseStart: z.number().int().positive(),
-  verseEnd: z.number().int().positive(),
-  pericopeNumber: pericopeNumberSchema.optional(),
-  pericopeSetId: z.number().int().positive().optional(),
-});
+export const suggestionContextRequestSchema = z
+  .object({
+    projectUnitId: z.number().int().positive(),
+    bibleId: z.number().int().positive(),
+    bookCode: z.string().min(3).max(4),
+    chapterNumber: z.number().int().positive(),
+    verseStart: z.number().int().positive(),
+    verseEnd: z.number().int().positive(),
+    pericopeNumber: pericopeNumberSchema.optional(),
+    pericopeSetId: z.number().int().positive().optional(),
+  })
+  .refine(
+    ({ pericopeNumber, pericopeSetId }) =>
+      (pericopeNumber === undefined) === (pericopeSetId === undefined),
+    {
+      path: ['pericopeSetId'],
+      message: 'pericopeNumber and pericopeSetId must be provided together',
+    }
+  );
 
 export type SuggestionContextRequest = z.infer<typeof suggestionContextRequestSchema>;
 

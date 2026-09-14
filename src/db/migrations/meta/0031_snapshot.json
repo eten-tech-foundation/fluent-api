@@ -1,6 +1,6 @@
 {
-  "id": "39cbd9cd-ec92-4b13-86a3-05ceabb1322e",
-  "prevId": "af942093-a73e-4844-902e-66d138a8dda9",
+  "id": "29478a6e-131b-46bb-9fa6-7cda059066f3",
+  "prevId": "b8b2ca3a-a17c-43a2-baa3-76ae95e14a2c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -78,6 +78,264 @@
           "columns": ["chapter_assignment_id", "user_id"]
         }
       },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ai_pericope_suggestion_usage": {
+      "name": "ai_pericope_suggestion_usage",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "suggestion_id": {
+          "name": "suggestion_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "was_used": {
+          "name": "was_used",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_ai_pericope_usage_user": {
+          "name": "uq_ai_pericope_usage_user",
+          "columns": [
+            {
+              "expression": "suggestion_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ai_pericope_suggestion_usage_suggestion_id_ai_pericope_suggestions_id_fk": {
+          "name": "ai_pericope_suggestion_usage_suggestion_id_ai_pericope_suggestions_id_fk",
+          "tableFrom": "ai_pericope_suggestion_usage",
+          "tableTo": "ai_pericope_suggestions",
+          "columnsFrom": ["suggestion_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_pericope_suggestion_usage_user_id_users_id_fk": {
+          "name": "ai_pericope_suggestion_usage_user_id_users_id_fk",
+          "tableFrom": "ai_pericope_suggestion_usage",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ai_pericope_suggestions": {
+      "name": "ai_pericope_suggestions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_unit_id": {
+          "name": "project_unit_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bible_id": {
+          "name": "bible_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bible_text_id": {
+          "name": "bible_text_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pericope_set_id": {
+          "name": "pericope_set_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "book_id": {
+          "name": "book_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chapter_number": {
+          "name": "chapter_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pericope_number": {
+          "name": "pericope_number",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "suggested_text": {
+          "name": "suggested_text",
+          "type": "varchar(300)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model_info": {
+          "name": "model_info",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_ai_pericope_suggestion": {
+          "name": "uq_ai_pericope_suggestion",
+          "columns": [
+            {
+              "expression": "project_unit_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "bible_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pericope_set_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "book_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "chapter_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pericope_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ai_pericope_suggestions_project_unit_id_project_units_id_fk": {
+          "name": "ai_pericope_suggestions_project_unit_id_project_units_id_fk",
+          "tableFrom": "ai_pericope_suggestions",
+          "tableTo": "project_units",
+          "columnsFrom": ["project_unit_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_pericope_suggestions_bible_id_bibles_id_fk": {
+          "name": "ai_pericope_suggestions_bible_id_bibles_id_fk",
+          "tableFrom": "ai_pericope_suggestions",
+          "tableTo": "bibles",
+          "columnsFrom": ["bible_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ai_pericope_suggestions_bible_text_id_bible_texts_id_fk": {
+          "name": "ai_pericope_suggestions_bible_text_id_bible_texts_id_fk",
+          "tableFrom": "ai_pericope_suggestions",
+          "tableTo": "bible_texts",
+          "columnsFrom": ["bible_text_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_pericope_suggestions_pericope_set_id_pericope_sets_id_fk": {
+          "name": "ai_pericope_suggestions_pericope_set_id_pericope_sets_id_fk",
+          "tableFrom": "ai_pericope_suggestions",
+          "tableTo": "pericope_sets",
+          "columnsFrom": ["pericope_set_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ai_pericope_suggestions_book_id_books_id_fk": {
+          "name": "ai_pericope_suggestions_book_id_books_id_fk",
+          "tableFrom": "ai_pericope_suggestions",
+          "tableTo": "books",
+          "columnsFrom": ["book_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -780,6 +1038,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "text_ingested_at": {
+          "name": "text_ingested_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "has_audio": {
           "name": "has_audio",

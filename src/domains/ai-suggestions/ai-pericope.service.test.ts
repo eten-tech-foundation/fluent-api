@@ -59,6 +59,7 @@ let context: PericopeContext;
 describe('pericope AI suggestions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    send.mockReset();
     send.mockResolvedValue('job');
     context = {
       pericopeSetId: 5,
@@ -159,8 +160,11 @@ describe('pericope AI suggestions', () => {
     context.groups[0].suggestion = {
       id: 1,
       projectUnitId: 1,
-      bibleTextId: 101,
+      bibleId: 2,
+      bibleTextId: 102,
       pericopeSetId: 5,
+      bookId: 1,
+      chapterNumber: 1,
       pericopeNumber: '4a',
       suggestedText: 'The creation',
       modelInfo: null,
@@ -191,8 +195,11 @@ describe('pericope AI suggestions', () => {
   it('propagates queue failures, but accepts singleton deduplication', async () => {
     send.mockRejectedValueOnce(new Error('queue unavailable'));
     expect((await queuePericopes(request)).ok).toBe(false);
+    expect(send).toHaveBeenCalledTimes(5);
+    send.mockClear();
     send.mockResolvedValue(null);
     expect((await queuePericopes(request)).ok).toBe(true);
+    expect(send).toHaveBeenCalledTimes(5);
   });
 
   it('derives heading context and removes non-group source verses from a sparse range', async () => {
@@ -228,6 +235,7 @@ describe('pericope AI suggestions', () => {
   it.each([
     { verseStart: 2, verseEnd: 5, pericopeSetId: 5 },
     { verseStart: 1, verseEnd: 5, pericopeSetId: 6 },
+    { verseStart: 1, verseEnd: 5, pericopeSetId: undefined },
   ])('rejects mismatched ranges and old-set jobs', async (fields) => {
     expect((await getSuggestionContext({ ...request, ...fields, pericopeNumber: '4a' })).ok).toBe(
       false
@@ -250,6 +258,7 @@ describe('pericope AI suggestions', () => {
       verseStart: 1,
       verseEnd: 5,
       pericopeNumber: '4a',
+      pericopeSetId: 5,
     });
     expect(result.ok && result.data.sectionHeading).toBeNull();
   });

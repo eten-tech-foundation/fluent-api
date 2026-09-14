@@ -238,9 +238,87 @@ describe.skipIf(!process.env.PERICOPE_TEST_DATABASE_URL)(
       expect(scripture[1].markers?.headings?.[0].text).toBe('An authored heading');
     });
 
-    it('ignores title-less groups and authored headings, rejects mismatched first verse and old-set results', async () => {
+    it('keeps one cached title when a missing first verse is backfilled', async () => {
+      await db
+        .insert(schema.chapter_assignments)
+        .values({ projectUnitId, bibleId, bookId, chapterNumber: 2, isAiEnabled: true });
+      await db.insert(schema.pericope_verses).values(
+        [1, 2].map((verseNumber) => ({
+          pericopeSetId,
+          bookId,
+          chapterNumber: 2,
+          verseNumber,
+          section: null,
+          pericopeNumber: '9a',
+          pericopeTitle: 'A stable title',
+        }))
+      );
+      const [secondVerse] = await db
+        .insert(schema.bible_texts)
+        .values({ bibleId, bookId, chapterNumber: 2, verseNumber: 2, text: 'Second verse' })
+        .returning();
+      const result = {
+        projectUnitId,
+        bibleTextId: secondVerse.id,
+        pericopeSetId,
+        pericopeNumber: '9a',
+        suggestedText: 'The cached title',
+        modelInfo: 'test-model',
+      };
+      expect((await savePericopeSuggestion(result)).ok).toBe(true);
+
+      const [firstVerse] = await db
+        .insert(schema.bible_texts)
+        .values({ bibleId, bookId, chapterNumber: 2, verseNumber: 1, text: 'First verse' })
+        .returning();
+      const afterBackfill = await resolvePericopes({
+        projectUnitId,
+        bibleId,
+        bookCode: 'GEN',
+        chapterNumber: 2,
+        pericopeNumbers: ['9a'],
+      });
+      expect(afterBackfill.ok && afterBackfill.data.groups[0].verses[0].bibleTextId).toBe(
+        firstVerse.id
+      );
+      expect(afterBackfill.ok && afterBackfill.data.groups[0].suggestion?.suggestedText).toBe(
+        'The cached title'
+      );
       expect(
-        (await savePericopeSuggestion({ ...heading(), bibleTextId: bibleTextIds[1] })).ok
+        (
+          await savePericopeSuggestion({
+            ...result,
+            bibleTextId: firstVerse.id,
+            suggestedText: 'Must not replace the cache',
+          })
+        ).ok
+      ).toBe(true);
+      expect(
+        await db
+          .select()
+          .from(schema.ai_pericope_suggestions)
+          .where(
+            and(
+              eq(schema.ai_pericope_suggestions.projectUnitId, projectUnitId),
+              eq(schema.ai_pericope_suggestions.chapterNumber, 2)
+            )
+          )
+      ).toHaveLength(1);
+      expect(
+        (
+          await logPericopeUsage(userId, {
+            projectUnitId,
+            bibleTextId: firstVerse.id,
+            pericopeNumber: '9a',
+            wasUsed: false,
+          })
+        ).ok
+      ).toBe(true);
+    });
+
+    it('ignores title-less groups and authored headings, rejects another group, and stores old-set results', async () => {
+      expect(
+        (await savePericopeSuggestion({ ...heading(), bibleTextId: bibleTextIds[3] })).ok
       ).toBe(false);
       expect(
         (
@@ -276,12 +354,20 @@ describe.skipIf(!process.env.PERICOPE_TEST_DATABASE_URL)(
             eq(schema.translated_verses.bibleTextId, bibleTextIds[0])
           )
         );
-      await savePericopeSuggestion(heading());
+      await db
+        .delete(schema.ai_pericope_suggestions)
+        .where(eq(schema.ai_pericope_suggestions.projectUnitId, projectUnitId));
       await db
         .update(schema.projects)
         .set({ pericopeSetId: otherSetId })
         .where(eq(schema.projects.id, projectId));
-      expect((await savePericopeSuggestion(heading())).ok).toBe(false);
+      expect((await savePericopeSuggestion(heading())).ok).toBe(true);
+      const storedOldSet = await db
+        .select()
+        .from(schema.ai_pericope_suggestions)
+        .where(eq(schema.ai_pericope_suggestions.projectUnitId, projectUnitId));
+      expect(storedOldSet).toHaveLength(1);
+      expect(storedOldSet[0].pericopeSetId).toBe(pericopeSetId);
       const current = await resolvePericopes({ ...query(), pericopeNumbers: ['1_4a', '2_4a'] });
       expect(current.ok && current.data.groups[0].suggestion).toBeNull();
       expect(

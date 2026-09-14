@@ -101,6 +101,74 @@ beforeEach(() => {
 });
 
 describe('createProject from USFM files (#419)', () => {
+  it('queues imported books until source ingestion is explicitly complete', async () => {
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([
+      { id: 1, code: 'GEN' },
+      { id: 40, code: 'MAT' },
+    ] as never);
+    const send = vi.fn();
+    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+
+    await createProject({ ...BASE, usfmFiles: FILES });
+
+    expect(db.selectDistinct).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(
+      'dbl-ingest-text-priority',
+      { projectId: 500, bibleId: 3, bookCodes: ['GEN', 'MAT'] },
+      { priority: 10 }
+    );
+  });
+
+  it('does not requeue an imported book whose source ingestion is complete', async () => {
+    vi.mocked(db.select).mockReturnValueOnce({
+      from: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([{ bookId: 1 }]) }),
+    } as never);
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([
+      { id: 1, code: 'GEN' },
+      { id: 40, code: 'MAT' },
+    ] as never);
+    const send = vi.fn();
+    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+
+    await createProject({ ...BASE, usfmFiles: FILES });
+
+    expect(send).toHaveBeenCalledWith(
+      'dbl-ingest-text-priority',
+      { projectId: 500, bibleId: 3, bookCodes: ['MAT'] },
+      { priority: 10 }
+    );
+  });
+
+  it('materializes imports when another worker completes during the queue decision', async () => {
+    let sourceComplete = false;
+    vi.mocked(db.select).mockReturnValueOnce({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn(async () => {
+          sourceComplete = true;
+          return [{ bookId: 1 }, { bookId: 40 }];
+        }),
+      }),
+    } as never);
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([
+      { id: 1, code: 'GEN' },
+      { id: 40, code: 'MAT' },
+    ] as never);
+    vi.mocked(usfmImportService.materializePendingUsfmImports).mockImplementationOnce(async () =>
+      ok({ materialized: sourceComplete ? 2 : 0, pending: sourceComplete ? 0 : 2 })
+    );
+    const send = vi.fn();
+    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+
+    await createProject({ ...BASE, usfmFiles: FILES });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith('Imported USFM materialised at project creation', {
+      projectId: 500,
+      materialized: 2,
+      pending: 0,
+    });
+  });
+
   it('creates the project for the books the files carry, not the ones the client listed', async () => {
     const result = await createProject({ ...BASE, usfmFiles: FILES });
 

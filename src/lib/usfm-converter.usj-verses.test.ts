@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { USJDocument } from '@/lib/types';
+
+import { logger } from '@/lib/logger';
+import { ErrorCode } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
 
@@ -22,8 +27,14 @@ const GENESIS = [
 function versesOf(usfm: string) {
   const usj = convertUSFMToUSJ(usfm);
   if (!usj.ok) throw new Error(usj.error.message);
-  return usjToVerseTexts(usj.data);
+  const verses = usjToVerseTexts(usj.data);
+  if (!verses.ok) throw new Error(verses.error.message);
+  return verses.data;
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('usjToVerseTexts (#419)', () => {
   it('yields one entry per verse with its chapter, across chapters', () => {
@@ -115,7 +126,51 @@ describe('usjToVerseTexts (#419)', () => {
     expect(verses.map((v) => v.verseNumber)).toEqual([1, 2]);
   });
 
+  it('warns about unsupported container nodes and preserves their verse text', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const usj = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'book', marker: 'id', code: 'GEN' },
+        { type: 'chapter', marker: 'c', number: '1' },
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'row',
+              content: [
+                {
+                  type: 'cell',
+                  content: [{ type: 'verse', marker: 'v', number: '1' }, 'Table verse text.'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as USJDocument;
+
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' }],
+    });
+    expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
+      type: 'table',
+    });
+  });
+
   it('returns nothing for a file with markers but no verses', () => {
     expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
+  });
+
+  it('rejects a heading with no following verse instead of discarding it', () => {
+    const usj = convertUSFMToUSJ('\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Appendix');
+    if (!usj.ok) throw new Error(usj.error.message);
+
+    expect(usjToVerseTexts(usj.data)).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.USFM_INVALID },
+    });
   });
 });

@@ -93,6 +93,12 @@ describe('ai-suggestions internal routes', () => {
       expect(json.message).toBe('Invalid JSON payload');
     });
 
+    it('requires the pericope set whenever a pericope number is provided', async () => {
+      const res = await postContext({ ...VALID_CONTEXT_BODY, pericopeNumber: '4a' });
+      expect(res.status).toBe(400);
+      expect(aiSuggestionsService.getSuggestionContext).not.toHaveBeenCalled();
+    });
+
     it('returns 200 with context data on success', async () => {
       const mockData = {
         targetLanguageName: 'Hindi',

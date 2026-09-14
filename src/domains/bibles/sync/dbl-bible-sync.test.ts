@@ -30,6 +30,7 @@ function bible(overrides: {
   langId: string;
   abbreviation?: string;
   abbreviationLocal?: string;
+  audioBibles?: { id: string }[];
 }): DblBibleSummary {
   return {
     id: overrides.id,
@@ -44,6 +45,7 @@ function bible(overrides: {
       script: 'Latin',
       scriptDirection: 'LTR',
     },
+    audioBibles: overrides.audioBibles,
   } as DblBibleSummary;
 }
 
@@ -59,6 +61,7 @@ function fakeClient(bibles: DblBibleSummary[]): DblClient {
     getVerse: vi.fn(),
     getPassage: vi.fn(),
     getAudioChapter: vi.fn(),
+    getAudioBibleBooks: vi.fn(),
   };
 }
 
@@ -152,6 +155,24 @@ describe('syncBiblesFromDbl', () => {
     expect(mockUpsertFromDbl).toHaveBeenCalledWith([
       expect.objectContaining({ languageId: 100, externalId: 'b1', abbreviation: 'B1L' }),
       expect.objectContaining({ languageId: 100, externalId: 'b2', abbreviation: 'B2A' }),
+    ]);
+  });
+
+  it('correctly maps hasAudio to true if audioBibles exist, false otherwise', async () => {
+    mockUpsertFromDbl.mockResolvedValue(ok({ inserted: 2, updated: 0 }));
+    const client = fakeClient([
+      bible({ id: 'b1', langId: 'eng', audioBibles: [{ id: 'ab1' }] }),
+      bible({ id: 'b2', langId: 'eng', audioBibles: [] }),
+      bible({ id: 'b3', langId: 'eng' }), // audioBibles undefined
+    ]);
+
+    const result = await syncBiblesFromDbl(client);
+
+    expect(result.ok).toBe(true);
+    expect(mockUpsertFromDbl).toHaveBeenCalledWith([
+      expect.objectContaining({ externalId: 'b1', hasAudio: true }),
+      expect.objectContaining({ externalId: 'b2', hasAudio: false }),
+      expect.objectContaining({ externalId: 'b3', hasAudio: false }),
     ]);
   });
 });

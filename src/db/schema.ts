@@ -226,6 +226,7 @@ export const bibles = pgTable(
     abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
     provider: bibleProviderEnum('provider').notNull().default('dbl'),
     externalId: varchar('external_id', { length: 255 }),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -298,6 +299,9 @@ export const bible_books = pgTable(
     bookId: integer('book_id')
       .notNull()
       .references(() => books.id),
+    // Set only after the full source book is ingested, never from partial verse presence.
+    textIngestedAt: timestamp('text_ingested_at'),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -388,6 +392,8 @@ export const bible_texts = pgTable(
 // paragraph the editor can legitimately author round-trips; introduction markers
 // (`ip`, `io1`, …) are absent because they precede \c 1 and cannot open inside a
 // verse.
+export const USFM_SEMANTIC_DIVISION_MARKERS = ['sd', 'sd1', 'sd2', 'sd3', 'sd4'] as const;
+
 // prettier-ignore
 export const USFM_PARAGRAPH_MARKERS = [
   // Prose
@@ -398,7 +404,7 @@ export const USFM_PARAGRAPH_MARKERS = [
   // Lists
   'lh', 'li', 'li1', 'li2', 'li3', 'li4', 'lf', 'lim', 'lim1', 'lim2', 'lim3', 'lim4',
   // Headings and titles, which open a paragraph of their own before the verse
-  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
   // Tables and explicit page breaks
   'tr', 'pb',
@@ -424,11 +430,7 @@ export const USFM_HEADING_MARKERS = [
   'r',
   'd',
   'sp',
-  'sd',
-  'sd1',
-  'sd2',
-  'sd3',
-  'sd4',
+  ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms',
   'ms1',
   'ms2',
@@ -438,22 +440,31 @@ export const USFM_HEADING_MARKERS = [
   'cl',
 ] as const;
 
+const usfmSemanticDivisionMarkerSet = new Set<string>(USFM_SEMANTIC_DIVISION_MARKERS);
+
 /**
  * One heading block emitted before the verse. `text` is the heading's own words, which no
  * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
  * text, and a heading belongs to no verse (fluent-web#397).
  */
-export const verseHeadingSchema = z.object({
-  marker: z.enum(USFM_HEADING_MARKERS),
-  text: z
-    .string()
-    .trim()
-    .min(1)
-    // The value is written straight into the USFM stream, so it can carry neither a marker
-    // escape nor a line break.
-    .max(300)
-    .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
-});
+export const verseHeadingTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  // The value is written straight into the USFM stream, so it can carry neither a marker
+  // escape nor a line break.
+  .max(300)
+  .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks');
+
+export const verseHeadingSchema = z
+  .object({
+    marker: z.enum(USFM_HEADING_MARKERS),
+    text: verseHeadingTextSchema,
+  })
+  .refine(({ marker }) => !usfmSemanticDivisionMarkerSet.has(marker), {
+    path: ['marker'],
+    message: 'semantic division markers cannot carry heading text',
+  });
 
 export const verseMarkersSchema = z
   .object({
@@ -968,12 +979,19 @@ export const ai_pericope_suggestions = pgTable(
     projectUnitId: integer('project_unit_id')
       .notNull()
       .references(() => project_units.id, { onDelete: 'cascade' }),
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
     bibleTextId: integer('bible_text_id')
       .notNull()
       .references(() => bible_texts.id, { onDelete: 'cascade' }),
     pericopeSetId: integer('pericope_set_id')
       .notNull()
       .references(() => pericope_sets.id, { onDelete: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    chapterNumber: integer('chapter_number').notNull(),
     pericopeNumber: varchar('pericope_number', { length: 100 }).notNull(),
     suggestedText: varchar('suggested_text', { length: 300 }).notNull(),
     modelInfo: varchar('model_info', { length: 100 }),
@@ -982,8 +1000,10 @@ export const ai_pericope_suggestions = pgTable(
   (table) => [
     uniqueIndex('uq_ai_pericope_suggestion').on(
       table.projectUnitId,
-      table.bibleTextId,
+      table.bibleId,
       table.pericopeSetId,
+      table.bookId,
+      table.chapterNumber,
       table.pericopeNumber
     ),
   ]
@@ -1156,6 +1176,7 @@ export const insertBibleBooksSchema = createInsertSchema(bible_books)
     bookId: true,
   })
   .omit({
+    textIngestedAt: true,
     createdAt: true,
     updatedAt: true,
   });

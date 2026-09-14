@@ -201,15 +201,29 @@
     {
       "idx": 28,
       "version": "7",
-      "when": 1788849706258,
-      "tag": "0028_add_usfm_imports",
+      "when": 1788971960061,
+      "tag": "0028_add_audio_availability",
       "breakpoints": true
     },
     {
       "idx": 29,
       "version": "7",
-      "when": 1788984553194,
-      "tag": "0029_add_pericope_ai_suggestions",
+      "when": 1789405033213,
+      "tag": "0029_add_usfm_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789407322212,
+      "tag": "0030_add_bible_book_text_ingestion_completion",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789409604361,
+      "tag": "0031_add_pericope_ai_suggestions",
       "breakpoints": true
     }
   ]

@@ -46,6 +46,14 @@ export interface PericopeContext {
 
 /** Resolve exact source-backed verses from the project's current set, never a client range. */
 export async function resolvePericopes(params: PericopeRequest): Promise<Result<PericopeContext>> {
+  return resolvePericopesForSet(params);
+}
+
+/** Resolve against an explicit set when accepting a result from an already queued job. */
+async function resolvePericopesForSet(
+  params: PericopeRequest,
+  requestedPericopeSetId?: number
+): Promise<Result<PericopeContext>> {
   const [context] = await db
     .select({
       pericopeSetId: projects.pericopeSetId,
@@ -76,7 +84,9 @@ export async function resolvePericopes(params: PericopeRequest): Promise<Result<
       )
     )
     .limit(1);
-  if (!context?.pericopeSetId) return err(ErrorCode.INVALID_REFERENCE);
+  if (!context) return err(ErrorCode.INVALID_REFERENCE);
+  const pericopeSetId = requestedPericopeSetId ?? context.pericopeSetId;
+  if (!pericopeSetId) return err(ErrorCode.INVALID_REFERENCE);
 
   const rows = await db
     .select({
@@ -115,7 +125,7 @@ export async function resolvePericopes(params: PericopeRequest): Promise<Result<
     )
     .where(
       and(
-        eq(pericope_verses.pericopeSetId, context.pericopeSetId),
+        eq(pericope_verses.pericopeSetId, pericopeSetId),
         eq(pericope_verses.bookId, context.bookId),
         eq(pericope_verses.chapterNumber, params.chapterNumber)
       )
@@ -146,29 +156,25 @@ export async function resolvePericopes(params: PericopeRequest): Promise<Result<
     .where(
       and(
         eq(ai_pericope_suggestions.projectUnitId, params.projectUnitId),
-        eq(ai_pericope_suggestions.pericopeSetId, context.pericopeSetId),
-        inArray(
-          ai_pericope_suggestions.bibleTextId,
-          groups.map((group) => group.verses[0].bibleTextId)
-        ),
+        eq(ai_pericope_suggestions.bibleId, params.bibleId),
+        eq(ai_pericope_suggestions.pericopeSetId, pericopeSetId),
+        eq(ai_pericope_suggestions.bookId, context.bookId),
+        eq(ai_pericope_suggestions.chapterNumber, params.chapterNumber),
         inArray(ai_pericope_suggestions.pericopeNumber, params.pericopeNumbers)
       )
     );
   for (const group of groups) {
     group.suggestion =
-      suggestions.find(
-        (suggestion) =>
-          suggestion.pericopeNumber === group.pericopeNumber &&
-          suggestion.bibleTextId === group.verses[0].bibleTextId
-      ) ?? null;
+      suggestions.find((suggestion) => suggestion.pericopeNumber === group.pericopeNumber) ?? null;
   }
-  return ok({ pericopeSetId: context.pericopeSetId, isAiEnabled: context.isAiEnabled, groups });
+  return ok({ pericopeSetId, isAiEnabled: context.isAiEnabled, groups });
 }
 
 export async function savePericopeSuggestion(item: PericopeSuggestionItem): Promise<Result<void>> {
   const [verse] = await db
     .select({
       bibleId: bible_texts.bibleId,
+      bookId: bible_texts.bookId,
       bookCode: books.code,
       chapterNumber: bible_texts.chapterNumber,
     })
@@ -177,23 +183,31 @@ export async function savePericopeSuggestion(item: PericopeSuggestionItem): Prom
     .where(eq(bible_texts.id, item.bibleTextId))
     .limit(1);
   if (!verse) return err(ErrorCode.INVALID_REFERENCE);
-  const resolved = await resolvePericopes({
-    ...verse,
-    projectUnitId: item.projectUnitId,
-    pericopeNumbers: [item.pericopeNumber],
-  });
+  const resolved = await resolvePericopesForSet(
+    {
+      ...verse,
+      projectUnitId: item.projectUnitId,
+      pericopeNumbers: [item.pericopeNumber],
+    },
+    item.pericopeSetId
+  );
   if (!resolved.ok) return resolved;
   const group = resolved.data.groups[0];
-  if (
-    resolved.data.pericopeSetId !== item.pericopeSetId ||
-    group.verses[0].bibleTextId !== item.bibleTextId
-  ) {
+  if (!group.verses.some((verse) => verse.bibleTextId === item.bibleTextId)) {
     return err(ErrorCode.INVALID_REFERENCE);
   }
   // A drafter may have written a heading while the model was generating.
   if (!resolved.data.isAiEnabled || !group.sourceTitle || group.verses[0].hasAuthoredHeading)
     return ok(undefined);
-  await db.insert(ai_pericope_suggestions).values(item).onConflictDoNothing();
+  await db
+    .insert(ai_pericope_suggestions)
+    .values({
+      ...item,
+      bibleId: verse.bibleId,
+      bookId: verse.bookId,
+      chapterNumber: verse.chapterNumber,
+    })
+    .onConflictDoNothing();
   return ok(undefined);
 }
 
@@ -201,29 +215,30 @@ export async function logPericopeUsage(
   userId: number,
   data: PericopeUsageRequest
 ): Promise<Result<void>> {
-  const [suggestion] = await db
-    .select({ id: ai_pericope_suggestions.id })
-    .from(ai_pericope_suggestions)
-    .innerJoin(project_units, eq(project_units.id, ai_pericope_suggestions.projectUnitId))
-    .innerJoin(
-      projects,
-      and(
-        eq(projects.id, project_units.projectId),
-        eq(projects.pericopeSetId, ai_pericope_suggestions.pericopeSetId)
-      )
-    )
-    .where(
-      and(
-        eq(ai_pericope_suggestions.projectUnitId, data.projectUnitId),
-        eq(ai_pericope_suggestions.bibleTextId, data.bibleTextId),
-        eq(ai_pericope_suggestions.pericopeNumber, data.pericopeNumber)
-      )
-    )
+  const [verse] = await db
+    .select({
+      bibleId: bible_texts.bibleId,
+      bookCode: books.code,
+      chapterNumber: bible_texts.chapterNumber,
+    })
+    .from(bible_texts)
+    .innerJoin(books, eq(books.id, bible_texts.bookId))
+    .where(eq(bible_texts.id, data.bibleTextId))
     .limit(1);
-  if (!suggestion) return err(ErrorCode.INVALID_REFERENCE);
+  if (!verse) return err(ErrorCode.INVALID_REFERENCE);
+  const resolved = await resolvePericopes({
+    ...verse,
+    projectUnitId: data.projectUnitId,
+    pericopeNumbers: [data.pericopeNumber],
+  });
+  if (!resolved.ok) return resolved;
+  const group = resolved.data.groups[0];
+  if (group.verses[0].bibleTextId !== data.bibleTextId || !group.suggestion) {
+    return err(ErrorCode.INVALID_REFERENCE);
+  }
   await db
     .insert(ai_pericope_suggestion_usage)
-    .values({ suggestionId: suggestion.id, userId, wasUsed: data.wasUsed })
+    .values({ suggestionId: group.suggestion.id, userId, wasUsed: data.wasUsed })
     .onConflictDoUpdate({
       target: [ai_pericope_suggestion_usage.suggestionId, ai_pericope_suggestion_usage.userId],
       // A late exposure request must never downgrade a previously accepted title.

@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { USFM_SEMANTIC_DIVISION_MARKERS } from '@/db/schema';
 import { convertUSFMToUSJ } from '@/lib/usfm-converter';
 
 import type { BookFields, VerseData } from './usfm.types';
 
 import { createUSFMStreamForBook } from './usfm.service';
-
-const SEMANTIC_DIVISION_MARKERS = ['sd', 'sd1', 'sd2', 'sd3', 'sd4'] as const;
 
 async function renderUSFM(
   verses: VerseData[],
@@ -238,7 +237,7 @@ describe('createUSFMStreamForBook', () => {
     expect(heading.content.join('').trim()).toBe('The Creation');
   });
 
-  it.each(SEMANTIC_DIVISION_MARKERS)(
+  it.each(USFM_SEMANTIC_DIVISION_MARKERS)(
     'renders a legacy %s heading as a valid textless semantic division',
     async (marker) => {
       const usfm = await renderUSFM([
