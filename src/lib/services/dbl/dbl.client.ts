@@ -298,6 +298,12 @@ export interface DblClient {
     chapterId: string,
     options?: DblRequestOptions
   ) => Promise<Result<DblAudioChapter>>;
+  /** GET /audio-bibles/{audioBibleId}/books — lists which books have audio available. */
+  getAudioBibleBooks: (
+    audioBibleId: string,
+    params?: DblListBooksParams,
+    options?: DblRequestOptions
+  ) => Promise<Result<DblBook[]>>;
 }
 
 // ─── Factory ───────────────────────────────────────────────────────────────
@@ -414,6 +420,19 @@ export function createDblClient(config: DblClientConfig): DblClient {
         `audio-bibles/${encodeURIComponent(audioBibleId)}/chapters/${encodeURIComponent(chapterId)}`,
         {},
         dblAudioChapterSchema,
+        options
+      );
+    },
+
+    getAudioBibleBooks(audioBibleId, params, options) {
+      return dblRequest(
+        config,
+        `audio-bibles/${encodeURIComponent(audioBibleId)}/books`,
+        {
+          'include-chapters': params?.includeChapters,
+          'include-chapters-and-sections': params?.includeChaptersAndSections,
+        },
+        dblBookSchema.array(),
         options
       );
     },

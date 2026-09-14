@@ -226,6 +226,7 @@ export const bibles = pgTable(
     abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
     provider: bibleProviderEnum('provider').notNull().default('dbl'),
     externalId: varchar('external_id', { length: 255 }),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -298,6 +299,7 @@ export const bible_books = pgTable(
     bookId: integer('book_id')
       .notNull()
       .references(() => books.id),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
