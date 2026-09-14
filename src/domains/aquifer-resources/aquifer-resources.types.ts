@@ -139,7 +139,10 @@ export const bibleTextsQuerySchema = z.object({
     .openapi({ description: 'End chapter number', example: 1 }),
   includeAudio: z
     .preprocess((val) => {
-      if (typeof val === 'string') return val === 'true' || val === '1';
+      if (typeof val === 'string') {
+        if (val === 'true' || val === '1') return true;
+        if (val === 'false' || val === '0') return false;
+      }
       return val;
     }, z.boolean())
     .optional()
