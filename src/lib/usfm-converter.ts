@@ -5,7 +5,7 @@ import type { Result, USJDocument, USJNode } from '@/lib/types';
 
 import { USFM_HEADING_MARKERS } from '@/db/schema';
 import { logger } from '@/lib/logger';
-import { ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { isUSFMSemanticDivisionMarker, serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
 
 const { USFMParser } = usfmGrammar;
@@ -115,9 +115,10 @@ export interface UsjVerseText {
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
  * is filed under its first number. Heading words and anything before the first verse are not
  * included in verse text. Supported headings are preserved as markers on the following verse;
- * other unsupported structure remains available in the raw imported file.
+ * other unsupported structure remains available in the raw imported file. A heading without a
+ * following verse is invalid because there is no verse row that can retain it.
  */
-export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
+export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   const verses: UsjVerseText[] = [];
   const headingMarkers = new Set<string>(USFM_HEADING_MARKERS);
   let chapter: number | null = null;
@@ -217,7 +218,8 @@ export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
 
   walk(usj.content);
   flush();
-  return verses;
+  if (pendingHeadings.length > 0) return err(ErrorCode.USFM_INVALID);
+  return ok(verses);
 }
 
 export { convertUSFMToUSJ, generateUSFMText };

@@ -106,6 +106,14 @@ describe('parseUsfmFiles (#419)', () => {
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
   });
 
+  it('rejects a trailing heading that no verse can retain', async () => {
+    const result = await parseUsfmFiles([
+      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: `${GEN}\n\\s1 Appendix` },
+    ]);
+
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
+  });
+
   it('rejects a book the catalogue does not know', async () => {
     const result = await parseUsfmFiles([{ fileName: 'x.usfm', bookCode: 'ZZZ', usfm: GEN }]);
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });

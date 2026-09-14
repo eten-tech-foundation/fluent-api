@@ -392,6 +392,8 @@ export const bible_texts = pgTable(
 // paragraph the editor can legitimately author round-trips; introduction markers
 // (`ip`, `io1`, …) are absent because they precede \c 1 and cannot open inside a
 // verse.
+export const USFM_SEMANTIC_DIVISION_MARKERS = ['sd', 'sd1', 'sd2', 'sd3', 'sd4'] as const;
+
 // prettier-ignore
 export const USFM_PARAGRAPH_MARKERS = [
   // Prose
@@ -402,7 +404,7 @@ export const USFM_PARAGRAPH_MARKERS = [
   // Lists
   'lh', 'li', 'li1', 'li2', 'li3', 'li4', 'lf', 'lim', 'lim1', 'lim2', 'lim3', 'lim4',
   // Headings and titles, which open a paragraph of their own before the verse
-  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
   // Tables and explicit page breaks
   'tr', 'pb',
@@ -428,11 +430,7 @@ export const USFM_HEADING_MARKERS = [
   'r',
   'd',
   'sp',
-  'sd',
-  'sd1',
-  'sd2',
-  'sd3',
-  'sd4',
+  ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms',
   'ms1',
   'ms2',
@@ -442,22 +440,29 @@ export const USFM_HEADING_MARKERS = [
   'cl',
 ] as const;
 
+const usfmSemanticDivisionMarkerSet = new Set<string>(USFM_SEMANTIC_DIVISION_MARKERS);
+
 /**
  * One heading block emitted before the verse. `text` is the heading's own words, which no
  * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
  * text, and a heading belongs to no verse (fluent-web#397).
  */
-const verseHeadingSchema = z.object({
-  marker: z.enum(USFM_HEADING_MARKERS),
-  text: z
-    .string()
-    .trim()
-    .min(1)
-    // The value is written straight into the USFM stream, so it can carry neither a marker
-    // escape nor a line break.
-    .max(300)
-    .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
-});
+const verseHeadingSchema = z
+  .object({
+    marker: z.enum(USFM_HEADING_MARKERS),
+    text: z
+      .string()
+      .trim()
+      .min(1)
+      // The value is written straight into the USFM stream, so it can carry neither a marker
+      // escape nor a line break.
+      .max(300)
+      .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
+  })
+  .refine(({ marker }) => !usfmSemanticDivisionMarkerSet.has(marker), {
+    path: ['marker'],
+    message: 'semantic division markers cannot carry heading text',
+  });
 
 export const verseMarkersSchema = z
   .object({

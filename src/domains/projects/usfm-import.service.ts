@@ -60,9 +60,9 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     }
 
     const verses = usjToVerseTexts(usj.data);
-    if (verses.length === 0) return err(ErrorCode.USFM_INVALID);
+    if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
 
-    parsed.push({ ...file, bookCode, bookId, verses });
+    parsed.push({ ...file, bookCode, bookId, verses: verses.data });
   }
 
   return ok(parsed);
@@ -105,7 +105,9 @@ export async function materializeUsfmImport(
   if (!verses) {
     const usj = convertUSFMToUSJ(row.usfm);
     if (!usj.ok) return err(ErrorCode.USFM_INVALID);
-    verses = usjToVerseTexts(usj.data);
+    const parsed = usjToVerseTexts(usj.data);
+    if (!parsed.ok) return parsed;
+    verses = parsed.data;
   }
 
   const validatedVerses: UsjVerseText[] = [];

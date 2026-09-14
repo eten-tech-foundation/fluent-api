@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { USJDocument } from '@/lib/types';
 
 import { logger } from '@/lib/logger';
+import { ErrorCode } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
 
@@ -26,7 +27,9 @@ const GENESIS = [
 function versesOf(usfm: string) {
   const usj = convertUSFMToUSJ(usfm);
   if (!usj.ok) throw new Error(usj.error.message);
-  return usjToVerseTexts(usj.data);
+  const verses = usjToVerseTexts(usj.data);
+  if (!verses.ok) throw new Error(verses.error.message);
+  return verses.data;
 }
 
 afterEach(() => {
@@ -148,9 +151,10 @@ describe('usjToVerseTexts (#419)', () => {
       ],
     } as unknown as USJDocument;
 
-    expect(usjToVerseTexts(usj)).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' },
-    ]);
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' }],
+    });
     expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
       type: 'table',
     });
@@ -158,5 +162,15 @@ describe('usjToVerseTexts (#419)', () => {
 
   it('returns nothing for a file with markers but no verses', () => {
     expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
+  });
+
+  it('rejects a heading with no following verse instead of discarding it', () => {
+    const usj = convertUSFMToUSJ('\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Appendix');
+    if (!usj.ok) throw new Error(usj.error.message);
+
+    expect(usjToVerseTexts(usj.data)).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.USFM_INVALID },
+    });
   });
 });

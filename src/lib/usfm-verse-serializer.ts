@@ -1,9 +1,11 @@
 import type { VerseMarkers } from '@/db/schema';
 
-const USFM_SEMANTIC_DIVISION_MARKERS = new Set(['sd', 'sd1', 'sd2', 'sd3', 'sd4']);
+import { USFM_SEMANTIC_DIVISION_MARKERS } from '@/db/schema';
+
+const usfmSemanticDivisionMarkerSet = new Set<string>(USFM_SEMANTIC_DIVISION_MARKERS);
 
 export function isUSFMSemanticDivisionMarker(marker: string): boolean {
-  return USFM_SEMANTIC_DIVISION_MARKERS.has(marker);
+  return usfmSemanticDivisionMarkerSet.has(marker);
 }
 
 export interface USFMVerseBodyData {
