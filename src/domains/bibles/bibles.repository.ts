@@ -1,14 +1,14 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, ilike, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bibles } from '@/db/schema';
+import { bibles, languages } from '@/db/schema';
 import { handleConstraintError } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { Bible, CreateBible, UpdateBible } from './bibles.types';
+import type { Bible, CreateBible, SourceSearchResponse, UpdateBible } from './bibles.types';
 
 export async function getAll(): Promise<Result<Bible[]>> {
   try {
@@ -74,6 +74,114 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
+export async function searchSourceBibles(query: string): Promise<Result<SourceSearchResponse>> {
+  try {
+    const cleanQuery = query.trim();
+    const escapedQuery = cleanQuery.replace(/[\\%_]/g, '\\$&');
+    const searchPattern = `%${escapedQuery}%`;
+
+    const rows = await db
+      .select({
+        bibleId: bibles.id,
+        bibleName: bibles.name,
+        bibleAbbreviation: bibles.abbreviation,
+        bibleProvider: bibles.provider,
+        bibleHasAudio: bibles.hasAudio,
+        languageId: languages.id,
+        langName: languages.langName,
+        langCodeIso6393: languages.langCodeIso6393,
+      })
+      .from(bibles)
+      .innerJoin(languages, eq(bibles.languageId, languages.id))
+      .where(
+        cleanQuery.length > 0
+          ? or(
+              ilike(languages.langName, searchPattern),
+              ilike(languages.langCodeIso6393, searchPattern),
+              ilike(bibles.name, searchPattern),
+              ilike(bibles.abbreviation, searchPattern)
+            )
+          : undefined
+      )
+      .orderBy(languages.langName, bibles.name)
+      .limit(100);
+
+    const languageMap = new Map<
+      number,
+      {
+        id: number;
+        langName: string;
+        langCodeIso6393: string | null;
+        bibles: {
+          id: number;
+          name: string;
+          abbreviation: string;
+          provider: string;
+          hasAudio: boolean;
+        }[];
+      }
+    >();
+
+    const matchingBiblesList: {
+      id: number;
+      name: string;
+      abbreviation: string;
+      provider: string;
+      hasAudio: boolean;
+      languageId: number;
+      languageName: string;
+      languageCode: string | null;
+    }[] = [];
+
+    for (const row of rows) {
+      if (!languageMap.has(row.languageId)) {
+        languageMap.set(row.languageId, {
+          id: row.languageId,
+          langName: row.langName,
+          langCodeIso6393: row.langCodeIso6393,
+          bibles: [],
+        });
+      }
+
+      const langEntry = languageMap.get(row.languageId)!;
+      langEntry.bibles.push({
+        id: row.bibleId,
+        name: row.bibleName,
+        abbreviation: row.bibleAbbreviation,
+        provider: row.bibleProvider,
+        hasAudio: row.bibleHasAudio,
+      });
+
+      matchingBiblesList.push({
+        id: row.bibleId,
+        name: row.bibleName,
+        abbreviation: row.bibleAbbreviation,
+        provider: row.bibleProvider,
+        hasAudio: row.bibleHasAudio,
+        languageId: row.languageId,
+        languageName: row.langName,
+        languageCode: row.langCodeIso6393,
+      });
+    }
+
+    const languagesList = Array.from(languageMap.values()).map((lang) => ({
+      id: lang.id,
+      langName: lang.langName,
+      langCodeIso6393: lang.langCodeIso6393,
+      bibleCount: lang.bibles.length,
+      bibles: lang.bibles,
+    }));
+
+    return ok({
+      languages: languagesList,
+      bibles: matchingBiblesList,
+    });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to search source bibles', context: { query } });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 // ─── DBL sync ──────────────────────────────────────────────────────────────
 
 const UPSERT_CHUNK_SIZE = 100;
@@ -84,6 +192,7 @@ export interface DblBibleUpsertInput {
   abbreviation: string;
   provider: 'dbl';
   externalId: string;
+  hasAudio: boolean;
 }
 
 export interface DblBibleUpsertSummary {
@@ -118,6 +227,7 @@ export async function upsertFromDbl(
               name: sql`excluded.name`,
               abbreviation: sql`excluded.abbreviation`,
               languageId: sql`excluded.language_id`,
+              hasAudio: sql`excluded.has_audio`,
               updatedAt: sql`now()`,
             },
           })

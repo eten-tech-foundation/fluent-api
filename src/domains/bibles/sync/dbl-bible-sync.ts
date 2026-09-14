@@ -84,6 +84,7 @@ export async function syncBiblesFromDbl(
     // If this Bible was already synced, reuse its stored abbreviation and name
     // to avoid regenerating collision suffixes on every re-sync.
     const existing = existingByExternalId.get(bible.id);
+    const hasAudio = !!(bible.audioBibles && bible.audioBibles.length > 0);
     if (existing) {
       rows.push({
         languageId,
@@ -91,6 +92,7 @@ export async function syncBiblesFromDbl(
         abbreviation: existing.abbreviation,
         provider: 'dbl',
         externalId: bible.id,
+        hasAudio,
       });
       continue;
     }
@@ -129,6 +131,7 @@ export async function syncBiblesFromDbl(
       abbreviation: abbrev,
       provider: 'dbl',
       externalId: bible.id,
+      hasAudio,
     });
   }
 
