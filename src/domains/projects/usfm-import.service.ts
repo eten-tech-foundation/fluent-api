@@ -4,7 +4,13 @@ import type { DbTransaction, Result } from '@/lib/types';
 import type { UsjVerseText } from '@/lib/usfm-converter';
 
 import { db } from '@/db';
-import { bible_books, bible_texts, books, translated_verses } from '@/db/schema';
+import {
+  bible_books,
+  bible_texts,
+  books,
+  translated_verses,
+  verseMarkersSchema,
+} from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
@@ -54,9 +60,9 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     }
 
     const verses = usjToVerseTexts(usj.data);
-    if (verses.length === 0) return err(ErrorCode.USFM_INVALID);
+    if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
 
-    parsed.push({ ...file, bookCode, bookId, verses });
+    parsed.push({ ...file, bookCode, bookId, verses: verses.data });
   }
 
   return ok(parsed);
@@ -99,23 +105,47 @@ export async function materializeUsfmImport(
   if (!verses) {
     const usj = convertUSFMToUSJ(row.usfm);
     if (!usj.ok) return err(ErrorCode.USFM_INVALID);
-    verses = usjToVerseTexts(usj.data);
+    const parsed = usjToVerseTexts(usj.data);
+    if (!parsed.ok) return parsed;
+    verses = parsed.data;
+  }
+
+  const validatedVerses: UsjVerseText[] = [];
+  for (const verse of verses) {
+    if (verse.markers === undefined) {
+      validatedVerses.push(verse);
+      continue;
+    }
+
+    const markers = verseMarkersSchema.safeParse(verse.markers);
+    if (!markers.success) return err(ErrorCode.USFM_INVALID);
+    validatedVerses.push({
+      ...verse,
+      ...(markers.data === null ? { markers: undefined } : { markers: markers.data }),
+    });
   }
 
   const idByRef = new Map(sourceTexts.map((t) => [`${t.chapterNumber}:${t.verseNumber}`, t.id]));
   let unmatched = 0;
   let empty = 0;
-  const rows = verses.flatMap((verse) => {
+  const rows = validatedVerses.flatMap((verse) => {
     const bibleTextId = idByRef.get(`${verse.chapterNumber}:${verse.verseNumber}`);
     if (bibleTextId === undefined) {
       unmatched += 1;
       return [];
     }
-    if (verse.text.length === 0) {
+    if (verse.text.length === 0 && verse.markers === undefined) {
       empty += 1;
       return [];
     }
-    return [{ projectUnitId: row.projectUnitId, bibleTextId, content: verse.text }];
+    return [
+      {
+        projectUnitId: row.projectUnitId,
+        bibleTextId,
+        content: verse.text,
+        ...(verse.markers === undefined ? {} : { markers: verse.markers }),
+      },
+    ];
   });
 
   if (rows.length > 0) {

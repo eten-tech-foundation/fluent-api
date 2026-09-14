@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { USJDocument } from '@/lib/types';
 
 import { logger } from '@/lib/logger';
+import { ErrorCode } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
 
@@ -26,7 +27,9 @@ const GENESIS = [
 function versesOf(usfm: string) {
   const usj = convertUSFMToUSJ(usfm);
   if (!usj.ok) throw new Error(usj.error.message);
-  return usjToVerseTexts(usj.data);
+  const verses = usjToVerseTexts(usj.data);
+  if (!verses.ok) throw new Error(verses.error.message);
+  return verses.data;
 }
 
 afterEach(() => {
@@ -56,6 +59,56 @@ describe('usjToVerseTexts (#419)', () => {
   it('leaves headings and titles out, since they belong to no verse', () => {
     const texts = versesOf(GENESIS).map((v) => v.text);
     expect(texts.some((t) => t.includes('Genesis'))).toBe(false);
+  });
+
+  it('anchors a mid-chapter heading to the following verse without mixing its text into either verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 The Creation\n\\p\n\\v 2 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      },
+    ]);
+  });
+
+  it('keeps several headings in source order on an empty following verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\ms1 Book One\n\\s1 The Creation\n\\p\n\\v 2'
+    );
+
+    expect(verses[1]).toEqual({
+      chapterNumber: 1,
+      verseNumber: 2,
+      text: '',
+      markers: {
+        headings: [
+          { marker: 'ms1', text: 'Book One' },
+          { marker: 's1', text: 'The Creation' },
+        ],
+      },
+    });
+  });
+
+  it('carries a heading across a chapter boundary to that chapter first verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 A New Chapter\n\\c 2\n\\p\n\\v 1 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 2,
+        verseNumber: 1,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'A New Chapter' }] },
+      },
+    ]);
   });
 
   it('carries a verse across a paragraph break rather than cutting it', () => {
@@ -98,9 +151,10 @@ describe('usjToVerseTexts (#419)', () => {
       ],
     } as unknown as USJDocument;
 
-    expect(usjToVerseTexts(usj)).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' },
-    ]);
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' }],
+    });
     expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
       type: 'table',
     });
@@ -108,5 +162,15 @@ describe('usjToVerseTexts (#419)', () => {
 
   it('returns nothing for a file with markers but no verses', () => {
     expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
+  });
+
+  it('rejects a heading with no following verse instead of discarding it', () => {
+    const usj = convertUSFMToUSJ('\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Appendix');
+    if (!usj.ok) throw new Error(usj.error.message);
+
+    expect(usjToVerseTexts(usj.data)).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.USFM_INVALID },
+    });
   });
 });

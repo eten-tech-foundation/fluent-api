@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { insertTranslatedVersesSchema, verseMarkersSchema } from '@/db/schema';
+import {
+  insertTranslatedVersesSchema,
+  USFM_SEMANTIC_DIVISION_MARKERS,
+  verseMarkersSchema,
+} from '@/db/schema';
 
 // Section headings carry their own words, which the paragraph records cannot hold: a paragraph
 // entry is a marker and an offset into the verse's text, and a heading's text belongs to no verse.
@@ -86,4 +90,16 @@ describe('insertTranslatedVersesSchema with headings', () => {
 
     expect(parsed.markers?.paragraphs).toBeUndefined();
   });
+
+  it.each(USFM_SEMANTIC_DIVISION_MARKERS)(
+    'rejects newly authored text on the textless %s marker',
+    (marker) => {
+      const parsed = insertTranslatedVersesSchema.safeParse({
+        ...BASE_ROW,
+        markers: { headings: [{ marker, text: 'Some Section' }] },
+      });
+
+      expect(parsed.success).toBe(false);
+    }
+  );
 });
