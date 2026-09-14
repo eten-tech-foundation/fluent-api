@@ -2,7 +2,7 @@ import { z } from '@hono/zod-openapi';
 
 import type { selectBibleBooksSchema } from '@/db/schema';
 
-export type BibleBook = Omit<z.infer<typeof selectBibleBooksSchema>, 'textIngestedAt'>;
+export type BibleBook = z.infer<typeof selectBibleBooksSchema>;
 
 export const createBibleBookSchema = z.object({
   bibleId: z.number().int().positive(),

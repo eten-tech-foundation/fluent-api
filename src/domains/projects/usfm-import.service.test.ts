@@ -188,10 +188,29 @@ describe('materializeUsfmImport (#419)', () => {
       { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
     ]);
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Imported USFM verses with no matching source verse were skipped',
-      { projectUnitId: 5, bookId: 1, unmatched: 1 }
-    );
+    expect(logger.warn).toHaveBeenCalledWith('Imported USFM verses were skipped', {
+      projectUnitId: 5,
+      bookId: 1,
+      unmatched: 1,
+      empty: 0,
+    });
+  });
+
+  it('logs imported verses that have no text', async () => {
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    expect(
+      await materializeUsfmImport(row, 3, db, [{ chapterNumber: 1, verseNumber: 1, text: '' }])
+    ).toEqual({ ok: true, data: 'materialized' });
+
+    expect(inserted).toEqual([]);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+    expect(logger.warn).toHaveBeenCalledWith('Imported USFM verses were skipped', {
+      projectUnitId: 5,
+      bookId: 1,
+      unmatched: 0,
+      empty: 1,
+    });
   });
 });
 
@@ -237,6 +256,34 @@ describe('materializePendingUsfmImports (#419)', () => {
         context: { importId: 1, projectUnitId: 5, bibleId: 3, bookId: 1 },
       })
     );
+  });
+
+  it('materializes independent books concurrently', async () => {
+    vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
+      { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
+    ]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    const releases: Array<() => void> = [];
+    vi.mocked(repo.markUsfmImportMaterialized).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releases.push(resolve);
+        })
+    );
+
+    const resultPromise = materializePendingUsfmImports(5, 3, [1, 40]);
+    await vi.waitFor(() => {
+      expect(repo.markUsfmImportMaterialized).toHaveBeenCalledTimes(2);
+    });
+
+    for (const release of releases) release();
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: true,
+      data: { materialized: 2, pending: 0 },
+    });
   });
 
   it('finishes whatever is pending and counts what still waits', async () => {

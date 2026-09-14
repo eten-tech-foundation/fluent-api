@@ -155,9 +155,18 @@ export function usjToVerseTexts(usj: USJDocument): UsjVerseText[] {
         case 'para':
           walk(node.content);
           break;
-        default:
-          // book metadata, milestones and anything else carry no verse text
+        case 'book':
           break;
+        default: {
+          const unsupportedNode = node as unknown as { type: string; content?: unknown };
+          logger.warn('Unsupported USJ node while extracting verse text', {
+            type: unsupportedNode.type,
+          });
+          if (Array.isArray(unsupportedNode.content)) {
+            walk(unsupportedNode.content as (USJNode | string)[]);
+          }
+          break;
+        }
       }
     }
   };
