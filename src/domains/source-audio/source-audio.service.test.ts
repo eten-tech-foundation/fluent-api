@@ -39,6 +39,7 @@ const fluentBible: Bible = {
   languageId: 1,
   provider: 'dbl',
   externalId: null,
+  hasAudio: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

@@ -226,6 +226,7 @@ export const bibles = pgTable(
     abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
     provider: bibleProviderEnum('provider').notNull().default('dbl'),
     externalId: varchar('external_id', { length: 255 }),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -300,6 +301,7 @@ export const bible_books = pgTable(
       .references(() => books.id),
     // Set only after the full source book is ingested, never from partial verse presence.
     textIngestedAt: timestamp('text_ingested_at'),
+    hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()

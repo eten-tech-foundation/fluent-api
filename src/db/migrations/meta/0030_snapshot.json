@@ -1,6 +1,6 @@
 {
-  "id": "39cbd9cd-ec92-4b13-86a3-05ceabb1322e",
-  "prevId": "af942093-a73e-4844-902e-66d138a8dda9",
+  "id": "b8b2ca3a-a17c-43a2-baa3-76ae95e14a2c",
+  "prevId": "39cbd9cd-ec92-4b13-86a3-05ceabb1322e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -780,6 +780,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "text_ingested_at": {
+          "name": "text_ingested_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         },
         "has_audio": {
           "name": "has_audio",
