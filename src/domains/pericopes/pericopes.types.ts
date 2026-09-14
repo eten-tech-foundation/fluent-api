@@ -34,6 +34,14 @@ export const chapterPericopesResponseSchema = z
 export type PericopeGroup = z.infer<typeof pericopeGroupSchema>;
 export type ChapterPericopesResponse = z.infer<typeof chapterPericopesResponseSchema>;
 
+/** Public identity: FCBH numbers are unique within their section, not the book. */
+export function getPericopeGroupNumber(row: {
+  section: number | null;
+  pericopeNumber: string;
+}): string {
+  return row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
+}
+
 // ─── Route params ─────────────────────────────────────────────────────────────
 
 export const chapterPericopesParamSchema = z.object({

@@ -50,7 +50,10 @@ server.post('/ai-suggestions/internal/results', requireServiceAuth, async (c) =>
     return c.json({ message: 'Validation failed', errors: parsed.error.errors }, 400);
   }
 
-  const result = await aiSuggestionsService.saveAiSuggestions(parsed.data.items);
+  const result = await aiSuggestionsService.saveAiSuggestions(
+    parsed.data.items,
+    parsed.data.heading
+  );
 
   if (result.ok) {
     return c.json({ success: true }, 200);
