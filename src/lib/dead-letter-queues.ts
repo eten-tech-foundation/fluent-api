@@ -5,6 +5,12 @@ import { logger } from '@/lib/logger';
 /** Time to investigate new DLQ entries before pg-boss maintenance removes them. */
 export const DLQ_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 export const DLQ_SHUTDOWN_TIMEOUT_MS = 5_000;
+const PG_BOSS_SCHEMA_VERSION = 26;
+
+function queueMatchesOptions(queue: Queue, options: Partial<Queue>): boolean {
+  const current = queue as unknown as Record<string, unknown>;
+  return Object.entries(options).every(([key, value]) => current[key] === value);
+}
 
 /** Create a durable diagnostic destination before enabling dead-letter routing. */
 export async function ensureWorkerQueue(
@@ -21,7 +27,9 @@ export async function ensureWorkerQueue(
     deleteAfterSeconds: Math.max(existing?.deleteAfterSeconds ?? 0, DLQ_RETENTION_SECONDS),
   };
   if (existing) {
-    await boss.updateQueue(deadLetter, retentionOptions);
+    if (!queueMatchesOptions(existing, retentionOptions)) {
+      await boss.updateQueue(deadLetter, retentionOptions);
+    }
   } else {
     await boss.createQueue(deadLetter, retentionOptions);
   }
@@ -43,12 +51,30 @@ export async function ensureWorkerQueue(
   }
   // Policy and partition are immutable in pg-boss. Preserve existing jobs.
   const { policy: _policy, partition: _partition, ...mutableOptions } = options;
-  await boss.updateQueue(name, { ...mutableOptions, deadLetter });
+  const desiredOptions = { ...mutableOptions, deadLetter };
+  if (!queueMatchesOptions(source, desiredOptions)) {
+    await boss.updateQueue(name, desiredOptions);
+  }
 }
 
 /** Report retained DLQ rows without fetching, acknowledging or replaying them. */
 export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
   try {
+    const database = boss.getDb();
+    const { rows: schemaRows } = await database.executeSql('SELECT version FROM pgboss.version');
+    const schemaVersion = schemaRows[0]?.version;
+    if (schemaVersion !== PG_BOSS_SCHEMA_VERSION) {
+      logger.error(
+        {
+          event: 'worker_dlq_monitor_schema_mismatch',
+          expectedSchemaVersion: PG_BOSS_SCHEMA_VERSION,
+          actualSchemaVersion: schemaVersion ?? null,
+        },
+        'Worker dead-letter queue monitoring requires pg-boss schema version 26'
+      );
+      return;
+    }
+
     const queues = await boss.getQueues();
     // Discover configured targets, including custom names, and orphaned/legacy
     // *-dlq queues. A worker added later is picked up on the next sweep.
@@ -64,7 +90,7 @@ export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
           // pg-boss 12.1.1 getQueueStats falls back to cached counters when a
           // queue becomes empty. Read an aggregate without GROUP BY so a cleared
           // queue always reports zero. The parent job table includes partitions.
-          const { rows } = await boss.getDb().executeSql(
+          const { rows } = await database.executeSql(
             `SELECT count(*)::int AS depth,
                   count(*) FILTER (WHERE state < 'active')::int AS "queuedCount",
                   count(*) FILTER (WHERE state = 'active')::int AS "activeCount",

@@ -1,6 +1,8 @@
 import type postgres from 'postgres';
 
-const MIGRATABLE_QUEUES = ['usfm-export', 'ai-suggestions'];
+import { QUEUE_NAMES } from '@/lib/queue';
+
+const MIGRATABLE_QUEUES: string[] = [QUEUE_NAMES.USFM_EXPORT, QUEUE_NAMES.AI_SUGGESTIONS];
 
 /** Offline, operator-invoked migration for the pinned pg-boss 12.1.1 schema. */
 export async function migrateExclusiveWorkerQueue(

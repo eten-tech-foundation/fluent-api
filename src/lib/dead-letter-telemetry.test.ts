@@ -20,11 +20,20 @@ describe('dLQ Application Insights telemetry', () => {
     const boss = {
       getQueues: async () => [{ name: 'usfm-export-dlq' }],
       getDb: () => ({
-        executeSql: async () => ({
-          rows: [
-            { depth: 1, queuedCount: 1, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
-          ],
-        }),
+        executeSql: async (query: string) => {
+          if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+          return {
+            rows: [
+              {
+                depth: 1,
+                queuedCount: 1,
+                activeCount: 0,
+                deferredCount: 0,
+                oldestCreatedOn: null,
+              },
+            ],
+          };
+        },
       }),
     } as unknown as PgBoss;
 
