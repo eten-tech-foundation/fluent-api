@@ -247,7 +247,7 @@ describe('pericopes router & service integrations', () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
-      expect(repo.getPericopeVersesForChapter).toHaveBeenCalledWith(2, 43, 1);
+      expect(repo.getPericopeVersesForChapter).toHaveBeenCalledWith(2, 43, 1, false);
     });
 
     it('returns 200 and grouped pericopes array when data exists', async () => {
