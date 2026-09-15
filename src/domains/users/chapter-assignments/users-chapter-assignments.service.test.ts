@@ -17,6 +17,10 @@ const makeProgressInfo = (
   projectUnitId: 1,
   bibleId: 1,
   bibleName: 'Test Bible',
+  // The column is NOT NULL with a fail-closed default, so the query always
+  // returns one of the three states — never undefined.
+  ttsLicenseStatus: 'unknown',
+  licenseNotice: null,
   bookId: 3,
   bookCode: 'LEV',
   bookNameEng: 'Leviticus',
@@ -60,6 +64,23 @@ describe('toResponse', () => {
     const response = toResponse(makeProgressInfo({ targetLangCode: null }));
     expect(response.targetLangCode).toBe('');
   });
+
+  it.each([
+    ['allowed' as const, 'Berean Standard Bible (BSB). Public domain.'],
+    ['forbidden' as const, null],
+    ['unknown' as const, null],
+  ])(
+    "carries the source Bible's %s audio licence so the drafting page never has to ask a provider for it",
+    (ttsLicenseStatus, licenseNotice) => {
+      // The drafting page decides whether it may synthesise speech from this
+      // Bible. Dropping either field here would push that decision onto the
+      // chapter-audio response, which fails when Aquifer or DBL are down — and
+      // an unreadable licence is not a clearance.
+      const response = toResponse(makeProgressInfo({ ttsLicenseStatus, licenseNotice }));
+      expect(response.ttsLicenseStatus).toBe(ttsLicenseStatus);
+      expect(response.licenseNotice).toBe(licenseNotice);
+    }
+  );
 
   it('propagates claim conflict fields from repository progress rows', () => {
     const response = toResponse(

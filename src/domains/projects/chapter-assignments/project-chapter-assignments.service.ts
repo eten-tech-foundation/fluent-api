@@ -44,6 +44,8 @@ function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo
     bookNameEng: info.bookNameEng,
     chapterNumber: info.chapterNumber,
     bibleId: info.bibleId,
+    ttsLicenseStatus: info.ttsLicenseStatus,
+    licenseNotice: info.licenseNotice,
     bookId: info.bookId,
     bookCode: info.bookCode,
     sourceLangCode: info.sourceLangCode ?? '',

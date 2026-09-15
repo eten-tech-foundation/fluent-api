@@ -20,6 +20,8 @@ export function toResponse(
     projectUnitId: assignment.projectUnitId,
     bibleId: assignment.bibleId,
     bibleName: assignment.bibleName ?? '',
+    ttsLicenseStatus: assignment.ttsLicenseStatus,
+    licenseNotice: assignment.licenseNotice,
     chapterStatus: assignment.status,
     targetLanguage: assignment.targetLanguage ?? '',
     targetLangCode: assignment.targetLangCode ?? '',
