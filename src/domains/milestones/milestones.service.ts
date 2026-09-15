@@ -124,6 +124,14 @@ export async function updateMilestone(
       if (!milestone) throw new Error('MILESTONE_NOT_FOUND');
 
       if (moveBooks && moveBooks.length > 0) {
+        // Authorization: verify all target milestones belong to the same project
+        for (const move of moveBooks) {
+          const targetMilestone = await repo.getMilestoneById(move.targetMilestoneId, tx);
+          if (!targetMilestone || targetMilestone.projectId !== milestone.projectId) {
+            throw new Error('CROSS_PROJECT_MOVE');
+          }
+        }
+
         await Promise.all(
           moveBooks.map((move) =>
             repo.moveBookToMilestone(move.bookId, id, move.targetMilestoneId, tx)
@@ -157,6 +165,8 @@ export async function updateMilestone(
       }
 
       if (removeBooks && removeBooks.length > 0) {
+        // Cascade: also remove translated data (verses, audio) for these books
+        await repo.deleteTranslatedDataForBooks(id, removeBooks, tx);
         await repo.deleteBibleBookLinks(id, removeBooks, tx);
         await chapterAssignmentsRepo.deleteByProjectUnitAndBooks(id, removeBooks, tx);
       }
@@ -167,6 +177,7 @@ export async function updateMilestone(
     return ok(result);
   } catch (error: any) {
     if (error.message === 'MILESTONE_NOT_FOUND') return err(ErrorCode.NOT_FOUND);
+    if (error.message === 'CROSS_PROJECT_MOVE') return err(ErrorCode.FORBIDDEN);
     logger.error({
       cause: error,
       message: 'Failed to update milestone',

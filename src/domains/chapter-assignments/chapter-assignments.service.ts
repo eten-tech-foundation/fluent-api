@@ -165,6 +165,15 @@ export async function createChapterAssignmentForProjectUnit(
     }));
 
     const inserted = await repo.insertMany(records, tx);
+
+    if (inserted.length > 0 && tx) {
+      const historyRecords = inserted.map((a) => ({
+        chapterAssignmentId: a.id,
+        status: 'not_started' as ChapterAssignmentStatus,
+      }));
+      await repo.insertManyStatusHistory(tx, historyRecords);
+    }
+
     return ok(inserted);
   } catch (error: any) {
     logger.error({

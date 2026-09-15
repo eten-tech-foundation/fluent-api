@@ -43,6 +43,10 @@ export const updateMilestoneSchema = patchProjectUnitsSchema.extend({
       })
     )
     .min(1)
+    .refine(
+      (arr) => new Set(arr.map((item) => item.bookId)).size === arr.length,
+      'Duplicate book IDs not allowed'
+    )
     .optional(),
 });
 

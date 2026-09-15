@@ -413,6 +413,14 @@ export async function insertStatusHistory(
   await tx.insert(chapter_assignment_status_history).values({ chapterAssignmentId, status });
 }
 
+export async function insertManyStatusHistory(
+  tx: DbTransaction,
+  records: { chapterAssignmentId: number; status: ChapterAssignmentStatus }[]
+): Promise<void> {
+  if (records.length === 0) return;
+  await tx.insert(chapter_assignment_status_history).values(records);
+}
+
 export async function insertUserAssignmentHistory(
   tx: DbTransaction,
   chapterAssignmentId: number,

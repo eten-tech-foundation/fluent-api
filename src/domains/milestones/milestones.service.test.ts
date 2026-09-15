@@ -163,8 +163,9 @@ describe('milestones service', () => {
     });
 
     it('should move books if requested', async () => {
-      const mockUpdatedMilestone = { id: 1, name: 'Updated' } as any;
+      const mockUpdatedMilestone = { id: 1, projectId: 1, name: 'Updated' } as any;
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 1 } as any);
       vi.mocked(repo.moveBookToMilestone).mockResolvedValue(undefined);
 
       const result = await updateMilestone(1, {

@@ -5,9 +5,12 @@ import type { DbTransaction } from '@/lib/types';
 import { db } from '@/db';
 import {
   bible_books,
+  bible_texts,
   chapter_assignments,
   project_unit_bible_books,
   project_units,
+  translated_verses,
+  verse_audio_recordings,
 } from '@/db/schema';
 
 import type { CreateMilestoneInput, UpdateMilestoneInput } from './milestones.types';
@@ -51,13 +54,13 @@ export async function getMilestonesByProjectId(projectId: number) {
       milestone: project_units,
       bookCount: sql<number>`(
         SELECT count(*)::int FROM project_unit_bible_books
-        WHERE project_unit_id = ${project_units.id}
+        WHERE project_unit_id = project_units.id
       )`.as('book_count'),
       chapterStatusCounts: sql<Record<string, number>>`(
-        SELECT jsonb_object_agg(status, count) FROM (
-          SELECT status, count(*) as count FROM chapter_assignments
-          WHERE project_unit_id = ${project_units.id}
-          GROUP BY status
+        SELECT jsonb_object_agg(chapter_status, count) FROM (
+          SELECT chapter_status, count(*) as count FROM chapter_assignments
+          WHERE project_unit_id = project_units.id
+          GROUP BY chapter_status
         ) t
       )`.as('counts'),
     })
@@ -82,7 +85,7 @@ export async function updateMilestoneRecord(
   input: Omit<UpdateMilestoneInput, 'moveBooks'>,
   tx: DbTransaction
 ) {
-  const updateData: any = {};
+  const updateData: Partial<typeof project_units.$inferInsert> = {};
   if (input.name !== undefined) updateData.name = input.name;
   if (input.type !== undefined) updateData.type = input.type;
   if (input.status !== undefined) updateData.status = input.status;
@@ -132,6 +135,7 @@ export async function moveBookToMilestone(
   targetMilestoneId: number,
   tx: DbTransaction
 ) {
+  // 1. Move the bible book link
   await tx
     .update(project_unit_bible_books)
     .set({ projectUnitId: targetMilestoneId })
@@ -142,6 +146,7 @@ export async function moveBookToMilestone(
       )
     );
 
+  // 2. Move chapter assignments
   await tx
     .update(chapter_assignments)
     .set({ projectUnitId: targetMilestoneId })
@@ -149,6 +154,72 @@ export async function moveBookToMilestone(
       and(
         eq(chapter_assignments.projectUnitId, currentMilestoneId),
         eq(chapter_assignments.bookId, bookId)
+      )
+    );
+
+  // Subquery: all bible_text IDs that belong to this book
+  const bibleTextIdsForBook = tx
+    .select({ id: bible_texts.id })
+    .from(bible_texts)
+    .where(eq(bible_texts.bookId, bookId));
+
+  // 3. Move translated verses
+  await tx
+    .update(translated_verses)
+    .set({ projectUnitId: targetMilestoneId })
+    .where(
+      and(
+        eq(translated_verses.projectUnitId, currentMilestoneId),
+        inArray(translated_verses.bibleTextId, bibleTextIdsForBook)
+      )
+    );
+
+  // 4. Move verse audio recordings
+  await tx
+    .update(verse_audio_recordings)
+    .set({ projectUnitId: targetMilestoneId })
+    .where(
+      and(
+        eq(verse_audio_recordings.projectUnitId, currentMilestoneId),
+        inArray(verse_audio_recordings.bibleTextId, bibleTextIdsForBook)
+      )
+    );
+}
+
+/**
+ * Delete translated_verses and verse_audio_recordings for a set of books
+ * being removed from a milestone. Uses a subquery through bible_texts to
+ * find the relevant bible_text IDs by bookId.
+ */
+export async function deleteTranslatedDataForBooks(
+  projectUnitId: number,
+  bookIds: number[],
+  tx: DbTransaction
+) {
+  if (bookIds.length === 0) return;
+
+  const bibleTextIdsForBooks = tx
+    .select({ id: bible_texts.id })
+    .from(bible_texts)
+    .where(inArray(bible_texts.bookId, bookIds));
+
+  // Delete translated verses
+  await tx
+    .delete(translated_verses)
+    .where(
+      and(
+        eq(translated_verses.projectUnitId, projectUnitId),
+        inArray(translated_verses.bibleTextId, bibleTextIdsForBooks)
+      )
+    );
+
+  // Delete verse audio recordings
+  await tx
+    .delete(verse_audio_recordings)
+    .where(
+      and(
+        eq(verse_audio_recordings.projectUnitId, projectUnitId),
+        inArray(verse_audio_recordings.bibleTextId, bibleTextIdsForBooks)
       )
     );
 }

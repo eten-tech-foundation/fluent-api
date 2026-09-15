@@ -40,7 +40,7 @@ export const projectWithLanguageNamesSchema = selectProjectsSchema
     workflowConfig: z.array(workflowStepSchema),
   });
 
-export const createProjectWithUnitsSchema = insertProjectsSchema
+export const createProjectSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({
     sourceBibleId: z.number().int(),
@@ -50,11 +50,9 @@ export const createProjectWithUnitsSchema = insertProjectsSchema
     createdBy: z.number().int().optional(),
   });
 
-export const updateProjectWithUnitsSchema = patchProjectsClientSchema
-  .omit({ status: true })
-  .extend({
-    sourceBibleId: z.number().int().optional(),
-  });
+export const updateProjectSchema = patchProjectsClientSchema.omit({ status: true }).extend({
+  sourceBibleId: z.number().int().optional(),
+});
 
 // Domain types inferred from Zod
 
@@ -64,8 +62,8 @@ export type UpdateProjectData = z.infer<typeof patchProjectsClientSchema>;
 export type ChapterStatusCounts = z.infer<typeof chapterStatusCountsSchema>;
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 export type ProjectWithLanguageNames = z.infer<typeof projectWithLanguageNamesSchema>;
-export type CreateProjectInput = z.infer<typeof createProjectWithUnitsSchema>;
-export type UpdateProjectInput = z.infer<typeof updateProjectWithUnitsSchema>;
+export type CreateProjectInput = z.infer<typeof createProjectSchema>;
+export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export type ProjectResponse = z.infer<typeof projectResponseSchema>;
 export interface ProjectUnitRef {
   projectId: number;
