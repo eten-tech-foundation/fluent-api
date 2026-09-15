@@ -59,13 +59,15 @@ export const aquiferResourceDetailsSchema = z
     name: z.string(),
     localizedName: z.string(),
     content: z.any(),
-    grouping: z.object({
-      type: aquiferResourceTypeSchema.optional(),
-      name: z.string().optional(),
-      mediaType: z.string().optional(),
-      licenseInfo: z.any().optional(),
-      collectionCode: z.string().optional(),
-    }),
+    grouping: z
+      .object({
+        type: aquiferResourceTypeSchema.optional(),
+        name: z.string().optional(),
+        mediaType: z.string().optional(),
+        licenseInfo: z.any().optional(),
+        collectionCode: z.string().optional(),
+      })
+      .passthrough(),
     language: z
       .object({
         id: z.number().int().optional(),
@@ -73,6 +75,7 @@ export const aquiferResourceDetailsSchema = z
         displayName: z.string().optional(),
         scriptDirection: z.string().optional(),
       })
+      .passthrough()
       .optional(),
   })
   .openapi('AquiferResourceDetails');

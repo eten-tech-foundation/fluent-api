@@ -335,6 +335,11 @@ export async function getLanguages(): Promise<Result<AquiferLanguage[]>> {
         const parsed = aquiferLanguageSchema.safeParse(entry);
         if (parsed.success) {
           items.push(parsed.data);
+        } else {
+          logger.warn({
+            message: 'Skipping unparseable Aquifer language entry',
+            context: { issues: parsed.error.issues.slice(0, MAX_LOGGED_SCHEMA_ISSUES) },
+          });
         }
       }
       return { success: true, data: items };
@@ -378,6 +383,11 @@ export async function getAvailableResources(
           const parsed = aquiferLanguageResourceCountSchema.safeParse(entry);
           if (parsed.success) {
             items.push(parsed.data);
+          } else {
+            logger.warn({
+              message: 'Skipping unparseable Aquifer available-resources entry',
+              context: { issues: parsed.error.issues.slice(0, MAX_LOGGED_SCHEMA_ISSUES) },
+            });
           }
         }
         return { success: true, data: items };
