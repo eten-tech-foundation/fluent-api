@@ -53,6 +53,8 @@ describe('dblIngestTextWorker', () => {
 
   it('registers handlers for both priority and background queues', async () => {
     const mockBoss = {
+      getQueue: vi.fn().mockResolvedValue(null),
+      updateQueue: vi.fn(),
       createQueue: vi.fn().mockResolvedValue(undefined),
       work: vi.fn().mockResolvedValue(undefined),
     } as any;
@@ -73,7 +75,12 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('handles partial download error recovery gracefully', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+    const mockBoss = {
+      getQueue: vi.fn().mockResolvedValue(null),
+      updateQueue: vi.fn(),
+      createQueue: vi.fn(),
+      work: vi.fn(),
+    } as any;
     await registerDblIngestTextWorker(mockBoss);
 
     // Extract the handler. pg-boss's WorkHandler always receives the batch as
@@ -111,7 +118,12 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('logs a warning and skips the book instead of silently ignoring it when no matching book exists', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+    const mockBoss = {
+      getQueue: vi.fn().mockResolvedValue(null),
+      updateQueue: vi.fn(),
+      createQueue: vi.fn(),
+      work: vi.fn(),
+    } as any;
     await registerDblIngestTextWorker(mockBoss);
     const handler = mockBoss.work.mock.calls[0][2];
     const { logger } = await import('../lib/logger');
@@ -135,7 +147,12 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('marks a failed chapter-list fetch as a job failure so pg-boss retries, instead of silently dropping the whole book', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+    const mockBoss = {
+      getQueue: vi.fn().mockResolvedValue(null),
+      updateQueue: vi.fn(),
+      createQueue: vi.fn(),
+      work: vi.fn(),
+    } as any;
     await registerDblIngestTextWorker(mockBoss);
     const handler = mockBoss.work.mock.calls[0][2];
 
@@ -180,7 +197,12 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('logs success only when the assignment Result is ok', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      const mockBoss = {
+        getQueue: vi.fn().mockResolvedValue(null),
+        updateQueue: vi.fn(),
+        createQueue: vi.fn(),
+        work: vi.fn(),
+      } as any;
       await registerDblIngestTextWorker(mockBoss);
       const handler = mockBoss.work.mock.calls[0][2];
       const { logger } = await import('../lib/logger');
@@ -204,7 +226,12 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      const mockBoss = {
+        getQueue: vi.fn().mockResolvedValue(null),
+        updateQueue: vi.fn(),
+        createQueue: vi.fn(),
+        work: vi.fn(),
+      } as any;
       await registerDblIngestTextWorker(mockBoss);
       const handler = mockBoss.work.mock.calls[0][2];
       const { logger } = await import('../lib/logger');

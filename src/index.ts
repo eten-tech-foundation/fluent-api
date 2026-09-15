@@ -5,8 +5,14 @@ import { reclaimOrphanedStorageObjects } from '@/domains/verse-audio/verse-audio
 import env from '@/env';
 import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-storage';
 import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
+import { startDeadLetterMonitor } from '@/lib/dead-letter-queues';
 import { logger } from '@/lib/logger';
-import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import {
+  ensureAiSuggestionQueue,
+  ensureExportQueues,
+  initializeQueue,
+  stopQueue,
+} from '@/lib/queue';
 
 import app from './app';
 
@@ -23,13 +29,8 @@ async function startServer() {
     await ensureExportQueues(boss);
 
     logger.info('Ensuring AI suggestion trigger queue exists');
-    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTIONS, {
-      policy: 'exclusive',
-      retryLimit: 3,
-      retryDelay: 60,
-      retryBackoff: true,
-      expireInSeconds: 3600,
-    });
+    await ensureAiSuggestionQueue(boss);
+    const stopDeadLetterMonitor = startDeadLetterMonitor(boss);
 
     logger.info('Queue ready');
 
@@ -66,6 +67,7 @@ async function startServer() {
       logger.info(`${signal} received, shutting down server`);
       try {
         if (audioReclaimInterval) clearInterval(audioReclaimInterval);
+        await stopDeadLetterMonitor();
 
         server.close(() => {
           logger.info('HTTP server closed');

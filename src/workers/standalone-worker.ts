@@ -6,7 +6,13 @@ import {
   isBlobStorageConfigured,
 } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { ensureExportQueues, initializeQueue, QUEUE_NAMES, stopQueue } from '@/lib/queue';
+import {
+  ensureAiSuggestionQueue,
+  ensureExportQueues,
+  initializeQueue,
+  QUEUE_NAMES,
+  stopQueue,
+} from '@/lib/queue';
 
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
@@ -65,13 +71,7 @@ async function startWorker() {
 
     await ensureExportQueues(boss);
 
-    await boss.createQueue(QUEUE_NAMES.AI_SUGGESTIONS, {
-      policy: 'exclusive',
-      retryLimit: 3,
-      retryDelay: 60,
-      retryBackoff: true,
-      expireInSeconds: 3600,
-    });
+    await ensureAiSuggestionQueue(boss);
 
     await registerUSFMExportWorker(boss, metricsHooks);
     await registerAiTriggerWorker(boss, metricsHooks);
