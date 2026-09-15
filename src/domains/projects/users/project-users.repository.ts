@@ -1,13 +1,15 @@
-import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
+  bible_texts,
   chapter_assignments,
   project_units,
   projects,
   roles,
+  translated_verses,
   user_roles,
   users,
 } from '@/db/schema';
@@ -182,34 +184,60 @@ export async function addProjectUsers(
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
-      // 1. Check if user is assigned as Drafter or Peer Checker on ANY chapter in this project
-      const [assignedWork] = await tx
-        .select({ id: chapter_assignments.id })
-        .from(chapter_assignments)
-        .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-        .where(
-          and(
-            eq(project_units.projectId, projectId),
-            or(
-              eq(chapter_assignments.assignedUserId, userId),
-              eq(chapter_assignments.peerCheckerId, userId)
-            )
-          )
-        )
-        .limit(1);
-
-      // If assigned work exists, block removal immediately
-      if (assignedWork) {
-        return err(ErrorCode.USER_HAS_ASSIGNED_CONTENT);
-      }
-
-      // 2. Delete the project-scoped grant (only reached if user has no assignments)
       const deleted = await tx
         .delete(user_roles)
         .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
         .returning({ userId: user_roles.userId });
 
       if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
+
+      const unitRows = await tx
+        .select({ id: project_units.id })
+        .from(project_units)
+        .where(eq(project_units.projectId, projectId));
+
+      const unitIds = unitRows.map((u) => u.id);
+
+      if (unitIds.length > 0) {
+        await tx
+          .update(chapter_assignments)
+          .set({
+            assignedUserId: null,
+            status: sql`CASE 
+              WHEN EXISTS (
+                SELECT 1 FROM ${translated_verses} tv 
+                JOIN ${bible_texts} bt ON tv.bible_text_id = bt.id 
+                WHERE bt.bible_id = ${chapter_assignments.bibleId} 
+                  AND bt.book_id = ${chapter_assignments.bookId} 
+                  AND bt.chapter_number = ${chapter_assignments.chapterNumber} 
+                  AND tv.project_unit_id = ${chapter_assignments.projectUnitId} 
+                  AND tv.content IS NOT NULL 
+                  AND tv.content != ''
+              ) THEN ${chapter_assignments.status}
+              ELSE 'not_started' 
+            END`,
+          })
+          .where(
+            and(
+              inArray(chapter_assignments.projectUnitId, unitIds),
+              eq(chapter_assignments.assignedUserId, userId),
+              inArray(chapter_assignments.status, ['not_started', 'draft'])
+            )
+          );
+
+        await tx
+          .update(chapter_assignments)
+          .set({
+            peerCheckerId: null,
+          })
+          .where(
+            and(
+              inArray(chapter_assignments.projectUnitId, unitIds),
+              eq(chapter_assignments.peerCheckerId, userId),
+              inArray(chapter_assignments.status, ['not_started', 'draft', 'peer_check'])
+            )
+          );
+      }
 
       return ok(undefined);
     });
