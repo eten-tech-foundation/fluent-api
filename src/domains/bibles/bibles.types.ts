@@ -5,6 +5,7 @@ import type { insertBiblesSchema, patchBiblesSchema, selectBiblesSchema } from '
 import { ttsLicenseStatusEnum } from '@/db/schema';
 
 export const ttsLicenseStatusSchema = z.enum(ttsLicenseStatusEnum.enumValues);
+export type TtsLicenseStatus = z.infer<typeof ttsLicenseStatusSchema>;
 
 // ─── DB-derived types ─────────────────────────────────────────────
 

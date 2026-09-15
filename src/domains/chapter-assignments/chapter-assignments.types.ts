@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
 import type { selectChapterAssignmentsSchema } from '@/db/schema';
+import type { TtsLicenseStatus } from '@/domains/bibles/bibles.types';
 
 // ─── Const enumerations ───────────────────────────────────────────────────────
 
@@ -49,6 +50,10 @@ export interface ChapterAssignmentProgressInfo {
   projectUnitId: number;
   bibleId: number;
   bibleName: string | null;
+  /** Whether anyone may synthesise speech from this Bible; never a user permission. */
+  ttsLicenseStatus: TtsLicenseStatus;
+  /** Human-curated attribution for this Bible, shown with its audio. */
+  licenseNotice: string | null;
   bookId: number;
   bookCode: string;
   bookNameEng: string;
