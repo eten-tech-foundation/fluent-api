@@ -7,8 +7,8 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { ChapterAssignmentPolicy } from './chapter-assignments.policy';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
-const grant = (orgId: number, projectId: number, perms: string[]): AppPolicyUser => ({
-  id: 1,
+const grant = (orgId: number, projectId: number, perms: string[], id = 1): AppPolicyUser => ({
+  id,
   grants: [{ orgId, projectId, permissions: new Set(perms) as ReadonlySet<any> }],
 });
 
@@ -94,5 +94,46 @@ describe('chapterAssignmentPolicy.claim', () => {
         status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
       })
     ).toBe(false);
+  });
+});
+
+describe('chapterAssignmentPolicy.edit / submit — open Peer Check', () => {
+  const openPeerCheck = {
+    ...baseAssignment,
+    assignedUserId: 42,
+    peerCheckerId: null,
+    status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+  };
+
+  it('allows a project member with content:update who is not the drafter', () => {
+    const peer = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 7);
+    expect(ChapterAssignmentPolicy.edit(peer, openPeerCheck, true)).toBe(true);
+    expect(ChapterAssignmentPolicy.submit(peer, openPeerCheck, true)).toBe(true);
+  });
+
+  it('denies the drafter on open Peer Check', () => {
+    const drafter = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 42);
+    expect(ChapterAssignmentPolicy.edit(drafter, openPeerCheck, true)).toBe(false);
+    expect(ChapterAssignmentPolicy.submit(drafter, openPeerCheck, true)).toBe(false);
+  });
+
+  it('denies a content:update user who is not a project member', () => {
+    const outsider = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 7);
+    expect(ChapterAssignmentPolicy.edit(outsider, openPeerCheck, false)).toBe(false);
+  });
+
+  it('keeps PM exclusivity when peerCheckerId is already set', () => {
+    const assignedChecker = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 88);
+    const otherPeer = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 7);
+    const assigned = { ...openPeerCheck, peerCheckerId: 88 };
+
+    expect(ChapterAssignmentPolicy.edit(assignedChecker, assigned, true)).toBe(true);
+    expect(ChapterAssignmentPolicy.edit(otherPeer, assigned, true)).toBe(false);
+    expect(ChapterAssignmentPolicy.submit(otherPeer, assigned, true)).toBe(false);
+  });
+
+  it('does not let a content:assign manager use translator Peer Check rules', () => {
+    const manager = grant(1, 10, [PERMISSIONS.CONTENT_ASSIGN, PERMISSIONS.CONTENT_UPDATE], 7);
+    expect(ChapterAssignmentPolicy.edit(manager, openPeerCheck, true)).toBe(false);
   });
 });

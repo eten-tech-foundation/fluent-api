@@ -78,6 +78,7 @@ vi.mock('drizzle-orm', async (importOriginal) => {
     ...actual,
     eq: vi.fn((...args) => args),
     and: vi.fn((...args) => args),
+    or: vi.fn((...args) => args),
     isNull: vi.fn((col) => col),
   };
 });
@@ -249,6 +250,54 @@ describe('chapter-assignments.repository claim helpers', () => {
 
       expect(result.claimed).toBe(false);
       expect(result.record).toBeNull();
+    });
+  });
+
+  describe('submitPeerCheckIfEligible', () => {
+    it('sets peerCheckerId, status, and submittedTime when the row still matches', async () => {
+      const submittedTime = new Date('2026-01-02T00:00:00.000Z');
+      const record = {
+        id: 1,
+        peerCheckerId: 7,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        submittedTime,
+      };
+      mockUpdateChain.returning.mockResolvedValueOnce([record]);
+
+      const result = await repo.submitPeerCheckIfEligible(1, 7, submittedTime, mockTx());
+
+      expect(result).toEqual(record);
+      expect(mockUpdateChain.set).toHaveBeenCalledWith({
+        peerCheckerId: 7,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        submittedTime,
+      });
+    });
+
+    it('returns null when another submitter already won the race', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([]);
+
+      const result = await repo.submitPeerCheckIfEligible(1, 7, new Date(), mockTx());
+
+      expect(result).toBeNull();
+    });
+
+    it('only updates peer_check rows that are open or already assigned to the submitter', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([
+        {
+          id: 1,
+          peerCheckerId: 7,
+          status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        },
+      ]);
+
+      await repo.submitPeerCheckIfEligible(1, 7, new Date(), mockTx());
+
+      expect(mockUpdateChain.where).toHaveBeenCalledWith([
+        [chapter_assignments.id, 1],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK],
+        [chapter_assignments.peerCheckerId, [chapter_assignments.peerCheckerId, 7]],
+      ]);
     });
   });
 
