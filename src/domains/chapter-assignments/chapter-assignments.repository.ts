@@ -497,6 +497,12 @@ export async function findAssignmentsProgress(
         projectUnitId: chapter_assignments.projectUnitId,
         bibleId: chapter_assignments.bibleId,
         bibleName: bibles.name,
+        // The source Bible's audio licence travels with the assignment because
+        // the drafting page decides whether it may synthesise speech before any
+        // provider is reached; a provider outage must not make the answer
+        // unreadable. Same join as bibleName, two more columns.
+        ttsLicenseStatus: bibles.ttsLicenseStatus,
+        licenseNotice: bibles.licenseNotice,
         bookId: chapter_assignments.bookId,
         bookCode: books.code,
         bookNameEng: books.eng_display_name,
@@ -583,6 +589,7 @@ export async function findAssignmentsProgress(
         chapter_assignments.id,
         projects.id,
         projects.name,
+        bibles.id,
         bibles.name,
         targetLang.langName,
         targetLang.langCodeIso6393,

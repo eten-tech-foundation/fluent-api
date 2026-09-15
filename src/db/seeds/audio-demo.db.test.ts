@@ -13,6 +13,7 @@ import {
   translated_verses,
   users,
 } from '@/db/schema';
+import { findAssignmentsProgress } from '@/domains/chapter-assignments/chapter-assignments.repository';
 import { getChapterPericopes } from '@/domains/pericopes/pericopes.service';
 import { getAssignedChaptersByUserId } from '@/domains/users/chapter-assignments/users-chapter-assignments.service';
 import { auth } from '@/lib/auth';
@@ -95,6 +96,8 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
           chapterAssignmentId: assignment.id,
           bibleId: bible.id,
           totalVerses: 36,
+          ttsLicenseStatus: 'allowed',
+          licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
           isAiEnabled: false,
         }),
       ]),
@@ -114,6 +117,21 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     expect([...new Set(verses)].sort((a, b) => a - b)).toEqual(
       Array.from({ length: 36 }, (_, i) => i + 1)
     );
+  });
+
+  it('executes the aggregated progress query with Bible licence columns and unchanged assignment grain', async () => {
+    const { bible, project, assignment } = await fixture();
+    const progress = await findAssignmentsProgress({ projectId: project.id });
+    expect(progress.ok).toBe(true);
+    if (!progress.ok) throw new Error('Assignment progress query failed');
+    const matching = progress.data.filter((row) => row.assignmentId === assignment.id);
+    expect(matching).toHaveLength(1);
+    expect(matching[0]).toMatchObject({
+      bibleId: bible.id,
+      ttsLicenseStatus: bible.ttsLicenseStatus,
+      licenseNotice: bible.licenseNotice,
+      totalVerses: 36,
+    });
   });
 
   it('reruns shared seeds without replacing verses, assignments or translator work', async () => {
