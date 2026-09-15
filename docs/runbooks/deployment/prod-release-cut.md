@@ -7,13 +7,14 @@ Cutting a tag deploys to **QA only**. Production is a separate, manual step.
 1. Go to **GitHub Actions** in the repository.
 2. Select the **Cut release** workflow.
 3. Click **Run workflow** (ensure the `main` branch is selected).
-4. Wait for it to finish. It computes the next `vYY.MM.SERIAL` tag and pushes it.
-5. Check the **Releases** page to verify the auto-generated release notes.
+4. The `tag` job computes the next `vYY.MM.SERIAL` tag and pushes it. Check the
+   **Releases** page to verify the auto-generated release notes.
 
 ## 2. QA
 
-6. The tag push triggers **Post-merge-deploy**, which runs migrations against
-   the QA database and deploys to QA. Monitor the `deploy-qa` job.
+6. The same run's `build` and `deploy-qa` jobs then build that tag and run
+   migrations against the QA database before deploying it. Monitor the
+   `deploy-qa` job.
 7. The job fails unless QA's `/health` reports the version it just deployed, so
    a green job already tells you the right build is live. Confirm anyway:
    ```bash
