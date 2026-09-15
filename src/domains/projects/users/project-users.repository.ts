@@ -4,10 +4,12 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
+  bible_texts,
   chapter_assignments,
   project_units,
   projects,
   roles,
+  translated_verses,
   user_roles,
   users,
 } from '@/db/schema';
@@ -199,7 +201,22 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
       if (unitIds.length > 0) {
         await tx
           .update(chapter_assignments)
-          .set({ assignedUserId: null })
+          .set({
+            assignedUserId: null,
+            status: sql`CASE 
+              WHEN EXISTS (
+                SELECT 1 FROM ${translated_verses} tv 
+                JOIN ${bible_texts} bt ON tv.bible_text_id = bt.id 
+                WHERE bt.bible_id = ${chapter_assignments.bibleId} 
+                  AND bt.book_id = ${chapter_assignments.bookId} 
+                  AND bt.chapter_number = ${chapter_assignments.chapterNumber} 
+                  AND tv.project_unit_id = ${chapter_assignments.projectUnitId} 
+                  AND tv.content IS NOT NULL 
+                  AND tv.content != ''
+              ) THEN ${chapter_assignments.status}
+              ELSE 'not_started' 
+            END`,
+          })
           .where(
             and(
               inArray(chapter_assignments.projectUnitId, unitIds),
@@ -210,7 +227,9 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
 
         await tx
           .update(chapter_assignments)
-          .set({ peerCheckerId: null })
+          .set({
+            peerCheckerId: null,
+          })
           .where(
             and(
               inArray(chapter_assignments.projectUnitId, unitIds),
