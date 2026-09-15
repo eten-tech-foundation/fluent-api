@@ -8,6 +8,7 @@ import {
   chapter_assignments,
   chapterStatusEnum,
   project_unit_bible_books,
+  project_unit_usfm_imports,
   project_units,
   projects,
   roles,
@@ -287,4 +288,42 @@ export async function findAssignmentIdsNotInProject(
 
   const validIds = new Set(rows.map((r) => r.id));
   return chapterAssignmentIds.filter((id) => !validIds.has(id));
+}
+
+// ─── Imported USFM (#419) ─────────────────────────────────────────────────────
+
+export async function insertUsfmImports(
+  rows: { projectUnitId: number; bookId: number; fileName: string; usfm: string }[],
+  tx: DbTransaction
+) {
+  if (rows.length > 0) {
+    await tx.insert(project_unit_usfm_imports).values(rows);
+  }
+}
+
+/** Imports whose verses have not been attached to source text yet, for the given books. */
+export async function getPendingUsfmImports(projectUnitId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .where(
+      and(
+        eq(project_unit_usfm_imports.projectUnitId, projectUnitId),
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+export async function markUsfmImportMaterialized(id: number, executor: DbTransaction | typeof db) {
+  await executor
+    .update(project_unit_usfm_imports)
+    .set({ materializedAt: new Date() })
+    .where(eq(project_unit_usfm_imports.id, id));
 }
