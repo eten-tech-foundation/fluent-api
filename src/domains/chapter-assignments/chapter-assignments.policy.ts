@@ -56,7 +56,11 @@ export const ChapterAssignmentPolicy = {
         if (assignment.peerCheckerId != null) {
           return assignment.peerCheckerId === user.id;
         }
-        return isProjectMember && assignment.assignedUserId !== user.id;
+        return (
+          isProjectMember &&
+          assignment.assignedUserId != null &&
+          assignment.assignedUserId !== user.id
+        );
       default:
         return POST_PEER_STATUSES.has(assignment.status as any) && isProjectMember;
     }

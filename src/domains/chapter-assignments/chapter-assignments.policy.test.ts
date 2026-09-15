@@ -136,4 +136,15 @@ describe('chapterAssignmentPolicy.edit / submit — open Peer Check', () => {
     const manager = grant(1, 10, [PERMISSIONS.CONTENT_ASSIGN, PERMISSIONS.CONTENT_UPDATE], 7);
     expect(ChapterAssignmentPolicy.edit(manager, openPeerCheck, true)).toBe(false);
   });
+
+  it('denies open Peer Check when assignedUserId is missing (inconsistent data)', () => {
+    const peer = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 7);
+    const inconsistent = {
+      ...openPeerCheck,
+      assignedUserId: null,
+    };
+
+    expect(ChapterAssignmentPolicy.edit(peer, inconsistent, true)).toBe(false);
+    expect(ChapterAssignmentPolicy.submit(peer, inconsistent, true)).toBe(false);
+  });
 });
