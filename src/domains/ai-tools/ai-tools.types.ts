@@ -12,7 +12,7 @@ import { z } from '@hono/zod-openapi';
  * silently break the fluent-ai contract.
  * Approved in review:
  * https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343677813
- * Rationale: docs/proposals/repeated-word-check/ai-tools-integration-suggestion.md §8.1
+ * Rationale: docs/features/repeated-word-check/ai-tools-integration-suggestion.md §8.1
  *
  * The result/response schemas mirror the live fluent-ai contract:
  *   fluent-ai/src/app/schemas/greek_room.py

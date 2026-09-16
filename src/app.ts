@@ -30,7 +30,9 @@ import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
 import '@/domains/pericopes/pericopes.route';
 import '@/domains/translation-resources/translation-resources.route';
+import '@/domains/source-audio/source-audio.route';
 import '@/domains/self/settings/self-settings.route';
+import '@/domains/aquifer-resources/aquifer-resources.route';
 configureOpenAPI(server);
 
 export default server;

@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+
 import { createRoute, z } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import { Buffer } from 'node:buffer';
@@ -6,8 +8,10 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import type { AppError } from '@/lib/types';
+
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
-import { getHttpStatus } from '@/lib/types';
+import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -15,10 +19,12 @@ import { requireVerseAudioAccess } from './verse-audio-auth.middleware';
 import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
+  resolveConflictBodySchema,
   VERSE_AUDIO_ACTIONS,
   VERSE_AUDIO_ID_SOURCES,
   verseAudioListResponseSchema,
   verseAudioResponseSchema,
+  verseAudioVersionConflictSchema,
 } from './verse-audio.types';
 
 // Covers both ways audio storage can be out: credentials unset, or the bucket
@@ -68,6 +74,27 @@ const commonErrorResponses = {
   ),
 } as const;
 
+async function respondVerseAudioError(
+  c: Context,
+  projectUnitId: number,
+  bibleTextId: number,
+  error: AppError
+) {
+  const status = getHttpStatus(error);
+  const body: { message: string; currentVersionToken?: number } = {
+    message: error.message,
+  };
+
+  if (error.code === ErrorCode.VERSE_AUDIO_VERSION_CONFLICT) {
+    const current = await verseAudioService.getCurrentVersionToken(projectUnitId, bibleTextId);
+    if (current.ok) {
+      body.currentVersionToken = current.data;
+    }
+  }
+
+  return c.json(body, status as never);
+}
+
 // ─── PUT /verse-audio/{projectUnitId}/{bibleTextId} ──────────────────────────
 
 const uploadVerseAudioRoute = createRoute({
@@ -97,6 +124,24 @@ const uploadVerseAudioRoute = createRoute({
               description: 'Client-measured duration in seconds',
               example: 12.5,
             }),
+            // Empty is normalised to absent before coercion: a client that always
+            // appends the field to its FormData, empty when it has no local token,
+            // is a legacy client, not a malformed request. Everything else present
+            // must coerce to a positive integer — `z.coerce` alone would read '' as
+            // 0 and reject it. This schema is enforced, not just documentation:
+            // zod-openapi validates multipart bodies through the form validator.
+            baseVersionToken: z
+              .preprocess(
+                (value) => (value === '' ? undefined : value),
+                z.coerce.number().int().positive().optional()
+              )
+              .openapi({
+                type: 'integer',
+                minimum: 1,
+                description:
+                  'Last-known unit versionToken (starts at 1). Matching token updates the active take; omitted or empty replaces the active take on behalf of clients too old to send one; a present-but-stale token keeps both takes and marks conflict. Present but not a positive integer is a 400. No upload clears an existing conflict — use the resolve endpoint.',
+                example: 1,
+              }),
           }),
         },
       },
@@ -106,11 +151,15 @@ const uploadVerseAudioRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       verseAudioResponseSchema,
-      'The stored recording metadata with a playback URL'
+      'Unit metadata with versionToken, conflictStatus, takes, and playback URLs'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
-      'Missing/empty file or unsupported content type'
+      'Missing/empty file, unsupported content type, or a malformed baseVersionToken'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      verseAudioVersionConflictSchema,
+      'A concurrent write or cleanup invalidated the upload; refresh currentVersionToken and retry'
     ),
     413: jsonContent(
       createMessageObjectSchema('Payload too large'),
@@ -118,9 +167,9 @@ const uploadVerseAudioRoute = createRoute({
     ),
     ...commonErrorResponses,
   },
-  summary: 'Upload or replace the audio recording for a verse',
+  summary: 'Upload an audio take for a verse',
   description:
-    'One recording per verse per project unit: uploading again replaces the previous audio in place. Gated like editing the verse text (assigned translator / stage rules).',
+    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients (deprecated escape hatch — logged as verse_audio_upload_legacy_no_token until mobile builds all send the field); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it — an upload can become the active take but never settles the conflict on its own.',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
@@ -140,6 +189,23 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   const durationRaw = Number(body.durationSeconds);
   const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
 
+  // The schema above has already rejected anything malformed. Re-derived here
+  // rather than read from c.req.valid('form') because this handler works from its
+  // own parseBody copy, and reading a fumbled token as absent would quietly
+  // disable the conflict detection the token exists for.
+  const baseRaw = body.baseVersionToken;
+  let baseVersionToken: number | undefined;
+  if (baseRaw !== undefined && baseRaw !== '') {
+    const parsed = typeof baseRaw === 'string' ? Number(baseRaw) : Number.NaN;
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      return c.json(
+        { message: 'baseVersionToken must be a positive integer' },
+        HttpStatusCodes.BAD_REQUEST
+      );
+    }
+    baseVersionToken = parsed;
+  }
+
   const data = Buffer.from(await file.arrayBuffer());
 
   const result = await verseAudioService.uploadRecording({
@@ -149,10 +215,11 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
     contentType: file.type,
     data,
     durationSeconds,
+    baseVersionToken,
   });
 
   if (!result.ok) {
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+    return respondVerseAudioError(c, projectUnitId, bibleTextId, result.error);
   }
 
   return c.json(result.data, HttpStatusCodes.OK);
@@ -174,7 +241,7 @@ const getVerseAudioRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       verseAudioResponseSchema,
-      'Recording metadata with a short-lived playback URL'
+      'Unit metadata with conflict state, takes, and short-lived playback URLs'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
@@ -184,7 +251,7 @@ const getVerseAudioRoute = createRoute({
   },
   summary: 'Get the audio recording for a verse',
   description:
-    'Returns metadata plus a read-only SAS downloadUrl valid for 15 minutes; players stream directly from blob storage.',
+    'Returns unit version/conflict state plus all takes, each with a read-only downloadUrl valid for 15 minutes. A conflicted unit keeps every take until it is resolved; on a settled clean unit, non-active takes are pruned once they fall outside the take retention window (AUDIO_TAKE_RETENTION_MS, 7 days by default), so takes[] collapses to the active take.',
 });
 
 server.openapi(getVerseAudioRoute, async (c) => {
@@ -215,6 +282,7 @@ const listVerseAudioRoute = createRoute({
   request: {
     query: z.object({
       projectUnitId: z.coerce.number().int().positive().openapi({ example: 12 }),
+      bibleId: z.coerce.number().int().positive().openapi({ example: 1 }),
       bookId: z.coerce.number().int().positive().openapi({ example: 1 }),
       chapterNumber: z.coerce.number().int().positive().openapi({ example: 3 }),
     }),
@@ -222,7 +290,7 @@ const listVerseAudioRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       verseAudioListResponseSchema,
-      'All recordings for the chapter, ordered by verse number'
+      'All recordings for the chapter plus a chapter-level hasConflict rollup'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
@@ -232,7 +300,7 @@ const listVerseAudioRoute = createRoute({
   },
   summary: 'List audio recordings for a chapter',
   description:
-    'One call per chapter for mobile playback: every stored verse recording in the chapter, verse-ordered, each with a 15-minute downloadUrl.',
+    'One call per Bible chapter for mobile playback: every stored verse recording matching bibleId, bookId, and chapterNumber, verse-ordered, each with takes + downloadUrl, plus hasConflict when any matching unit is conflicted.',
 });
 
 server.openapi(listVerseAudioRoute, async (c) => {
@@ -240,10 +308,11 @@ server.openapi(listVerseAudioRoute, async (c) => {
     return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
   }
 
-  const { projectUnitId, bookId, chapterNumber } = c.req.valid('query');
+  const { projectUnitId, bibleId, bookId, chapterNumber } = c.req.valid('query');
 
   const result = await verseAudioService.listChapterRecordings(
     projectUnitId,
+    bibleId,
     bookId,
     chapterNumber
   );
@@ -251,7 +320,68 @@ server.openapi(listVerseAudioRoute, async (c) => {
     return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 
-  return c.json({ items: result.data }, HttpStatusCodes.OK);
+  return c.json(result.data, HttpStatusCodes.OK);
+});
+
+// ─── POST /verse-audio/{projectUnitId}/{bibleTextId}/resolve ──────────────────
+
+const resolveVerseAudioRoute = createRoute({
+  tags: ['Verse Audio'],
+  method: 'post',
+  path: '/verse-audio/{projectUnitId}/{bibleTextId}/resolve',
+  middleware: [
+    authenticateUser,
+    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+  ] as const,
+  request: {
+    params: verseAudioParamsSchema,
+    body: {
+      content: {
+        'application/json': {
+          schema: resolveConflictBodySchema,
+        },
+      },
+      required: true,
+    },
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      verseAudioResponseSchema,
+      'Unit after designating the active take (conflict cleared)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad request'),
+      'Invalid parameters'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      verseAudioVersionConflictSchema,
+      'Verse audio changed concurrently; refresh currentVersionToken and retry'
+    ),
+    ...commonErrorResponses,
+  },
+  summary: 'Resolve a verse-audio conflict by selecting the active take',
+  description:
+    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. This is the only way a conflict is cleared; uploads never clear one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.',
+});
+
+server.openapi(resolveVerseAudioRoute, async (c) => {
+  if (!isAudioStorageAvailable()) {
+    return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
+  }
+
+  const { projectUnitId, bibleTextId } = c.req.valid('param');
+  const { takeId } = c.req.valid('json');
+
+  const result = await verseAudioService.resolveConflict({
+    projectUnitId,
+    bibleTextId,
+    takeId,
+  });
+  if (!result.ok) {
+    return respondVerseAudioError(c, projectUnitId, bibleTextId, result.error);
+  }
+
+  return c.json(result.data, HttpStatusCodes.OK);
 });
 
 // ─── DELETE /verse-audio/{projectUnitId}/{bibleTextId} ────────────────────────
@@ -279,7 +409,7 @@ const deleteVerseAudioRoute = createRoute({
     ...commonErrorResponses,
   },
   summary: 'Delete the audio recording for a verse',
-  description: 'Removes both the blob and the metadata row. Gated like editing the verse text.',
+  description: 'Removes the unit, all takes, and their blobs. Gated like editing the verse text.',
 });
 
 server.openapi(deleteVerseAudioRoute, async (c) => {

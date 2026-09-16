@@ -12,10 +12,16 @@ function toBibleResponse(bible: Bible): BibleResponse {
     name: bible.name,
     abbreviation: bible.abbreviation,
     languageId: bible.languageId,
+    hasAudio: bible.hasAudio,
+    provider: bible.provider,
   };
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
+
+export async function searchSourceBibles(query: string) {
+  return repo.searchSourceBibles(query);
+}
 
 export async function getAllBibles() {
   const result = await repo.getAll();

@@ -33,4 +33,15 @@ If a bug is found in a tag that's currently mid-QA (before it reaches full produ
 > [!WARNING]
 > **Tag format must be exactly `vYY.MM.SERIAL`** (e.g. `v26.07.4`, not `v26.7.4`). The deploy workflow validates this with a strict regex and will reject malformed tags.
 
-6. The tag push will automatically trigger the deployment workflow.
+6. **Deploy the tag to QA.** Actions → **Deploy to QA** → **Run workflow**, and
+   in the "Use workflow from" ref picker select the **tag** you just pushed
+   (not a branch). The workflow refuses to run against a branch.
+7. Test the QA app.
+8. Ship it with **Promote to Production** (step 3 of
+   [`prod-release-cut.md`](prod-release-cut.md)).
+
+> [!NOTE]
+> Step 6 needs `.github/workflows/deploy-to-qa.yml` to exist _on the tag being
+> deployed_. A hotfix branched from a tag cut before that workflow landed will
+> not have it -- either cherry-pick the workflow file onto the hotfix branch
+> before tagging, or fall back to `skip_qa_check` in `prod-rollback.md`.

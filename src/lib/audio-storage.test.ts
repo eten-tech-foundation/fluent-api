@@ -50,8 +50,8 @@ vi.mock('@aws-sdk/client-s3', () => {
 // Runs first on purpose: the S3 client is memoized once built, so the
 // unconfigured-credentials path has to be exercised before anything configures it.
 describe('audio-storage without R2 configured', () => {
-  it('derives a deterministic object key per unit + verse', () => {
-    expect(audioBlobName(12, 3401)).toBe('unit-12/text-3401');
+  it('derives a deterministic object key per unit + verse + content hash', () => {
+    expect(audioBlobName(12, 3401, 'abc123')).toBe('unit-12/text-3401/abc123');
   });
 
   it('reports unconfigured, and unavailable, when the R2 credentials are unset', () => {

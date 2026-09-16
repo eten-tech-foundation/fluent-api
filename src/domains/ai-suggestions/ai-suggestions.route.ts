@@ -119,7 +119,7 @@ const queueNextVersesRoute = createRoute({
   },
   summary: 'Queue pre-generation of AI suggestions',
   description:
-    'Triggers the queue to generate suggestions for the next few verses ahead of the drafter.',
+    'Queues suggestions for the pericope the drafter is in and the one after it, within the current chapter (#417).',
 });
 
 server.openapi(queueNextVersesRoute, async (c) => {

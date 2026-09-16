@@ -37,6 +37,7 @@ export function toResponse(
     isAiEnabled: assignment.isAiEnabled,
     hasClaimConflict: assignment.hasClaimConflict,
     claimConflictUserId: assignment.claimConflictUserId,
+    hasConflict: assignment.hasConflict,
   };
 }
 

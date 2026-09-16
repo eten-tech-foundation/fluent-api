@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-02
 **Status:** Approved for implementation planning
-**Source:** `2026-06-02-user-central-tenant-rbac-design.md`, `2026-06-02-user-central-tenant-rbac.md`, [[2026-07-02 User Central tenant]] (meeting + Claude analysis)
+**Source:** `design.md`, `plan.md`, [[2026-07-02 User Central tenant]] (meeting + Claude analysis)
 
 ## Relationship to the existing RBAC design
 

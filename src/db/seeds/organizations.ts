@@ -3,14 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { db } from '@/db';
 import { organizations } from '@/db/schema';
 
-const DEFAULT_ORGANIZATIONS = [{ name: 'Fluent Dev' }];
-
-export async function seedOrganizations() {
+export async function seedOrganizations(orgName = 'Fluent Dev') {
   await db
     .insert(organizations)
-    .values(DEFAULT_ORGANIZATIONS)
+    .values([{ name: orgName }])
     .onConflictDoNothing({ target: organizations.name });
-  console.log('Organizations seeded.');
+  console.log(`Organizations seeded. (org: "${orgName}")`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

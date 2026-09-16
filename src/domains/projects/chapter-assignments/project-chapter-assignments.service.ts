@@ -60,6 +60,7 @@ function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo
     updatedAt: info.updatedAt,
     submittedTime: info.submittedTime,
     isAiEnabled: info.isAiEnabled,
+    hasConflict: info.hasConflict,
   };
 }
 
