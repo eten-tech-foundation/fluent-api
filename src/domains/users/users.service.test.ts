@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
+import * as organizationsRepo from '@/domains/organizations/organizations.repository';
+import { findRoleGrantsByUserIds } from '@/domains/user-roles/user-roles.repository';
 import { ErrorMessages } from '@/lib/types';
 import { resetAllMocks, sampleUsers } from '@/test/utils/test-helpers';
 
@@ -12,6 +14,7 @@ import {
   getUserByEmailOrUsername,
   getUserById,
   getUserByUsername,
+  getUsersInOrg,
   toUserResponse,
   updateUser,
 } from './users.service';
@@ -37,6 +40,10 @@ vi.mock('@/lib/logger', () => ({
 
 vi.mock('@/domains/user-roles/user-roles.repository', () => ({
   findRoleGrantsByUserIds: vi.fn().mockResolvedValue(new Map()),
+}));
+
+vi.mock('@/domains/organizations/organizations.repository', () => ({
+  findByIdWithCounts: vi.fn(),
 }));
 
 describe('user Service Functions', () => {
@@ -319,6 +326,61 @@ describe('user Service Functions', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.message).toBe(ErrorMessages.USER_NOT_FOUND);
+      }
+    });
+  });
+
+  describe('getUsersInOrg', () => {
+    it('returns org members with grants filtered to that org only', async () => {
+      const ORG = 1;
+      const orgRow = { id: ORG, name: 'Alpha Org', createdAt: new Date(), orgManagerCount: 1 };
+      vi.mocked(organizationsRepo.findByIdWithCounts).mockResolvedValue({
+        ok: true,
+        data: orgRow,
+      });
+
+      (db.selectDistinct as any).mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          innerJoin: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue([{ user: mockUser }]),
+          }),
+        }),
+      });
+
+      // The user also holds grants in org 2; the repository filter must scope
+      // them out, so the mock only returns the org-1 grants it would produce.
+      const org1Grants = [
+        { roleId: 2, roleName: 'Org Manager', orgId: ORG, projectId: null, orgName: 'Alpha Org' },
+        {
+          roleId: 4,
+          roleName: 'Project Manager',
+          orgId: ORG,
+          projectId: 10,
+          orgName: 'Alpha Org',
+        },
+      ];
+      vi.mocked(findRoleGrantsByUserIds).mockResolvedValue(new Map([[mockUser.id, org1Grants]]));
+
+      const result = await getUsersInOrg(ORG);
+
+      expect(organizationsRepo.findByIdWithCounts).toHaveBeenCalledWith(ORG);
+      expect(findRoleGrantsByUserIds).toHaveBeenCalledWith([mockUser.id], [ORG]);
+      expect(result).toEqual({
+        ok: true,
+        data: [{ ...toUserResponse(mockUser), orgGrants: org1Grants }],
+      });
+      // No org-2 grant leaks through.
+      expect(result.ok && result.data[0].orgGrants!.every((g) => g.orgId === ORG)).toBe(true);
+    });
+
+    it('returns NOT_FOUND when the org does not exist', async () => {
+      vi.mocked(organizationsRepo.findByIdWithCounts).mockResolvedValue({ ok: true, data: null });
+
+      const result = await getUsersInOrg(999);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('NOT_FOUND');
       }
     });
   });

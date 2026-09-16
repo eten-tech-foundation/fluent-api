@@ -1,9 +1,10 @@
 import type { AppPolicyUser, Result } from '@/lib/types';
 
+import * as organizationsRepo from '@/domains/organizations/organizations.repository';
 import { findRoleGrantsByUserIds } from '@/domains/user-roles/user-roles.repository';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ok } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   CreateUserInput,
@@ -50,6 +51,15 @@ async function attachGrants(user: User): Promise<UserResponse> {
   return response;
 }
 
+type RoleGrantsMap = Awaited<ReturnType<typeof findRoleGrantsByUserIds>>;
+
+function mapUsersWithGrants(userRows: User[], grantsMap: RoleGrantsMap): UserResponse[] {
+  return userRows.map((u) => ({
+    ...toUserResponse(u),
+    orgGrants: grantsMap.get(u.id) ?? [],
+  }));
+}
+
 export async function getAllUsers(): Promise<Result<UserResponse[]>> {
   const result = await repo.findAll();
   if (!result.ok) return result;
@@ -91,12 +101,24 @@ export async function getUsersForUser(user: AppPolicyUser): Promise<Result<UserR
     'Returning users with grants in getUsersForUser'
   );
 
-  return ok(
-    userRows.map((u) => ({
-      ...toUserResponse(u),
-      orgGrants: grantsMap.get(u.id) ?? [],
-    }))
+  return ok(mapUsersWithGrants(userRows, grantsMap));
+}
+
+export async function getUsersInOrg(orgId: number): Promise<Result<UserResponse[]>> {
+  const orgResult = await organizationsRepo.findByIdWithCounts(orgId);
+  if (!orgResult.ok) return orgResult;
+  if (!orgResult.data) return err(ErrorCode.NOT_FOUND);
+
+  const result = await repo.findByOrganizations([orgId]);
+  if (!result.ok) return result;
+
+  const userRows = result.data;
+  const grantsMap = await findRoleGrantsByUserIds(
+    userRows.map((u) => u.id),
+    [orgId]
   );
+
+  return ok(mapUsersWithGrants(userRows, grantsMap));
 }
 
 export async function getUserById(id: number): Promise<Result<UserResponse>> {

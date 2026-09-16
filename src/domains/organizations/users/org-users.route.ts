@@ -4,6 +4,8 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import * as usersService from '@/domains/users/users.service';
+import { userResponseSchema } from '@/domains/users/users.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -12,6 +14,13 @@ import { server } from '@/server/server';
 import { removeOrgUser } from './org-users.repository';
 
 // ── Shared param schema ────────────────────────────────────────────────────────
+
+const orgParamSchema = z.object({
+  orgId: z.coerce.number().openapi({
+    param: { name: 'orgId', in: 'path', required: true },
+    example: 1,
+  }),
+});
 
 const orgUserParamSchema = z.object({
   orgId: z.coerce.number().openapi({
@@ -22,6 +31,56 @@ const orgUserParamSchema = z.object({
     param: { name: 'userId', in: 'path', required: true },
     example: 42,
   }),
+});
+
+// ─── GET /organizations/:orgId/users ───────────────────────────────────────────
+
+const listOrgUsersRoute = createRoute({
+  tags: ['Organizations - Users'],
+  method: 'get',
+  path: '/organizations/{orgId}/users',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.USER_VIEW, (c) => {
+      const orgId = Number(c.req.param('orgId'));
+      return Number.isFinite(orgId) ? { orgId } : {};
+    }),
+  ] as const,
+  request: { params: orgParamSchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      userResponseSchema.array().openapi('OrgUsers'),
+      'The list of users in this organization'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'Organization not found'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Org-scoped user:view required'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'List users in an organization',
+  description:
+    'Returns every member of the org with their role grants filtered to this org. Requires an org-scoped or global user:view grant — a project-pinned grant does not apply.',
+});
+
+server.openapi(listOrgUsersRoute, async (c) => {
+  const { orgId } = c.req.valid('param');
+
+  const result = await usersService.getUsersInOrg(orgId);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
 // ─── DELETE /organizations/:orgId/users/:userId ────────────────────────────────
