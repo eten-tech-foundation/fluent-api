@@ -407,7 +407,8 @@ export async function updateProjectUserRole(
     }
 
     return await db.transaction(async (tx) => {
-      if (roleId === poId) {
+      const clearObserverAssignments = async () => {
+        if (roleId !== poId) return;
         const unitRows = await tx
           .select({ id: project_units.id })
           .from(project_units)
@@ -415,7 +416,7 @@ export async function updateProjectUserRole(
 
         const unitIds = unitRows.map((u) => u.id);
         await clearUserAssignmentsAndRecordHistory(tx, unitIds, userId);
-      }
+      };
 
       const [updated] = await tx
         .update(user_roles)
@@ -429,6 +430,7 @@ export async function updateProjectUserRole(
         });
 
       if (updated) {
+        await clearObserverAssignments();
         return ok({ ...updated, roleName } as any);
       }
 
@@ -477,9 +479,11 @@ export async function updateProjectUserRole(
           .limit(1);
 
         if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
+        await clearObserverAssignments();
         return ok({ ...existingRow, roleName } as any);
       }
 
+      await clearObserverAssignments();
       return ok({ ...inserted, roleName } as any);
     });
   } catch (error) {
