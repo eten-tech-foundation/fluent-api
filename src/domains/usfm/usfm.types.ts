@@ -19,7 +19,7 @@ export interface BookFields {
   bookTitle: string | null;
   /** \toc1 long name; omitted from the export when null or blank. */
   tocLongName: string | null;
-  /** \toc2 short name; also supplies \mt, and \h when that is unset. */
+  /** \toc2 short name; also supplies \mt1, and \h when that is unset. */
   tocShortName: string | null;
   /** \toc3 abbreviation; omitted from the export when null or blank. */
   tocAbbreviation: string | null;
