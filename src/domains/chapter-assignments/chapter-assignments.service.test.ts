@@ -10,6 +10,7 @@ import type { ChapterAssignmentRecord } from './chapter-assignments.types';
 import * as repo from './chapter-assignments.repository';
 import {
   claimChapterAssignment,
+  submitChapterAssignment,
   toChapterAssignmentResponse,
   updateChapterAssignment,
 } from './chapter-assignments.service';
@@ -30,6 +31,9 @@ vi.mock('./chapter-assignments.repository', () => ({
   insertStatusHistory: vi.fn(),
   insertUserAssignmentHistory: vi.fn(),
   update: vi.fn(),
+  getContent: vi.fn(),
+  insertSnapshot: vi.fn(),
+  submitPeerCheckIfEligible: vi.fn(),
 }));
 
 vi.mock('@/domains/projects/projects.service', () => ({
@@ -253,5 +257,128 @@ describe('toChapterAssignmentResponse', () => {
     });
     expect(response.hasClaimConflict).toBe(true);
     expect(response.claimConflictUserId).toBe(5);
+  });
+});
+
+describe('submitChapterAssignment open Peer Check', () => {
+  const peerCheckRecord: ChapterAssignmentRecord = {
+    ...baseRecord,
+    assignedUserId: 42,
+    peerCheckerId: null,
+    status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx));
+    vi.mocked(repo.getContent).mockResolvedValue({
+      ok: true,
+      data: { type: 'USJ', version: '0.0.1', content: [] },
+    } as any);
+    vi.mocked(repo.insertSnapshot).mockResolvedValue(undefined);
+    vi.mocked(repo.insertStatusHistory).mockResolvedValue(undefined);
+    vi.mocked(repo.insertUserAssignmentHistory).mockResolvedValue(undefined);
+  });
+
+  it('assigns peerCheckerId to the submitter when Peer Check is open', async () => {
+    const submitted = {
+      ...peerCheckRecord,
+      peerCheckerId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+      submittedTime: new Date('2026-01-02'),
+    };
+    vi.mocked(repo.findById).mockResolvedValue(peerCheckRecord);
+    vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(submitted);
+
+    const result = await submitChapterAssignment(1, 7);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.peerCheckerId).toBe(7);
+      expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW);
+    }
+    expect(repo.submitPeerCheckIfEligible).toHaveBeenCalledWith(1, 7, expect.any(Date), mockTx);
+    expect(repo.insertUserAssignmentHistory).toHaveBeenCalledWith(
+      mockTx,
+      1,
+      7,
+      'peer_checker',
+      CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW
+    );
+  });
+
+  it('keeps an existing peerCheckerId when the assigned checker submits', async () => {
+    const assigned = { ...peerCheckRecord, peerCheckerId: 88 };
+    const submitted = {
+      ...assigned,
+      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+      submittedTime: new Date('2026-01-02'),
+    };
+    vi.mocked(repo.findById).mockResolvedValue(assigned);
+    vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(submitted);
+
+    const result = await submitChapterAssignment(1, 88);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.peerCheckerId).toBe(88);
+    }
+    expect(repo.insertUserAssignmentHistory).not.toHaveBeenCalled();
+  });
+
+  it('no-ops with the current assignment when a concurrent submit already won', async () => {
+    const currentAfterRace = {
+      ...peerCheckRecord,
+      peerCheckerId: 9,
+      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+    };
+    vi.mocked(repo.findById)
+      .mockResolvedValueOnce(peerCheckRecord)
+      .mockResolvedValueOnce(currentAfterRace);
+    vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(null);
+
+    const result = await submitChapterAssignment(1, 7);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.peerCheckerId).toBe(9);
+      expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW);
+    }
+    expect(repo.insertSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('lets the first concurrent submitter win and the second keep the winner assignment', async () => {
+    let row: ChapterAssignmentRecord = { ...peerCheckRecord };
+
+    vi.mocked(repo.findById).mockImplementation(async () => ({ ...row }));
+    vi.mocked(repo.submitPeerCheckIfEligible).mockImplementation(async (_id, userId) => {
+      await new Promise((resolve) => setImmediate(resolve));
+      if (
+        row.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK &&
+        row.assignedUserId !== userId &&
+        (row.peerCheckerId === null || row.peerCheckerId === userId)
+      ) {
+        row = {
+          ...row,
+          peerCheckerId: userId,
+          status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        };
+        return row;
+      }
+      return null;
+    });
+
+    const [resultA, resultB] = await Promise.all([
+      submitChapterAssignment(1, 7),
+      submitChapterAssignment(1, 8),
+    ]);
+
+    expect(resultA.ok).toBe(true);
+    expect(resultB.ok).toBe(true);
+    const peerIds = [resultA, resultB]
+      .filter((r) => r.ok)
+      .map((r) => (r.ok ? r.data.peerCheckerId : null));
+    expect(new Set(peerIds)).toEqual(new Set([row.peerCheckerId]));
+    expect([7, 8]).toContain(row.peerCheckerId);
   });
 });

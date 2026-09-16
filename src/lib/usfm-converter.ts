@@ -82,7 +82,7 @@ function generateUSFMText(verses: VerseData[]): string {
   }
 
   const { bookCode, bookName } = verses[0];
-  let usfmText = `\\id ${bookCode}\n\\h ${bookName}\n\\mt ${bookName}\n`;
+  let usfmText = `\\id ${bookCode}\n\\h ${bookName}\n\\mt1 ${bookName}\n`;
 
   let currentChapter: number | null = null;
 
