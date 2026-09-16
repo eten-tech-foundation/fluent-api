@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
@@ -359,6 +359,32 @@ export async function claimIfUnassigned(
     .returning();
 
   return { claimed: !!updated, record: updated ?? null };
+}
+
+export async function submitPeerCheckIfEligible(
+  id: number,
+  userId: number,
+  submittedTime: Date,
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord | null> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({
+      peerCheckerId: userId,
+      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+      submittedTime,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK),
+        ne(chapter_assignments.assignedUserId, userId),
+        or(isNull(chapter_assignments.peerCheckerId), eq(chapter_assignments.peerCheckerId, userId))
+      )
+    )
+    .returning();
+
+  return updated ?? null;
 }
 
 export async function flagClaimConflict(
