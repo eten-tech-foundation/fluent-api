@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
@@ -378,6 +378,7 @@ export async function submitPeerCheckIfEligible(
       and(
         eq(chapter_assignments.id, id),
         eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK),
+        ne(chapter_assignments.assignedUserId, userId),
         or(isNull(chapter_assignments.peerCheckerId), eq(chapter_assignments.peerCheckerId, userId))
       )
     )

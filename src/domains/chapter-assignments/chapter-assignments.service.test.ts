@@ -355,6 +355,7 @@ describe('submitChapterAssignment open Peer Check', () => {
       await new Promise((resolve) => setImmediate(resolve));
       if (
         row.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK &&
+        row.assignedUserId !== userId &&
         (row.peerCheckerId === null || row.peerCheckerId === userId)
       ) {
         row = {

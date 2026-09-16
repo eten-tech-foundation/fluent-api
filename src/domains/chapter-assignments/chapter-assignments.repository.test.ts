@@ -1,6 +1,6 @@
 import type { SQL } from 'drizzle-orm';
 
-import { eq } from 'drizzle-orm';
+import { eq, ne } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
@@ -77,6 +77,7 @@ vi.mock('drizzle-orm', async (importOriginal) => {
   return {
     ...actual,
     eq: vi.fn((...args) => args),
+    ne: vi.fn((...args) => args),
     and: vi.fn((...args) => args),
     or: vi.fn((...args) => args),
     isNull: vi.fn((col) => col),
@@ -282,7 +283,7 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(result).toBeNull();
     });
 
-    it('only updates peer_check rows that are open or already assigned to the submitter', async () => {
+    it('only updates peer_check rows that are open or already assigned to the submitter and whose drafter is not the submitter', async () => {
       mockUpdateChain.returning.mockResolvedValueOnce([
         {
           id: 1,
@@ -293,9 +294,11 @@ describe('chapter-assignments.repository claim helpers', () => {
 
       await repo.submitPeerCheckIfEligible(1, 7, new Date(), mockTx());
 
+      expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 7);
       expect(mockUpdateChain.where).toHaveBeenCalledWith([
         [chapter_assignments.id, 1],
         [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK],
+        [chapter_assignments.assignedUserId, 7],
         [chapter_assignments.peerCheckerId, [chapter_assignments.peerCheckerId, 7]],
       ]);
     });
