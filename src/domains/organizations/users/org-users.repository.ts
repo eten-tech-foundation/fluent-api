@@ -109,6 +109,27 @@ export async function updateOrgUserRole(
     const orgMemberRoleId = await getRoleId(ROLES.ORG_MEMBER);
 
     return await db.transaction(async (tx) => {
+      // Lock the Org Member anchor first — it is the membership record, and
+      // the row lock serializes this update against a concurrent
+      // removeOrgUser: either we hold the anchor before removal deletes it,
+      // or removal already committed and we bail out as not-a-member.
+      const anchor = await tx
+        .select({ id: user_roles.id })
+        .from(user_roles)
+        .where(
+          and(
+            eq(user_roles.userId, userId),
+            eq(user_roles.orgId, orgId),
+            isNull(user_roles.projectId),
+            eq(user_roles.roleId, orgMemberRoleId)
+          )
+        )
+        .for('update');
+
+      if (anchor.length === 0) {
+        throw new UserNotInOrgException('User not in organization');
+      }
+
       const nonAnchorOrgScope = and(
         eq(user_roles.userId, userId),
         eq(user_roles.orgId, orgId),
@@ -147,6 +168,9 @@ export async function updateOrgUserRole(
       return ok(undefined);
     });
   } catch (error) {
+    if (error instanceof UserNotInOrgException) {
+      return err(ErrorCode.USER_NOT_IN_ORGANIZATION);
+    }
     logger.error({
       cause: error,
       message: 'Failed to update org-level role for user',
