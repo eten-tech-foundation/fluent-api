@@ -132,35 +132,31 @@ No code change expected. Add a route-level or middleware-level test proving the 
 
 ## Ticket API-2: Prerequisites for fluent-web #489 (Org Manager self-service on the Users page)
 
+**Implemented on `feat/org-manager-self-service`.** Product decisions (2026-09-16): **D1 = Option (b)** — org-level roles only on the Users page (`Org Manager` to promote, `Org Member` to demote); no org-level PM, so Task 3 was dropped. **D2** — self-change block is the last-OM guard; DELETE also rejects self-removal. **D3** — role display precedence is web-side.
+
 Full task detail, including tests, lives in `fluent-web/docs/features/org-manager-users-page/plan.md` Phase A. Summary:
 
 ### Task 1: Org Manager may assign Org Manager
 
-- [ ] `rbac.ts`: add `{ roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER }`.
-- [ ] `authorize.test.ts`: org-scoped Org Manager can `canAssignRole(…, ORG_MANAGER, ORG, null)`; still cannot assign `SuperAdmin`.
-- [ ] Update the comment in `requireSuperAdmin` (`role-auth.ts:121-123`): the permission is no longer SuperAdmin-exclusive, but the check still holds because it also requires a _global_ grant. Add a test that an Org Manager with the new permission is still rejected by `requireSuperAdmin`.
+- [x] `rbac.ts`: added `{ roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER }`.
+- [x] `authorize.test.ts`: org-scoped OM can assign OM (not SuperAdmin, not cross-org); project-pinned `role:assign:org_manager` can't satisfy org scope.
+- [x] `requireSuperAdmin` comment updated; new `role-auth.test.ts` proves an OM holding the org-scoped permission is still rejected.
 
 ### Task 2: Org-level role change
 
 ```
-PATCH /organizations/{orgId}/users/{userId}   body { roleName: 'Org Manager' | 'Project Manager'* }
-200 userResponseSchema | 400 role not allowed at org level | 403 self-change or !canAssignRole | 404 not a member
+PATCH /organizations/{orgId}/users/{userId}   body { roleName: 'Org Manager' | 'Org Member' }
+200 userResponseSchema | 400 not a member | 403 self-change or !canAssignRole
 ```
 
-\* `Project Manager` only if decision D1 in the #489 plan lands on "org-level PM".
+- [x] `org-users.service.ts` + `repo.updateOrgUserRole`: forbid `callerId === userId`; require org membership (`findUserIdsInOrg`); transaction replaces the non-anchor org-level grant (or deletes it on demote), keeping the `Org Member` anchor and all project-scoped grants; idempotent when unchanged.
+- [x] Route in `org-users.route.ts` with `requirePermission(USER_UPDATE, org-scope)` + `canAssignRole` in the handler. DELETE org-user now also blocks `caller.id === userId` (self-removal → 403).
 
-- [ ] Service `updateOrgUserRole(callerId, orgId, userId, roleName)` in `src/domains/organizations/users/org-users.service.ts`: forbid `callerId === userId`; in a transaction delete `user_roles` rows `(userId, orgId, projectId IS NULL, role ≠ Org Member)` then insert the new grant; return `usersService.getUserById(userId)`.
-- [ ] Route in `org-users.route.ts`, mirroring `PATCH /projects/{projectId}/users/{userId}`.
-- [ ] Tests: self-change → 403; non-member → 404; anchor + project-scoped grants preserved; idempotent when unchanged.
+### Task 3: ~~Org-level Project Manager grant~~ — dropped per D1 (b)
 
-### Task 3 (conditional on D1): Org-level Project Manager grant
+### Task 4: Cleanup
 
-- [ ] `canAssignRole` branch 4: `PROJECT_MANAGER` with `projectId === null` requires `ROLE_ASSIGN_PROJECT` at org scope. Translator/Observer remain project-only.
-- [ ] Revisit the TEMP bypass in `projects.route.ts:90-104`.
-
-### Task 4: Optional cleanup
-
-- [ ] `PATCH /users/:id` handler (`users.route.ts:465-475`) strips `role` after the zod schema has already dropped it — dead code. Remove or add `role` to the schema deliberately (recommend remove; role changes go through the org/project endpoints).
+- [x] Removed the dead `updates.role` strip (and now-unused `authorize` import) from `PATCH /users/:id`.
 
 ---
 

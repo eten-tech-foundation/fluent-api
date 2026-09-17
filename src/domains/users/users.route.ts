@@ -15,7 +15,6 @@ import {
   createUserWithInvitation,
   inviteExistingUserToOrg,
 } from '@/lib/services/auth/auth.service';
-import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -441,8 +440,6 @@ const updateUserRoute = createRoute({
 server.openapi(updateUserRoute, async (c) => {
   const { id } = c.req.valid('param');
   const updates = c.req.valid('json');
-  const currentUser = c.get('user')!;
-  const targetUser = c.get('targetUser')!;
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -461,18 +458,6 @@ server.openapi(updateUserRoute, async (c) => {
       },
       HttpStatusCodes.UNPROCESSABLE_ENTITY
     );
-  }
-
-  // Strip role update if user lacks MEMBERSHIP_REVOKE
-  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
-  const hasGrantManagement = targetOrgIds.some((orgId) =>
-    authorize({ id: currentUser.id, grants: currentUser.grants }, PERMISSIONS.MEMBERSHIP_REVOKE, {
-      orgId,
-    })
-  );
-
-  if (!hasGrantManagement) {
-    delete (updates as Record<string, unknown>).role;
   }
 
   const result = await userService.updateUser(id, updates);
@@ -569,7 +554,7 @@ server.openapi(updateActiveOrgRoute, async (c) => {
   if (!belongsToOrg) {
     return c.json(
       { message: 'User does not belong to this organization' },
-      // eslint-disable-next-line max-lines
+
       HttpStatusCodes.FORBIDDEN
     );
   }

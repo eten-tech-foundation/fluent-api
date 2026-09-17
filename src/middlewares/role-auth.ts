@@ -119,7 +119,10 @@ export async function requireSuperAdmin(c: any, next: any) {
   }
 
   // A SuperAdmin must have a global grant (orgId=null, projectId=null)
-  // AND hold a SuperAdmin-exclusive permission (role:assign:org_manager).
+  // AND hold role:assign:org_manager. The permission is no longer
+  // SuperAdmin-exclusive (Org Manager holds it org-scoped since #337), but the
+  // global-grant requirement keeps this check airtight: an org-scoped grant
+  // can never have orgId === null.
   // Checking scope alone would let any future global read-only role pass.
   const isSuperAdmin = user.grants.some(
     (g: any) =>
