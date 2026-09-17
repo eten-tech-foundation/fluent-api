@@ -107,19 +107,22 @@ Do not paste the connection string into logs or commit it.
    Restarting clears pg-boss's cached policy. Verify a normal request completes
    and the mismatch warning no longer appears.
 
-The apply transaction locks the queue and job tables, including partitions, and
-refuses any queued, deferred, retrying or active work. Lock acquisition is limited
-to five seconds and statements to thirty seconds; an error rolls back the whole
-migration. The maintenance window affects all queues because the job table lock
-covers their partitions. Retry only after checking the reported blocker.
+Both modes read the queue's current policy before locking, so an inspection and a
+re-run after success take no lock at all. Only an apply that still has work to do
+locks the queue and job tables, including partitions; it then re-reads the policy
+under the lock and refuses any queued, deferred, retrying or active work. Lock
+acquisition is limited to five seconds and statements to thirty seconds; an error
+rolls back the whole migration. The maintenance window affects all queues because
+the job table lock covers their partitions. Retry only after checking the reported
+blocker.
 
 No queue or job is deleted. The migration changes the queue's policy and retained
 jobs' policy metadata so a later operator retry also respects singleton dedupe.
 IDs, payloads, outputs, states, retry counters, routing and original deadlines stay
 unchanged; DLQ rows are untouched. Dedicated partitions receive the exclusive
 index; the shared partition's existing index is checked. Re-running after success
-is a no-op. Do not switch back to a non-exclusive policy as an application rollback;
-older binaries already expect exclusive dedupe.
+is a lock-free no-op. Do not switch back to a non-exclusive policy as an
+application rollback; older binaries already expect exclusive dedupe.
 
 ## Investigate and recover
 

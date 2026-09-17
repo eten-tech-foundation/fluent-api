@@ -132,6 +132,34 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
       migrateExclusiveWorkerQueue(migrationSql, exportQueue, true)
     ).resolves.toMatchObject({ changed: false });
 
+    // The no-op re-run must decide before taking ACCESS EXCLUSIVE. Another
+    // session holding the lock an ordinary reader takes proves it never waits:
+    // locking first would fail here on the five-second lock_timeout.
+    const reader = postgres(connectionString!, { max: 1 });
+    let holding!: () => void;
+    const held = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    let releaseReader!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseReader = resolve;
+    });
+    const readerTransaction = reader.begin(async (tx) => {
+      await tx`LOCK TABLE pgboss.queue, pgboss.job IN ACCESS SHARE MODE`;
+      holding();
+      await released;
+    });
+    try {
+      await held;
+      await expect(
+        migrateExclusiveWorkerQueue(migrationSql, exportQueue, true)
+      ).resolves.toMatchObject({ changed: false });
+    } finally {
+      releaseReader();
+      await readerTransaction;
+      await reader.end();
+    }
+
     const key = { singletonKey: 'migration-dedupe-proof' };
     const first = await boss.send(exportQueue, { fixture: 'first' }, key);
     expect(first).toBeTruthy();

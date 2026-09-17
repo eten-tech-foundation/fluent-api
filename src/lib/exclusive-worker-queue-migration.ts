@@ -18,35 +18,48 @@ export async function migrateExclusiveWorkerQueue(
   return sql.begin(async (tx) => {
     await tx`SET LOCAL lock_timeout = '5s'`;
     await tx`SET LOCAL statement_timeout = '30s'`;
-    if (apply) {
-      // Includes all partitions. No sender, worker or maintenance process can
-      // change jobs between the pending-work check and the policy update.
-      await tx`LOCK TABLE pgboss.queue, pgboss.job IN ACCESS EXCLUSIVE MODE`;
-    }
-    const [version] = await tx`SELECT version FROM pgboss.version`;
-    if (version?.version !== PG_BOSS_SCHEMA_VERSION) {
-      throw new Error(
-        `Migration requires the pg-boss 12.1.1 schema version ${PG_BOSS_SCHEMA_VERSION}`
-      );
-    }
-    const [queue] = await tx`
-      SELECT policy, partition, table_name FROM pgboss.queue WHERE name = ${queueName}
-    `;
-    if (!queue) throw new Error(`Queue ${queueName} does not exist`);
+    const readQueueState = async () => {
+      const [version] = await tx`SELECT version FROM pgboss.version`;
+      if (version?.version !== PG_BOSS_SCHEMA_VERSION) {
+        throw new Error(
+          `Migration requires the pg-boss 12.1.1 schema version ${PG_BOSS_SCHEMA_VERSION}`
+        );
+      }
+      const [queue] = await tx`
+        SELECT policy, partition, table_name FROM pgboss.queue WHERE name = ${queueName}
+      `;
+      if (!queue) throw new Error(`Queue ${queueName} does not exist`);
 
-    const [stats] = await tx`
-      SELECT count(*)::int AS retained,
-             count(*) FILTER (WHERE state <= 'active')::int AS pending
-        FROM pgboss.job WHERE name = ${queueName}
-    `;
-    const result = {
-      queueName,
-      previousPolicy: queue.policy as string,
-      retainedJobs: stats.retained as number,
-      pendingJobs: stats.pending as number,
-      changed: false,
+      const [stats] = await tx`
+        SELECT count(*)::int AS retained,
+               count(*) FILTER (WHERE state <= 'active')::int AS pending
+          FROM pgboss.job WHERE name = ${queueName}
+      `;
+      return {
+        queue,
+        result: {
+          queueName,
+          previousPolicy: queue.policy as string,
+          retainedJobs: stats.retained as number,
+          pendingJobs: stats.pending as number,
+          changed: false,
+        },
+      };
     };
-    if (!apply || queue.policy === 'exclusive') return result;
+
+    // Read the policy before locking. An inspection, or a re-run after a
+    // successful migration, must not stall every queue's fetch/complete/send
+    // for the lock timeout just to discover there is nothing to do.
+    const preflight = await readQueueState();
+    if (!apply || preflight.queue.policy === 'exclusive') return preflight.result;
+
+    // Includes all partitions. No sender, worker or maintenance process can
+    // change jobs between the pending-work check and the policy update.
+    await tx`LOCK TABLE pgboss.queue, pgboss.job IN ACCESS EXCLUSIVE MODE`;
+    // The unlocked pre-check can race another migration, so decide again on the
+    // state this lock now protects.
+    const { queue, result } = await readQueueState();
+    if (queue.policy === 'exclusive') return result;
     if (result.pendingJobs > 0) {
       throw new Error(
         `${queueName} still has ${result.pendingJobs} queued, deferred or active jobs`
