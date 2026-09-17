@@ -33,7 +33,7 @@ Files: `src/db/seeds/rbac.ts`, `src/lib/services/permissions/authorize.test.ts`,
 
 - [ ] Add `{ roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER }` to the Org Manager block.
 - [ ] Tests: org-scoped Org Manager → `canAssignRole(…, ORG_MANAGER, ORG, null) === true`; same caller cannot assign `SuperAdmin`.
-- [ ] `requireSuperAdmin` (`role-auth.ts:121-123`) comments call this permission SuperAdmin-exclusive; it no longer is. The check still holds because it also requires a *global* grant. Fix the comment and add a test that an Org Manager holding the new permission is still rejected.
+- [ ] `requireSuperAdmin` (`role-auth.ts:121-123`) comments call this permission SuperAdmin-exclusive; it no longer is. The check still holds because it also requires a _global_ grant. Fix the comment and add a test that an Org Manager holding the new permission is still rejected.
 
 ### 2. Org-level role change endpoint
 

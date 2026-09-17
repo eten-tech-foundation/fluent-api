@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '@/lib/types';
 
 import * as repo from './organizations.repository';
-import {
-  createOrganization,
-  getOrganization,
-  listOrganizations,
-} from './organizations.service';
+import { createOrganization, getOrganization, listOrganizations } from './organizations.service';
 
 vi.mock('@/domains/organizations/organizations.repository', () => ({
   findAllWithCounts: vi.fn(),

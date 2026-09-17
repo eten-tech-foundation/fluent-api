@@ -19,8 +19,8 @@
   - for a new user: creates auth identity + user row + Org Member anchor + role grant, sends a magic-link email to `/accept-invitation` (201),
   - for an existing user: adds anchor + role grant to the org, sends a login-link email (200),
   - authorizes via `requirePermission(USER_CREATE, orgFromBody)` + `canAssignRole(caller, roleName, orgId, projectId)`.
-  A SuperAdmin's global grant satisfies both for `roleName: 'Org Manager', projectId: null` (`authorize.test.ts:148-150` already asserts `canAssignRole(superAdmin, ORG_MANAGER, ORG, null) === true`). **No invite changes are needed for the SuperAdmin flow.**
-- `GET /users` returns *all* users for SuperAdmin — not per-org — so the web org-detail page needs an org-scoped member list.
+    A SuperAdmin's global grant satisfies both for `roleName: 'Org Manager', projectId: null` (`authorize.test.ts:148-150` already asserts `canAssignRole(superAdmin, ORG_MANAGER, ORG, null) === true`). **No invite changes are needed for the SuperAdmin flow.**
+- `GET /users` returns _all_ users for SuperAdmin — not per-org — so the web org-detail page needs an org-scoped member list.
 - RBAC gaps that block #489 (Org Manager self-service): Org Manager lacks `ROLE_ASSIGN_ORG_MANAGER`; `PATCH /users/:id` ignores `role`; no org-level role-change endpoint; Project Manager only exists as a project-pinned grant.
 - Dev seeds (`src/db/seeds/dev-users.ts`) contain no SuperAdmin and no Org Manager.
 
@@ -72,7 +72,7 @@ export const organizationResponseSchema = z.object({
   createdAt: z.string().datetime().nullable(),
 });
 export const organizationSummarySchema = organizationResponseSchema.extend({
-  orgManagerCount: z.number().int(),  // distinct users with an Org Manager grant, projectId IS NULL
+  orgManagerCount: z.number().int(), // distinct users with an Org Manager grant, projectId IS NULL
 });
 ```
 
@@ -138,7 +138,7 @@ Full task detail, including tests, lives in `fluent-web/docs/features/org-manage
 
 - [ ] `rbac.ts`: add `{ roleName: ROLES.ORG_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER }`.
 - [ ] `authorize.test.ts`: org-scoped Org Manager can `canAssignRole(…, ORG_MANAGER, ORG, null)`; still cannot assign `SuperAdmin`.
-- [ ] Update the comment in `requireSuperAdmin` (`role-auth.ts:121-123`): the permission is no longer SuperAdmin-exclusive, but the check still holds because it also requires a *global* grant. Add a test that an Org Manager with the new permission is still rejected by `requireSuperAdmin`.
+- [ ] Update the comment in `requireSuperAdmin` (`role-auth.ts:121-123`): the permission is no longer SuperAdmin-exclusive, but the check still holds because it also requires a _global_ grant. Add a test that an Org Manager with the new permission is still rejected by `requireSuperAdmin`.
 
 ### Task 2: Org-level role change
 
@@ -166,8 +166,8 @@ PATCH /organizations/{orgId}/users/{userId}   body { roleName: 'Org Manager' | '
 
 ## Verification summary
 
-| Ticket | Command |
-| --- | --- |
-| API-1 | `pnpm test src/domains/organizations src/domains/users src/lib/services/permissions && pnpm typecheck && pnpm lint` |
-| API-2 | `pnpm test src/domains/organizations src/lib/services/permissions src/middlewares && pnpm typecheck && pnpm lint` |
-| both | re-run RBAC seed in the target environment after deploy |
+| Ticket | Command                                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------------------- |
+| API-1  | `pnpm test src/domains/organizations src/domains/users src/lib/services/permissions && pnpm typecheck && pnpm lint` |
+| API-2  | `pnpm test src/domains/organizations src/lib/services/permissions src/middlewares && pnpm typecheck && pnpm lint`   |
+| both   | re-run RBAC seed in the target environment after deploy                                                             |

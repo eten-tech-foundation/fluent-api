@@ -10,7 +10,7 @@
 
 ## Problem
 
-A SuperAdmin must be able to create a new organization and invite its first Org Manager without a developer. The API has no list / create / read org endpoints and no org-scoped member list (`GET /users` returns *all* users for a SuperAdmin). The only org-creating code is the zero-org "solo workflow" inside `POST /projects`, which serves solo users and is out of scope here.
+A SuperAdmin must be able to create a new organization and invite its first Org Manager without a developer. The API has no list / create / read org endpoints and no org-scoped member list (`GET /users` returns _all_ users for a SuperAdmin). The only org-creating code is the zero-org "solo workflow" inside `POST /projects`, which serves solo users and is out of scope here.
 
 `POST /users/invite` already covers the invite step: it detects new vs. existing Fluent accounts, grants Org Member anchor + role, and emails a magic link (201) or login link (200). `canAssignRole(superAdmin, 'Org Manager', orgId, null)` is already `true` (`authorize.test.ts:148-150`). No invite changes are expected beyond tests and docs.
 
@@ -35,9 +35,13 @@ Files: `src/lib/permissions.ts`, `src/db/seeds/rbac.ts`, `src/lib/services/permi
 Create: `src/domains/organizations/organizations.{types,repository,service,route}.ts`, `organizations.service.test.ts`. Modify: `src/app.ts`.
 
 ```ts
-export const createOrganizationRequestSchema = z.object({ name: z.string().trim().min(1).max(100) });
+export const createOrganizationRequestSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+});
 export const organizationResponseSchema = z.object({
-  id: z.number().int(), name: z.string(), createdAt: z.string().datetime().nullable(),
+  id: z.number().int(),
+  name: z.string(),
+  createdAt: z.string().datetime().nullable(),
 });
 export const organizationSummarySchema = organizationResponseSchema.extend({
   orgManagerCount: z.number().int(), // distinct users with Org Manager grant, projectId IS NULL

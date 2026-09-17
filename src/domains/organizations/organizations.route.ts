@@ -26,9 +26,7 @@ const orgIdParamSchema = z.object({
 const validationErrorSchema = z.object({
   success: z.boolean(),
   error: z.object({
-    issues: z.array(
-      z.object({ code: z.string(), path: z.array(z.string()), message: z.string() })
-    ),
+    issues: z.array(z.object({ code: z.string(), path: z.array(z.string()), message: z.string() })),
     name: z.string(),
   }),
 });
@@ -39,10 +37,7 @@ const listOrganizationsRoute = createRoute({
   tags: ['Organizations'],
   method: 'get',
   path: '/organizations',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.ORG_VIEW, () => ({})),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.ORG_VIEW, () => ({}))] as const,
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       organizationSummarySchema.array().openapi('Organizations'),
@@ -79,18 +74,12 @@ const createOrganizationRoute = createRoute({
   tags: ['Organizations'],
   method: 'post',
   path: '/organizations',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.ORG_CREATE, () => ({})),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.ORG_CREATE, () => ({}))] as const,
   request: {
     body: jsonContent(createOrganizationRequestSchema, 'The organization to create'),
   },
   responses: {
-    [HttpStatusCodes.CREATED]: jsonContent(
-      organizationResponseSchema,
-      'The created organization'
-    ),
+    [HttpStatusCodes.CREATED]: jsonContent(organizationResponseSchema, 'The created organization'),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
       'An organization with this name already exists'
@@ -132,10 +121,7 @@ const getOrganizationRoute = createRoute({
   tags: ['Organizations'],
   method: 'get',
   path: '/organizations/{orgId}',
-  middleware: [
-    authenticateUser,
-    requirePermission(PERMISSIONS.ORG_VIEW, () => ({})),
-  ] as const,
+  middleware: [authenticateUser, requirePermission(PERMISSIONS.ORG_VIEW, () => ({}))] as const,
   request: { params: orgIdParamSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(organizationSummarySchema, 'The organization'),
@@ -157,8 +143,7 @@ const getOrganizationRoute = createRoute({
     ),
   },
   summary: 'Get an organization',
-  description:
-    'Returns a single organization with its Org Manager count. SuperAdmin only.',
+  description: 'Returns a single organization with its Org Manager count. SuperAdmin only.',
 });
 
 server.openapi(getOrganizationRoute, async (c) => {

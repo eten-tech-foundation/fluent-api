@@ -16,9 +16,10 @@ import type {
 } from './organizations.types';
 
 function withManagerCounts() {
-  const orgManagerCount = sql<number>`count(DISTINCT ${user_roles.userId}) FILTER (WHERE ${roles.name} = ${ROLES.ORG_MANAGER})::int`.as(
-    'orgManagerCount'
-  );
+  const orgManagerCount =
+    sql<number>`count(DISTINCT ${user_roles.userId}) FILTER (WHERE ${roles.name} = ${ROLES.ORG_MANAGER})::int`.as(
+      'orgManagerCount'
+    );
 
   return db
     .select({
@@ -28,10 +29,7 @@ function withManagerCounts() {
       orgManagerCount,
     })
     .from(organizations)
-    .leftJoin(
-      user_roles,
-      and(eq(user_roles.orgId, organizations.id), isNull(user_roles.projectId))
-    )
+    .leftJoin(user_roles, and(eq(user_roles.orgId, organizations.id), isNull(user_roles.projectId)))
     .leftJoin(roles, eq(roles.id, user_roles.roleId));
 }
 
