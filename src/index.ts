@@ -67,12 +67,16 @@ async function startServer() {
       logger.info(`${signal} received, shutting down server`);
       try {
         if (audioReclaimInterval) clearInterval(audioReclaimInterval);
-        await stopDeadLetterMonitor();
+        // Stop the monitor's timer now but drain its in-flight sweep alongside
+        // the listener close. Awaiting it first would hold the socket open for
+        // up to DLQ_SHUTDOWN_TIMEOUT_MS of the orchestrator's grace period.
+        const monitorStopped = stopDeadLetterMonitor();
 
         server.close(() => {
           logger.info('HTTP server closed');
         });
 
+        await monitorStopped;
         await stopQueue();
 
         logger.info('Shutdown completed');

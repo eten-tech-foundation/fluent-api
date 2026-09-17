@@ -14,8 +14,9 @@ per-job event or a count of new failures.
 The API runs the monitor because the export WebJob refuses to boot without R2.
 Monitoring therefore continues when that worker cannot start. It uses the existing
 Pino/Application Insights logger, needs no new service or fluent-platform change,
-and stops its timer and waits up to five seconds for an active sweep before
-continuing API and pg-boss shutdown. A timeout logs
+and stops its timer and waits up to five seconds for an active sweep. Shutdown
+closes the HTTP listener first and drains that sweep concurrently, so the wait
+never delays rejecting new connections, and pg-boss stops after it. A timeout logs
 `worker_dlq_monitor_shutdown_timeout`; it does not cancel the database query.
 Slow sweeps never overlap. Discovery failures and individual queue read failures
 emit `worker_dlq_monitor_error`; a failure in one queue does not skip the others.
