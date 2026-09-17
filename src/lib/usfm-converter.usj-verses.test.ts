@@ -160,6 +160,49 @@ describe('usjToVerseTexts (#419)', () => {
     });
   });
 
+  it('keeps footnote and cross reference text out of the verse it hangs off', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const verses = versesOf(
+      [
+        '\\id GEN',
+        '\\c 1',
+        '\\p',
+        '\\v 1 In the beginning\\f + \\fr 1:1 \\ft Some manuscripts read otherwise.\\f* God created.',
+        '\\v 2 The earth\\x - \\xo 1:2 \\xt Isa 45:18\\x* was formless.',
+      ].join('\n')
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'In the beginning God created.' },
+      { chapterNumber: 1, verseNumber: 2, text: 'The earth was formless.' },
+    ]);
+    expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
+      type: 'note',
+    });
+  });
+
+  it('keeps an illustration caption and a study sidebar out of the surrounding verses', () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const verses = versesOf(
+      [
+        '\\id GEN',
+        '\\c 1',
+        '\\p',
+        '\\v 1 Before.\\fig Caption text|src="a.png" size="span"\\fig*',
+        '\\esb',
+        '\\p Sidebar body text.',
+        '\\esbe',
+        '\\p',
+        '\\v 2 After.',
+      ].join('\n')
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'Before.' },
+      { chapterNumber: 1, verseNumber: 2, text: 'After.' },
+    ]);
+  });
+
   it('returns nothing for a file with markers but no verses', () => {
     expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
   });

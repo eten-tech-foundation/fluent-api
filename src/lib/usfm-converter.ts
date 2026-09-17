@@ -110,13 +110,21 @@ export interface UsjVerseText {
 }
 
 /**
+ * Node types whose text is apparatus about the verse rather than the verse itself: footnotes
+ * (`\f`), cross references (`\x`), illustration captions (`\fig`) and study sidebars (`\esb`).
+ * Walking into them would concatenate that text onto the translated verse content, so they are
+ * left where they belong, in the raw imported file.
+ */
+const NON_VERSE_TEXT_NODE_TYPES = new Set(['note', 'figure', 'sidebar']);
+
+/**
  * Flattens a USJ document into one entry per verse: chapters are top-level milestones, verses
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
- * is filed under its first number. Heading words and anything before the first verse are not
- * included in verse text. Supported headings are preserved as markers on the following verse;
- * other unsupported structure remains available in the raw imported file. A heading without a
- * following verse is invalid because there is no verse row that can retain it.
+ * is filed under its first number. Heading words, note apparatus and anything before the first
+ * verse are not included in verse text. Supported headings are preserved as markers on the
+ * following verse; other unsupported structure remains available in the raw imported file. A
+ * heading without a following verse is invalid because there is no verse row that can retain it.
  */
 export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   const verses: UsjVerseText[] = [];
@@ -207,6 +215,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           logger.warn('Unsupported USJ node while extracting verse text', {
             type: unsupportedNode.type,
           });
+          if (NON_VERSE_TEXT_NODE_TYPES.has(unsupportedNode.type)) break;
           if (Array.isArray(unsupportedNode.content)) {
             walk(unsupportedNode.content as (USJNode | string)[]);
           }

@@ -40,6 +40,10 @@ source completion. After completion, matching verses are inserted with
 `ON CONFLICT DO NOTHING`; real versification gaps are logged and the import is
 marked materialized. Gaps do not leave an otherwise completed import pending.
 
+Imported verse text is the words of the verse only. Footnotes, cross references,
+illustration captions and study sidebars are apparatus about the verse, so they
+stay in the stored file and never reach `translated_verses`.
+
 Each imported book is attempted independently. A failed import is logged with its
 import and book IDs, while other books continue. The first failure is returned
 after the batch so callers retain failure visibility.
