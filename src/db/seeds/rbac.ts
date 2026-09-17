@@ -13,6 +13,8 @@ const PERMISSION_DEFINITIONS = [
   { name: PERMISSIONS.CONTENT_VIEW, description: 'View chapter assignment content' },
   { name: PERMISSIONS.CONTENT_ASSIGN, description: 'Assign chapter assignments' },
   { name: PERMISSIONS.CONTENT_UPDATE, description: 'Update chapter assignment content' },
+  { name: PERMISSIONS.ORG_VIEW, description: 'View organizations' },
+  { name: PERMISSIONS.ORG_CREATE, description: 'Create new organizations' },
   { name: PERMISSIONS.MEMBERSHIP_REVOKE, description: 'Revoke user memberships' },
   { name: PERMISSIONS.ROLE_ASSIGN_PROJECT, description: 'Assign project-level roles' },
   { name: PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER, description: 'Assign org manager role' },
