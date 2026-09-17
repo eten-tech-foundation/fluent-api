@@ -6,10 +6,13 @@ until the entire source book has been ingested.
 
 ## Completion state
 
-Migration `0029_add_bible_book_text_ingestion_completion` adds nullable
+Migration `0030_add_bible_book_text_ingestion_completion` adds nullable
 `bible_books.text_ingested_at`. A null value means completion is unknown or the
 book is still incomplete. Existing `bible_texts` rows are not enough to establish
-completion, and the migration does not backfill them.
+completion, and no expected chapter or verse count exists to check them against,
+so the migration does not backfill them. A book left null on an existing database
+is re-queued by the next project that selects it, and the idempotent ingestion
+marks it complete then.
 
 The ingestion worker sets the timestamp only after it has fetched and written
 every numbered chapter of that book. Failed chapter requests, invalid chapter

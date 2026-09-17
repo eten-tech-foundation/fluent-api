@@ -1,9 +1,6 @@
-ALTER TABLE "bible_books" ADD COLUMN "text_ingested_at" timestamp;--> statement-breakpoint
-UPDATE "bible_books"
-SET "text_ingested_at" = now()
-WHERE "text_ingested_at" IS NULL
-	AND EXISTS (
-		SELECT 1 FROM "bible_texts"
-		WHERE "bible_texts"."bible_id" = "bible_books"."bible_id"
-			AND "bible_texts"."book_id" = "bible_books"."book_id"
-	);
+-- No backfill: existing bible_texts rows prove some verses landed, not that the book is
+-- complete, and there is no expected chapter or verse count to check them against. Marking a
+-- partially ingested book complete would let an import treat its missing chapters as
+-- versification gaps and drop the translated content. Completion is set only by the code that
+-- has ingested a whole book, and project creation re-queues any book still left null.
+ALTER TABLE "bible_books" ADD COLUMN "text_ingested_at" timestamp;
