@@ -33,7 +33,16 @@ The blank-project queue policy is unchanged.
 
 Creation decides whether to enqueue before attempting immediate materialization.
 If another worker finishes concurrently, the import therefore either has its own
-queued job or sees the completed source during the immediate attempt.
+queued job or sees the completed source during the immediate attempt. The enqueue
+runs inside the creating transaction: an import whose job could not be queued is
+rolled back rather than committed as a project whose verses can never arrive.
+Blank-project creation keeps tolerating a queue failure.
+
+Completion reconciles every pending import for that Bible and book, whichever
+project holds it, so an import whose own job was never queued or has given up is
+not left waiting. The worker reconciles the books it completed before another
+book's failure sends the job back for a retry, so a book that keeps failing
+cannot strand them once the retries run out.
 
 Materialization leaves the import pending and writes no translated verses before
 source completion. After completion, matching verses are inserted with

@@ -321,6 +321,38 @@ export async function getPendingUsfmImports(projectUnitId: number, bookIds: numb
     );
 }
 
+/**
+ * The same pending imports, for every project unit waiting on these books of this Bible rather
+ * than for one project. A completed book finishes all of them at once, so a project whose own
+ * ingestion job never ran is not left waiting on it forever. The join keeps a project unit that
+ * imported the same book against a different Bible out: its verses belong to that Bible's text.
+ */
+export async function getPendingUsfmImportsForBible(bibleId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId),
+        eq(project_unit_bible_books.bibleId, bibleId)
+      )
+    )
+    .where(
+      and(
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
 export async function markUsfmImportMaterialized(id: number, executor: DbTransaction | typeof db) {
   await executor
     .update(project_unit_usfm_imports)

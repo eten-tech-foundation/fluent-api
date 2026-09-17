@@ -44,7 +44,7 @@ vi.mock('../lib/services/dbl/dbl.client', () => {
 });
 
 vi.mock('../domains/projects/usfm-import.service', () => ({
-  materializePendingUsfmImports: vi
+  materializePendingUsfmImportsForBible: vi
     .fn()
     .mockResolvedValue({ ok: true, data: { materialized: 0, pending: 0 } }),
 }));
@@ -217,7 +217,7 @@ describe('dblIngestTextWorker', () => {
 
         expect(db.insert).not.toHaveBeenCalledWith(bible_books);
         const usfmImportService = await import('../domains/projects/usfm-import.service');
-        expect(usfmImportService.materializePendingUsfmImports).not.toHaveBeenCalled();
+        expect(usfmImportService.materializePendingUsfmImportsForBible).not.toHaveBeenCalled();
       }
     );
 
@@ -245,7 +245,7 @@ describe('dblIngestTextWorker', () => {
       );
     });
 
-    it('finishes any imported USFM waiting on this text, once the assignments exist (#419)', async () => {
+    it('finishes any imported USFM waiting on this text, once the book is complete (#419)', async () => {
       const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
       await registerDblIngestTextWorker(mockBoss);
       const handler = mockBoss.work.mock.calls[0][2];
@@ -262,7 +262,7 @@ describe('dblIngestTextWorker', () => {
 
       await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-6' }]);
 
-      expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(42, 1, [7]);
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
       const completionIndex = vi
         .mocked(db.insert)
         .mock.calls.findIndex(([table]) => table === bible_books);
@@ -274,8 +274,43 @@ describe('dblIngestTextWorker', () => {
         textIngestedAt: expect.any(Date),
       });
       expect(vi.mocked(db.insert).mock.invocationCallOrder[completionIndex]).toBeLessThan(
-        vi.mocked(usfmImportService.materializePendingUsfmImports).mock.invocationCallOrder[0]
+        vi.mocked(usfmImportService.materializePendingUsfmImportsForBible).mock
+          .invocationCallOrder[0]
       );
+    });
+
+    it('reconciles the completed book for every project, including a job with no project of its own', async () => {
+      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      await registerDblIngestTextWorker(mockBoss);
+      const handler = mockBoss.work.mock.calls[0][2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+
+      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-7' }]);
+
+      // Scoped to the source book, not to the project unit whose job fetched it, so an import
+      // whose own ingestion job was never queued is finished here too.
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
+    });
+
+    it('materialises a completed book before another book failure sends the job back for a retry', async () => {
+      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
+      await registerDblIngestTextWorker(mockBoss);
+      const handler = mockBoss.work.mock.calls[0][2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+
+      vi.mocked(db.query.books.findFirst)
+        .mockResolvedValueOnce({ id: 7, code: 'GEN' } as any)
+        .mockResolvedValueOnce({ id: 8, code: 'MAT' } as any);
+      mockDblClientInstance.getChapters
+        .mockResolvedValueOnce({ ok: true, data: [{ id: 'GEN.1', number: '1' }] })
+        .mockResolvedValueOnce({ ok: false, error: { message: 'DBL returned 503' } });
+
+      await expect(
+        handler([{ data: { bibleId: 1, bookCodes: ['GEN', 'MAT'], projectId: 99 }, id: 'job-8' }])
+      ).rejects.toThrow(/trigger retry/);
+
+      // Genesis completed; Matthew keeps failing. Its import must not wait on those retries.
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
     });
 
     it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {

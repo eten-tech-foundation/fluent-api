@@ -172,11 +172,67 @@ export async function materializeUsfmImport(
   return ok('materialized');
 }
 
+interface PendingUsfmImport {
+  id: number;
+  projectUnitId: number;
+  bookId: number;
+  usfm: string;
+}
+
+/** Each import is independent: attempt them all, then return the first failure if any occurred. */
+async function materializeEach(
+  imports: PendingUsfmImport[],
+  bibleId: number,
+  parsedFiles: ParsedUsfmFile[]
+): Promise<Result<{ materialized: number; pending: number }>> {
+  const versesByBook = new Map(parsedFiles.map((file) => [file.bookId, file.verses]));
+  const outcomes = await Promise.all(
+    imports.map(async (row) => {
+      const context = {
+        importId: row.id,
+        projectUnitId: row.projectUnitId,
+        bibleId,
+        bookId: row.bookId,
+      };
+      try {
+        const outcome = await materializeUsfmImport(row, bibleId, db, versesByBook.get(row.bookId));
+        if (!outcome.ok) {
+          logger.error({
+            message: 'Failed to materialise imported USFM book',
+            context: { ...context, error: outcome.error },
+          });
+        }
+        return outcome;
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Failed to materialise imported USFM book',
+          context,
+        });
+        return err(ErrorCode.INTERNAL_ERROR);
+      }
+    })
+  );
+
+  let materialized = 0;
+  let pending = 0;
+  let firstFailure: Result<never> | undefined;
+
+  for (const outcome of outcomes) {
+    if (!outcome.ok) {
+      firstFailure ??= outcome;
+      continue;
+    }
+    if (outcome.data === 'materialized') materialized += 1;
+    else pending += 1;
+  }
+
+  return firstFailure ?? ok({ materialized, pending });
+}
+
 /**
- * Finishes any imports for these books whose source text was not there when the project was
- * created. Called from the text-ingestion worker right after it has created the chapter
- * assignments, and from project creation for books that were already ingested.
- * Each book is independent: attempt them all, then return the first failure if any occurred.
+ * Finishes this project unit's imports for these books, using the verses parsed during
+ * validation. Called from project creation for books that were already ingested.
  */
 export async function materializePendingUsfmImports(
   projectUnitId: number,
@@ -186,54 +242,35 @@ export async function materializePendingUsfmImports(
 ): Promise<Result<{ materialized: number; pending: number }>> {
   try {
     const imports = await repo.getPendingUsfmImports(projectUnitId, bookIds);
-    const versesByBook = new Map(parsedFiles.map((file) => [file.bookId, file.verses]));
-    const outcomes = await Promise.all(
-      imports.map(async (row) => {
-        const context = { importId: row.id, projectUnitId, bibleId, bookId: row.bookId };
-        try {
-          const outcome = await materializeUsfmImport(
-            row,
-            bibleId,
-            db,
-            versesByBook.get(row.bookId)
-          );
-          if (!outcome.ok) {
-            logger.error({
-              message: 'Failed to materialise imported USFM book',
-              context: { ...context, error: outcome.error },
-            });
-          }
-          return outcome;
-        } catch (error) {
-          logger.error({
-            cause: error,
-            message: 'Failed to materialise imported USFM book',
-            context,
-          });
-          return err(ErrorCode.INTERNAL_ERROR);
-        }
-      })
-    );
-
-    let materialized = 0;
-    let pending = 0;
-    let firstFailure: Result<never> | undefined;
-
-    for (const outcome of outcomes) {
-      if (!outcome.ok) {
-        firstFailure ??= outcome;
-        continue;
-      }
-      if (outcome.data === 'materialized') materialized += 1;
-      else pending += 1;
-    }
-
-    return firstFailure ?? ok({ materialized, pending });
+    return await materializeEach(imports, bibleId, parsedFiles);
   } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to materialise imported USFM',
       context: { projectUnitId, bibleId, bookIds },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Finishes every import waiting on these books of this Bible, whichever project it belongs to.
+ * Called from the text-ingestion worker once a book is complete: completion is a property of the
+ * source text, not of the project whose job happened to fetch it, so a project whose own job was
+ * never queued or has since given up is finished here rather than left pending forever.
+ */
+export async function materializePendingUsfmImportsForBible(
+  bibleId: number,
+  bookIds: number[]
+): Promise<Result<{ materialized: number; pending: number }>> {
+  try {
+    const imports = await repo.getPendingUsfmImportsForBible(bibleId, bookIds);
+    return await materializeEach(imports, bibleId, []);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to materialise imported USFM',
+      context: { bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

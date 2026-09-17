@@ -9,6 +9,7 @@ import * as converter from '@/lib/usfm-converter';
 import * as repo from './projects.repository';
 import {
   materializePendingUsfmImports,
+  materializePendingUsfmImportsForBible,
   materializeUsfmImport,
   parseUsfmFiles,
 } from './usfm-import.service';
@@ -37,6 +38,7 @@ vi.mock('@/db', () => ({
 
 vi.mock('./projects.repository', () => ({
   getPendingUsfmImports: vi.fn(),
+  getPendingUsfmImportsForBible: vi.fn(),
   markUsfmImportMaterialized: vi.fn(),
 }));
 
@@ -449,6 +451,56 @@ describe('materializePendingUsfmImports (#419)', () => {
     vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([]);
 
     const result = await materializePendingUsfmImports(5, 3, []);
+
+    expect(result).toEqual({ ok: true, data: { materialized: 0, pending: 0 } });
+  });
+});
+
+describe('materializePendingUsfmImportsForBible (#419)', () => {
+  it('finishes every project waiting on the book, not only the one whose job ingested it', async () => {
+    vi.mocked(repo.getPendingUsfmImportsForBible).mockResolvedValue([
+      { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
+      { id: 2, projectUnitId: 6, bookId: 1, usfm: GEN },
+    ]);
+    rowsByTable.set(bible_texts, [
+      { id: 101, chapterNumber: 1, verseNumber: 1 },
+      { id: 102, chapterNumber: 1, verseNumber: 2 },
+    ]);
+
+    const result = await materializePendingUsfmImportsForBible(3, [1]);
+
+    expect(result).toEqual({ ok: true, data: { materialized: 2, pending: 0 } });
+    expect(repo.getPendingUsfmImportsForBible).toHaveBeenCalledWith(3, [1]);
+    expect(inserted.flat()).toEqual(
+      expect.arrayContaining([
+        { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+        { projectUnitId: 6, bibleTextId: 101, content: 'In the beginning.' },
+      ])
+    );
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(1, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(2, db);
+  });
+
+  it('reports the failure against the project unit that owns the import', async () => {
+    vi.mocked(repo.getPendingUsfmImportsForBible).mockResolvedValue([
+      { id: 7, projectUnitId: 6, bookId: 1, usfm: 'corrupted stored file' },
+    ]);
+    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+
+    const result = await materializePendingUsfmImportsForBible(3, [1]);
+
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({ importId: 7, projectUnitId: 6, bibleId: 3, bookId: 1 }),
+      })
+    );
+  });
+
+  it('asks for nothing when no book completed', async () => {
+    vi.mocked(repo.getPendingUsfmImportsForBible).mockResolvedValue([]);
+
+    const result = await materializePendingUsfmImportsForBible(3, []);
 
     expect(result).toEqual({ ok: true, data: { materialized: 0, pending: 0 } });
   });

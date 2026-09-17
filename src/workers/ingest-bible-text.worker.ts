@@ -33,6 +33,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
     try {
       const job = jobs[0];
       let jobFailedChapters = 0;
+      const completedBookIds: number[] = [];
       const { bibleId, bookCodes } = job.data;
       logger.info(`Starting on-demand text ingestion (Job ID: ${job.id})`, {
         bibleId,
@@ -168,6 +169,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
               target: [bible_books.bibleId, bible_books.bookId],
               set: { textIngestedAt: sql`now()` },
             });
+          completedBookIds.push(dbBook.id);
         } else if (jobFailedChapters === failuresBeforeBook) {
           logger.warn(`Book ${code} returned no numbered chapters`, { bibleId });
           jobFailedChapters++;
@@ -175,6 +177,30 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
       }
 
       logger.info('On-demand text ingestion completed', { bibleId });
+
+      // #419: verses imported from USFM wait on their source book, in whatever project they were
+      // imported. Reconcile every book this job completed before a sibling book's failure throws
+      // for a retry, since a book that keeps failing would otherwise strand them once the retries
+      // run out. A materialisation failure is not a reason to retry ingestion, which has succeeded.
+      if (completedBookIds.length > 0) {
+        const imported = await usfmImportService.materializePendingUsfmImportsForBible(
+          bibleId,
+          completedBookIds
+        );
+        if (imported.ok && imported.data.materialized > 0) {
+          logger.info('Materialised imported USFM after text ingestion', {
+            bibleId,
+            bookIds: completedBookIds,
+            ...imported.data,
+          });
+        } else if (!imported.ok) {
+          logger.error('Failed to materialise imported USFM after text ingestion', {
+            bibleId,
+            bookIds: completedBookIds,
+            error: imported.error,
+          });
+        }
+      }
 
       if (jobFailedChapters > 0) {
         throw new Error(
@@ -213,25 +239,6 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
                   projectUnitId: pu.id,
                   bookIds,
                 });
-
-                // #419: a project created from USFM before this text existed has its verses
-                // waiting on it. Not a reason to retry the ingestion, which has succeeded.
-                const imported = await usfmImportService.materializePendingUsfmImports(
-                  pu.id,
-                  bibleId,
-                  bookIds
-                );
-                if (imported.ok && imported.data.materialized > 0) {
-                  logger.info('Materialised imported USFM after text ingestion', {
-                    projectUnitId: pu.id,
-                    ...imported.data,
-                  });
-                } else if (!imported.ok) {
-                  logger.error('Failed to materialise imported USFM after text ingestion', {
-                    projectUnitId: pu.id,
-                    error: imported.error,
-                  });
-                }
               } else {
                 failedAssignments++;
                 logger.error('Failed to create chapter assignments for project unit', {
