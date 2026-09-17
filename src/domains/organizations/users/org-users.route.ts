@@ -16,18 +16,18 @@ import { removeOrgUser } from './org-users.repository';
 // ── Shared param schema ────────────────────────────────────────────────────────
 
 const orgParamSchema = z.object({
-  orgId: z.coerce.number().openapi({
+  orgId: z.coerce.number().int().positive().openapi({
     param: { name: 'orgId', in: 'path', required: true },
     example: 1,
   }),
 });
 
 const orgUserParamSchema = z.object({
-  orgId: z.coerce.number().openapi({
+  orgId: z.coerce.number().int().positive().openapi({
     param: { name: 'orgId', in: 'path', required: true },
     example: 1,
   }),
-  userId: z.coerce.number().openapi({
+  userId: z.coerce.number().int().positive().openapi({
     param: { name: 'userId', in: 'path', required: true },
     example: 42,
   }),

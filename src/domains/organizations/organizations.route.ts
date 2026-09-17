@@ -17,7 +17,7 @@ import {
 } from './organizations.types';
 
 const orgIdParamSchema = z.object({
-  orgId: z.coerce.number().openapi({
+  orgId: z.coerce.number().int().positive().openapi({
     param: { name: 'orgId', in: 'path', required: true },
     example: 1,
   }),
