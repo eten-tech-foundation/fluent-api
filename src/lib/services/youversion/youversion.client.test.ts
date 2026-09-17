@@ -286,7 +286,7 @@ describe('youversion.client', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('skips verses that failed fetch during fan-out', async () => {
+    it('fails the whole chapter when any passage fetch fails during fan-out', async () => {
       vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(jsonResponse(mockChapterMetaResponseBody))
         .mockResolvedValueOnce(jsonResponse(mockPassage1Body))
@@ -294,10 +294,9 @@ describe('youversion.client', () => {
 
       const result = await getChapterText(1, 'GEN', 1);
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data.verses).toHaveLength(1);
-        expect(result.data.verses[0]?.verseNumber).toBe(1);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE);
       }
     });
 

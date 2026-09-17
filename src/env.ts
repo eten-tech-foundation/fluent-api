@@ -156,7 +156,7 @@ const EnvBaseSchema = z.object({
 
   // ── YouVersion (Bible text for the Reference column) ────────────────────────
   // Base URL of the YouVersion API (no trailing slash). Defaults to production.
-  YOUVERSION_API_URL: z.string().url().default('https://api.youversion.com'),
+  YOUVERSION_API_URL: z.string().url().default('https://api.youversion.com/v1'),
   // Server-held YouVersion API key — never expose to mobile/web clients.
   // Same degrade-don't-crash pattern as AQUIFER_API_KEY: unset/blank boots fine;
   // YouVersion routes return YOUVERSION_SERVICE_UNAVAILABLE (502) until configured.

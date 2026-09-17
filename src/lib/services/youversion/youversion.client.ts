@@ -18,6 +18,12 @@ import {
 } from './youversion.types';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** Max concurrent upstream passage requests per chapter fetch. */
+const PASSAGE_CONCURRENCY = 5;
+/** Max retry attempts for HTTP 429 responses. */
+const MAX_429_RETRIES = 3;
+/** Fallback retry delay (ms) when no Retry-After header is present. */
+const DEFAULT_RETRY_DELAY_MS = 1_000;
 /** Cap on upstream body text echoed into logs. */
 const MAX_LOGGED_BODY_CHARS = 300;
 /** Cap on zod issues echoed into logs. */
@@ -177,16 +183,33 @@ async function youVersionGet<T>(
 
 /**
  * Fetch YouVersion Bibles for a given language tag.
- * Returns only the `data` array (strips pagination envelope).
+ * Follows `next_page_token` pagination until all pages are consumed.
+ * Returns the combined `data` array (strips pagination envelope).
  */
 export async function getBibles(languageTag: string): Promise<Result<YouVersionBible[]>> {
   // YouVersion API requires raw `language_ranges[]` query key unencoded (without %5B%5D)
   const encodedTag = encodeURIComponent(languageTag);
-  const pathWithQuery = `/bibles?language_tag=${encodedTag}&language_ranges[]=${encodedTag}`;
+  const basePathWithQuery = `/bibles?language_tag=${encodedTag}&language_ranges[]=${encodedTag}`;
 
-  const result = await youVersionGet(pathWithQuery, youVersionBiblesResponseSchema);
-  if (!result.ok) return result;
-  return { ok: true, data: result.data.data };
+  const allBibles: YouVersionBible[] = [];
+  let pageToken: string | undefined;
+
+  // Paginate until next_page_token is absent.
+  while (true) {
+    const pathWithQuery = pageToken
+      ? `${basePathWithQuery}&page_token=${encodeURIComponent(pageToken)}`
+      : basePathWithQuery;
+
+    const result = await youVersionGet(pathWithQuery, youVersionBiblesResponseSchema);
+    if (!result.ok) return result;
+
+    allBibles.push(...result.data.data);
+
+    if (!result.data.next_page_token) break;
+    pageToken = result.data.next_page_token;
+  }
+
+  return { ok: true, data: allBibles };
 }
 
 /**
@@ -218,13 +241,70 @@ export async function getPassage(
 }
 
 /**
+ * Fetch a single passage with bounded retry on HTTP 429.
+ * Retries up to MAX_429_RETRIES times honouring the upstream Retry-After header.
+ */
+async function getPassageWithRetry(
+  bibleId: number,
+  passageId: string
+): Promise<Result<YouVersionPassageResponse>> {
+  let attempt = 0;
+  while (true) {
+    const result = await getPassage(bibleId, passageId);
+    if (result.ok) return result;
+
+    // Only retry on 429-like errors; detect by message convention from youVersionGet.
+    const is429 = result.error.message.includes('HTTP 429');
+    if (!is429 || attempt >= MAX_429_RETRIES) return result;
+
+    attempt++;
+    // Parse Retry-After from the error message if youVersionGet embedded it; fall back.
+    const retryAfterMatch = /Retry-After:\s*(\d+)/i.exec(result.error.message);
+    const delayMs = retryAfterMatch
+      ? Math.min(Number(retryAfterMatch[1]) * 1_000, 60_000)
+      : DEFAULT_RETRY_DELAY_MS * attempt;
+
+    logger.warn({
+      message: `YouVersion 429 on passage ${passageId}; retrying in ${delayMs}ms (attempt ${attempt}/${MAX_429_RETRIES})`,
+      context: { bibleId, passageId, attempt, delayMs },
+    });
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+/**
+ * Run an array of async tasks with a bounded concurrency limit.
+ */
+async function withConcurrencyLimit<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number
+): Promise<T[]> {
+  const results: T[] = Array.from({ length: tasks.length });
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= tasks.length) return;
+      results[index] = await tasks[index]();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * Batch helper — fetch all verse texts for a chapter in one server call.
  *
  * 1. Calls getChapterMeta to get the ordered verse passage_id list.
- * 2. Fans out one getPassage per verse via Promise.allSettled (no partial failure aborts).
- * 3. Assembles the results into YouVersionChapterText, ordered by verse number.
+ * 2. Fans out one getPassage per verse, bounded to PASSAGE_CONCURRENCY in-flight
+ *    requests, with bounded retry on 429 responses using Retry-After when available.
+ * 3. If any passage fails, the entire chapter request fails — no silent partial results.
+ * 4. On success, assembles results into YouVersionChapterText ordered by verse number.
  *
- * The per-verse fan-out stays server-side so the client sends exactly one request,
+ * The fan-out stays server-side so the client sends exactly one request,
  * and a single API key handles the full chapter load without leaking to the browser.
  */
 export async function getChapterText(
@@ -245,26 +325,16 @@ export async function getChapterText(
     };
   }
 
-  // Step 2: fan out
-  const passageResults = await Promise.allSettled(
-    verseMetas.map((vm) => getPassage(bibleId, vm.passage_id))
-  );
+  // Step 2: concurrency-limited fan-out with 429 retry
+  const tasks = verseMetas.map((vm) => () => getPassageWithRetry(bibleId, vm.passage_id));
+  const passageResults = await withConcurrencyLimit(tasks, PASSAGE_CONCURRENCY);
 
-  // Step 3: assemble — skip verses that failed rather than failing the whole chapter
+  // Step 3: assemble — any failure causes the whole chapter to fail
   const verses: YouVersionChapterText['verses'] = [];
   for (let i = 0; i < verseMetas.length; i++) {
     const meta = verseMetas[i];
-    const settled = passageResults[i];
+    const passageResult = passageResults[i];
 
-    if (settled.status === 'rejected') {
-      logger.warn({
-        message: 'YouVersion passage fetch rejected',
-        context: { bibleId, passageId: meta.passage_id, reason: String(settled.reason) },
-      });
-      continue;
-    }
-
-    const passageResult = settled.value;
     if (!passageResult.ok) {
       logger.warn({
         message: 'YouVersion passage fetch failed',
@@ -274,7 +344,10 @@ export async function getChapterText(
           error: passageResult.error.message,
         },
       });
-      continue;
+      return youVersionError(
+        ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE,
+        `passage ${meta.passage_id} failed: ${passageResult.error.message}`
+      );
     }
 
     // passage_id format: "GEN.1.5" — verse number is the third segment
@@ -288,7 +361,7 @@ export async function getChapterText(
     });
   }
 
-  // Sort ascending — fan-out results can arrive out of order
+  // Sort ascending — concurrency-limited results can arrive out of order
   verses.sort((a, b) => a.verseNumber - b.verseNumber);
 
   return { ok: true, data: { bibleId, bookId, chapterId, verses } };
