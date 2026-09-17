@@ -17,10 +17,14 @@ import {
 } from './organizations.types';
 
 const orgIdParamSchema = z.object({
-  orgId: z.coerce.number().int().positive().openapi({
-    param: { name: 'orgId', in: 'path', required: true },
-    example: 1,
-  }),
+  orgId: z.coerce
+    .number()
+    .int()
+    .positive()
+    .openapi({
+      param: { name: 'orgId', in: 'path', required: true },
+      example: 1,
+    }),
 });
 
 const validationErrorSchema = z.object({
