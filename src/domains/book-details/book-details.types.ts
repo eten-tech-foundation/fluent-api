@@ -51,7 +51,7 @@ export const updateBookDetailsSchema = z
     }),
     bookTitle: bookFieldSchema.optional().openapi({
       description:
-        'Legacy USFM \\mt book title. Not written by the fluent-web#398 metadata dialog and never displayed by it; it is preserved as-is and still supplies \\mt whenever tocShortName is null.',
+        'Legacy USFM \\mt book title. Not written by the fluent-web#398 metadata dialog and never displayed by it; it is preserved as-is and still supplies \\mt1 whenever tocShortName is null.',
       example: 'O Primeiro Livro de Moisés',
     }),
     tocLongName: bookFieldSchema.optional().openapi({
@@ -60,7 +60,7 @@ export const updateBookDetailsSchema = z
     }),
     tocShortName: bookFieldSchema.optional().openapi({
       description:
-        'USFM \\toc2 short book name. Also supplies the \\mt main title, and the \\h running header when that is unset. Null or empty omits the line.',
+        'USFM \\toc2 short book name. Also supplies the \\mt1 main title, and the \\h running header when that is unset. Null or empty omits the line.',
       example: 'Gênesis',
     }),
     tocAbbreviation: bookFieldSchema.optional().openapi({
