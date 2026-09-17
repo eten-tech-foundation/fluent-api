@@ -17,31 +17,31 @@ const DEFAULT_SEED_USERS: SeedUser[] = [
   {
     email: process.env.SEED_SUPERADMIN_EMAIL ?? 'sa@fluent.local',
     password: process.env.SEED_SUPERADMIN_PASSWORD ?? 'sa@123456',
-    username: 'superadmin',
+    username: 'Super Admin',
     role: 'super_admin',
   },
   {
     email: process.env.SEED_ORG_MANAGER_EMAIL ?? 'om@fluent.local',
     password: process.env.SEED_ORG_MANAGER_PASSWORD ?? 'om@123456',
-    username: 'orgmanager',
+    username: 'Org Manager Dev',
     role: 'org_manager',
   },
   {
     email: process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local',
     password: process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456',
-    username: 'devpm',
+    username: 'Project Manager Dev',
     role: 'project_manager',
   },
   {
     email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
     password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
-    username: 'translator',
+    username: 'Translator Dev',
     role: 'project_translator',
   },
   {
     email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
     password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
-    username: 'translator2',
+    username: 'Translator 2 Dev',
     role: 'project_translator',
   },
 ];
