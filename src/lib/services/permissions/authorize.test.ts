@@ -124,6 +124,7 @@ describe('authorize', () => {
       PERMISSIONS.CONTENT_UPDATE,
       PERMISSIONS.MEMBERSHIP_REVOKE,
       PERMISSIONS.ROLE_ASSIGN_PROJECT,
+      PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER,
       PERMISSIONS.USER_VIEW,
       PERMISSIONS.USER_CREATE,
       PERMISSIONS.USER_UPDATE,
@@ -181,6 +182,28 @@ describe('canAssignRole', () => {
 
   it('superAdmin can assign Org Manager', () => {
     expect(canAssignRole(superAdmin, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+  });
+
+  it('org-scoped Org Manager can assign Org Manager in their org (#337)', () => {
+    // Org Manager now holds role:assign:org_manager org-scoped (seeds/rbac.ts),
+    // which authorizes them to promote/demote Org Managers in their own org.
+    const orgManager = {
+      id: 5,
+      grants: [grant(ORG, null, [PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER])],
+    };
+    expect(canAssignRole(orgManager, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+    // ...but the permission still cannot mint a SuperAdmin
+    expect(canAssignRole(orgManager, ROLES.SUPER_ADMIN, ORG, null)).toBe(false);
+    // ...or grant Org Manager in a different org
+    expect(canAssignRole(orgManager, ROLES.ORG_MANAGER, 2, null)).toBe(false);
+  });
+
+  it('project-pinned role:assign:org_manager grant cannot assign Org Manager at org scope', () => {
+    const pinned = {
+      id: 6,
+      grants: [grant(ORG, PROJ, [PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER])],
+    };
+    expect(canAssignRole(pinned, ROLES.ORG_MANAGER, ORG, null)).toBe(false);
   });
 
   it('org Manager with USER_CREATE can invite Org Member (create anchor row)', () => {
