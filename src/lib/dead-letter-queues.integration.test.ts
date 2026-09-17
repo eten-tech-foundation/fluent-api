@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createUSFMZipStreamAsync, getProjectName } from '@/domains/usfm/usfm.service';
 import { uploadExportStream } from '@/lib/blob-storage';
 import {
+  deadLetterQueueName,
   DLQ_RETENTION_SECONDS,
   ensureWorkerQueue,
   reportDeadLetterQueues,
@@ -34,7 +35,7 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
   let migrationSql: postgres.Sql;
   const errors: Error[] = [];
   const exportQueue = QUEUE_NAMES.USFM_EXPORT;
-  const exportDlq = QUEUE_NAMES.USFM_EXPORT_DLQ;
+  const exportDlq = deadLetterQueueName(exportQueue);
 
   async function rows(name: string) {
     return (

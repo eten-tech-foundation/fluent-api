@@ -1,11 +1,17 @@
 import type { PgBoss, Queue } from 'pg-boss';
 
 import { logger } from '@/lib/logger';
+import { PG_BOSS_SCHEMA_VERSION } from '@/lib/pg-boss-schema';
 
 /** Time to investigate new DLQ entries before pg-boss maintenance removes them. */
 export const DLQ_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 export const DLQ_SHUTDOWN_TIMEOUT_MS = 5_000;
-const PG_BOSS_SCHEMA_VERSION = 26;
+const DEAD_LETTER_SUFFIX = '-dlq';
+
+/** The single spelling of a source queue's dead-letter destination. */
+export function deadLetterQueueName(name: string): string {
+  return `${name}${DEAD_LETTER_SUFFIX}`;
+}
 
 function queueMatchesOptions(queue: Queue, options: Partial<Queue>): boolean {
   const current = queue as unknown as Record<string, unknown>;
@@ -18,7 +24,7 @@ export async function ensureWorkerQueue(
   name: string,
   options: Omit<Queue, 'name' | 'deadLetter'> = {}
 ): Promise<void> {
-  const deadLetter = `${name}-dlq`;
+  const deadLetter = deadLetterQueueName(name);
   const [existing, source] = await Promise.all([boss.getQueue(deadLetter), boss.getQueue(name)]);
   const retentionOptions = {
     // Do not shorten an operator's longer retention policy. Queue updates only
@@ -70,7 +76,7 @@ export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
           expectedSchemaVersion: PG_BOSS_SCHEMA_VERSION,
           actualSchemaVersion: schemaVersion ?? null,
         },
-        'Worker dead-letter queue monitoring requires pg-boss schema version 26'
+        `Worker dead-letter queue monitoring requires pg-boss schema version ${PG_BOSS_SCHEMA_VERSION}`
       );
       return;
     }
@@ -81,7 +87,7 @@ export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
     const targets = new Set<string>();
     for (const queue of queues) {
       if (queue.deadLetter) targets.add(queue.deadLetter);
-      if (queue.name.endsWith('-dlq')) targets.add(queue.name);
+      if (queue.name.endsWith(DEAD_LETTER_SUFFIX)) targets.add(queue.name);
     }
 
     await Promise.allSettled(

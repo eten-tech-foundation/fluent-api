@@ -1,5 +1,6 @@
 import type postgres from 'postgres';
 
+import { PG_BOSS_SCHEMA_VERSION } from '@/lib/pg-boss-schema';
 import { QUEUE_NAMES } from '@/lib/queue';
 
 const MIGRATABLE_QUEUES: string[] = [QUEUE_NAMES.USFM_EXPORT, QUEUE_NAMES.AI_SUGGESTIONS];
@@ -23,8 +24,10 @@ export async function migrateExclusiveWorkerQueue(
       await tx`LOCK TABLE pgboss.queue, pgboss.job IN ACCESS EXCLUSIVE MODE`;
     }
     const [version] = await tx`SELECT version FROM pgboss.version`;
-    if (version?.version !== 26) {
-      throw new Error('Migration requires the pg-boss 12.1.1 schema version 26');
+    if (version?.version !== PG_BOSS_SCHEMA_VERSION) {
+      throw new Error(
+        `Migration requires the pg-boss 12.1.1 schema version ${PG_BOSS_SCHEMA_VERSION}`
+      );
     }
     const [queue] = await tx`
       SELECT policy, partition, table_name FROM pgboss.queue WHERE name = ${queueName}
