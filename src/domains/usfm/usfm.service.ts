@@ -32,12 +32,12 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
   const { bookCode, bookName } = verses[0];
 
   async function* generateUSFMChunks() {
-    // Header order is grammar-enforced: \id, \h, the \toc block, then \mt. A \toc
-    // line after \mt is a parse error for usfm-grammar, not merely unconventional.
+    // Header order is grammar-enforced: \id, \h, the \toc block, then \mt1. A \toc
+    // line after \mt1 is a parse error for usfm-grammar, not merely unconventional.
     //
-    // fluent-web#398: \mt is derived at render time from the short name (\toc2)
+    // fluent-web#398: \mt1 is derived at render time from the short name (\toc2)
     // rather than written on save, so an authored book_title survives a TOC edit
-    // instead of being overwritten; it still supplies \mt whenever no short name
+    // instead of being overwritten; it still supplies \mt1 whenever no short name
     // is set. \h likewise borrows the short name before falling back to the
     // English display name, so a vernacular \toc2 is not paired with an English
     // running header.
@@ -54,13 +54,13 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
     yield `\\id ${bookCode}\n`;
     yield `\\h ${runningHeader || tocShortName || bookName}\n`;
 
-    // Unlike \h and \mt the \toc fields have no display-name fallback: unset means
+    // Unlike \h and \mt1 the \toc fields have no display-name fallback: unset means
     // the line is omitted, not defaulted.
     if (tocLongName) yield `\\toc1 ${tocLongName}\n`;
     if (tocShortName) yield `\\toc2 ${tocShortName}\n`;
     if (tocAbbreviation) yield `\\toc3 ${tocAbbreviation}\n`;
 
-    yield `\\mt ${tocShortName || bookTitle || bookName}\n`;
+    yield `\\mt1 ${tocShortName || bookTitle || bookName}\n`;
 
     let currentChapter: number | null = null;
 
