@@ -586,6 +586,9 @@ export async function getPericopeSuggestions(
   try {
     const resolved = await resolvePericopes(params);
     if (!resolved.ok) return resolved;
+    // The write side stops generating when the assignment turns AI off, so reading has to stop
+    // serving the titles cached before that too.
+    if (!resolved.data.isAiEnabled) return ok({ data: [] });
     const data = resolved.data.groups.flatMap((group) => {
       if (!group.sourceTitle || group.verses[0].hasAuthoredHeading || !group.suggestion) return [];
       return [

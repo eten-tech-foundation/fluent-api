@@ -381,19 +381,26 @@ describe.skipIf(!process.env.PERICOPE_TEST_DATABASE_URL)(
         { number: '2_4a', verses: [4] },
       ]);
       expect((await resolvePericopes(query())).ok).toBe(false);
+      // The editor still shows the old-set title, so accepting it has to follow that set.
       expect(
         (
           await logPericopeUsage(userId, {
             projectUnitId,
             bibleTextId: bibleTextIds[0],
             pericopeNumber: '4a',
-            wasUsed: false,
+            wasUsed: true,
           })
         ).ok
-      ).toBe(false);
+      ).toBe(true);
+      expect(
+        await db
+          .select()
+          .from(schema.ai_pericope_suggestion_usage)
+          .where(eq(schema.ai_pericope_suggestion_usage.suggestionId, storedOldSet[0].id))
+      ).toMatchObject([{ userId, wasUsed: true }]);
     });
 
-    it('also keeps existing verse acceptance after a delayed exposure event', async () => {
+    it('still lets a verse usage correction overwrite an earlier acceptance', async () => {
       await logAiSuggestionUsage(userId, bibleTextIds[3], projectUnitId, false);
       await logAiSuggestionUsage(userId, bibleTextIds[3], projectUnitId, true);
       await logAiSuggestionUsage(userId, bibleTextIds[3], projectUnitId, false);
@@ -407,7 +414,7 @@ describe.skipIf(!process.env.PERICOPE_TEST_DATABASE_URL)(
           )
         );
       expect(records).toHaveLength(1);
-      expect(records[0].wasUsed).toBe(true);
+      expect(records[0].wasUsed).toBe(false);
     });
   }
 );

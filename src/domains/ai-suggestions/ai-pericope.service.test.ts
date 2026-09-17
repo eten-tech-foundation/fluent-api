@@ -192,6 +192,29 @@ describe('pericope AI suggestions', () => {
     expect(await getPericopeSuggestions(request)).toEqual({ ok: true, data: { data: [] } });
   });
 
+  it('stops serving a cached title once the assignment turns AI off', async () => {
+    context.groups = [context.groups[0]];
+    context.groups[0].suggestion = {
+      id: 1,
+      projectUnitId: 1,
+      bibleId: 2,
+      bibleTextId: 102,
+      pericopeSetId: 5,
+      bookId: 1,
+      chapterNumber: 1,
+      pericopeNumber: '4a',
+      suggestedText: 'The creation',
+      modelInfo: null,
+      createdAt: new Date(),
+    };
+    expect(await getPericopeSuggestions(request)).toEqual({
+      ok: true,
+      data: { data: [expect.objectContaining({ suggestedText: 'The creation' })] },
+    });
+    context.isAiEnabled = false;
+    expect(await getPericopeSuggestions(request)).toEqual({ ok: true, data: { data: [] } });
+  });
+
   it('propagates queue failures, but accepts singleton deduplication', async () => {
     send.mockRejectedValueOnce(new Error('queue unavailable'));
     expect((await queuePericopes(request)).ok).toBe(false);

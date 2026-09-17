@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -211,6 +211,37 @@ export async function savePericopeSuggestion(item: PericopeSuggestionItem): Prom
   return ok(undefined);
 }
 
+/**
+ * The set a cached title was stored under. A project's set can change while the editor still shows
+ * a title cached against the old one, so accepting it has to follow the stored set rather than the
+ * project's current one. The current set still wins whenever it holds a title of its own.
+ */
+async function findSavedPericopeSetId(
+  data: PericopeUsageRequest,
+  verse: { bibleId: number; bookId: number; chapterNumber: number }
+): Promise<number | undefined> {
+  const saved = await db
+    .select({
+      pericopeSetId: ai_pericope_suggestions.pericopeSetId,
+      currentPericopeSetId: projects.pericopeSetId,
+    })
+    .from(ai_pericope_suggestions)
+    .innerJoin(project_units, eq(project_units.id, ai_pericope_suggestions.projectUnitId))
+    .innerJoin(projects, eq(projects.id, project_units.projectId))
+    .where(
+      and(
+        eq(ai_pericope_suggestions.projectUnitId, data.projectUnitId),
+        eq(ai_pericope_suggestions.bibleId, verse.bibleId),
+        eq(ai_pericope_suggestions.bookId, verse.bookId),
+        eq(ai_pericope_suggestions.chapterNumber, verse.chapterNumber),
+        eq(ai_pericope_suggestions.pericopeNumber, data.pericopeNumber)
+      )
+    )
+    .orderBy(desc(ai_pericope_suggestions.createdAt));
+  const current = saved.find((row) => row.pericopeSetId === row.currentPericopeSetId);
+  return (current ?? saved[0])?.pericopeSetId;
+}
+
 export async function logPericopeUsage(
   userId: number,
   data: PericopeUsageRequest
@@ -218,6 +249,7 @@ export async function logPericopeUsage(
   const [verse] = await db
     .select({
       bibleId: bible_texts.bibleId,
+      bookId: bible_texts.bookId,
       bookCode: books.code,
       chapterNumber: bible_texts.chapterNumber,
     })
@@ -226,11 +258,14 @@ export async function logPericopeUsage(
     .where(eq(bible_texts.id, data.bibleTextId))
     .limit(1);
   if (!verse) return err(ErrorCode.INVALID_REFERENCE);
-  const resolved = await resolvePericopes({
-    ...verse,
-    projectUnitId: data.projectUnitId,
-    pericopeNumbers: [data.pericopeNumber],
-  });
+  const resolved = await resolvePericopesForSet(
+    {
+      ...verse,
+      projectUnitId: data.projectUnitId,
+      pericopeNumbers: [data.pericopeNumber],
+    },
+    await findSavedPericopeSetId(data, verse)
+  );
   if (!resolved.ok) return resolved;
   const group = resolved.data.groups[0];
   if (group.verses[0].bibleTextId !== data.bibleTextId || !group.suggestion) {
