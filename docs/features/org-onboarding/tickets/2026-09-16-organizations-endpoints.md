@@ -1,6 +1,6 @@
 # Organizations endpoints for SuperAdmin org onboarding + dev seeds
 
-> **Status: IMPLEMENTED (local)** — on branch `feat/organization-onboarding`, awaiting review before push.
+> **Status: IMPLEMENTED** — PR [fluent-api#339](https://github.com/eten-tech-foundation/fluent-api/pull/339).
 > GitHub: [fluent-api#336](https://github.com/eten-tech-foundation/fluent-api/issues/336)
 
 **Parent feature:** [`org-onboarding`](../plan.md) — Ticket API-1.
