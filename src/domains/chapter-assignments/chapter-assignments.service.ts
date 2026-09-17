@@ -251,7 +251,7 @@ export async function updateChapterAssignment(
   return ok(result.data.response);
 }
 
-export async function submitChapterAssignment(chapterAssignmentId: number) {
+export async function submitChapterAssignment(chapterAssignmentId: number, userId: number) {
   const exec = async (tx: DbTransaction) => {
     const current = await repo.findById(chapterAssignmentId, tx);
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
@@ -266,7 +266,7 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
         break;
       case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
         nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
-        snapshotUser = current.peerCheckerId;
+        snapshotUser = current.peerCheckerId ?? userId;
         break;
       case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
         nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
@@ -290,6 +290,36 @@ export async function submitChapterAssignment(chapterAssignmentId: number) {
 
     const contentResult = await repo.getContent(tx, current);
     if (!contentResult.ok) return contentResult;
+
+    if (current.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK) {
+      const submittedTime = new Date();
+      const updated = await repo.submitPeerCheckIfEligible(
+        chapterAssignmentId,
+        userId,
+        submittedTime,
+        tx
+      );
+      if (!updated) {
+        const latest = await repo.findById(chapterAssignmentId, tx);
+        if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+        return ok(toChapterAssignmentResponse(latest));
+      }
+
+      await repo.insertSnapshot(tx, {
+        chapterAssignmentId,
+        status: current.status,
+        assignedUserId: snapshotUser,
+        content: contentResult.data,
+      });
+      await recordStatusChange(tx, current, updated);
+      await recordUserAssignmentChanges(tx, current, updated, {
+        peerCheckerId: updated.peerCheckerId,
+        status: nextStatus,
+        submittedTime,
+      });
+      await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+      return ok(toChapterAssignmentResponse(updated));
+    }
 
     await repo.insertSnapshot(tx, {
       chapterAssignmentId,

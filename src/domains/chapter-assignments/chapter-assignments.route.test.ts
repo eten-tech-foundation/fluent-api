@@ -68,6 +68,7 @@ vi.mock('./chapter-assignment-auth.middleware', () => ({
 vi.mock('./chapter-assignments.service', () => ({
   getChapterAssignmentWithAuthContext: vi.fn(),
   claimChapterAssignment: vi.fn(),
+  submitChapterAssignment: vi.fn(),
   toChapterAssignmentResponse: vi.fn((record) => record),
 }));
 
@@ -184,5 +185,38 @@ describe('pOST /chapter-assignments/:id/claim', () => {
     const res = await claimChapter(1);
     expect(res.status).toBe(404);
     expect(chapterAssignmentService.claimChapterAssignment).not.toHaveBeenCalled();
+  });
+});
+
+describe('pATCH /chapter-assignments/:id/submit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    allowClaimAccess.value = true;
+  });
+
+  it('passes the authenticated user id so open Peer Check can assign the checker', async () => {
+    asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
+    (chapterAssignmentService.submitChapterAssignment as any).mockResolvedValue({
+      ok: true,
+      data: {
+        id: 1,
+        projectUnitId: 1,
+        bibleId: 1,
+        bookId: 1,
+        chapterNumber: 1,
+        assignedUserId: 42,
+        peerCheckerId: 10,
+        status: 'community_review',
+        submittedTime: new Date(),
+        hasClaimConflict: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    const res = await server.request('/chapter-assignments/1/submit', { method: 'PATCH' });
+
+    expect(res.status).toBe(200);
+    expect(chapterAssignmentService.submitChapterAssignment).toHaveBeenCalledWith(1, 10);
   });
 });
