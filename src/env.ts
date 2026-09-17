@@ -154,6 +154,21 @@ const EnvBaseSchema = z.object({
       return trimmed === '' ? undefined : trimmed;
     }),
 
+  // ── YouVersion (Bible text for the Reference column) ────────────────────────
+  // Base URL of the YouVersion API (no trailing slash). Defaults to production.
+  YOUVERSION_API_URL: z.string().url().default('https://api.youversion.com'),
+  // Server-held YouVersion API key — never expose to mobile/web clients.
+  // Same degrade-don't-crash pattern as AQUIFER_API_KEY: unset/blank boots fine;
+  // YouVersion routes return YOUVERSION_SERVICE_UNAVAILABLE (502) until configured.
+  YOUVERSION_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    }),
+
   // ── API.Bible (DBL) Integration ──────────────────────────────────────
   DBL_API_BASE_URL: z.string().url().default('https://rest.api.bible/v1'),
   DBL_API_KEY: z.string().optional().default(''),
