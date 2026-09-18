@@ -1,4 +1,4 @@
-import { and, eq, exists, sql } from 'drizzle-orm';
+import { and, eq, exists, isNull, or } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db';
@@ -49,11 +49,14 @@ export async function getPericopeVersesForChapter(
           .from(chapterVerses)
           .where(
             and(
-              eq(chapterVerses.pericopeSetId, pericope_verses.pericopeSetId),
-              eq(chapterVerses.bookId, pericope_verses.bookId),
+              eq(chapterVerses.pericopeSetId, pericopeSetId),
+              eq(chapterVerses.bookId, bookId),
               eq(chapterVerses.chapterNumber, chapterNumber),
               eq(chapterVerses.pericopeNumber, pericope_verses.pericopeNumber),
-              sql`${chapterVerses.section} IS NOT DISTINCT FROM ${pericope_verses.section}`
+              or(
+                and(isNull(chapterVerses.section), isNull(pericope_verses.section)),
+                eq(chapterVerses.section, pericope_verses.section)
+              )
             )
           )
       )

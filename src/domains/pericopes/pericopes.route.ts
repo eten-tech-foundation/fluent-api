@@ -70,6 +70,7 @@ const getChapterPericopesRoute = createRoute({
       chapterPericopesResponseSchema,
       'Pericope groups for chapter'
     ),
+    // Query validation uses Hono's structured Zod error, not a message-only error.
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createErrorSchema(chapterPericopesQuerySchema),
       'Invalid query parameters'

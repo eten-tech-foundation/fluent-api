@@ -1,13 +1,15 @@
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as schema from '@/db/schema';
 import { pericope_verses } from '@/db/schema';
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
-import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
-import { getUserByEmail } from '@/domains/users/users.service';
-import { auth } from '@/lib/auth';
 import { ok } from '@/lib/types';
 import { server } from '@/server/server';
+
+import { asAuthenticatedUser, MOCK_PROJECT } from './pericopes.test-fixtures';
+
 import '@/domains/pericopes/pericopes.route';
 
 const { client, database } = await vi.hoisted(async () => {
@@ -17,6 +19,8 @@ const { client, database } = await vi.hoisted(async () => {
   return { client, database: drizzle(client) };
 });
 
+// Database-backed integration pattern documented in ARCHITECTURE.md.
+// Swap only the connection; Drizzle, repository queries, and PostgreSQL stay real.
 vi.mock('@/db', () => ({ db: database }));
 vi.mock('@/lib/auth', () => ({
   auth: { api: { getSession: vi.fn() }, handler: vi.fn() },
@@ -49,41 +53,53 @@ const CROSS_CHAPTER_GROUP = {
 
 describe('chapter pericopes with real PostgreSQL queries', () => {
   beforeAll(async () => {
-    // Only the tables used by the real repository are needed. Auth boundaries
-    // stay mocked; chapter selection, SQL null matching and grouping stay real.
-    await client.exec(`
-      CREATE TABLE projects (id integer PRIMARY KEY, pericope_set_id integer);
-      CREATE TABLE books (id integer PRIMARY KEY, code varchar(50) NOT NULL);
-      CREATE TABLE auth_session (id text PRIMARY KEY, active_org_id integer);
-      CREATE TABLE pericope_verses (
-        id serial PRIMARY KEY,
-        pericope_set_id integer NOT NULL,
-        book_id integer NOT NULL,
-        chapter_number integer NOT NULL,
-        verse_number integer NOT NULL,
-        section integer,
-        pericope_number varchar(20) NOT NULL,
-        pericope_title varchar(500),
-        UNIQUE (pericope_set_id, book_id, chapter_number, verse_number)
-      );
-      INSERT INTO books VALUES (41, 'MRK'), (42, 'LUK');
-      INSERT INTO projects VALUES (10, 1), (11, 2), (12, NULL);
-    `);
-  });
+    // Generate tables, constraints, and indexes from the production schema so
+    // this fixture cannot silently retain obsolete handwritten DDL.
+    const statements = await generateMigration(
+      generateDrizzleJson({}),
+      generateDrizzleJson({
+        pericope_verses: schema.pericope_verses,
+        pericope_sets: schema.pericope_sets,
+        books: schema.books,
+        projects: schema.projects,
+        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+        languages: schema.languages,
+        scriptDirectionEnum: schema.scriptDirectionEnum,
+        organizations: schema.organizations,
+        users: schema.users,
+        userStatusEnum: schema.userStatusEnum,
+        authUser: schema.authUser,
+        authSession: schema.authSession,
+      })
+    );
+    await client.exec(statements.join('\n'));
+    await database.insert(schema.books).values([
+      { id: 41, code: 'MRK', eng_display_name: 'Mark' },
+      { id: 42, code: 'LUK', eng_display_name: 'Luke' },
+    ]);
+    await database.insert(schema.pericope_sets).values([
+      { id: 1, name: 'FIA' },
+      { id: 2, name: 'FCBH' },
+      { id: 3, name: 'Other set' },
+    ]);
+    await database.insert(schema.languages).values({ id: 1, langName: 'English' });
+    await database.insert(schema.organizations).values({ id: 1, name: 'Test organization' });
+    await database.insert(schema.projects).values(
+      [1, 2, null].map((pericopeSetId, index) => ({
+        id: 10 + index,
+        name: `Test project ${index}`,
+        sourceLanguage: 1,
+        targetLanguage: 1,
+        organization: 1,
+        pericopeSetId,
+      }))
+    );
+  }, 30_000);
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    (auth.api.getSession as any).mockResolvedValue({
-      session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-      user: { email: 'translator@example.com' },
-    });
-    (getUserByEmail as any).mockResolvedValue(
-      ok({ id: 1, email: 'translator@example.com', organization: 1, status: 'verified' })
-    );
-    (findGrantsByUserId as any).mockResolvedValue(
-      ok([{ orgId: null, projectId: null, permissions: new Set(['project:view']) }])
-    );
-    (getProjectById as any).mockResolvedValue(ok({ id: 10, name: 'Test', organization: 1 }));
+    asAuthenticatedUser();
+    vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
     vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
     await database.delete(pericope_verses);
     // Insert in reverse order: the response must follow Scripture order,
@@ -116,26 +132,28 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
     await client.close();
   });
 
-  it.each([8, 9])(
-    'returns all of Mark 8:31–9:1 from chapter %i when requested',
-    async (chapter) => {
-      const res = await server.request(
-        `/projects/10/pericopes/MRK/${chapter}?includeFullPericopes=true`
-      );
+  it.each([
+    [8, 'true'],
+    [9, 'true'],
+    [8, '1'],
+    [9, '1'],
+  ] as const)('returns all of Mark 8:31–9:1 from chapter %i with %s', async (chapter, value) => {
+    const res = await server.request(
+      `/projects/10/pericopes/MRK/${chapter}?includeFullPericopes=${value}`
+    );
 
-      expect(res.status).toBe(200);
-      const adjacent = {
-        pericopeNumber: chapter === 8 ? '19' : '21',
-        pericopeTitle: null,
-        verses: [{ chapterNumber: chapter, verseNumber: chapter === 8 ? 30 : 2 }],
-      };
-      expect(await res.json()).toEqual(
-        chapter === 8 ? [adjacent, CROSS_CHAPTER_GROUP] : [CROSS_CHAPTER_GROUP, adjacent]
-      );
-    }
-  );
+    expect(res.status).toBe(200);
+    const adjacent = {
+      pericopeNumber: chapter === 8 ? '19' : '21',
+      pericopeTitle: null,
+      verses: [{ chapterNumber: chapter, verseNumber: chapter === 8 ? 30 : 2 }],
+    };
+    expect(await res.json()).toEqual(
+      chapter === 8 ? [adjacent, CROSS_CHAPTER_GROUP] : [CROSS_CHAPTER_GROUP, adjacent]
+    );
+  });
 
-  it.each(['', '?includeFullPericopes=false'])(
+  it.each(['', '?includeFullPericopes=false', '?includeFullPericopes=0'])(
     'keeps chapter-only references for the default/false option (%s)',
     async (query) => {
       const res = await server.request(`/projects/10/pericopes/MRK/9${query}`);
@@ -240,8 +258,33 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
     }
   );
 
-  it('rejects an invalid full-pericope query value', async () => {
-    const res = await server.request('/projects/10/pericopes/MRK/9?includeFullPericopes=maybe');
-    expect(res.status).toBe(400);
+  it.each(['maybe', 'TRUE', ''])(
+    'rejects an invalid full-pericope query value (%s)',
+    async (value) => {
+      const res = await server.request(
+        `/projects/10/pericopes/MRK/9?includeFullPericopes=${value}`
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        success: false,
+        error: { issues: expect.any(Array) },
+      });
+    }
+  );
+
+  it('documents the accepted query strings before their boolean transform', () => {
+    const document = server.getOpenAPIDocument({
+      openapi: '3.0.0',
+      info: { title: 'Pericope test', version: '1' },
+    });
+    const operation = document.paths['/projects/{id}/pericopes/{bookCode}/{chapter}']?.get;
+    expect(operation?.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'includeFullPericopes',
+        in: 'query',
+        required: false,
+        schema: expect.objectContaining({ type: 'string', enum: ['true', 'false', '1', '0'] }),
+      })
+    );
   });
 });

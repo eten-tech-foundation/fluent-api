@@ -52,12 +52,12 @@ export const chapterPericopesParamSchema = z.object({
 
 export const chapterPericopesQuerySchema = z.object({
   includeFullPericopes: z
-    .enum(['true', 'false'])
+    .enum(['true', 'false', '1', '0'])
     .optional()
-    .transform((value) => value === 'true')
+    .transform((value) => value === 'true' || value === '1')
     .openapi({
       param: { name: 'includeFullPericopes', in: 'query' },
       description:
-        'When true, return every verse in each pericope intersecting this chapter, including other chapters of the same book. Defaults to false (chapter-only references).',
+        'When true or 1, return every verse in each pericope intersecting this chapter, including other chapters of the same book. Defaults to false (chapter-only references).',
     }),
 });
