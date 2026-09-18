@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -52,6 +52,7 @@ export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWit
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
     workflowConfig: WORKFLOW_DEFINITION,
+    milestoneCount: Number(rawProject.milestoneCount ?? 0),
   };
 }
 
@@ -190,7 +191,13 @@ export async function insertProjectRecord(
 }
 
 export async function insertProjectUnitRecord(
-  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
+  unitData: {
+    projectId: number;
+    status: 'not_started' | 'in_progress' | 'completed';
+    name: string;
+    type?: 'text' | 'audio';
+    connectivityProfile?: string | null;
+  },
   tx: DbTransaction
 ) {
   const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
@@ -225,6 +232,14 @@ export async function updateProjectUnitStatusByProjectId(
   tx: DbTransaction
 ) {
   await tx.update(project_units).set({ status }).where(eq(project_units.projectId, projectId));
+}
+
+export async function countUnitsByProjectId(projectId: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(project_units)
+    .where(eq(project_units.projectId, projectId));
+  return row?.count ?? 0;
 }
 
 export async function remove(id: number): Promise<Result<void>> {

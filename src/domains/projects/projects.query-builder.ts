@@ -2,14 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db';
-import {
-  bibles,
-  chapter_assignments,
-  languages,
-  project_unit_bible_books,
-  project_units,
-  projects,
-} from '@/db/schema';
+import { bibles, chapter_assignments, languages, project_units, projects } from '@/db/schema';
 
 // Aliases
 export const sourceLanguages = alias(languages, 'sourceLanguages');
@@ -54,6 +47,15 @@ export const chapterStatusCountsSubquery = db
   .groupBy(rawCountsSubquery.projectId)
   .as('chapter_status_counts');
 
+export const milestoneCountSubquery = db
+  .select({
+    projectId: project_units.projectId,
+    milestoneCount: sql<number>`count(*)::int`.as('milestone_count'),
+  })
+  .from(project_units)
+  .groupBy(project_units.projectId)
+  .as('milestone_counts');
+
 // Projection
 export const projectWithLangNames = {
   id: projects.id,
@@ -66,6 +68,7 @@ export const projectWithLangNames = {
   updatedAt: projects.updatedAt,
   metadata: projects.metadata,
   pericopeSetId: projects.pericopeSetId,
+  sourceBibleId: projects.sourceBibleId,
   sourceLanguageId: projects.sourceLanguage,
   targetLanguageId: projects.targetLanguage,
   sourceLanguageName: sourceLanguages.langName,
@@ -74,31 +77,23 @@ export const projectWithLangNames = {
   lastChapterActivity: lastActivitySubquery.lastChapterActivity,
   lastActivityAt: projects.lastActivityAt,
   counts: chapterStatusCountsSubquery.counts,
+  milestoneCount: sql<number>`coalesce(${milestoneCountSubquery.milestoneCount}, 0)`.as(
+    'milestone_count'
+  ),
 } as const;
 
-// Base join query
+// Base join query — source bible comes from projects.source_bible_id so
+// 0-unit and M-unit projects both load (review §1.3).
 export const baseJoinQuery = () =>
   db
-    .selectDistinct(projectWithLangNames)
+    .select(projectWithLangNames)
     .from(projects)
     .innerJoin(sourceLanguages, eq(projects.sourceLanguage, sourceLanguages.id))
     .innerJoin(targetLanguages, eq(projects.targetLanguage, targetLanguages.id))
-    .innerJoin(project_units, eq(project_units.projectId, projects.id))
-    .innerJoin(
-      project_unit_bible_books,
-      eq(project_unit_bible_books.projectUnitId, project_units.id)
-    )
-    .innerJoin(sourceBibles, eq(sourceBibles.id, project_unit_bible_books.bibleId))
+    .innerJoin(sourceBibles, eq(sourceBibles.id, projects.sourceBibleId))
+    .leftJoin(milestoneCountSubquery, eq(projects.id, milestoneCountSubquery.projectId))
     .leftJoin(lastActivitySubquery, eq(projects.id, lastActivitySubquery.projectId))
-    .leftJoin(chapterStatusCountsSubquery, eq(projects.id, chapterStatusCountsSubquery.projectId))
-    .groupBy(
-      projects.id,
-      sourceLanguages.id,
-      targetLanguages.id,
-      sourceBibles.id,
-      lastActivitySubquery.lastChapterActivity,
-      chapterStatusCountsSubquery.counts
-    );
+    .leftJoin(chapterStatusCountsSubquery, eq(projects.id, chapterStatusCountsSubquery.projectId));
 
 // Derived types
 export type BaseJoinQueryResult = Awaited<ReturnType<typeof baseJoinQuery>>;

@@ -29,6 +29,7 @@ export const projectStatusEnum = pgEnum('project_status', [
   'in_progress',
   'completed',
 ]);
+export const milestoneTypeEnum = pgEnum('milestone_type', ['text', 'audio']);
 export const projectAssignmentStatusEnum = pgEnum('project_assignment_status', [
   'active',
   'not_assigned',
@@ -213,6 +214,10 @@ export const projects = pgTable('projects', {
   // Nullable — existing projects have no pericope set; new projects may select one
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
   lastActivityAt: timestamp('last_activity_at'),
+  sourceBibleId: integer('source_bible_id')
+    .notNull()
+    // eslint-disable-next-line ts/no-use-before-define -- `bibles` is declared below this table
+    .references((): AnyPgColumn => bibles.id),
 });
 
 export const bibles = pgTable(
@@ -314,6 +319,10 @@ export const project_units = pgTable('project_units', {
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   status: projectStatusEnum('status').notNull().default('not_started'),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: milestoneTypeEnum('type').notNull().default('text'),
+  // NULL = inherit projects.metadata.connectivityProfile
+  connectivityProfile: varchar('connectivity_profile', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -1038,10 +1047,13 @@ export const insertProjectsSchema = createInsertSchema(projects, {
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
   projectId: (schema) => schema.int(),
   status: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
+  name: (schema) => schema.min(1).max(255),
+  type: z.enum(['text', 'audio']).default('text'),
 })
   .required({
     projectId: true,
     status: true,
+    name: true,
   })
   .omit({
     id: true,
@@ -1327,6 +1339,7 @@ export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,
   createdBy: true,
+  sourceBibleId: true,
 });
 
 export const patchUsersClientSchema = patchUsersSchema;
