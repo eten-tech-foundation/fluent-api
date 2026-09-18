@@ -313,4 +313,218 @@ describe('youversion.client', () => {
       }
     });
   });
+
+  // ─── Pagination ─────────────────────────────────────────────────────────────
+
+  describe('getBibles — pagination', () => {
+    it('accumulates results across multiple pages when next_page_token is present', async () => {
+      const page1Bible = { ...mockBible, id: 1 };
+      const page2Bible = {
+        ...mockBible,
+        id: 2,
+        abbreviation: 'ESV',
+        localized_abbreviation: 'ESV',
+        title: 'English Standard Version',
+        localized_title: 'English Standard Version',
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse({ data: [page1Bible], next_page_token: 'tok-p2' }))
+        .mockResolvedValueOnce(jsonResponse({ data: [page2Bible] }));
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toHaveLength(2);
+        expect(result.data.map((b) => b.id)).toEqual([1, 2]);
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      // Second call must include the page token from the first response.
+      expect(String(fetchSpy.mock.calls[1]![0])).toContain('page_token=tok-p2');
+    });
+
+    it('returns YOUVERSION_SERVICE_UNAVAILABLE when the page cap is exceeded', async () => {
+      // Use mockImplementation so each call gets a fresh Response (body streams are one-shot).
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(() =>
+          Promise.resolve(jsonResponse({ data: [mockBible], next_page_token: 'repeating' }))
+        );
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('page cap');
+      }
+      // Should have made exactly MAX_BIBLES_PAGES = 20 upstream calls before failing.
+      expect(fetchSpy).toHaveBeenCalledTimes(20);
+    });
+  });
+
+  // ─── 429 retry ──────────────────────────────────────────────────────────────
+
+  describe('getChapterText — 429 retry', () => {
+    const singleVerseMeta = {
+      id: 101,
+      passage_id: 'GEN.1',
+      verses: [{ id: 1, passage_id: 'GEN.1.1', human_reference: 'Genesis 1:1', usfm: ['v 1'] }],
+    };
+
+    it('retries a 429 passage fetch and succeeds on the next attempt', async () => {
+      vi.useFakeTimers();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse(singleVerseMeta))
+        .mockResolvedValueOnce(new Response('', { status: 429, statusText: 'Too Many Requests' }))
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const resultPromise = getChapterText(1, 'GEN', 1);
+      // Advance past DEFAULT_RETRY_DELAY_MS * 1 = 1_000 ms
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses[0]?.verseNumber).toBe(1);
+      }
+      // meta + initial 429 + successful retry
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('uses the Retry-After header value as the retry delay when present', async () => {
+      vi.useFakeTimers();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse(singleVerseMeta))
+        .mockResolvedValueOnce(
+          new Response('', {
+            status: 429,
+            statusText: 'Too Many Requests',
+            headers: { 'Retry-After': '10' },
+          })
+        )
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const resultPromise = getChapterText(1, 'GEN', 1);
+
+      // Advance only 9 s — retry must not have fired yet.
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // meta + initial 429 only
+
+      // Advance past the full 10 s Retry-After window.
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('falls back to DEFAULT_RETRY_DELAY_MS * attempt when Retry-After is absent', async () => {
+      vi.useFakeTimers();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse(singleVerseMeta))
+        .mockResolvedValueOnce(new Response('', { status: 429, statusText: 'Too Many Requests' }))
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const resultPromise = getChapterText(1, 'GEN', 1);
+
+      // Advance only 500 ms — DEFAULT_RETRY_DELAY_MS * 1 = 1_000 ms, so retry must not fire yet.
+      await vi.advanceTimersByTimeAsync(500);
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // meta + initial 429 only
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('returns error after exhausting MAX_429_RETRIES (3) retries', async () => {
+      vi.useFakeTimers();
+
+      // Use mockImplementation after the meta call so each 429 gets a fresh Response.
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse(singleVerseMeta))
+        // initial + 3 retries — all 429; factory ensures each gets a fresh body stream
+        .mockImplementation(() =>
+          Promise.resolve(new Response('', { status: 429, statusText: 'Too Many Requests' }))
+        );
+
+      const resultPromise = getChapterText(1, 'GEN', 1);
+      // Cumulative retry delays: 1_000 + 2_000 + 3_000 = 6_000 ms
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE);
+      }
+      // meta + 4 passage fetches (initial + 3 retries)
+      expect(fetchSpy).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  // ─── Verse filtering and ordering ───────────────────────────────────────────
+
+  describe('getChapterText — verse filtering and ordering', () => {
+    it('skips non-numeric passage_id segments such as INTRO verses', async () => {
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: 101,
+            passage_id: 'GEN.1',
+            verses: [
+              { id: 0, passage_id: 'GEN.1.INTRO', human_reference: 'Genesis 1 intro', usfm: [] },
+              { id: 1, passage_id: 'GEN.1.1', human_reference: 'Genesis 1:1', usfm: ['v 1'] },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ id: 'GEN.1.INTRO', passage_id: 'GEN.1.INTRO', content: 'Intro text' })
+        )
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const result = await getChapterText(1, 'GEN', 1);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses).toHaveLength(1);
+        expect(result.data.verses[0]?.verseNumber).toBe(1);
+        expect(result.data.verses.map((v) => v.passageId)).not.toContain('GEN.1.INTRO');
+      }
+    });
+
+    it('returns verses sorted ascending by verse number regardless of fetch completion order', async () => {
+      // Meta lists verse 2 before verse 1 — output must still be [1, 2].
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: 101,
+            passage_id: 'GEN.1',
+            verses: [
+              { id: 2, passage_id: 'GEN.1.2', human_reference: 'Genesis 1:2', usfm: ['v 2'] },
+              { id: 1, passage_id: 'GEN.1.1', human_reference: 'Genesis 1:1', usfm: ['v 1'] },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(jsonResponse(mockPassage2Body))
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const result = await getChapterText(1, 'GEN', 1);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses.map((v) => v.verseNumber)).toEqual([1, 2]);
+      }
+    });
+  });
 });

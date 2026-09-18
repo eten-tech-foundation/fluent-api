@@ -23,6 +23,10 @@ export const chapterTextParamSchema = z.object({
     .int()
     .positive()
     .openapi({ description: 'YouVersion Bible ID', example: 1 }),
+  bookId: z
+    .string()
+    .min(1)
+    .openapi({ description: 'Book code matching YouVersion book ID (e.g. GEN)', example: 'GEN' }),
   chapterId: z.coerce
     .number()
     .int()
@@ -31,12 +35,3 @@ export const chapterTextParamSchema = z.object({
 });
 
 export type ChapterTextParam = z.infer<typeof chapterTextParamSchema>;
-
-export const chapterTextQuerySchema = z.object({
-  bookId: z
-    .string()
-    .min(1)
-    .openapi({ description: 'Book code matching YouVersion book ID (e.g. GEN)', example: 'GEN' }),
-});
-
-export type ChapterTextQuery = z.infer<typeof chapterTextQuerySchema>;

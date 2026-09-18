@@ -147,7 +147,7 @@ describe('youversion routes', () => {
 
   // ─── GET /youversion/bibles/{bibleId}/chapters/{chapterId}/text ──────────────
 
-  describe('get /youversion/bibles/{bibleId}/chapters/{chapterId}/text', () => {
+  describe('get /youversion/bibles/{bibleId}/books/{bookId}/chapters/{chapterId}/text', () => {
     it('returns chapter text and sets Cache-Control header', async () => {
       authenticateUserMock();
       const mockChapterText = {
@@ -161,7 +161,7 @@ describe('youversion routes', () => {
       };
       vi.mocked(youVersionClient.getChapterText).mockResolvedValue(ok(mockChapterText));
 
-      const res = await server.request('/youversion/bibles/1/chapters/1/text?bookId=GEN');
+      const res = await server.request('/youversion/bibles/1/books/GEN/chapters/1/text');
 
       expect(res.status).toBe(200);
       expect(res.headers.get('Cache-Control')).toBe('private, max-age=300');
@@ -170,12 +170,12 @@ describe('youversion routes', () => {
       expect(data).toEqual(mockChapterText);
     });
 
-    it('returns 400 when bookId query param is missing', async () => {
+    it('returns 404 when bookId path segment is absent', async () => {
       authenticateUserMock();
 
       const res = await server.request('/youversion/bibles/1/chapters/1/text');
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(404);
       expect(youVersionClient.getChapterText).not.toHaveBeenCalled();
     });
 
@@ -185,7 +185,7 @@ describe('youversion routes', () => {
         err(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE)
       );
 
-      const res = await server.request('/youversion/bibles/1/chapters/1/text?bookId=GEN');
+      const res = await server.request('/youversion/bibles/1/books/GEN/chapters/1/text');
 
       expect(res.status).toBe(502);
       const data = await res.json();

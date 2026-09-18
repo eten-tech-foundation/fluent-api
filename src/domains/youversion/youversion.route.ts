@@ -13,7 +13,6 @@ import * as youVersionService from './youversion.service';
 import {
   biblesQuerySchema,
   chapterTextParamSchema,
-  chapterTextQuerySchema,
   youVersionBibleSchema,
   youVersionChapterTextSchema,
 } from './youversion.types';
@@ -72,16 +71,15 @@ server.openapi(getBiblesRoute, async (c) => {
   return c.json(result.data, HttpStatusCodes.OK);
 });
 
-// ─── GET /youversion/bibles/{bibleId}/chapters/{chapterId}/text ───────────────
+// ─── GET /youversion/bibles/{bibleId}/books/{bookId}/chapters/{chapterId}/text ───────
 
 const getChapterTextRoute = createRoute({
   tags: ['YouVersion'],
   method: 'get',
-  path: '/youversion/bibles/{bibleId}/chapters/{chapterId}/text',
+  path: '/youversion/bibles/{bibleId}/books/{bookId}/chapters/{chapterId}/text',
   middleware: [authenticateUser, requirePermission(PERMISSIONS.CONTENT_VIEW)] as const,
   request: {
     params: chapterTextParamSchema,
-    query: chapterTextQuerySchema,
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
@@ -97,8 +95,7 @@ const getChapterTextRoute = createRoute({
 });
 
 server.openapi(getChapterTextRoute, async (c) => {
-  const { bibleId, chapterId } = c.req.valid('param');
-  const { bookId } = c.req.valid('query');
+  const { bibleId, bookId, chapterId } = c.req.valid('param');
   const result = await youVersionService.getChapterText(bibleId, bookId, chapterId);
   if (!result.ok) {
     return youVersionErrorResponse(c, result.error);
