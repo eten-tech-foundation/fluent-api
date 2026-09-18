@@ -3,6 +3,8 @@ import { PgBoss } from 'pg-boss';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import type { ExportResult } from '@/domains/usfm/usfm.types';
+
 import { createUSFMZipStreamAsync, getProjectName } from '@/domains/usfm/usfm.service';
 import { uploadExportStream } from '@/lib/blob-storage';
 import {
@@ -94,6 +96,48 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
     expect(await boss.getQueue(exportDlq)).toMatchObject({
       retentionSeconds: DLQ_RETENTION_SECONDS,
     });
+  });
+
+  it('preserves custom routing and monitors retained and new failures after setup', async () => {
+    const source = 'custom-routing-probe';
+    const destination = 'custom-failures';
+    await boss.createQueue(destination, {
+      retentionSeconds: DLQ_RETENTION_SECONDS * 2,
+      deleteAfterSeconds: DLQ_RETENTION_SECONDS * 2,
+    });
+    await boss.createQueue(source, {
+      policy: 'standard',
+      deadLetter: destination,
+      retryLimit: 0,
+    });
+    await boss.send(destination, { fixture: 'retained custom failure' });
+    const before = await rows(destination);
+
+    await ensureWorkerQueue(boss, source, { policy: 'exclusive', retryLimit: 0 });
+    await ensureWorkerQueue(boss, source, { policy: 'exclusive', retryLimit: 0 });
+
+    expect(await boss.getQueue(source)).toMatchObject({
+      policy: 'standard',
+      deadLetter: destination,
+    });
+    expect(await boss.getQueue(deadLetterQueueName(source))).toBeNull();
+    expect(await boss.getQueue(destination)).toMatchObject({
+      retentionSeconds: DLQ_RETENTION_SECONDS * 2,
+      deleteAfterSeconds: DLQ_RETENTION_SECONDS * 2,
+    });
+    expect(await rows(destination)).toEqual(before);
+
+    const id = await boss.send(source, { fixture: 'new custom failure' });
+    await boss.fetch(source);
+    await boss.fail(source, id!, new Error('custom destination failure'));
+    const retained = await rows(destination);
+    expect(retained).toHaveLength(2);
+    await reportDeadLetterQueues(boss);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'worker_dlq_depth', queueName: destination, depth: 2 }),
+      expect.any(String)
+    );
+    expect(await rows(destination)).toEqual(retained);
   });
 
   it('migrates a legacy queue without losing history and enforces singleton dedupe', async () => {
@@ -220,9 +264,10 @@ describe.skipIf(!connectionString)('dead-letter queues with PostgreSQL and pg-bo
 
   it('runs the real export worker through an upload failure and exhausted retries', async () => {
     await boss.updateQueue(exportQueue, { retryLimit: 1, retryDelay: 0, retryBackoff: false });
-    vi.mocked(createUSFMZipStreamAsync).mockImplementation(
-      async () => ({ ok: true, data: { stream: Readable.from(['zip']), cleanup: vi.fn() } }) as any
-    );
+    vi.mocked(createUSFMZipStreamAsync).mockImplementation(async () => {
+      const data: ExportResult = { stream: Readable.from(['zip']), cleanup: vi.fn() };
+      return { ok: true, data };
+    });
     vi.mocked(uploadExportStream).mockRejectedValue(new Error('simulated R2 outage'));
     await registerUSFMExportWorker(boss);
     const payload = { projectUnitId: 30, requestedBy: 7 };

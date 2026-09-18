@@ -31,10 +31,12 @@ still need to be configured by the environment owner.
 ## Queue convention
 
 Use `ensureWorkerQueue(boss, name, options)` before sending or consuming jobs.
-It creates `<name>-dlq` first and updates the source's `deadLetter` setting even
-when the source already exists. Export and AI retry settings stay at three retries
-with 60-second exponential backoff. DBL queues keep their current retry settings
-(pg-boss defaults for new queues).
+It preserves an existing source's custom `deadLetter` destination so retained
+jobs in that queue remain visible to the monitor. Sources without a destination
+use `<name>-dlq`. The destination is created or updated before enabling routing.
+Export and AI retry settings stay at three retries with 60-second exponential
+backoff. DBL queues keep their current retry settings (pg-boss defaults for new
+queues).
 
 This applies to `usfm-export`, `ai-suggestions` (formerly
 `ai-suggestion-trigger`), both `dbl-ingest-text` queues, and `dbl-sync` when its

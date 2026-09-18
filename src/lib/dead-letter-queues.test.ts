@@ -1,5 +1,3 @@
-import type { PgBoss } from 'pg-boss';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -11,28 +9,11 @@ import {
 } from '@/lib/dead-letter-queues';
 import { logger } from '@/lib/logger';
 import { ensureAiSuggestionQueue, ensureExportQueues } from '@/lib/queue';
+import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-
-function fakeBoss() {
-  const executeSql = vi.fn().mockImplementation(async (query: string) => {
-    if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
-    return {
-      rows: [{ depth: 0, queuedCount: 0, activeCount: 0, deferredCount: 0, oldestCreatedOn: null }],
-    };
-  });
-  const methods = {
-    getQueue: vi.fn().mockResolvedValue(null),
-    createQueue: vi.fn(),
-    updateQueue: vi.fn(),
-    deleteQueue: vi.fn(),
-    getQueues: vi.fn().mockResolvedValue([]),
-    getDb: () => ({ executeSql }),
-  };
-  return { boss: methods as unknown as PgBoss, ...methods, executeSql };
-}
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.useRealTimers());
@@ -40,7 +21,9 @@ afterEach(() => vi.useRealTimers());
 describe('worker queue convention', () => {
   it('creates the DLQ first and converges routing on an existing source queue', async () => {
     const fake = fakeBoss();
-    fake.getQueue.mockImplementation(async (name) => (name === 'ingestion' ? { name } : null));
+    fake.getQueue.mockImplementation(async (name) =>
+      name === 'ingestion' ? queueResult(name) : null
+    );
     await ensureWorkerQueue(fake.boss, 'ingestion');
     expect(fake.createQueue.mock.calls).toEqual([
       [
@@ -50,6 +33,29 @@ describe('worker queue convention', () => {
     ]);
     expect(fake.updateQueue).toHaveBeenCalledWith('ingestion', { deadLetter: 'ingestion-dlq' });
     expect(fake.deleteQueue).not.toHaveBeenCalled();
+  });
+
+  it('preserves a custom destination and raises only its short retention settings', async () => {
+    const fake = fakeBoss();
+    fake.getQueue.mockImplementation(async (name) =>
+      name === 'ingestion'
+        ? queueResult(name, { deadLetter: 'custom-failures', retryLimit: 3 })
+        : queueResult(name, { retentionSeconds: 60, deleteAfterSeconds: DLQ_RETENTION_SECONDS * 2 })
+    );
+
+    await ensureWorkerQueue(fake.boss, 'ingestion', { retryLimit: 3 });
+
+    expect(fake.getQueue.mock.calls).toEqual([['ingestion'], ['custom-failures']]);
+    expect(fake.createQueue).not.toHaveBeenCalled();
+    expect(fake.updateQueue.mock.calls).toEqual([
+      [
+        'custom-failures',
+        {
+          retentionSeconds: DLQ_RETENTION_SECONDS,
+          deleteAfterSeconds: DLQ_RETENTION_SECONDS * 2,
+        },
+      ],
+    ]);
   });
 
   it('creates new queues with their final settings without redundant updates', async () => {
@@ -64,10 +70,12 @@ describe('worker queue convention', () => {
 
   it('preserves longer retention and never updates immutable source policy', async () => {
     const fake = fakeBoss();
-    fake.createQueue.mockImplementation((_name, options) => {
-      options.policy ??= 'standard';
+    fake.createQueue.mockImplementation(async (_name, options) => {
+      if (options) options.policy ??= 'standard';
     });
-    fake.getQueue.mockResolvedValue({ retentionSeconds: 6_000_000, deleteAfterSeconds: 7_000_000 });
+    fake.getQueue.mockImplementation(async (name) =>
+      queueResult(name, { retentionSeconds: 6_000_000, deleteAfterSeconds: 7_000_000 })
+    );
     await ensureWorkerQueue(fake.boss, 'ingestion', { policy: 'exclusive', retryLimit: 3 });
     expect(fake.updateQueue).not.toHaveBeenCalledWith('ingestion-dlq', expect.anything());
     expect(fake.updateQueue).toHaveBeenCalledWith('ingestion', {
@@ -80,12 +88,11 @@ describe('worker queue convention', () => {
     const fake = fakeBoss();
     fake.getQueue.mockImplementation(async (name) =>
       name === 'ingestion-dlq'
-        ? {
-            name,
+        ? queueResult(name, {
             retentionSeconds: DLQ_RETENTION_SECONDS,
             deleteAfterSeconds: DLQ_RETENTION_SECONDS,
-          }
-        : { name, retryLimit: 3, deadLetter: 'ingestion-dlq' }
+          })
+        : queueResult(name, { retryLimit: 3, deadLetter: 'ingestion-dlq' })
     );
 
     await ensureWorkerQueue(fake.boss, 'ingestion', { retryLimit: 3 });
@@ -97,7 +104,7 @@ describe('worker queue convention', () => {
   it('keeps legacy export queues even if only diagnostic history remains', async () => {
     const fake = fakeBoss();
     fake.getQueue.mockImplementation(async (name) =>
-      name === 'usfm-export' ? { policy: 'standard' } : null
+      name === 'usfm-export' ? queueResult(name, { policy: 'standard' }) : null
     );
     await ensureExportQueues(fake.boss);
     expect(fake.deleteQueue).not.toHaveBeenCalled();
@@ -117,7 +124,7 @@ describe('worker queue convention', () => {
   it('adds a DLQ to the current AI queue and keeps its retry contract', async () => {
     const fake = fakeBoss();
     fake.getQueue.mockImplementation(async (name) =>
-      name === 'ai-suggestions' ? { policy: 'standard' } : null
+      name === 'ai-suggestions' ? queueResult(name, { policy: 'standard' }) : null
     );
     await ensureAiSuggestionQueue(fake.boss);
     expect(fake.updateQueue).toHaveBeenCalledWith('ai-suggestions', {
@@ -141,7 +148,7 @@ describe('worker queue convention', () => {
   it('does not warn for an existing exclusive queue', async () => {
     const fake = fakeBoss();
     fake.getQueue.mockImplementation(async (name) =>
-      name === 'ai-suggestions' ? { policy: 'exclusive' } : null
+      name === 'ai-suggestions' ? queueResult(name, { policy: 'exclusive' }) : null
     );
     await ensureAiSuggestionQueue(fake.boss);
     expect(logger.warn).not.toHaveBeenCalled();
@@ -151,7 +158,7 @@ describe('worker queue convention', () => {
 describe('dead-letter monitoring', () => {
   it('reports another queue while the first query is still pending', async () => {
     const fake = fakeBoss();
-    fake.getQueues.mockResolvedValue([{ name: 'slow-dlq' }, { name: 'fast-dlq' }]);
+    fake.getQueues.mockResolvedValue([queueResult('slow-dlq'), queueResult('fast-dlq')]);
     let finish!: () => void;
     fake.executeSql.mockImplementation(async (query: string, parameters?: unknown[]) => {
       if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
@@ -176,10 +183,10 @@ describe('dead-letter monitoring', () => {
   it('discovers custom, shared and orphaned DLQs without counting source retries', async () => {
     const fake = fakeBoss();
     fake.getQueues.mockResolvedValue([
-      { name: 'export', deadLetter: 'failures' },
-      { name: 'ai', deadLetter: 'failures' },
-      { name: 'old-dlq' },
-      { name: 'failures' },
+      queueResult('export', { deadLetter: 'failures' }),
+      queueResult('ai', { deadLetter: 'failures' }),
+      queueResult('old-dlq'),
+      queueResult('failures'),
     ]);
     fake.executeSql.mockImplementation(async (query: string) => {
       if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
@@ -204,7 +211,7 @@ describe('dead-letter monitoring', () => {
 
   it('reports zero after the backlog clears, with flat structured dimensions', async () => {
     const fake = fakeBoss();
-    fake.getQueues.mockResolvedValue([{ name: 'old-dlq' }]);
+    fake.getQueues.mockResolvedValue([queueResult('old-dlq')]);
     await reportDeadLetterQueues(fake.boss);
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'worker_dlq_depth', queueName: 'old-dlq', depth: 0 }),
@@ -214,7 +221,7 @@ describe('dead-letter monitoring', () => {
 
   it('continues after a queue read failure and reports discovery failures', async () => {
     const fake = fakeBoss();
-    fake.getQueues.mockResolvedValue([{ name: 'one-dlq' }, { name: 'two-dlq' }]);
+    fake.getQueues.mockResolvedValue([queueResult('one-dlq'), queueResult('two-dlq')]);
     fake.executeSql.mockImplementation(async (query: string, parameters?: unknown[]) => {
       if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
       if (parameters?.[0] === 'one-dlq') throw new Error('database read failed');
@@ -301,7 +308,7 @@ describe('dead-letter monitoring', () => {
   it('bounds shutdown when a query never returns and never starts another sweep', async () => {
     vi.useFakeTimers();
     const fake = fakeBoss();
-    fake.getQueues.mockResolvedValue([{ name: 'stuck-dlq' }]);
+    fake.getQueues.mockResolvedValue([queueResult('stuck-dlq')]);
     fake.executeSql.mockImplementation((query: string) =>
       query.includes('pgboss.version')
         ? Promise.resolve({ rows: [{ version: 26 }] })

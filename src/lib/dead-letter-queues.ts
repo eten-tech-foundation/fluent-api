@@ -8,7 +8,7 @@ export const DLQ_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 export const DLQ_SHUTDOWN_TIMEOUT_MS = 5_000;
 const DEAD_LETTER_SUFFIX = '-dlq';
 
-/** The single spelling of a source queue's dead-letter destination. */
+/** Default dead-letter destination for a source without custom routing. */
 export function deadLetterQueueName(name: string): string {
   return `${name}${DEAD_LETTER_SUFFIX}`;
 }
@@ -24,8 +24,9 @@ export async function ensureWorkerQueue(
   name: string,
   options: Omit<Queue, 'name' | 'deadLetter'> = {}
 ): Promise<void> {
-  const deadLetter = deadLetterQueueName(name);
-  const [existing, source] = await Promise.all([boss.getQueue(deadLetter), boss.getQueue(name)]);
+  const source = await boss.getQueue(name);
+  const deadLetter = source?.deadLetter ?? deadLetterQueueName(name);
+  const existing = await boss.getQueue(deadLetter);
   const retentionOptions = {
     // Do not shorten an operator's longer retention policy. Queue updates only
     // affect new jobs; existing keep_until/deletion_seconds remain untouched.

@@ -1,8 +1,7 @@
-import type { PgBoss } from 'pg-boss';
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { reportDeadLetterQueues } from '@/lib/dead-letter-queues';
+import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
 
 const client = vi.hoisted(() => ({ trackTrace: vi.fn() }));
 vi.mock('@/env', () => ({
@@ -17,25 +16,16 @@ afterEach(() => vi.restoreAllMocks());
 describe('dLQ Application Insights telemetry', () => {
   it('sends queryable dimensions through the real production logger without job payloads', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const boss = {
-      getQueues: async () => [{ name: 'usfm-export-dlq' }],
-      getDb: () => ({
-        executeSql: async (query: string) => {
-          if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
-          return {
-            rows: [
-              {
-                depth: 1,
-                queuedCount: 1,
-                activeCount: 0,
-                deferredCount: 0,
-                oldestCreatedOn: null,
-              },
-            ],
-          };
-        },
-      }),
-    } as unknown as PgBoss;
+    const { boss, getQueues, executeSql } = fakeBoss();
+    getQueues.mockResolvedValue([queueResult('usfm-export-dlq')]);
+    executeSql.mockImplementation(async (query) => {
+      if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+      return {
+        rows: [
+          { depth: 1, queuedCount: 1, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+        ],
+      };
+    });
 
     await reportDeadLetterQueues(boss);
 
