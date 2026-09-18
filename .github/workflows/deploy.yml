@@ -1,7 +1,8 @@
 # Migrates the database and deploys the built package to one Azure Web App.
 #
-# Every deploy in this repo goes through here -- dev on merge to main, QA on a
-# tag, and prod from `promote-to-prod.yml`. The three copies this replaces had
+# Every deploy in this repo goes through here -- dev on merge to main, QA from
+# `cut-release.yml` and `deploy-to-qa.yml`, and prod from `promote-to-prod.yml`.
+# The three copies this replaces had
 # already drifted (different verify timings, one hard-coded publish-profile
 # secret left over from the `scribe-server-dev` days), and a drifted deploy job
 # is a QA stage that exercises something prod won't ship.
