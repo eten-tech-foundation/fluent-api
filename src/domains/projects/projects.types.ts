@@ -37,10 +37,11 @@ export const projectWithLanguageNamesSchema = selectProjectsSchema
     updatedAt: z.union([z.date(), z.string()]).nullable(),
     chapterStatusCounts: chapterStatusCountsSchema,
     workflowConfig: z.array(workflowStepSchema),
+    milestoneCount: z.number().int().min(0),
   });
 
 export const createProjectWithUnitsSchema = insertProjectsSchema
-  .omit({ status: true, organization: true, createdBy: true })
+  .omit({ status: true, organization: true, createdBy: true, sourceBibleId: true })
   .extend({
     bibleId: z.number().int(),
     bookId: z.array(z.number().int()),
@@ -56,7 +57,6 @@ export const updateProjectWithUnitsSchema = patchProjectsClientSchema
   .extend({
     bibleId: z.number().int().optional(),
     bookId: z.array(z.number().int()).optional(),
-    projectUnitStatus: z.enum(['not_started', 'in_progress', 'completed']).optional(),
   });
 
 // Domain types inferred from Zod

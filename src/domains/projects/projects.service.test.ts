@@ -60,6 +60,8 @@ vi.mock('./projects.repository', () => ({
   insertBibleBookLinks: vi.fn(),
   updateProjectRecord: vi.fn(),
   updateProjectUnitStatusByProjectId: vi.fn(),
+  countUnitsByProjectId: vi.fn(),
+  lockProjectById: vi.fn(),
   remove: vi.fn(),
 }));
 
@@ -103,12 +105,54 @@ describe('projects service', () => {
       expect(result).toEqual(mockResult);
     });
 
-    it('deleteProject should call repo', async () => {
+    it('deleteProject should call repo when the project has no milestones', async () => {
       const mockResult = ok(undefined);
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
+      vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(0);
       vi.mocked(repo.remove).mockResolvedValue(mockResult);
 
       const result = await deleteProject(1);
 
+      expect(repo.lockProjectById).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.countUnitsByProjectId).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.remove).toHaveBeenCalledWith(1, mockTx);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('deleteProject should conflict when milestones remain', async () => {
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
+      vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(2);
+
+      const result = await deleteProject(1);
+
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.CONFLICT);
+        expect(result.error.message).toContain('2');
+      }
+    });
+
+    it('deleteProject should return NOT_FOUND when the project does not exist', async () => {
+      vi.mocked(repo.lockProjectById).mockResolvedValue(false);
+
+      const result = await deleteProject(999);
+
+      expect(repo.countUnitsByProjectId).not.toHaveBeenCalled();
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.PROJECT_NOT_FOUND);
+      }
+    });
+
+    it('deleteProject should skip the unit guard when cascadeUnits is set', async () => {
+      const mockResult = ok(undefined);
+      vi.mocked(repo.remove).mockResolvedValue(mockResult);
+
+      const result = await deleteProject(1, { cascadeUnits: true });
+
+      expect(repo.countUnitsByProjectId).not.toHaveBeenCalled();
       expect(repo.remove).toHaveBeenCalledWith(1);
       expect(result).toEqual(mockResult);
     });
@@ -152,11 +196,16 @@ describe('projects service', () => {
 
       expect(repo.getValidBookIdsForBible).toHaveBeenCalledWith(10);
       expect(repo.insertProjectRecord).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'New Project', organization: 1, createdBy: 99 }),
+        expect.objectContaining({
+          name: 'New Project',
+          organization: 1,
+          createdBy: 99,
+          sourceBibleId: 10,
+        }),
         mockTx
       );
       expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
-        { projectId: 100, status: 'not_started' },
+        { projectId: 100, status: 'not_started', name: 'New Project', type: 'text' },
         mockTx
       );
       expect(repo.insertBibleBookLinks).toHaveBeenCalledWith(
@@ -248,14 +297,12 @@ describe('projects service', () => {
   });
 
   describe('updateProject (Orchestration)', () => {
-    it('should update project and conditionally update unit status', async () => {
+    it('should update project without touching unit status', async () => {
       const mockUpdatedProject = { id: 1, name: 'Updated' } as any;
       vi.mocked(repo.updateProjectRecord).mockResolvedValue(mockUpdatedProject);
-      vi.mocked(repo.updateProjectUnitStatusByProjectId).mockResolvedValue(undefined);
 
       const result = await updateProject(1, {
         name: 'Updated',
-        projectUnitStatus: 'in_progress',
       });
 
       expect(repo.updateProjectRecord).toHaveBeenCalledWith(
@@ -263,11 +310,7 @@ describe('projects service', () => {
         expect.objectContaining({ name: 'Updated' }),
         mockTx
       );
-      expect(repo.updateProjectUnitStatusByProjectId).toHaveBeenCalledWith(
-        1,
-        'in_progress',
-        mockTx
-      );
+      expect(repo.updateProjectUnitStatusByProjectId).not.toHaveBeenCalled();
       expect(result).toEqual(ok(mockUpdatedProject));
     });
 

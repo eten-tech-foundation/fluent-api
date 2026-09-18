@@ -449,6 +449,7 @@ export async function insertSnapshot(
 export async function findAssignmentsProgress(
   filters: {
     projectId?: number;
+    projectUnitId?: number;
     orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
@@ -526,6 +527,9 @@ export async function findAssignmentsProgress(
     const conditions = [];
     if (filters.projectId !== undefined) {
       conditions.push(eq(project_units.projectId, filters.projectId));
+    }
+    if (filters.projectUnitId !== undefined) {
+      conditions.push(eq(chapter_assignments.projectUnitId, filters.projectUnitId));
     }
     if (filters.orgId !== undefined) {
       conditions.push(eq(projects.organization, filters.orgId));

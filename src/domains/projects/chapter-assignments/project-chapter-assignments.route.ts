@@ -35,8 +35,14 @@ const getProjectChapterAssignmentsRoute = createRoute({
     requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
   ] as const,
   summary: 'Get project chapter assignments',
-  description: 'Returns a list of chapter assignments for the project.',
-  request: { params: projectIdParam },
+  description:
+    'Returns a list of chapter assignments for the project. Optional milestoneId filters to one unit.',
+  request: {
+    params: projectIdParam,
+    query: z.object({
+      milestoneId: z.coerce.number().int().positive().optional(),
+    }),
+  },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(chapterAssignmentResponseSchema.array(), 'Assignments list'),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
@@ -60,8 +66,9 @@ const getProjectChapterAssignmentsRoute = createRoute({
 
 server.openapi(getProjectChapterAssignmentsRoute, async (c) => {
   const { projectId } = c.req.valid('param');
+  const { milestoneId } = c.req.valid('query');
 
-  const result = await service.getProjectChapterAssignments(projectId);
+  const result = await service.getProjectChapterAssignments(projectId, milestoneId);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

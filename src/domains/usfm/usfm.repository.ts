@@ -21,14 +21,17 @@ const BATCH_SIZE = 25;
 export async function getProjectName(projectUnitId: number): Promise<Result<string>> {
   try {
     const result = await db
-      .select({ name: projects.name })
-      .from(projects)
-      .innerJoin(project_units, eq(projects.id, project_units.projectId))
+      .select({
+        unitName: project_units.name,
+        projectName: projects.name,
+      })
+      .from(project_units)
+      .innerJoin(projects, eq(projects.id, project_units.projectId))
       .where(eq(project_units.id, projectUnitId))
       .limit(1);
 
     if (result.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
-    return ok(result[0].name);
+    return ok(result[0].unitName || result[0].projectName);
   } catch (error) {
     logger.error({
       cause: error,
