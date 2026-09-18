@@ -168,6 +168,20 @@ describe('milestones routes', () => {
     );
   });
 
+  it('returns 400 when create payload has duplicate book IDs', async () => {
+    asAuthenticatedUser([PERMISSIONS.PROJECT_UPDATE]);
+    asProjectMember();
+
+    const res = await server.request('/projects/3/milestones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Mark', bookId: [41, 41] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(milestonesService.createMilestone).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when create rejects books that are not on the project Bible', async () => {
     asAuthenticatedUser([PERMISSIONS.PROJECT_UPDATE]);
     asProjectMember();

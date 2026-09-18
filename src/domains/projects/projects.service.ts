@@ -52,21 +52,36 @@ export function getProjectById(id: number) {
 }
 
 export async function deleteProject(id: number, options?: { cascadeUnits?: boolean }) {
-  if (!options?.cascadeUnits) {
-    const milestoneCount = await repo.countUnitsByProjectId(id);
-    if (milestoneCount > 0) {
-      return {
-        ok: false as const,
-        error: {
-          code: ErrorCode.CONFLICT,
-          message: `Project has ${milestoneCount} milestone(s); delete them first`,
-        },
-      };
-    }
-  }
   // cascadeUnits: compensating path (e.g. POST /projects grant failure).
   // Public DELETE still 409s; FK on project_units.project_id cascades children.
-  return repo.remove(id);
+  if (options?.cascadeUnits) {
+    return repo.remove(id);
+  }
+
+  try {
+    return await db.transaction(async (tx) => {
+      const exists = await repo.lockProjectById(id, tx);
+      if (!exists) {
+        return err(ErrorCode.PROJECT_NOT_FOUND);
+      }
+
+      const milestoneCount = await repo.countUnitsByProjectId(id, tx);
+      if (milestoneCount > 0) {
+        return {
+          ok: false as const,
+          error: {
+            code: ErrorCode.CONFLICT,
+            message: `Project has ${milestoneCount} milestone(s); delete them first`,
+          },
+        };
+      }
+
+      return repo.remove(id, tx);
+    });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to delete project', context: { id } });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export function getProjectIdByUnitId(projectUnitId: number) {

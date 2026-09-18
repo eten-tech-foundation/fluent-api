@@ -61,6 +61,7 @@ vi.mock('./projects.repository', () => ({
   updateProjectRecord: vi.fn(),
   updateProjectUnitStatusByProjectId: vi.fn(),
   countUnitsByProjectId: vi.fn(),
+  lockProjectById: vi.fn(),
   remove: vi.fn(),
 }));
 
@@ -106,17 +107,20 @@ describe('projects service', () => {
 
     it('deleteProject should call repo when the project has no milestones', async () => {
       const mockResult = ok(undefined);
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
       vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(0);
       vi.mocked(repo.remove).mockResolvedValue(mockResult);
 
       const result = await deleteProject(1);
 
-      expect(repo.countUnitsByProjectId).toHaveBeenCalledWith(1);
-      expect(repo.remove).toHaveBeenCalledWith(1);
+      expect(repo.lockProjectById).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.countUnitsByProjectId).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.remove).toHaveBeenCalledWith(1, mockTx);
       expect(result).toEqual(mockResult);
     });
 
     it('deleteProject should conflict when milestones remain', async () => {
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
       vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(2);
 
       const result = await deleteProject(1);
@@ -126,6 +130,19 @@ describe('projects service', () => {
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.CONFLICT);
         expect(result.error.message).toContain('2');
+      }
+    });
+
+    it('deleteProject should return NOT_FOUND when the project does not exist', async () => {
+      vi.mocked(repo.lockProjectById).mockResolvedValue(false);
+
+      const result = await deleteProject(999);
+
+      expect(repo.countUnitsByProjectId).not.toHaveBeenCalled();
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.PROJECT_NOT_FOUND);
       }
     });
 

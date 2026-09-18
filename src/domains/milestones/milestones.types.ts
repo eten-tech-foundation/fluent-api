@@ -28,7 +28,12 @@ export const milestoneResponseSchema = z.object({
 
 export const createMilestoneSchema = z.object({
   name: z.string().min(1).max(255),
-  bookId: z.array(z.number().int()).min(1),
+  bookId: z
+    .array(z.number().int())
+    .min(1)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Book IDs must be unique',
+    }),
   type: z.enum(['text', 'audio']).default('text'),
   connectivityProfile: z.string().max(255).nullable().optional(),
   status: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
