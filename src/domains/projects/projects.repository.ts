@@ -353,7 +353,10 @@ export async function getPendingUsfmImportsForBible(bibleId: number, bookIds: nu
     );
 }
 
-export async function markUsfmImportMaterialized(id: number, executor: DbTransaction | typeof db) {
+export async function markUsfmImportMaterialized(
+  id: number,
+  executor: DbTransaction | typeof db = db
+) {
   await executor
     .update(project_unit_usfm_imports)
     .set({ materializedAt: new Date() })

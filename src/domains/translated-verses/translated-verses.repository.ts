@@ -188,3 +188,14 @@ export async function list(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
+
+/** Import retries must never overwrite a translator's edits. */
+export async function insertMissing(rows: CreateTranslatedVerseInput[], tx?: DbTransaction) {
+  if (rows.length === 0) return;
+  await (tx ?? db)
+    .insert(translated_verses)
+    .values(rows)
+    .onConflictDoNothing({
+      target: [translated_verses.projectUnitId, translated_verses.bibleTextId],
+    });
+}

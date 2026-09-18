@@ -256,6 +256,7 @@ describe('createProject from USFM files (#419)', () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
     expect(db.transaction).not.toHaveBeenCalled();
+    expect(repo.insertUsfmImports).not.toHaveBeenCalled();
   });
 
   it('leaves the blank-project flow exactly alone when no files are sent', async () => {

@@ -10,8 +10,12 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
-import type { ParsedUsfmFile } from './usfm-import.service';
+import type {
+  CreateProjectServiceInput,
+  ParsedUsfmFile,
+  Project,
+  UpdateProjectInput,
+} from './projects.types';
 
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';

@@ -1,33 +1,62 @@
-import { and, eq, inArray } from 'drizzle-orm';
-
 import type { DbTransaction, Result } from '@/lib/types';
 import type { UsjVerseText } from '@/lib/usfm-converter';
 
-import { db } from '@/db';
-import {
-  bible_books,
-  bible_texts,
-  books,
-  translated_verses,
-  verseMarkersSchema,
-} from '@/db/schema';
+import { verseMarkersSchema } from '@/db/schema';
+import * as bibleBooksService from '@/domains/bible-books/bible-books.service';
+import * as bibleTextsService from '@/domains/bibles/bible-texts/bible-texts.service';
+import * as booksService from '@/domains/books/books.service';
+import * as translatedVersesService from '@/domains/translated-verses/translated-verses.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
 
-import type { UsfmFileInput } from './projects.types';
+import type { ParsedUsfmFile, UsfmFileInput } from './projects.types';
 
 import * as repo from './projects.repository';
 
-export interface ParsedUsfmFile extends UsfmFileInput {
-  bookId: number;
-  verses: UsjVerseText[];
+/** Match the upload screen: first valid id, toc3, then mt/mt1 code token. */
+function detectBookCode(usfm: string, knownCodes: Set<string>): string | undefined {
+  const markers = [...usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)];
+  for (const names of [['id'], ['toc3'], ['mt', 'mt1']]) {
+    const marker = markers.find((match) => names.includes(match[1].toLowerCase()));
+    const code = marker?.[2].trim().split(/\s+/)[0].toUpperCase();
+    if (code && knownCodes.has(code)) return code;
+  }
+}
+
+/** Supply the grammar's required id on a parsing copy; the stored file is never changed. */
+function withParserBookId(usfm: string, bookCode: string): string {
+  const id = /\\id(?=[\s\\]|$)[^\\\r\n]*/i;
+  if (id.test(usfm)) return usfm.replace(id, `\\id ${bookCode}`);
+  return `\\id ${bookCode}\n${usfm}`;
+}
+
+function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
+  const validated: UsjVerseText[] = [];
+  for (const verse of verses) {
+    if (verse.markers === undefined) {
+      validated.push(verse);
+      continue;
+    }
+    const markers = verseMarkersSchema.safeParse(verse.markers);
+    if (!markers.success) return err(ErrorCode.USFM_INVALID);
+    validated.push({ ...verse, markers: markers.data ?? undefined });
+  }
+  return ok(validated);
+}
+
+function parseImportVerses(usfm: string, bookCode: string): Result<UsjVerseText[]> {
+  const usj = convertUSFMToUSJ(withParserBookId(usfm, bookCode));
+  if (!usj.ok) return err(ErrorCode.USFM_INVALID);
+  const verses = usjToVerseTexts(usj.data);
+  if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
+  return validateVerseMarkers(verses.data);
 }
 
 /**
  * Re-validates every file server-side before anything is written, so one bad file rejects the
  * whole import (#418's rule, not trusted from the client). The book each file claims must be a
- * real book and must match the `\id` the file actually carries; the ids that come back are what
+ * real book and must match the code detected from `\id`, `\toc3` or `\mt`; the ids that come back are what
  * the project is created with, since the files are the authority on which books exist.
  */
 export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<ParsedUsfmFile[]>> {
@@ -36,11 +65,10 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     return err(ErrorCode.USFM_BOOK_MISMATCH);
   }
 
-  const known = await db
-    .select({ id: books.id, code: books.code })
-    .from(books)
-    .where(inArray(books.code, claimed));
-  const idByCode = new Map(known.map((book) => [book.code, book.id]));
+  const known = await booksService.getAllBooks();
+  if (!known.ok) return known;
+  const idByCode = new Map(known.data.map((book) => [book.code, book.id]));
+  const knownCodes = new Set(idByCode.keys());
 
   const parsed: ParsedUsfmFile[] = [];
   for (const [index, file] of files.entries()) {
@@ -48,19 +76,14 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
     const bookId = idByCode.get(bookCode);
     if (bookId === undefined) return err(ErrorCode.USFM_BOOK_MISMATCH);
 
-    const usj = convertUSFMToUSJ(file.usfm);
-    if (!usj.ok) return err(ErrorCode.USFM_INVALID);
-
-    const idNode = usj.data.content.find((node) => node.type === 'book');
-    if (!idNode || idNode.type !== 'book' || !idNode.code) {
-      return err(ErrorCode.USFM_BOOK_MISSING);
+    const detectedCode = detectBookCode(file.usfm, knownCodes);
+    if (!detectedCode) {
+      return err(/\\[a-z]/i.test(file.usfm) ? ErrorCode.USFM_BOOK_MISSING : ErrorCode.USFM_INVALID);
     }
-    if (idNode.code.toUpperCase() !== bookCode) {
-      return err(ErrorCode.USFM_BOOK_MISMATCH);
-    }
+    if (detectedCode !== bookCode) return err(ErrorCode.USFM_BOOK_MISMATCH);
 
-    const verses = usjToVerseTexts(usj.data);
-    if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
+    const verses = parseImportVerses(file.usfm, bookCode);
+    if (!verses.ok) return verses;
 
     parsed.push({ ...file, bookCode, bookId, verses: verses.data });
   }
@@ -80,55 +103,34 @@ export type MaterializeOutcome = 'materialized' | 'pending';
 export async function materializeUsfmImport(
   row: { id: number; projectUnitId: number; bookId: number; usfm: string },
   bibleId: number,
-  executor: DbTransaction | typeof db = db,
+  tx?: DbTransaction,
   parsedVerses?: UsjVerseText[]
 ): Promise<Result<MaterializeOutcome>> {
-  const [sourceBook] = await executor
-    .select({ textIngestedAt: bible_books.textIngestedAt })
-    .from(bible_books)
-    .where(and(eq(bible_books.bibleId, bibleId), eq(bible_books.bookId, row.bookId)));
+  const sourceBook = await bibleBooksService.isBibleBookTextIngested(bibleId, row.bookId, tx);
+  if (!sourceBook.ok) return sourceBook;
+  if (!sourceBook.data) return ok('pending');
 
-  if (!sourceBook?.textIngestedAt) return ok('pending');
-
-  const sourceTexts = await executor
-    .select({
-      id: bible_texts.id,
-      chapterNumber: bible_texts.chapterNumber,
-      verseNumber: bible_texts.verseNumber,
-    })
-    .from(bible_texts)
-    .where(and(eq(bible_texts.bibleId, bibleId), eq(bible_texts.bookId, row.bookId)));
-
-  if (sourceTexts.length === 0) return ok('pending');
+  const sourceTexts = await bibleTextsService.getBibleBookVerseReferences(bibleId, row.bookId, tx);
+  if (!sourceTexts.ok) return sourceTexts;
+  if (sourceTexts.data.length === 0) return ok('pending');
 
   let verses = parsedVerses;
   if (!verses) {
-    const usj = convertUSFMToUSJ(row.usfm);
-    if (!usj.ok) return err(ErrorCode.USFM_INVALID);
-    const parsed = usjToVerseTexts(usj.data);
+    const book = await booksService.getBookById(row.bookId);
+    if (!book.ok) return book;
+    const parsed = parseImportVerses(row.usfm, book.data.code);
     if (!parsed.ok) return parsed;
     verses = parsed.data;
   }
+  const validated = validateVerseMarkers(verses);
+  if (!validated.ok) return validated;
 
-  const validatedVerses: UsjVerseText[] = [];
-  for (const verse of verses) {
-    if (verse.markers === undefined) {
-      validatedVerses.push(verse);
-      continue;
-    }
-
-    const markers = verseMarkersSchema.safeParse(verse.markers);
-    if (!markers.success) return err(ErrorCode.USFM_INVALID);
-    validatedVerses.push({
-      ...verse,
-      ...(markers.data === null ? { markers: undefined } : { markers: markers.data }),
-    });
-  }
-
-  const idByRef = new Map(sourceTexts.map((t) => [`${t.chapterNumber}:${t.verseNumber}`, t.id]));
+  const idByRef = new Map(
+    sourceTexts.data.map((t) => [`${t.chapterNumber}:${t.verseNumber}`, t.id])
+  );
   let unmatched = 0;
   let empty = 0;
-  const rows = validatedVerses.flatMap((verse) => {
+  const rows = validated.data.flatMap((verse) => {
     const bibleTextId = idByRef.get(`${verse.chapterNumber}:${verse.verseNumber}`);
     if (bibleTextId === undefined) {
       unmatched += 1;
@@ -149,16 +151,10 @@ export async function materializeUsfmImport(
   });
 
   if (rows.length > 0) {
-    // A re-run after a partial failure must not clobber anything a translator has since edited.
-    await executor
-      .insert(translated_verses)
-      .values(rows)
-      .onConflictDoNothing({
-        target: [translated_verses.projectUnitId, translated_verses.bibleTextId],
-      });
+    const imported = await translatedVersesService.importTranslatedVerses(rows, tx);
+    if (!imported.ok) return imported;
   }
-
-  await repo.markUsfmImportMaterialized(row.id, executor);
+  await repo.markUsfmImportMaterialized(row.id, tx);
 
   if (unmatched > 0 || empty > 0) {
     logger.warn('Imported USFM verses were skipped', {
@@ -195,7 +191,12 @@ async function materializeEach(
         bookId: row.bookId,
       };
       try {
-        const outcome = await materializeUsfmImport(row, bibleId, db, versesByBook.get(row.bookId));
+        const outcome = await materializeUsfmImport(
+          row,
+          bibleId,
+          undefined,
+          versesByBook.get(row.bookId)
+        );
         if (!outcome.ok) {
           logger.error({
             message: 'Failed to materialise imported USFM book',

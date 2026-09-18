@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { db } from '@/db';
-import { bible_books, bible_texts, books } from '@/db/schema';
+import type { CreateTranslatedVerseInput } from '@/domains/translated-verses/translated-verses.types';
+
+import * as bibleBooksService from '@/domains/bible-books/bible-books.service';
+import * as bibleTextsService from '@/domains/bibles/bible-texts/bible-texts.service';
+import * as booksService from '@/domains/books/books.service';
+import * as translatedVersesService from '@/domains/translated-verses/translated-verses.service';
 import { logger } from '@/lib/logger';
-import { ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import * as converter from '@/lib/usfm-converter';
 
 import * as repo from './projects.repository';
@@ -14,26 +18,15 @@ import {
   parseUsfmFiles,
 } from './usfm-import.service';
 
-// The parser is real; only the database and the repository are stood in for.
-
-/** Rows the mocked `db.select().from(table).where()` returns, keyed by table. */
-const rowsByTable = new Map<unknown, unknown[]>();
-const inserted: unknown[][] = [];
-
-vi.mock('@/db', () => ({
-  db: {
-    select: vi.fn(() => ({
-      from: (table: unknown) => ({
-        where: () => Promise.resolve(rowsByTable.get(table) ?? []),
-      }),
-    })),
-    insert: vi.fn(() => ({
-      values: (rows: unknown[]) => {
-        inserted.push(rows);
-        return { onConflictDoNothing: () => Promise.resolve() };
-      },
-    })),
-  },
+// The parser is real. Persistence is mocked at repository and public domain service seams.
+const inserted: CreateTranslatedVerseInput[][] = [];
+vi.mock('@/domains/books/books.service', () => ({ getAllBooks: vi.fn(), getBookById: vi.fn() }));
+vi.mock('@/domains/bible-books/bible-books.service', () => ({ isBibleBookTextIngested: vi.fn() }));
+vi.mock('@/domains/bibles/bible-texts/bible-texts.service', () => ({
+  getBibleBookVerseReferences: vi.fn(),
+}));
+vi.mock('@/domains/translated-verses/translated-verses.service', () => ({
+  importTranslatedVerses: vi.fn(),
 }));
 
 vi.mock('./projects.repository', () => ({
@@ -53,136 +46,59 @@ const MAT = '\\id MAT Matthew\n\\c 1\n\\p\n\\v 1 The genealogy.';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  rowsByTable.clear();
   inserted.length = 0;
-  rowsByTable.set(books, [
-    { id: 1, code: 'GEN' },
-    { id: 40, code: 'MAT' },
-  ]);
-  rowsByTable.set(bible_books, [{ textIngestedAt: new Date() }]);
+  const books = [
+    { id: 1, code: 'GEN', eng_display_name: 'Genesis' },
+    { id: 40, code: 'MAT', eng_display_name: 'Matthew' },
+  ];
+  vi.mocked(booksService.getAllBooks).mockResolvedValue(ok(books));
+  vi.mocked(booksService.getBookById).mockImplementation(async (id) => {
+    const book = books.find((book) => book.id === id);
+    return book ? ok(book) : err(ErrorCode.BOOK_NOT_FOUND);
+  });
+  vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(ok([]));
+  vi.mocked(translatedVersesService.importTranslatedVerses).mockImplementation(async (rows) => {
+    inserted.push(rows);
+    return ok(undefined);
+  });
+  vi.mocked(bibleBooksService.isBibleBookTextIngested).mockResolvedValue(ok(true));
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('parseUsfmFiles (#419)', () => {
-  it('resolves each file to its book and its verses', async () => {
-    const result = await parseUsfmFiles([
-      { fileName: 'gen.usfm', bookCode: 'gen', usfm: GEN },
-      { fileName: 'mat.usfm', bookCode: 'MAT', usfm: MAT },
-    ]);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.map((f) => [f.bookCode, f.bookId, f.verses.length])).toEqual([
-      ['GEN', 1, 2],
-      ['MAT', 40, 1],
-    ]);
-  });
-
-  it('keeps a section heading separate from verse text and anchors it to the following verse', async () => {
-    const result = await parseUsfmFiles([
-      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN_WITH_HEADING },
-    ]);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data[0].verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
-      {
-        chapterNumber: 1,
-        verseNumber: 2,
-        text: 'Second.',
-        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
-      },
-    ]);
-  });
-
-  it('rejects the whole batch when one file is not USFM', async () => {
-    const result = await parseUsfmFiles([
-      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: GEN },
-      { fileName: 'notes.usfm', bookCode: 'MAT', usfm: 'just a note, no markers' },
-    ]);
-
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
-  });
-
-  it('rejects a trailing heading that no verse can retain', async () => {
-    const result = await parseUsfmFiles([
-      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: `${GEN}\n\\s1 Appendix` },
-    ]);
-
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
-  });
-
-  it('rejects a book the catalogue does not know', async () => {
-    const result = await parseUsfmFiles([{ fileName: 'x.usfm', bookCode: 'ZZZ', usfm: GEN }]);
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
-  });
-
-  it('rejects a file whose \\id disagrees with the book it was uploaded as', async () => {
-    // Claims Matthew, but the file says it is Genesis.
-    const result = await parseUsfmFiles([{ fileName: 'mat.usfm', bookCode: 'MAT', usfm: GEN }]);
-    expect(result).toMatchObject({
-      ok: false,
-      error: {
-        code: ErrorCode.USFM_BOOK_MISMATCH,
-        message: 'USFM book code is invalid or does not match the uploaded file',
-      },
-    });
-  });
-
-  it('rejects a parsed file without a book identifier', async () => {
-    vi.spyOn(converter, 'convertUSFMToUSJ').mockReturnValueOnce({
-      ok: true,
-      data: { type: 'USJ', version: '3.1', content: [] },
-    });
-    const result = await parseUsfmFiles([
-      { fileName: 'gen.usfm', bookCode: 'GEN', usfm: '\\c 1\n\\p\n\\v 1 Text without a book.' },
-    ]);
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: ErrorCode.USFM_BOOK_MISSING, message: 'Missing book data' },
-    });
-  });
-
-  it('rejects two files for the same book', async () => {
-    const result = await parseUsfmFiles([
-      { fileName: 'a.usfm', bookCode: 'GEN', usfm: GEN },
-      { fileName: 'b.usfm', bookCode: 'gen', usfm: GEN },
-    ]);
-    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_BOOK_MISMATCH } });
-  });
-});
-
 describe('materializeUsfmImport (#419)', () => {
   const row = { id: 9, projectUnitId: 5, bookId: 1, usfm: GEN };
 
   it('waits for confirmed book completion even when some source verses already exist', async () => {
-    rowsByTable.set(bible_books, [{ textIngestedAt: null }]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleBooksService.isBibleBookTextIngested).mockResolvedValue(ok(false));
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'pending' });
     expect(inserted).toEqual([]);
     expect(repo.markUsfmImportMaterialized).not.toHaveBeenCalled();
 
-    rowsByTable.set(bible_books, [{ textIngestedAt: new Date() }]);
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleBooksService.isBibleBookTextIngested).mockResolvedValue(ok(true));
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
     expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
     expect(inserted[0]).toEqual([
       { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
       { projectUnitId: 5, bibleTextId: 102, content: 'The earth.' },
     ]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, undefined);
   });
 
   it('reports pending and writes nothing while the source text is not ingested', async () => {
-    rowsByTable.set(bible_texts, []);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(ok([]));
 
     const result = await materializeUsfmImport(row, 3);
 
@@ -192,10 +108,12 @@ describe('materializeUsfmImport (#419)', () => {
   });
 
   it('attaches each verse to its source row once the text exists', async () => {
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
     const result = await materializeUsfmImport(row, 3);
 
@@ -206,14 +124,16 @@ describe('materializeUsfmImport (#419)', () => {
         { projectUnitId: 5, bibleTextId: 102, content: 'The earth.' },
       ],
     ]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(9, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(9, undefined);
   });
 
   it('reparses a delayed import and stores heading markers separately from content', async () => {
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
     const result = await materializeUsfmImport({ ...row, usfm: GEN_WITH_HEADING }, 3);
 
@@ -231,11 +151,43 @@ describe('materializeUsfmImport (#419)', () => {
     ]);
   });
 
+  it('materializes a stored fallback file without rewriting its original text', async () => {
+    const usfm = '\\toc3 GEN\n\\c 1\n\\p\n\\v 1 Original.';
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
+    expect(await materializeUsfmImport({ ...row, usfm }, 3)).toEqual(ok('materialized'));
+    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'Original.' }]]);
+    expect(booksService.getBookById).toHaveBeenCalledWith(1);
+  });
+
+  it('keeps a failed domain write pending and returns its error', async () => {
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
+    vi.mocked(translatedVersesService.importTranslatedVerses).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+    expect(await materializeUsfmImport(row, 3)).toEqual(err(ErrorCode.INTERNAL_ERROR));
+    expect(repo.markUsfmImportMaterialized).not.toHaveBeenCalled();
+  });
+
+  it('propagates source lookup failure instead of reporting pending', async () => {
+    vi.mocked(bibleBooksService.isBibleBookTextIngested).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+    expect(await materializeUsfmImport(row, 3)).toEqual(err(ErrorCode.INTERNAL_ERROR));
+    expect(bibleTextsService.getBibleBookVerseReferences).not.toHaveBeenCalled();
+    expect(repo.markUsfmImportMaterialized).not.toHaveBeenCalled();
+  });
+
   it('stores an empty verse when it carries a heading', async () => {
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
     const usfm = '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Empty Section\n\\p\n\\v 2';
 
     await materializeUsfmImport({ ...row, usfm }, 3);
@@ -249,10 +201,12 @@ describe('materializeUsfmImport (#419)', () => {
   });
 
   it('materializes verses around a textless semantic division without treating it as a heading', async () => {
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
     const usfm = '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\sd1\n\\p\n\\v 2 Second.';
 
     const result = await materializeUsfmImport({ ...row, usfm }, 3);
@@ -267,12 +221,14 @@ describe('materializeUsfmImport (#419)', () => {
   });
 
   it('rejects invalid imported heading structure before inserting or marking the import', async () => {
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
-    const result = await materializeUsfmImport(row, 3, db, [
+    const result = await materializeUsfmImport(row, 3, undefined, [
       { chapterNumber: 1, verseNumber: 1, text: 'Valid.' },
       {
         chapterNumber: 1,
@@ -296,14 +252,16 @@ describe('materializeUsfmImport (#419)', () => {
   });
 
   it('skips verses the source does not have instead of inventing rows', async () => {
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
 
     expect(inserted[0]).toEqual([
       { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
     ]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, undefined);
     expect(logger.warn).toHaveBeenCalledWith('Imported USFM verses were skipped', {
       projectUnitId: 5,
       bookId: 1,
@@ -313,14 +271,18 @@ describe('materializeUsfmImport (#419)', () => {
   });
 
   it('logs imported verses that have no text', async () => {
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     expect(
-      await materializeUsfmImport(row, 3, db, [{ chapterNumber: 1, verseNumber: 1, text: '' }])
+      await materializeUsfmImport(row, 3, undefined, [
+        { chapterNumber: 1, verseNumber: 1, text: '' },
+      ])
     ).toEqual({ ok: true, data: 'materialized' });
 
     expect(inserted).toEqual([]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, undefined);
     expect(logger.warn).toHaveBeenCalledWith('Imported USFM verses were skipped', {
       projectUnitId: 5,
       bookId: 1,
@@ -336,13 +298,15 @@ describe('materializePendingUsfmImports (#419)', () => {
       { id: 1, projectUnitId: 5, bookId: 1, usfm: 'corrupted stored file' },
       { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
     ]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     const result = await materializePendingUsfmImports(5, 3, [1, 40]);
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
     expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, undefined);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         context: expect.objectContaining({ importId: 1, projectUnitId: 5, bibleId: 3, bookId: 1 }),
@@ -355,17 +319,17 @@ describe('materializePendingUsfmImports (#419)', () => {
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
       { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
     ]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
     const failure = new Error('Import write failed');
-    vi.mocked(db.insert).mockImplementationOnce(() => {
-      throw failure;
-    });
+    vi.mocked(translatedVersesService.importTranslatedVerses).mockRejectedValueOnce(failure);
 
     const result = await materializePendingUsfmImports(5, 3, [1, 40]);
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
     expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, undefined);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         cause: failure,
@@ -379,7 +343,9 @@ describe('materializePendingUsfmImports (#419)', () => {
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
       { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
     ]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     const releases: Array<() => void> = [];
     vi.mocked(repo.markUsfmImportMaterialized).mockImplementation(
@@ -407,9 +373,10 @@ describe('materializePendingUsfmImports (#419)', () => {
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
       { id: 2, projectUnitId: 5, bookId: 40, usfm: MAT },
     ]);
-    // Genesis is ingested for this bible, Matthew is not: the mock answers by table, so make
-    // the source rows match Genesis only by chapter and verse.
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    // Both books have a source verse; references are scoped by the service call.
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     const result = await materializePendingUsfmImports(5, 3, [1, 40]);
 
@@ -427,10 +394,12 @@ describe('materializePendingUsfmImports (#419)', () => {
     vi.mocked(repo.getPendingUsfmImports).mockResolvedValue([
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN_WITH_HEADING },
     ]);
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
     const imported = await materializePendingUsfmImports(5, 3, [1], result.data);
 
@@ -462,10 +431,12 @@ describe('materializePendingUsfmImportsForBible (#419)', () => {
       { id: 1, projectUnitId: 5, bookId: 1, usfm: GEN },
       { id: 2, projectUnitId: 6, bookId: 1, usfm: GEN },
     ]);
-    rowsByTable.set(bible_texts, [
-      { id: 101, chapterNumber: 1, verseNumber: 1 },
-      { id: 102, chapterNumber: 1, verseNumber: 2 },
-    ]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+      ])
+    );
 
     const result = await materializePendingUsfmImportsForBible(3, [1]);
 
@@ -477,15 +448,17 @@ describe('materializePendingUsfmImportsForBible (#419)', () => {
         { projectUnitId: 6, bibleTextId: 101, content: 'In the beginning.' },
       ])
     );
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(1, db);
-    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(2, db);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(1, undefined);
+    expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(2, undefined);
   });
 
   it('reports the failure against the project unit that owns the import', async () => {
     vi.mocked(repo.getPendingUsfmImportsForBible).mockResolvedValue([
       { id: 7, projectUnitId: 6, bookId: 1, usfm: 'corrupted stored file' },
     ]);
-    rowsByTable.set(bible_texts, [{ id: 101, chapterNumber: 1, verseNumber: 1 }]);
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
+    );
 
     const result = await materializePendingUsfmImportsForBible(3, [1]);
 

@@ -63,3 +63,34 @@ after the batch so callers retain failure visibility.
 [fluent-web #418](https://github.com/eten-tech-foundation/fluent-web/issues/418).
 `USFM_BOOK_MISMATCH` identifies an invalid or mismatched book code when book data
 is present. `USFM_INVALID` remains "File is not valid USFM".
+
+## Import validation and editable projection
+
+Before creating any project or import row, the API detects the book using the
+same precedence as the upload screen: the first valid code token in `\id`,
+then `\toc3`, then `\mt`/`\mt1`. Names are not translated to book codes.
+The detected code must match the submitted code and exist in the book catalogue.
+The grammar requires an id, so fallback files receive one only in a parsing copy.
+The persisted file remains verbatim, including its original identifier and tags.
+
+Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
+well-formed tags remain valid passthrough data; for example, custom `\z...`
+markers do not produce grammar errors. Editable rows include only prose and
+poetry body paragraphs. Tables, page breaks, lists, notes, figures and sidebars
+remain in the original file rather than being appended to a verse's prose.
+Supported headings attach to the next verse. Headings after the last verse
+remain on the raw import row; attaching them before the last verse would change
+source order. Import does not promise export/roundtrip support yet.
+
+The same marker-schema validation runs during initial parsing and delayed
+materialization. A heading collection over four items or a heading over 300
+characters is rejected before project creation, so deterministic row-validation
+failures cannot create permanently pending imports. This feature has not shipped;
+there is no legacy invalid-import population to migrate. A terminal failure
+column is therefore not added here. Source ingestion and transient database
+failures remain retryable; a corrupted stored file still returns and logs an
+explicit error rather than being marked successfully materialized.
+
+Cross-domain reads and translated-verse writes go through their owning service
+APIs, with SQL in the corresponding repositories. Import-service unit tests mock
+those APIs and the projects repository, while running the actual USFM grammar.
