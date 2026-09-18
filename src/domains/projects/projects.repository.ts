@@ -8,6 +8,7 @@ import {
   chapter_assignments,
   chapterStatusEnum,
   project_unit_bible_books,
+  project_unit_usfm_imports,
   project_units,
   projects,
   roles,
@@ -287,4 +288,77 @@ export async function findAssignmentIdsNotInProject(
 
   const validIds = new Set(rows.map((r) => r.id));
   return chapterAssignmentIds.filter((id) => !validIds.has(id));
+}
+
+// ─── Imported USFM (#419) ─────────────────────────────────────────────────────
+
+export async function insertUsfmImports(
+  rows: { projectUnitId: number; bookId: number; fileName: string; usfm: string }[],
+  tx: DbTransaction
+) {
+  if (rows.length > 0) {
+    await tx.insert(project_unit_usfm_imports).values(rows);
+  }
+}
+
+/** Imports whose verses have not been attached to source text yet, for the given books. */
+export async function getPendingUsfmImports(projectUnitId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .where(
+      and(
+        eq(project_unit_usfm_imports.projectUnitId, projectUnitId),
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+/**
+ * The same pending imports, for every project unit waiting on these books of this Bible rather
+ * than for one project. A completed book finishes all of them at once, so a project whose own
+ * ingestion job never ran is not left waiting on it forever. The join keeps a project unit that
+ * imported the same book against a different Bible out: its verses belong to that Bible's text.
+ */
+export async function getPendingUsfmImportsForBible(bibleId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId),
+        eq(project_unit_bible_books.bibleId, bibleId)
+      )
+    )
+    .where(
+      and(
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+export async function markUsfmImportMaterialized(
+  id: number,
+  executor: DbTransaction | typeof db = db
+) {
+  await executor
+    .update(project_unit_usfm_imports)
+    .set({ materializedAt: new Date() })
+    .where(eq(project_unit_usfm_imports.id, id));
 }

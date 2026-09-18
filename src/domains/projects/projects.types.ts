@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { UsjVerseText } from '@/lib/usfm-converter';
+
 import {
   chapterStatusEnum,
   insertProjectsSchema,
@@ -39,6 +41,19 @@ export const projectWithLanguageNamesSchema = selectProjectsSchema
     workflowConfig: z.array(workflowStepSchema),
   });
 
+export const usfmFileSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  bookCode: z.string().min(3).max(4),
+  usfm: z.string().min(1),
+});
+
+export type UsfmFileInput = z.infer<typeof usfmFileSchema>;
+
+export interface ParsedUsfmFile extends UsfmFileInput {
+  bookId: number;
+  verses: UsjVerseText[];
+}
+
 export const createProjectWithUnitsSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({
@@ -49,6 +64,10 @@ export const createProjectWithUnitsSchema = insertProjectsSchema
     // the route will create a personal org for users with zero existing orgs.
     organization: z.number().int().optional(),
     createdBy: z.number().int().optional(),
+    // Create-from-existing-data (#419): the validated USFM files, one per book. When present the
+    // server re-validates them, derives bookId from them, stores each verbatim, and materialises
+    // the editable verses. Absent, this is the blank-project flow exactly as before.
+    usfmFiles: z.array(usfmFileSchema).min(1).optional(),
   });
 
 export const updateProjectWithUnitsSchema = patchProjectsClientSchema
