@@ -311,7 +311,7 @@ describe('createUser', () => {
 });
 ```
 
-### Testing Guidelines
+### Service and Mocked Route Testing Guidelines
 
 | Do                                                            | Don't                                            |
 | ------------------------------------------------------------- | ------------------------------------------------ |
@@ -320,6 +320,26 @@ describe('createUser', () => {
 | Assert on `result.ok`, `result.data`, `result.error`          | Assert on thrown exceptions                      |
 | Verify repository functions are called with correct arguments | Test implementation details like SQL queries     |
 | Use `vi.mocked()` for type-safe mocks                         | Use `any` type casts for mocks                   |
+
+### Database-Backed Integration Tests
+
+Use `*.integration.test.ts` for tests that execute repository SQL against a real
+PostgreSQL engine. PGlite provides an isolated, in-memory PostgreSQL instance for
+portable query and route tests; these run in the normal Vitest suite without an
+external database. Route tests with mocked repositories keep the `*.test.ts` suffix.
+
+For this pattern, replacing the `@/db` module export with a real Drizzle PGlite
+connection is allowed. Do not stub Drizzle's query methods or the repository under
+test. Auth and unrelated service boundaries may use type-safe `vi.mocked()` mocks,
+with complete fixtures instead of `any` casts. Build the fixture DDL from the
+production Drizzle schema, including constraints and indexes, seed the relevant
+rows, and close the PGlite instance in `afterAll`.
+
+Assert observable query/response behavior such as cross-chapter grouping,
+null sections, isolation, and ordering. PGlite is not a production performance
+benchmark or a replacement for migration tests against PostgreSQL. When measuring
+query plans, report the data shape and database engine rather than imposing a
+machine-specific timing threshold on tests.
 
 ### Cross-Domain Testing
 
