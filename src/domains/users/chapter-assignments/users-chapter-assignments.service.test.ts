@@ -20,7 +20,8 @@ const makeProgressInfo = (
   // The column is NOT NULL with a fail-closed default, so the query always
   // returns one of the three states — never undefined.
   ttsLicenseStatus: 'unknown',
-  licenseNotice: null,
+  textBibleKey: null,
+  selectedRecordingKey: null,
   bookId: 3,
   bookCode: 'LEV',
   bookNameEng: 'Leviticus',
@@ -71,14 +72,14 @@ describe('toResponse', () => {
     ['unknown' as const, null],
   ])(
     "carries the source Bible's %s audio licence so the drafting page never has to ask a provider for it",
-    (ttsLicenseStatus, licenseNotice) => {
+    (ttsLicenseStatus, textBibleKey) => {
       // The drafting page decides whether it may synthesise speech from this
       // Bible. Dropping either field here would push that decision onto the
       // chapter-audio response, which fails when Aquifer or DBL are down — and
       // an unreadable licence is not a clearance.
-      const response = toResponse(makeProgressInfo({ ttsLicenseStatus, licenseNotice }));
+      const response = toResponse(makeProgressInfo({ ttsLicenseStatus, textBibleKey }));
       expect(response.ttsLicenseStatus).toBe(ttsLicenseStatus);
-      expect(response.licenseNotice).toBe(licenseNotice);
+      expect(response.textBibleKey).toBe(textBibleKey);
     }
   );
 

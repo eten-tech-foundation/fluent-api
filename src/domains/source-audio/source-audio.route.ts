@@ -87,7 +87,7 @@ const getChapterSourceAudioRoute = createRoute({
   ] as const,
   summary: 'Get source/reference audio for a chapter',
   description:
-    'Prefers verse-addressable recordings: pinned Aquifer, linked DBL, then Aquifer name match. Otherwise returns windowless audio (DBL first), labelled verseAddressable: false, or empty `items` (HTTP 200). `bibleId` must be linked to the project for the given book. Distinct from translator `/verse-audio` draft recordings.',
+    'Prefers linked DBL recordings, then Aquifer name matching, or empty `items` (HTTP 200). `bibleId` must be linked to the project for the given book. Distinct from translator `/verse-audio` draft recordings.',
   request: {
     params: chapterSourceAudioParamSchema,
     query: sourceAudioQuerySchema,

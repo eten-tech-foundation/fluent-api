@@ -69,7 +69,8 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
       id: bible.id,
       provider: 'dbl',
       ttsLicenseStatus: 'allowed',
-      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+      textBibleKey: 'dbl-bba9f40183526463-01',
+      selectedRecordingKey: 'aq-1',
     });
     const list = await server.request('/bibles', { headers });
     expect(list.status).toBe(200);
@@ -78,11 +79,6 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
         expect.objectContaining({ abbreviation: 'BSB', ttsLicenseStatus: 'allowed' }),
         expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'unknown' }),
       ])
-    );
-    const unknown = await db.select().from(bibles).where(eq(bibles.ttsLicenseStatus, 'unknown'));
-    expect(unknown.map((row) => row.abbreviation)).toContain('IRV');
-    expect(await db.select().from(bibles).where(eq(bibles.ttsLicenseStatus, 'forbidden'))).toEqual(
-      []
     );
   });
 
@@ -97,7 +93,8 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
           bibleId: bible.id,
           totalVerses: 36,
           ttsLicenseStatus: 'allowed',
-          licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+          textBibleKey: 'dbl-bba9f40183526463-01',
+          selectedRecordingKey: 'aq-1',
           isAiEnabled: false,
         }),
       ]),
@@ -128,8 +125,9 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     expect(matching).toHaveLength(1);
     expect(matching[0]).toMatchObject({
       bibleId: bible.id,
-      ttsLicenseStatus: bible.ttsLicenseStatus,
-      licenseNotice: bible.licenseNotice,
+      ttsLicenseStatus: 'allowed',
+      textBibleKey: 'dbl-bba9f40183526463-01',
+      selectedRecordingKey: 'aq-1',
       totalVerses: 36,
     });
   });
@@ -164,9 +162,8 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
       await seedAudioDemo('local', localConfig.orgName, localUser.email);
       const after = await fixture();
       expect(after.bible).toMatchObject({
-        aquiferBibleId: 1,
-        ttsLicenseStatus: 'allowed',
-        licenseNotice: expect.any(String),
+        externalId: 'bba9f40183526463-01',
+        audioResourceId: bible.audioResourceId,
       });
       expect(after.project.id).toBe(project.id);
       expect(after.assignment).toEqual(assignment);

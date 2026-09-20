@@ -1,17 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  bible_texts,
-  bibles,
-  chapter_assignments,
-  project_units,
-  projects,
-  user_roles,
-} from '@/db/schema';
+import { bible_texts, chapter_assignments, project_units, projects, user_roles } from '@/db/schema';
 
 import { seedAudioDemo } from './audio-demo';
 import { seedBsbBibleTexts } from './bible-texts-bsb';
-import { seedBibles } from './bibles';
 
 const { dbMock, txMock } = vi.hoisted(() => ({
   dbMock: {
@@ -50,12 +42,15 @@ beforeEach(() => {
   dbMock.transaction.mockImplementation((work: (tx: typeof txMock) => Promise<void>) =>
     work(txMock)
   );
+  dbMock.insert.mockReturnValue(insertResult());
 });
 
 describe('audio seed persistence contracts (regular gate, no database or provider key)', () => {
   it('fills BSB texts using conflict-safe inserts, never a reset that destroys referenced verse IDs', async () => {
     dbMock.select
-      .mockImplementationOnce(() => selectResult([{ id: 2 }]))
+      .mockImplementationOnce(() =>
+        selectResult([{ id: 2, provider: 'dbl', externalId: 'bba9f40183526463-01' }])
+      )
       .mockImplementationOnce(() => selectResult([{ id: 43 }]));
     const insert = insertResult();
     txMock.insert.mockReturnValue(insert);
@@ -78,55 +73,14 @@ describe('audio seed persistence contracts (regular gate, no database or provide
 
   it('propagates insert failure rather than reporting a partially seeded corpus as complete', async () => {
     dbMock.select
-      .mockImplementationOnce(() => selectResult([{ id: 2 }]))
+      .mockImplementationOnce(() =>
+        selectResult([{ id: 2, provider: 'dbl', externalId: 'bba9f40183526463-01' }])
+      )
       .mockImplementationOnce(() => selectResult([{ id: 43 }]));
     const insert = insertResult();
     insert.onConflictDoNothing.mockRejectedValue(new Error('insertion failed'));
     txMock.insert.mockReturnValue(insert);
     await expect(seedBsbBibleTexts()).rejects.toThrow('insertion failed');
-  });
-
-  it('states IRV unknown and BSB allowed explicitly, repairing an older BSB row without resetting IRV ops decisions', async () => {
-    const reads = [
-      [{ id: 10 }],
-      [{ id: 1 }],
-      [
-        { id: 1, code: 'GEN' },
-        { id: 2, code: 'EXO' },
-      ],
-      [{ bookId: 1 }, { bookId: 2 }],
-      [{ id: 11 }],
-      [{ id: 2 }],
-      [{ id: 43, code: 'JHN' }],
-      [{ bookId: 43 }],
-    ];
-    for (const rows of reads) dbMock.select.mockImplementationOnce(() => selectResult(rows));
-    const insert = insertResult();
-    dbMock.insert.mockReturnValue(insert);
-    const update = { set: vi.fn().mockReturnThis(), where: vi.fn().mockResolvedValue(undefined) };
-    dbMock.update.mockReturnValue(update);
-    await seedBibles();
-    expect(insert.values).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'unknown' })
-    );
-    expect(insert.values).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        abbreviation: 'BSB',
-        aquiferBibleId: 1,
-        ttsLicenseStatus: 'allowed',
-        licenseNotice: expect.any(String),
-      })
-    );
-    expect(insert.onConflictDoNothing).toHaveBeenCalledWith({ target: bibles.abbreviation });
-    expect(dbMock.update).toHaveBeenCalledOnce();
-    expect(update.set).toHaveBeenCalledWith({
-      aquiferBibleId: 1,
-      ttsLicenseStatus: 'allowed',
-      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
-    });
-    expect(dbMock.delete).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(
