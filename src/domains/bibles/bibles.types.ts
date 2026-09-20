@@ -21,7 +21,8 @@ export const bibleResponseSchema = z.object({
   hasAudio: z.boolean(),
   provider: z.string(),
   ttsLicenseStatus: ttsLicenseStatusSchema.optional(),
-  licenseNotice: z.string().nullable().optional(),
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
 });
 
 export type BibleResponse = z.infer<typeof bibleResponseSchema>;

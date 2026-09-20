@@ -53,7 +53,8 @@ export interface ChapterAssignmentProgressInfo {
   /** Whether anyone may synthesise speech from this Bible; never a user permission. */
   ttsLicenseStatus: TtsLicenseStatus;
   /** Human-curated attribution for this Bible, shown with its audio. */
-  licenseNotice: string | null;
+  textBibleKey: string | null;
+  selectedRecordingKey: string | null;
   bookId: number;
   bookCode: string;
   bookNameEng: string;

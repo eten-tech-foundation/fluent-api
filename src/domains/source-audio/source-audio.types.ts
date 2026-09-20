@@ -1,6 +1,5 @@
 import { z } from '@hono/zod-openapi';
 
-import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
 import {
   languageCodeQuerySchema,
   MAX_MANIFEST_CHAPTER_SPAN,
@@ -36,18 +35,6 @@ export const sourceAudioVerseTimestampSchema = z
   .object({
     verse: z.number().int().positive(),
     startSeconds: z.number().nonnegative().optional(),
-    endSeconds: z
-      .number()
-      .nonnegative()
-      .optional()
-      .openapi({
-        description:
-          'Offset at which this verse stops. Together with startSeconds this is the seek window ' +
-          'into the chapter file: play from startSeconds, halt at endSeconds. Both providers ' +
-          'publish an end for every verse they timestamp, the last verse of a chapter included, ' +
-          'so a verse range has a known duration before any audio is fetched. Omitted when the ' +
-          'provider gave no end for this verse.',
-      }),
     dblAudioBibleId: z.string().optional().openapi({
       description:
         'DBL audio bible id for this timestamp when provider is dbl. Matches the item with the same id.',
@@ -69,31 +56,14 @@ export const sourceAudioResponseSchema = z
   .object({
     provider: z.enum(SOURCE_AUDIO_PROVIDERS),
     bible: sourceAudioBibleSchema,
-    ttsLicenseStatus: ttsLicenseStatusSchema.optional().openapi({
-      description: 'TTS licence status of the requested Fluent text Bible; not a user permission',
-    }),
-    licenseNotice: z.string().nullable().optional().openapi({
-      description:
-        'Curated notice for the requested Fluent Bible, not an inferred recording licence',
-    }),
     bookCode: usfmBookCodeSchema,
     chapter: z.number().int().positive(),
     verse: z.number().int().positive().optional(),
     items: z.array(sourceAudioItemSchema),
-    verseAddressable: z.boolean().openapi({
+    verseTimestamps: z.array(sourceAudioVerseTimestampSchema).optional().openapi({
       description:
-        'True when at least one recording has a start for every verse in the known chapter extent; ' +
-        'this field, not the absence of verseTimestamps, signals verse-addressability.',
+        'Verse start offsets. For DBL, each entry includes `dblAudioBibleId` matching the corresponding item.',
     }),
-    verseTimestamps: z
-      .array(sourceAudioVerseTimestampSchema)
-      .optional()
-      .openapi({
-        description:
-          'Per-verse seek windows into the chapter file (startSeconds..endSeconds). For DBL, each ' +
-          'entry includes `dblAudioBibleId` matching the corresponding item. Absent entirely when ' +
-          'the provider supplies no timing data for the chapter, which is the normal case for DBL.',
-      }),
   })
   .openapi('SourceAudioResponse');
 
@@ -114,7 +84,7 @@ export const sourceAudioQuerySchema = languageCodeQuerySchema.extend({
     .openapi({
       param: { name: 'bibleId', in: 'query' },
       description:
-        'Fluent bible id (from chapter assignment). Resolves recordings by Aquifer pin, DBL link, then Aquifer abbreviation/name.',
+        'Fluent bible id (from chapter assignment). Used to match the Aquifer Bible by abbreviation/name.',
     }),
   verse: z.coerce
     .number()

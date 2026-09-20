@@ -18,7 +18,7 @@ const bsbJohnSchema = z.object({
     .nonempty(),
 });
 
-// Captured from Aquifer on 2026-09-10; endpoint/date/notice are in the JSON header.
+// Captured from DBL bba9f40183526463-01 on 2026-09-18; endpoint/date/notice are in the JSON header.
 // Setup is offline: no API key, provider availability, or network call is needed to seed.
 export function loadBsbJohn() {
   const raw = JSON.parse(readFileSync(new URL('./data/bsb-jhn.json', import.meta.url), 'utf-8'));
@@ -27,11 +27,15 @@ export function loadBsbJohn() {
 
 export async function seedBsbBibleTexts(): Promise<void> {
   const [bible] = await db
-    .select({ id: bibles.id })
+    .select({ id: bibles.id, provider: bibles.provider, externalId: bibles.externalId })
     .from(bibles)
     .where(eq(bibles.abbreviation, 'BSB'));
   const [book] = await db.select({ id: books.id }).from(books).where(eq(books.code, 'JHN'));
   if (!bible || !book) throw new Error('BSB/JHN not found. Run seedBibles and seedBooks first.');
+  if (bible.provider !== 'dbl' || bible.externalId !== 'bba9f40183526463-01')
+    throw new Error(
+      'BSB text identity differs from fixture; use an audited local reset, never relabel existing text.'
+    );
 
   const rows = loadBsbJohn().map((verse) => ({
     bibleId: bible.id,

@@ -1,70 +1,72 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ok } from '@/lib/types';
-
-import type { Bible } from './bibles.types';
+import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.repository';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './bibles.repository';
 import { getAllBibles, getBibleById } from './bibles.service';
-import { bibleResponseSchema } from './bibles.types';
 
 vi.mock('./bibles.repository', () => ({ getAll: vi.fn(), getById: vi.fn() }));
-
-const bible: Bible = {
+vi.mock('@/domains/bible-provider-resources/bible-provider-resources.repository', () => ({
+  getById: vi.fn(),
+  getByProviderIdentity: vi.fn(),
+}));
+const bible = {
   id: 1,
-  name: 'Berean Standard Bible',
+  name: 'BSB',
   abbreviation: 'BSB',
   languageId: 1,
-  provider: 'dbl',
-  externalId: null,
-  aquiferBibleId: 1,
-  ttsLicenseStatus: 'allowed',
-  licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+  provider: 'dbl' as const,
+  externalId: 'text-id',
+  audioResourceId: 3,
+  hasAudio: false,
   createdAt: null,
   updatedAt: null,
 };
+const recording = {
+  id: 3,
+  provider: 'aquifer' as const,
+  externalId: '1',
+  ttsLicenseStatus: 'allowed' as const,
+  licenseNotice: 'Audio notice',
+  displayName: null,
+};
 
-describe('bible licence facts', () => {
-  beforeEach(() => vi.clearAllMocks());
-
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(repo.getById).mockResolvedValue(ok(bible));
+  vi.mocked(resources.getById).mockResolvedValue(ok(recording));
+  vi.mocked(resources.getByProviderIdentity).mockResolvedValue(ok(null));
+});
+describe('source bootstrap policy identity', () => {
   it.each(['allowed', 'forbidden', 'unknown'] as const)(
-    'publishes the curated %s status and notice, not a guess from provider',
+    'returns curated text %s independently of recording',
     async (ttsLicenseStatus) => {
-      vi.mocked(repo.getById).mockResolvedValue(ok({ ...bible, ttsLicenseStatus }));
-      const result = await getBibleById(bible.id);
-      expect(result.ok).toBe(true);
-      if (!result.ok) throw new Error('Bible lookup failed');
-      expect(bibleResponseSchema.parse(result.data)).toMatchObject({
-        id: 1,
-        provider: 'dbl',
-        ttsLicenseStatus,
-        licenseNotice: bible.licenseNotice,
+      vi.mocked(resources.getByProviderIdentity).mockResolvedValue(
+        ok({ ...recording, provider: 'dbl', externalId: 'text-id', ttsLicenseStatus })
+      );
+      const result = await getBibleById(1);
+      expect(result).toMatchObject({
+        ok: true,
+        data: { ttsLicenseStatus, textBibleKey: 'dbl-text-id', selectedRecordingKey: 'aq-1' },
       });
+      if (result.ok) expect(result.data).not.toHaveProperty('licenseNotice');
     }
   );
-
-  it('carries the same facts on the list and preserves a missing notice as null', async () => {
+  it('returns unknown for missing and unidentified text rows in lists', async () => {
     vi.mocked(repo.getAll).mockResolvedValue(
-      ok([bible, { ...bible, id: 2, ttsLicenseStatus: 'unknown', licenseNotice: null }])
+      ok([bible, { ...bible, id: 2, externalId: null, audioResourceId: null }])
     );
-    const result = await getAllBibles();
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error('Bible list failed');
-    expect(result.data.map((item) => bibleResponseSchema.parse(item))).toMatchObject([
-      { ttsLicenseStatus: 'allowed', licenseNotice: bible.licenseNotice },
-      { ttsLicenseStatus: 'unknown', licenseNotice: null },
-    ]);
+    expect(await getAllBibles()).toMatchObject({
+      ok: true,
+      data: [
+        { ttsLicenseStatus: 'unknown', textBibleKey: 'dbl-text-id' },
+        { ttsLicenseStatus: 'unknown', textBibleKey: null, selectedRecordingKey: null },
+      ],
+    });
   });
-
-  it('keeps additive fields optional on the wire for existing clients', () => {
-    expect(
-      bibleResponseSchema.safeParse({
-        id: 1,
-        name: 'BSB',
-        abbreviation: 'BSB',
-        languageId: 1,
-        provider: 'dbl',
-      }).success
-    ).toBe(true);
+  it('does not convert a database policy outage into successful unknown', async () => {
+    vi.mocked(resources.getByProviderIdentity).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+    expect(await getBibleById(1)).toEqual(err(ErrorCode.INTERNAL_ERROR));
   });
 });

@@ -22,7 +22,8 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   // ProjectItem from this response, so the drafting page needs the licence
   // here too — not only on the user-assignments endpoint.
   ttsLicenseStatus: ttsLicenseStatusSchema,
-  licenseNotice: z.string().nullable(),
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
   bookId: z.number(),
   bookCode: z.string(),
   sourceLangCode: z.string(),

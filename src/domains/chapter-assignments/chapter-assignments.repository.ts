@@ -6,6 +6,7 @@ import type { VerseData } from '@/lib/usfm-converter';
 
 import { db } from '@/db';
 import {
+  bible_provider_resources,
   bible_texts,
   bibles,
   books,
@@ -462,6 +463,7 @@ export async function findAssignmentsProgress(
     const peerChecker = alias(users, 'peerChecker');
     const sourceLang = alias(languages, 'sourceLang');
     const targetLang = alias(languages, 'targetLang');
+    const recording = alias(bible_provider_resources, 'recording');
 
     const baseQuery = conn
       .select({
@@ -471,12 +473,15 @@ export async function findAssignmentsProgress(
         projectUnitId: chapter_assignments.projectUnitId,
         bibleId: chapter_assignments.bibleId,
         bibleName: bibles.name,
-        // The source Bible's audio licence travels with the assignment because
-        // the drafting page decides whether it may synthesise speech before any
-        // provider is reached; a provider outage must not make the answer
-        // unreadable. Same join as bibleName, two more columns.
-        ttsLicenseStatus: bibles.ttsLicenseStatus,
-        licenseNotice: bibles.licenseNotice,
+        ttsLicenseStatus: sql<
+          'allowed' | 'forbidden' | 'unknown'
+        >`coalesce(${bible_provider_resources.ttsLicenseStatus}, 'unknown')`,
+        textBibleKey: sql<
+          string | null
+        >`case when ${bibles.externalId} is not null then ${bibles.provider}::text || '-' || ${bibles.externalId} else null end`,
+        selectedRecordingKey: sql<
+          string | null
+        >`case when ${recording.id} is not null then case ${recording.provider}::text when 'aquifer' then 'aq' when 'youversion' then 'yv' else 'dbl' end || '-' || ${recording.externalId} else null end`,
         bookId: chapter_assignments.bookId,
         bookCode: books.code,
         bookNameEng: books.eng_display_name,
@@ -509,6 +514,14 @@ export async function findAssignmentsProgress(
       .innerJoin(projects, eq(project_units.projectId, projects.id))
       .innerJoin(books, eq(chapter_assignments.bookId, books.id))
       .innerJoin(bibles, eq(bibles.id, chapter_assignments.bibleId))
+      .leftJoin(
+        bible_provider_resources,
+        and(
+          sql`${bibles.provider}::text = ${bible_provider_resources.provider}::text`,
+          eq(bibles.externalId, bible_provider_resources.externalId)
+        )
+      )
+      .leftJoin(recording, eq(bibles.audioResourceId, recording.id))
       .leftJoin(targetLang, eq(projects.targetLanguage, targetLang.id))
       .leftJoin(sourceLang, eq(projects.sourceLanguage, sourceLang.id))
       .leftJoin(assignedUser, eq(chapter_assignments.assignedUserId, assignedUser.id))
@@ -558,6 +571,8 @@ export async function findAssignmentsProgress(
         projects.name,
         bibles.id,
         bibles.name,
+        bible_provider_resources.id,
+        recording.id,
         targetLang.langName,
         targetLang.langCodeIso6393,
         sourceLang.langCodeIso6393,

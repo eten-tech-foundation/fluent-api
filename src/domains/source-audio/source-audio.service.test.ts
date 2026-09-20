@@ -39,10 +39,8 @@ const fluentBible: Bible = {
   languageId: 1,
   provider: 'dbl',
   externalId: null,
+  audioResourceId: null,
   hasAudio: false,
-  aquiferBibleId: null,
-  ttsLicenseStatus: 'unknown',
-  licenseNotice: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -74,55 +72,12 @@ describe('matchAquiferBible', () => {
   it('returns undefined when no candidates', () => {
     expect(matchAquiferBible(fluentBible, [])).toBeUndefined();
   });
-
-  it('prefers a pinned aquiferBibleId over any name or abbreviation match', () => {
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Berean Standard Bible', abbreviation: 'BSB' },
-      { id: 11, name: 'Something Else', abbreviation: 'ELS' },
-    ];
-    // The heuristic would pick 10 on both abbreviation AND name; the peg wins anyway.
-    expect(matchAquiferBible({ ...fluentBible, aquiferBibleId: 11 }, candidates)?.id).toBe(11);
-  });
-
-  it('pins across a same-abbreviation collision, which is what the column is for', () => {
-    // Aquifer really does ship two Bibles abbreviated IRV (id 2 Hindi, id 27 Gujarati). The
-    // heuristic takes whichever is first; the peg makes the choice explicit.
-    const candidates: AquiferBible[] = [
-      { id: 2, name: 'Indian Revised Version', abbreviation: 'IRV' },
-      { id: 27, name: 'Indian Revised Version - Gujarati', abbreviation: 'IRV' },
-    ];
-    const irv = { ...fluentBible, name: 'IRV Gujarati', abbreviation: 'IRV' };
-
-    expect(matchAquiferBible(irv, candidates)?.id).toBe(2);
-    expect(matchAquiferBible({ ...irv, aquiferBibleId: 27 }, candidates)?.id).toBe(27);
-  });
-
-  it('falls back to the heuristic when a pinned id is not in the catalogue', () => {
-    // Deliberately additive: a set-but-unresolvable peg must not change the answer a row
-    // would have got before the column existed.
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Berean Standard Bible', abbreviation: 'BSB' },
-    ];
-    expect(matchAquiferBible({ ...fluentBible, aquiferBibleId: 999 }, candidates)?.id).toBe(10);
-  });
-
-  it('behaves identically to the pre-column code when the peg is null', () => {
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Berean Standard Bible', abbreviation: 'BSB' },
-    ];
-    expect(matchAquiferBible({ ...fluentBible, aquiferBibleId: null }, candidates)?.id).toBe(
-      matchAquiferBible(fluentBible, candidates)?.id
-    );
-  });
 });
 
 describe('getChapterSourceAudio', () => {
   beforeEach(() => {
-    vi.resetAllMocks();
-    // DBL's real service returns no tracks without a link; fixtures must model that prerequisite.
-    vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, externalId: 'dbl-bsb' }));
-    // A partial DBL chapter now reaches the Aquifer rung before returning its original timestamps.
-    vi.mocked(getBibles).mockResolvedValue(ok([]));
+    vi.clearAllMocks();
+    vi.mocked(biblesRepo.getById).mockResolvedValue(ok(fluentBible));
     vi.mocked(getBookByCode).mockResolvedValue(
       ok({ id: 41, code: 'MRK', eng_display_name: 'Mark' })
     );
@@ -166,130 +121,13 @@ describe('getChapterSourceAudio', () => {
       expect(result.data.items[1]?.dblAudioBibleId).toBe('audio-2');
       expect(result.data.items[0]).not.toHaveProperty('sizeBytes');
       expect(result.data.verseTimestamps).toEqual([
-        { verse: 1, startSeconds: 0, endSeconds: 1.5, dblAudioBibleId: 'audio-1' },
-        { verse: 1, startSeconds: 9, endSeconds: 12, dblAudioBibleId: 'audio-2' },
+        { verse: 1, startSeconds: 0, dblAudioBibleId: 'audio-1' },
+        { verse: 1, startSeconds: 9, dblAudioBibleId: 'audio-2' },
       ]);
       expect(result.data.bible.dblAudioBibleId).toBe('audio-1');
       expect(result.data.bible.abbreviation).toBe('BSB');
     }
     expect(getBibles).not.toHaveBeenCalled();
-  });
-
-  it('publishes the per-verse window Aquifer supplies, last verse included', async () => {
-    // Shape and values taken from a real response, 2026-08-31:
-    // GET /bibles/1/texts?BookCode=JHN&StartChapter=3&EndChapter=3&shouldReturnAudioData=true
-    // Every verse carried a window and each verse's end was the next verse's start.
-    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(ok([]));
-    vi.mocked(getBibles).mockResolvedValue(
-      ok([{ id: 1, name: 'Berean Standard Bible', abbreviation: 'BSB' }])
-    );
-    vi.mocked(getBibleText).mockResolvedValue(
-      ok({
-        bibleId: 1,
-        bibleName: 'Berean Standard Bible',
-        bibleAbbreviation: 'BSB',
-        bookName: 'John',
-        bookCode: 'JHN',
-        chapters: [
-          {
-            number: 3,
-            audio: { mp3: { url: 'https://cdn.example/jhn3.mp3', size: 1251337 } },
-            verses: [
-              { number: 1, text: 'v1', audioTimestamp: { start: 4.52, end: 10.32 } },
-              { number: 2, text: 'v2', audioTimestamp: { start: 10.32, end: 23.36 } },
-              { number: 36, text: 'v36', audioTimestamp: { start: 300.52, end: 312.73 } },
-            ],
-          },
-        ],
-      })
-    );
-
-    const result = await getChapterSourceAudio({
-      languageCode: 'eng',
-      fluentBibleId: 1,
-      bookCode: 'JHN',
-      chapter: 3,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.verseTimestamps).toEqual([
-        { verse: 1, startSeconds: 4.52, endSeconds: 10.32 },
-        { verse: 2, startSeconds: 10.32, endSeconds: 23.36 },
-        { verse: 36, startSeconds: 300.52, endSeconds: 312.73 },
-      ]);
-    }
-  });
-
-  it('keeps a verse whose start has no end, rather than dropping it', async () => {
-    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(ok([]));
-    vi.mocked(getBibles).mockResolvedValue(
-      ok([{ id: 1, name: 'Berean Standard Bible', abbreviation: 'BSB' }])
-    );
-    vi.mocked(getBibleText).mockResolvedValue(
-      ok({
-        bibleId: 1,
-        bibleName: 'Berean Standard Bible',
-        bibleAbbreviation: 'BSB',
-        bookName: 'John',
-        bookCode: 'JHN',
-        chapters: [
-          {
-            number: 3,
-            audio: { mp3: { url: 'https://cdn.example/jhn3.mp3', size: 1 } },
-            verses: [
-              // A bare number kept its old meaning: a start with no end.
-              { number: 1, text: 'v1', audioTimestamp: 4.52 },
-              { number: 2, text: 'v2' },
-            ],
-          },
-        ],
-      })
-    );
-
-    const result = await getChapterSourceAudio({
-      languageCode: 'eng',
-      fluentBibleId: 1,
-      bookCode: 'JHN',
-      chapter: 3,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.verseTimestamps).toEqual([{ verse: 1, startSeconds: 4.52 }]);
-    }
-  });
-
-  it('reads DBL timecodes as clock time when they are not plain decimals', async () => {
-    // UNPROVEN AGAINST LIVE DATA, and deliberately so: a sweep of all 355 audio Bibles the
-    // configured key can reach (2026-08-31) found `timecodes` on none of them, and the
-    // contract does not document the format. `Number.parseFloat('00:01:23.4')` would return 0.
-    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
-      ok([
-        {
-          audioBibleId: 'audio-1',
-          name: 'Some Audio Bible',
-          chapterId: 'JHN.3',
-          resourceUrl: 'https://example.com/audio.mp3',
-          expiresAt: null,
-          timecodes: [{ start: '00:01:23.4', end: '00:01:30', verseId: 'JHN.3.16' }],
-        },
-      ])
-    );
-
-    const result = await getChapterSourceAudio({
-      languageCode: 'eng',
-      fluentBibleId: 1,
-      bookCode: 'JHN',
-      chapter: 3,
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.verseTimestamps).toEqual([
-        { verse: 16, startSeconds: 83.4, endSeconds: 90, dblAudioBibleId: 'audio-1' },
-      ]);
-    }
   });
 
   it('falls back to Aquifer when DBL has no tracks', async () => {
@@ -518,5 +356,112 @@ describe('getSourceAudioManifest', () => {
       expect(result.data.items).toEqual([]);
     }
     expect(getBibleText).not.toHaveBeenCalled();
+  });
+});
+
+describe('legacy source and manifest isolation from explicit playback selections', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, audioResourceId: 999 }));
+    vi.mocked(getBookByCode).mockResolvedValue(
+      ok({ id: 41, code: 'MRK', eng_display_name: 'Mark' })
+    );
+  });
+  it('keeps linked windowless DBL ahead of Aquifer despite a selected recording FK', async () => {
+    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
+      ok([
+        {
+          audioBibleId: 'linked-audio',
+          name: 'DBL',
+          chapterId: 'MRK.14',
+          resourceUrl: 'https://example.com/dbl.mp3',
+          expiresAt: null,
+        },
+      ])
+    );
+    const result = await getChapterSourceAudio({
+      fluentBibleId: 1,
+      languageCode: 'eng',
+      bookCode: 'MRK',
+      chapter: 14,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      data: { provider: 'dbl', items: [{ dblAudioBibleId: 'linked-audio' }] },
+    });
+    expect(getBibles).not.toHaveBeenCalled();
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty('ttsLicenseStatus');
+      expect(result.data).not.toHaveProperty('selectedRecordingKey');
+      expect(result.data).not.toHaveProperty('verseAddressable');
+    }
+  });
+  it('manifest still name-matches and retains download metadata while omitting unknown sizes', async () => {
+    vi.mocked(getBibles).mockResolvedValue(
+      ok([{ id: 11, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true }])
+    );
+    vi.mocked(getBibleText).mockResolvedValue(
+      ok({
+        bibleId: 11,
+        bibleName: 'Berean Standard Bible',
+        bibleAbbreviation: 'BSB',
+        bookName: 'Mark',
+        bookCode: 'MRK',
+        chapters: [
+          {
+            number: 14,
+            audio: {
+              mp3: { url: 'https://example.com/a.mp3', size: 99 },
+              webm: { url: 'https://example.com/a.webm' },
+            },
+            verses: [],
+          },
+        ],
+      })
+    );
+    expect(
+      await getSourceAudioManifest({
+        projectId: 10,
+        fluentBibleId: 1,
+        languageCode: 'eng',
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      })
+    ).toEqual(
+      ok({
+        projectId: 10,
+        sourceLanguageCode: 'eng',
+        provider: 'aquifer',
+        totalBytes: 99,
+        items: [
+          {
+            id: 'source-audio-11-MRK-14-mp3',
+            tier: 1,
+            kind: 'audio',
+            resourceName: 'Source Bible Audio',
+            label: 'BSB MRK 14 (mp3)',
+            required: true,
+            removable: false,
+            bytesTotal: 99,
+            sourceUrl: 'https://example.com/a.mp3',
+            fileExt: 'mp3',
+            languageCode: 'eng',
+            bookCode: 'MRK',
+            startChapter: 14,
+            endChapter: 14,
+            format: 'mp3',
+            aquiferBibleId: 11,
+          },
+        ],
+      })
+    );
+    expect(getBibleText).toHaveBeenCalledWith({
+      aquiferBibleId: 11,
+      bookCode: 'MRK',
+      startChapter: 14,
+      endChapter: 14,
+      includeAudio: true,
+    });
   });
 });

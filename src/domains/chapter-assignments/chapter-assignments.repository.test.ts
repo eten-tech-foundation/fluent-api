@@ -147,8 +147,9 @@ describe('chapter-assignments.repository claim helpers', () => {
     expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
     expect(db.select).toHaveBeenCalledWith(
       expect.objectContaining({
-        ttsLicenseStatus: bibles.ttsLicenseStatus,
-        licenseNotice: bibles.licenseNotice,
+        ttsLicenseStatus: expect.anything(),
+        textBibleKey: expect.anything(),
+        selectedRecordingKey: expect.anything(),
       })
     );
     // PostgreSQL recognizes functional dependency on the primary key, not on

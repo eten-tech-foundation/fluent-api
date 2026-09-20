@@ -1,8 +1,8 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
-import { bible_books, bibles, books, languages } from '@/db/schema';
+import { bible_books, bible_provider_resources, bibles, books, languages } from '@/db/schema';
 
 const IRV_BIBLE = {
   name: 'IRV Gujarati',
@@ -12,29 +12,12 @@ const IRV_BIBLE = {
 
 const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;
 
-/**
- * BSB is the local end-to-end source-audio fixture: John 3 is the verified chapter.
- * Its John text seeds in every environment; only local setup adds a demo project/assignment.
- *
- * The IRV row above cannot: it is Gujarati, and Aquifer's only Gujarati Bible (`IRV`, id 27)
- * reports `hasAudio: false`, so every provider returns an empty item list for it. That is a
- * true answer, but it makes the audio path impossible to exercise locally.
- *
- * BSB is pinned to Aquifer Bible id 1 via the new `aquifer_bible_id` column, which is what
- * makes this concrete rather than a guess -- verified against the live Aquifer API 2026-08-31:
- * `GET /bibles/1/texts?BookCode=JHN&StartChapter=3&EndChapter=3&shouldReturnAudioData=true`
- * returns chapter audio in mp3 + webm and an `audioTimestamp` window for all 36 verses,
- * the last one included.
- *
- * ⚠ Note for deployment: source audio only works for Bibles whose `aquifer_bible_id` is set
- * (or whose name/abbreviation happens to match an Aquifer publication). Environments other
- * than local dev must populate that column for the Bibles their projects actually draft from.
- */
+// Offline text fixture is DBL BSB; its explicitly selected recording is Aquifer BSB.
 const BSB_BIBLE = {
   name: 'Berean Standard Bible',
   abbreviation: 'BSB',
   languageCode: 'eng',
-  aquiferBibleId: 1,
+  externalId: 'bba9f40183526463-01',
 } as const;
 
 const BSB_BOOK_CODES = ['JHN'] as const;
@@ -63,8 +46,6 @@ async function seedIrvGujarati() {
       name: IRV_BIBLE.name,
       abbreviation: IRV_BIBLE.abbreviation,
       languageId: language.id,
-      // No reviewed TTS licence fact for IRV; preserve any later ops decision on re-seed.
-      ttsLicenseStatus: 'unknown',
     })
     .onConflictDoNothing({ target: bibles.abbreviation });
 
@@ -131,6 +112,35 @@ async function seedIrvGujarati() {
  * Deliberately additive: it never touches the IRV row above.
  */
 async function seedBereanStandardBible() {
+  await db
+    .insert(bible_provider_resources)
+    .values([
+      {
+        provider: 'dbl',
+        externalId: BSB_BIBLE.externalId,
+        ttsLicenseStatus: 'allowed',
+        displayName: BSB_BIBLE.name,
+      },
+      {
+        provider: 'aquifer',
+        externalId: '1',
+        ttsLicenseStatus: 'allowed',
+        licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+        displayName: BSB_BIBLE.name,
+      },
+    ])
+    .onConflictDoNothing();
+  const [recording] = await db
+    .select()
+    .from(bible_provider_resources)
+    .where(
+      and(
+        eq(bible_provider_resources.provider, 'aquifer'),
+        eq(bible_provider_resources.externalId, '1')
+      )
+    );
+  if (!recording) throw new Error('Aquifer BSB recording resource missing');
+
   const [language] = await db
     .select({ id: languages.id })
     .from(languages)
@@ -147,10 +157,9 @@ async function seedBereanStandardBible() {
       name: BSB_BIBLE.name,
       abbreviation: BSB_BIBLE.abbreviation,
       languageId: language.id,
-      aquiferBibleId: BSB_BIBLE.aquiferBibleId,
-      // BSB text is public domain, not merely a provider-labelled "open" publication.
-      ttsLicenseStatus: 'allowed',
-      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
+      provider: 'dbl',
+      externalId: BSB_BIBLE.externalId,
+      audioResourceId: recording.id,
     })
     .onConflictDoNothing({ target: bibles.abbreviation });
 
@@ -163,18 +172,6 @@ async function seedBereanStandardBible() {
   if (!bible) {
     throw new Error('BSB bible not found after insert.');
   }
-
-  // Idempotent, and it also repairs a row seeded before this column existed -- otherwise a
-  // developer who ran the old seed keeps a BSB with a NULL peg and no audio, with nothing
-  // pointing at why.
-  await db
-    .update(bibles)
-    .set({
-      aquiferBibleId: BSB_BIBLE.aquiferBibleId,
-      ttsLicenseStatus: 'allowed',
-      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
-    })
-    .where(eq(bibles.id, bible.id));
 
   const bookRows = await db
     .select({ id: books.id, code: books.code })
@@ -206,7 +203,7 @@ async function seedBereanStandardBible() {
   }
 
   console.log(
-    `Bibles seeded. (BSB id=${bible.id}, aquiferBibleId=${BSB_BIBLE.aquiferBibleId}, ` +
+    `Bibles seeded. (BSB id=${bible.id}, audioResourceId=${recording.id}, ` +
       `${linksToInsert.length} new book link(s))`
   );
 }
