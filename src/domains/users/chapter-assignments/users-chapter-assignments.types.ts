@@ -15,7 +15,8 @@ export interface UserChapterAssignment {
   /** Whether anyone may synthesise speech from this Bible; never a user permission. */
   ttsLicenseStatus: TtsLicenseStatus;
   /** Human-curated attribution for this Bible, shown with its audio. */
-  licenseNotice: string | null;
+  textBibleKey: string | null;
+  selectedRecordingKey: string | null;
   chapterStatus: string;
   /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string;
@@ -50,7 +51,8 @@ export const userChapterAssignmentResponseSchema = z.object({
   // assignment it already loads, so the answer is in hand before any audio
   // provider is called — and stays in hand when one is unreachable.
   ttsLicenseStatus: ttsLicenseStatusSchema,
-  licenseNotice: z.string().nullable(),
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
   chapterStatus: z.string(),
   targetLanguage: z.string(),
   targetLangCode: z.string(),

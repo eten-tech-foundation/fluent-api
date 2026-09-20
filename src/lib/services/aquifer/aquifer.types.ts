@@ -1,3 +1,5 @@
+import type { JSONValue } from 'hono/utils/types';
+
 import { z } from '@hono/zod-openapi';
 
 const KNOWN_RESOURCE_TYPES = [
@@ -88,7 +90,7 @@ export const aquiferResourceDetailsSchema = z
     referenceId: z.number().int().optional(),
     name: z.string(),
     localizedName: z.string(),
-    content: z.unknown(),
+    content: z.custom<JSONValue>(),
     grouping: z
       .object({
         type: aquiferResourceTypeSchema.optional(),

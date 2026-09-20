@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
+  bible_provider_resources,
   bibles,
   books,
   chapter_assignments,
@@ -27,6 +28,16 @@ export async function seedAudioDemo(
 ): Promise<void> {
   if (envName !== 'local') return;
   if (!userEmail) throw new Error('Audio demo needs the first configured local seed user.');
+  await db
+    .insert(bible_provider_resources)
+    .values({
+      provider: 'aquifer',
+      externalId: '20',
+      ttsLicenseStatus: 'allowed',
+      licenseNotice: 'World English Bible (WEB). Public domain.',
+      displayName: 'World English Bible',
+    })
+    .onConflictDoNothing();
 
   const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName));
   const [user] = await db.select().from(users).where(eq(users.email, userEmail));
