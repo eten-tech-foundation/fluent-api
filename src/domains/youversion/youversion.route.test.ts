@@ -80,7 +80,7 @@ describe('youversion routes', () => {
     it('returns 401 when unauthenticated', async () => {
       vi.mocked(auth.api.getSession as any).mockResolvedValue(null);
 
-      const res = await server.request('/youversion/bibles?language_tag=eng');
+      const res = await server.request('/youversion/bibles?languageTag=eng');
 
       expect(res.status).toBe(401);
       expect(youVersionClient.getBibles).not.toHaveBeenCalled();
@@ -89,7 +89,7 @@ describe('youversion routes', () => {
     it('returns 403 when user lacks CONTENT_VIEW permission', async () => {
       authenticateUserMock(false);
 
-      const res = await server.request('/youversion/bibles?language_tag=eng');
+      const res = await server.request('/youversion/bibles?languageTag=eng');
 
       expect(res.status).toBe(403);
       expect(youVersionClient.getBibles).not.toHaveBeenCalled();
@@ -105,15 +105,15 @@ describe('youversion routes', () => {
         {
           id: 1,
           abbreviation: 'NIV',
-          localized_abbreviation: 'NIV',
+          localizedAbbreviation: 'NIV',
           title: 'New International Version',
-          localized_title: 'New International Version',
-          language_tag: 'eng',
+          localizedTitle: 'New International Version',
+          languageTag: 'eng',
         },
       ];
       vi.mocked(youVersionClient.getBibles).mockResolvedValue(ok(mockBibles));
 
-      const res = await server.request('/youversion/bibles?language_tag=eng');
+      const res = await server.request('/youversion/bibles?languageTag=eng');
 
       expect(res.status).toBe(200);
       expect(res.headers.get('Cache-Control')).toBe('private, max-age=300');
@@ -122,7 +122,7 @@ describe('youversion routes', () => {
       expect(data).toEqual(mockBibles);
     });
 
-    it('returns 400 when language_tag query param is missing', async () => {
+    it('returns 400 when languageTag query param is missing', async () => {
       authenticateUserMock();
 
       const res = await server.request('/youversion/bibles');
@@ -137,7 +137,7 @@ describe('youversion routes', () => {
         err(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE)
       );
 
-      const res = await server.request('/youversion/bibles?language_tag=eng');
+      const res = await server.request('/youversion/bibles?languageTag=eng');
 
       expect(res.status).toBe(502);
       const data = await res.json();

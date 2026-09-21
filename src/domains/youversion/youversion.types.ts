@@ -9,7 +9,7 @@ export {
 // ─── Route-level query/param schemas ─────────────────────────────────────────
 
 export const biblesQuerySchema = z.object({
-  language_tag: z
+  languageTag: z
     .string()
     .min(1)
     .openapi({ description: 'BCP-47 language tag (e.g. eng, fra)', example: 'eng' }),

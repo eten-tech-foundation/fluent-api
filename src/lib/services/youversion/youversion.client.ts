@@ -6,6 +6,7 @@ import { ErrorCode, ErrorMessages } from '@/lib/types';
 
 import type {
   YouVersionBible,
+  YouVersionBibleWire,
   YouVersionChapterResponse,
   YouVersionChapterText,
   YouVersionPassageResponse,
@@ -227,6 +228,29 @@ async function youVersionGet<T>(
 // ─── Public client functions ──────────────────────────────────────────────────
 
 /**
+ * Map a raw YouVersion wire bible to the camelCase public shape.
+ * Centralises the snake_case → camelCase normalization so it happens
+ * exactly once, at the API boundary, matching the Aquifer convention.
+ */
+function mapBible(wire: YouVersionBibleWire): YouVersionBible {
+  return {
+    id: wire.id,
+    abbreviation: wire.abbreviation,
+    localizedAbbreviation: wire.localized_abbreviation,
+    title: wire.title,
+    localizedTitle: wire.localized_title,
+    languageTag: wire.language_tag,
+    info: wire.info,
+    copyright: wire.copyright,
+    publisherUrl: wire.publisher_url,
+    promotionalContent: wire.promotional_content,
+    youversionDeepLink: wire.youversion_deep_link,
+    organizationId: wire.organization_id,
+    books: wire.books,
+  };
+}
+
+/**
  * Fetch YouVersion Bibles for a given language tag.
  * Follows `next_page_token` pagination until all pages are consumed.
  * Fails with YOUVERSION_SERVICE_UNAVAILABLE if pagination exceeds MAX_BIBLES_PAGES.
@@ -256,7 +280,8 @@ export async function getBibles(languageTag: string): Promise<Result<YouVersionB
     const result = await youVersionGet(pathWithQuery, youVersionBiblesResponseSchema);
     if (!result.ok) return result;
 
-    allBibles.push(...result.data.data);
+    // Map each wire bible to the camelCase public shape before accumulating.
+    allBibles.push(...result.data.data.map(mapBible));
     page++;
 
     if (!result.data.next_page_token) break;
@@ -380,12 +405,15 @@ async function withConcurrencyLimit<T>(
  * Batch helper — fetch all verse texts for a chapter in one server call.
  *
  * 1. Calls getChapterMeta to get the ordered verse passage_id list.
- * 2. Fans out one getPassage per verse, bounded to PASSAGE_CONCURRENCY in-flight
+ * 2. Filters out non-verse entries (e.g. GEN.1.INTRO) before issuing any network
+ *    requests, so a 4xx/5xx on front-matter never fails the chapter.
+ * 3. Fans out one getPassage per verse, bounded to PASSAGE_CONCURRENCY in-flight
  *    requests, with bounded retry on HTTP 429 responses (honouring Retry-After).
  *    A shared CHAPTER_TOTAL_TIMEOUT_MS budget aborts all in-flight fetches if the
  *    total operation runs too long, preventing unbounded hangs on large chapters.
- * 3. If any passage fails, the entire chapter request fails — no silent partial results.
- * 4. On success, assembles results into YouVersionChapterText ordered by verse number.
+ * 4. Failed passages are skipped and logged; the chapter still succeeds with the
+ *    remaining verses — matching the original per-verse degradation behaviour.
+ * 5. On success, assembles results into YouVersionChapterText ordered by verse number.
  *
  * The fan-out stays server-side so the client sends exactly one request,
  * and a single API key handles the full chapter load without leaking to the browser.
@@ -408,43 +436,60 @@ export async function getChapterText(
     };
   }
 
-  // Step 2: concurrency-limited fan-out with 429 retry, bounded by a total chapter budget.
+  // Step 2: filter to verse-only entries before issuing any network requests.
+  // Non-verse passage_ids like GEN.1.INTRO have a non-numeric third segment; fetching
+  // them and then discarding them means a 4xx/5xx on front-matter would fail the whole
+  // chapter even though those entries were never going to appear in the output.
+  const verseMetasFiltered = verseMetas.filter((vm) => {
+    const n = Number.parseInt(vm.passage_id.split('.')[2] ?? '', 10);
+    return Number.isInteger(n) && n > 0;
+  });
+
+  // Step 3: concurrency-limited fan-out with 429 retry, bounded by a total chapter budget.
   // AbortSignal.timeout() fires automatically — no manual cleanup needed.
   const chapterSignal = AbortSignal.timeout(CHAPTER_TOTAL_TIMEOUT_MS);
-  const tasks = verseMetas.map(
+  const tasks = verseMetasFiltered.map(
     (vm) => () => getPassageWithRetry(bibleId, vm.passage_id, chapterSignal)
   );
   const passageResults = await withConcurrencyLimit(tasks, PASSAGE_CONCURRENCY);
 
-  // Step 3: assemble — any failure causes the whole chapter to fail
+  // Step 4: assemble — failed passages are skipped and logged; the chapter still
+  // succeeds with whichever verses were fetched successfully, matching the original
+  // per-verse degradation behaviour of the client-side fan-out it replaced.
   const verses: YouVersionChapterText['verses'] = [];
-  for (let i = 0; i < verseMetas.length; i++) {
-    const meta = verseMetas[i];
-    const passageResult = passageResults[i];
+  const failedPassageIds: string[] = [];
+  for (let i = 0; i < verseMetasFiltered.length; i++) {
+    const meta = verseMetasFiltered[i]!;
+    const passageResult = passageResults[i]!;
 
     if (!passageResult.ok) {
       logger.warn({
-        message: 'YouVersion passage fetch failed',
+        message: 'YouVersion passage fetch failed — verse skipped',
         context: {
           bibleId,
           passageId: meta.passage_id,
           error: passageResult.error.message,
         },
       });
-      return youVersionError(
-        ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE,
-        `passage ${meta.passage_id} failed: ${passageResult.error.message}`
-      );
+      failedPassageIds.push(meta.passage_id);
+      continue;
     }
 
-    // passage_id format: "GEN.1.5" — verse number is the third segment
-    const verseNumber = Number.parseInt(meta.passage_id.split('.')[2] ?? '0', 10);
-    if (!Number.isInteger(verseNumber) || verseNumber <= 0) continue;
+    // passage_id format: "GEN.1.5" — verse number is the third segment.
+    // Already guaranteed to be a positive integer by the pre-filter above.
+    const verseNumber = Number.parseInt(meta.passage_id.split('.')[2]!, 10);
 
     verses.push({
       verseNumber,
       passageId: meta.passage_id,
       content: passageResult.data.content,
+    });
+  }
+
+  if (failedPassageIds.length > 0) {
+    logger.warn({
+      message: `YouVersion chapter fetch completed with ${failedPassageIds.length} skipped verse(s)`,
+      context: { bibleId, bookId, chapterId, failedPassageIds },
     });
   }
 

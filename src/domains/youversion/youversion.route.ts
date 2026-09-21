@@ -62,8 +62,8 @@ const getBiblesRoute = createRoute({
 });
 
 server.openapi(getBiblesRoute, async (c) => {
-  const { language_tag } = c.req.valid('query');
-  const result = await youVersionService.getBibles(language_tag);
+  const { languageTag } = c.req.valid('query');
+  const result = await youVersionService.getBibles(languageTag);
   if (!result.ok) {
     return youVersionErrorResponse(c, result.error);
   }

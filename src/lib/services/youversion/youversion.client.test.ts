@@ -18,7 +18,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const mockBible = {
+/** Wire shape — used as mock HTTP response bodies (matches raw YouVersion API). */
+const mockBibleWire = {
   id: 1,
   abbreviation: 'NIV',
   localized_abbreviation: 'NIV',
@@ -27,8 +28,18 @@ const mockBible = {
   language_tag: 'eng',
 };
 
+/** Public shape — what getBibles() should return after camelCase normalization. */
+const mockBiblePublic = {
+  id: 1,
+  abbreviation: 'NIV',
+  localizedAbbreviation: 'NIV',
+  title: 'New International Version',
+  localizedTitle: 'New International Version',
+  languageTag: 'eng',
+};
+
 const mockBiblesResponseBody = {
-  data: [mockBible],
+  data: [mockBibleWire],
 };
 
 const mockChapterMetaResponseBody = {
@@ -88,8 +99,7 @@ describe('youversion.client', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toHaveLength(1);
-        expect(result.data[0]?.id).toBe(1);
-        expect(result.data[0]?.abbreviation).toBe('NIV');
+        expect(result.data[0]).toEqual(mockBiblePublic);
       }
 
       expect(fetchSpy).toHaveBeenCalledOnce();
@@ -286,7 +296,8 @@ describe('youversion.client', () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it('fails the whole chapter when any passage fetch fails during fan-out', async () => {
+    it('skips a failed verse and returns the rest of the chapter', async () => {
+      // Verse 2 returns 404 — verse 1 should still be in the result.
       vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(jsonResponse(mockChapterMetaResponseBody))
         .mockResolvedValueOnce(jsonResponse(mockPassage1Body))
@@ -294,9 +305,10 @@ describe('youversion.client', () => {
 
       const result = await getChapterText(1, 'GEN', 1);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses).toHaveLength(1);
+        expect(result.data.verses[0]?.verseNumber).toBe(1);
       }
     });
 
@@ -318,9 +330,10 @@ describe('youversion.client', () => {
 
   describe('getBibles — pagination', () => {
     it('accumulates results across multiple pages when next_page_token is present', async () => {
-      const page1Bible = { ...mockBible, id: 1 };
-      const page2Bible = {
-        ...mockBible,
+      // Wire bodies: snake_case (fake YouVersion HTTP responses)
+      const page1BibleWire = { ...mockBibleWire, id: 1 };
+      const page2BibleWire = {
+        ...mockBibleWire,
         id: 2,
         abbreviation: 'ESV',
         localized_abbreviation: 'ESV',
@@ -330,8 +343,8 @@ describe('youversion.client', () => {
 
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce(jsonResponse({ data: [page1Bible], next_page_token: 'tok-p2' }))
-        .mockResolvedValueOnce(jsonResponse({ data: [page2Bible] }));
+        .mockResolvedValueOnce(jsonResponse({ data: [page1BibleWire], next_page_token: 'tok-p2' }))
+        .mockResolvedValueOnce(jsonResponse({ data: [page2BibleWire] }));
 
       const result = await getBibles('eng');
 
@@ -339,6 +352,9 @@ describe('youversion.client', () => {
       if (result.ok) {
         expect(result.data).toHaveLength(2);
         expect(result.data.map((b) => b.id)).toEqual([1, 2]);
+        // Confirm normalization applied across pages
+        expect(result.data[1]?.localizedAbbreviation).toBe('ESV');
+        expect(result.data[1]?.localizedTitle).toBe('English Standard Version');
       }
       expect(fetchSpy).toHaveBeenCalledTimes(2);
       // Second call must include the page token from the first response.
@@ -350,7 +366,7 @@ describe('youversion.client', () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation(() =>
-          Promise.resolve(jsonResponse({ data: [mockBible], next_page_token: 'repeating' }))
+          Promise.resolve(jsonResponse({ data: [mockBibleWire], next_page_token: 'repeating' }))
         );
 
       const result = await getBibles('eng');
@@ -447,7 +463,7 @@ describe('youversion.client', () => {
       expect(fetchSpy).toHaveBeenCalledTimes(3);
     });
 
-    it('returns error after exhausting MAX_429_RETRIES (3) retries', async () => {
+    it('skips a verse that exhausts all MAX_429_RETRIES (3) retries and returns ok with remaining verses', async () => {
       vi.useFakeTimers();
 
       // Use mockImplementation after the meta call so each 429 gets a fresh Response.
@@ -464,9 +480,10 @@ describe('youversion.client', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       const result = await resultPromise;
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe(ErrorCode.YOUVERSION_SERVICE_UNAVAILABLE);
+      // Per-verse tolerance: the verse is skipped rather than failing the chapter.
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses).toHaveLength(0);
       }
       // meta + 4 passage fetches (initial + 3 retries)
       expect(fetchSpy).toHaveBeenCalledTimes(5);
@@ -476,8 +493,11 @@ describe('youversion.client', () => {
   // ─── Verse filtering and ordering ───────────────────────────────────────────
 
   describe('getChapterText — verse filtering and ordering', () => {
-    it('skips non-numeric passage_id segments such as INTRO verses', async () => {
-      vi.spyOn(globalThis, 'fetch')
+    it('does not fetch non-verse passage_ids (e.g. INTRO) at all', async () => {
+      // The pre-filter must exclude GEN.1.INTRO before the task array is built.
+      // Exactly two fetch calls are expected: meta + GEN.1.1; no INTRO fetch.
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(
           jsonResponse({
             id: 101,
@@ -487,9 +507,6 @@ describe('youversion.client', () => {
               { id: 1, passage_id: 'GEN.1.1', human_reference: 'Genesis 1:1', usfm: ['v 1'] },
             ],
           })
-        )
-        .mockResolvedValueOnce(
-          jsonResponse({ id: 'GEN.1.INTRO', passage_id: 'GEN.1.INTRO', content: 'Intro text' })
         )
         .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
 
@@ -501,6 +518,37 @@ describe('youversion.client', () => {
         expect(result.data.verses[0]?.verseNumber).toBe(1);
         expect(result.data.verses.map((v) => v.passageId)).not.toContain('GEN.1.INTRO');
       }
+      // meta (1) + GEN.1.1 (1) = 2; no INTRO fetch issued
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('succeeds even when YouVersion returns 4xx for a non-verse (INTRO) passage_id', async () => {
+      // This was the deterministic failure path before the pre-filter fix:
+      // the INTRO fetch would 404, and the !passageResult.ok check would abort the chapter.
+      // Now that INTRO is filtered before the task array is built, no request is issued.
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: 101,
+            passage_id: 'GEN.1',
+            verses: [
+              { id: 0, passage_id: 'GEN.1.INTRO', human_reference: 'Genesis 1 intro', usfm: [] },
+              { id: 1, passage_id: 'GEN.1.1', human_reference: 'Genesis 1:1', usfm: ['v 1'] },
+            ],
+          })
+        )
+        // Only GEN.1.1 is fetched — INTRO is pre-filtered so this mock is for verse 1.
+        .mockResolvedValueOnce(jsonResponse(mockPassage1Body));
+
+      const result = await getChapterText(1, 'GEN', 1);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses).toHaveLength(1);
+        expect(result.data.verses[0]?.verseNumber).toBe(1);
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
     it('returns verses sorted ascending by verse number regardless of fetch completion order', async () => {
@@ -524,6 +572,38 @@ describe('youversion.client', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.verses.map((v) => v.verseNumber)).toEqual([1, 2]);
+      }
+    });
+
+    it('skips failed mid-chapter verses and returns the surrounding verses (Psalm 119-style)', async () => {
+      // Three verses; the middle one (v2) returns 500 — v1 and v3 must still be returned.
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: 119,
+            passage_id: 'PSA.119',
+            verses: [
+              { id: 1, passage_id: 'PSA.119.1', human_reference: 'Psalm 119:1', usfm: ['v 1'] },
+              { id: 2, passage_id: 'PSA.119.2', human_reference: 'Psalm 119:2', usfm: ['v 2'] },
+              { id: 3, passage_id: 'PSA.119.3', human_reference: 'Psalm 119:3', usfm: ['v 3'] },
+            ],
+          })
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ id: 'PSA.119.1', passage_id: 'PSA.119.1', content: 'Blessed are those…' })
+        )
+        .mockResolvedValueOnce(jsonResponse({ message: 'internal error' }, 500))
+        .mockResolvedValueOnce(
+          jsonResponse({ id: 'PSA.119.3', passage_id: 'PSA.119.3', content: 'They do no wrong…' })
+        );
+
+      const result = await getChapterText(1, 'PSA', 119);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.verses).toHaveLength(2);
+        expect(result.data.verses.map((v) => v.verseNumber)).toEqual([1, 3]);
+        expect(result.data.verses.map((v) => v.passageId)).not.toContain('PSA.119.2');
       }
     });
   });
