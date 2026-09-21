@@ -14,6 +14,41 @@ export async function getAllPericopeSets() {
     .orderBy(pericope_sets.name);
 }
 
+export async function getPericopeSetById(id: number) {
+  const [set] = await db
+    .select({
+      id: pericope_sets.id,
+      name: pericope_sets.name,
+      description: pericope_sets.description,
+    })
+    .from(pericope_sets)
+    .where(eq(pericope_sets.id, id))
+    .limit(1);
+  return set ?? null;
+}
+
+export async function getPericopeVersesForSet(pericopeSetId: number, bookId?: number) {
+  return db
+    .select({
+      bookId: pericope_verses.bookId,
+      bookCode: books.code,
+      chapterNumber: pericope_verses.chapterNumber,
+      verseNumber: pericope_verses.verseNumber,
+      section: pericope_verses.section,
+      pericopeNumber: pericope_verses.pericopeNumber,
+      pericopeTitle: pericope_verses.pericopeTitle,
+    })
+    .from(pericope_verses)
+    .innerJoin(books, eq(books.id, pericope_verses.bookId))
+    .where(
+      and(
+        eq(pericope_verses.pericopeSetId, pericopeSetId),
+        bookId === undefined ? undefined : eq(pericope_verses.bookId, bookId)
+      )
+    )
+    .orderBy(pericope_verses.bookId, pericope_verses.chapterNumber, pericope_verses.verseNumber);
+}
+
 export async function getPericopeSetIdForProject(projectId: number): Promise<number | null> {
   const [project] = await db
     .select({ pericopeSetId: projects.pericopeSetId })
