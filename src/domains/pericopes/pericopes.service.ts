@@ -6,6 +6,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type { ChapterPericopesResponse, PericopeSet } from './pericopes.types';
 
 import * as repo from './pericopes.repository';
+import { getPericopeGroupNumber } from './pericopes.types';
 
 export async function listPericopeSets(): Promise<Result<PericopeSet[]>> {
   try {
@@ -40,8 +41,7 @@ export async function getChapterPericopes(
     // 5. Group rows by section + pericope_number in application layer if section is present (FCBH)
     const groupMap = new Map<string, ChapterPericopesResponse[number]>();
     for (const row of rows) {
-      const groupKey =
-        row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
+      const groupKey = getPericopeGroupNumber(row);
       if (!groupMap.has(groupKey)) {
         groupMap.set(groupKey, {
           pericopeNumber: groupKey,

@@ -55,6 +55,9 @@ vi.mock('./ai-suggestions.service', () => ({
   getAiSuggestions: vi.fn(),
   queueNextVerses: vi.fn(),
   trackUsage: vi.fn(),
+  queuePericopes: vi.fn(),
+  getPericopeSuggestions: vi.fn(),
+  trackPericopeUsage: vi.fn(),
 }));
 
 vi.mock('./ai-suggestions.auth.middleware', async (importOriginal) => {
@@ -115,6 +118,94 @@ function postUsage(body: unknown) {
 describe('ai-suggestions routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe('pericope routes', () => {
+    const body = {
+      projectUnitId: 1,
+      bibleId: 2,
+      bookCode: 'GEN',
+      chapterNumber: 1,
+      pericopeNumbers: ['4a', '4b'],
+    };
+    const requests = () => [
+      () =>
+        server.request('/ai-suggestions/queue-pericopes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      () =>
+        server.request(
+          '/ai-suggestions/pericopes?projectUnitId=1&bibleId=2&bookCode=GEN&chapterNumber=1&pericopeNumbers=4a,4b'
+        ),
+      () =>
+        server.request('/ai-suggestions/pericopes/usage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectUnitId: 1,
+            bibleTextId: 101,
+            pericopeNumber: '4a',
+            wasUsed: true,
+          }),
+        }),
+    ];
+    it('requires authentication for queue, retrieval and exposure', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
+      for (const request of requests()) expect((await request()).status).toBe(401);
+    });
+    it('requires project grants for queue, retrieval and exposure', async () => {
+      asAuthenticatedUser(false);
+      for (const request of requests()) expect((await request()).status).toBe(403);
+      expect(aiSuggestionsService.queuePericopes).not.toHaveBeenCalled();
+      expect(aiSuggestionsService.getPericopeSuggestions).not.toHaveBeenCalled();
+      expect(aiSuggestionsService.trackPericopeUsage).not.toHaveBeenCalled();
+    });
+    it('forwards the exact two alphanumeric group identities and separate usage', async () => {
+      asAuthenticatedUser();
+      vi.mocked(aiSuggestionsService.queuePericopes).mockResolvedValue({
+        ok: true,
+        data: { queued: true, thresholdMet: true },
+      });
+      vi.mocked(aiSuggestionsService.getPericopeSuggestions).mockResolvedValue({
+        ok: true,
+        data: { data: [] },
+      });
+      vi.mocked(aiSuggestionsService.trackPericopeUsage).mockResolvedValue({
+        ok: true,
+        data: undefined,
+      });
+      for (const request of requests()) expect((await request()).status).toBe(200);
+      expect(aiSuggestionsService.queuePericopes).toHaveBeenCalledWith(body);
+      expect(aiSuggestionsService.getPericopeSuggestions).toHaveBeenCalledWith(body);
+      expect(aiSuggestionsService.trackPericopeUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1 }),
+        { projectUnitId: 1, bibleTextId: 101, pericopeNumber: '4a', wasUsed: true }
+      );
+    });
+    it.each(
+      [[], ['1', '2', '3'], ['1', '1'], ['x'.repeat(101)], ['1,2']].map((pericopeNumbers) => ({
+        pericopeNumbers,
+      }))
+    )('rejects invalid groups %j', async ({ pericopeNumbers }) => {
+      asAuthenticatedUser();
+      const res = await server.request('/ai-suggestions/queue-pericopes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, pericopeNumbers }),
+      });
+      expect(res.status).toBe(400);
+      expect(aiSuggestionsService.queuePericopes).not.toHaveBeenCalled();
+    });
+    it('returns queue submission errors to the caller', async () => {
+      asAuthenticatedUser();
+      vi.mocked(aiSuggestionsService.queuePericopes).mockResolvedValue({
+        ok: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Queue unavailable' },
+      });
+      expect((await requests()[0]()).status).toBe(500);
+    });
   });
 
   describe('get /ai-suggestions', () => {

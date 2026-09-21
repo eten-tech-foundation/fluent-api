@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bible_texts, pericope_sets } from '@/db/schema';
+import { bible_books, bible_texts, pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -11,9 +11,11 @@ import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
+import type { ParsedUsfmFile } from './usfm-import.service';
 
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
+import * as usfmImportService from './usfm-import.service';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
@@ -90,8 +92,21 @@ export async function recordProjectAssignmentActivity(
   await touchProjectActivity(projectUnitId, tx);
 }
 
-export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {
+export async function createProject(
+  requested: CreateProjectServiceInput
+): Promise<Result<Project>> {
+  // Create-from-existing-data (#419): every file is parsed before anything is written, and the
+  // books the files carry replace whatever the client listed, since the files are the authority.
+  let importedFiles: ParsedUsfmFile[] | null = null;
+  let input = requested;
   try {
+    if (requested.usfmFiles?.length) {
+      const parsed = await usfmImportService.parseUsfmFiles(requested.usfmFiles);
+      if (!parsed.ok) return parsed;
+      importedFiles = parsed.data;
+      input = { ...requested, bookId: importedFiles.map((file) => file.bookId) };
+    }
+
     const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
     const hasInvalidBooks = input.bookId.some((id) => !validBookIds.includes(id));
 
@@ -114,6 +129,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       }
     }
 
+    let createdProjectUnitId: number | null = null;
     const result = await db.transaction(async (tx) => {
       const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
 
@@ -146,6 +162,19 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
       }
 
+      if (importedFiles) {
+        await repo.insertUsfmImports(
+          importedFiles.map((file) => ({
+            projectUnitId: projectUnit.id,
+            bookId: file.bookId,
+            fileName: file.fileName,
+            usfm: file.usfm,
+          })),
+          tx
+        );
+        createdProjectUnitId = projectUnit.id;
+      }
+
       return ok(project);
     });
 
@@ -154,11 +183,19 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       try {
         const queue = await getQueue();
 
-        // Detect which books have already been ingested for this Bible
-        const ingestedBooks = await db
-          .selectDistinct({ bookId: bible_texts.bookId })
-          .from(bible_texts)
-          .where(eq(bible_texts.bibleId, input.bibleId));
+        // Imported verses need a complete source book, including when another project is
+        // still ingesting it. Preserve the existing queue policy for blank projects.
+        const ingestedBooks = importedFiles
+          ? await db
+              .select({ bookId: bible_books.bookId })
+              .from(bible_books)
+              .where(
+                and(eq(bible_books.bibleId, input.bibleId), isNotNull(bible_books.textIngestedAt))
+              )
+          : await db
+              .selectDistinct({ bookId: bible_texts.bookId })
+              .from(bible_texts)
+              .where(eq(bible_texts.bibleId, input.bibleId));
         const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
 
         // Get all available books for this Bible
@@ -217,6 +254,33 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
+      }
+    }
+
+    // Decide ingestion first so completion racing with this request cannot leave an import
+    // pending without its own job. Completed books are materialized here; the worker handles
+    // the rest. Never fail a committed project creation because materialization failed.
+    if (result.ok && importedFiles && createdProjectUnitId !== null) {
+      const materialized = await usfmImportService.materializePendingUsfmImports(
+        createdProjectUnitId,
+        input.bibleId,
+        importedFiles.map((file) => file.bookId),
+        importedFiles
+      );
+      if (materialized.ok) {
+        logger.info('Imported USFM materialised at project creation', {
+          projectId: result.data.id,
+          ...materialized.data,
+        });
+      } else {
+        logger.error({
+          message: 'Failed to materialise imported USFM at project creation',
+          context: {
+            projectId: result.data.id,
+            projectUnitId: createdProjectUnitId,
+            error: materialized.error,
+          },
+        });
       }
     }
 

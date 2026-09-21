@@ -33,6 +33,9 @@ export interface AiSuggestionTriggerJob {
   chapterNumber: number;
   verseStart: number;
   verseEnd: number;
+  /** Presence selects a heading-only job; scripture jobs omit these fields. */
+  pericopeNumber?: string;
+  pericopeSetId?: number;
 }
 
 export async function initializeQueue(): Promise<PgBoss> {

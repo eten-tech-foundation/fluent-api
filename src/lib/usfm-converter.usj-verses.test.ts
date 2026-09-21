@@ -1,0 +1,176 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { USJDocument } from '@/lib/types';
+
+import { logger } from '@/lib/logger';
+import { ErrorCode } from '@/lib/types';
+
+import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
+
+// Runs the real parser: these tests pin what usfm-grammar actually emits, not the type file.
+
+const GENESIS = [
+  '\\id GEN Genesis',
+  '\\h Genesis',
+  '\\mt1 Genesis',
+  '\\c 1',
+  '\\p',
+  '\\v 1 In the beginning God created the heavens and the earth.',
+  '\\v 2 The earth was \\nd formless\\nd* and empty.',
+  '\\q1',
+  '\\v 3-4 Bridged verse text.',
+  '\\c 2',
+  '\\p',
+  '\\v 1 Chapter two.',
+].join('\n');
+
+function versesOf(usfm: string) {
+  const usj = convertUSFMToUSJ(usfm);
+  if (!usj.ok) throw new Error(usj.error.message);
+  const verses = usjToVerseTexts(usj.data);
+  if (!verses.ok) throw new Error(verses.error.message);
+  return verses.data;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('usjToVerseTexts (#419)', () => {
+  it('yields one entry per verse with its chapter, across chapters', () => {
+    expect(versesOf(GENESIS).map((v) => `${v.chapterNumber}:${v.verseNumber}`)).toEqual([
+      '1:1',
+      '1:2',
+      '1:3',
+      '2:1',
+    ]);
+  });
+
+  it('keeps character-style text inline and trims the paragraph newline', () => {
+    const verse = versesOf(GENESIS).find((v) => v.chapterNumber === 1 && v.verseNumber === 2);
+    expect(verse?.text).toBe('The earth was formless and empty.');
+  });
+
+  it('files a bridged verse under its first number', () => {
+    const verse = versesOf(GENESIS).find((v) => v.chapterNumber === 1 && v.verseNumber === 3);
+    expect(verse?.text).toBe('Bridged verse text.');
+  });
+
+  it('leaves headings and titles out, since they belong to no verse', () => {
+    const texts = versesOf(GENESIS).map((v) => v.text);
+    expect(texts.some((t) => t.includes('Genesis'))).toBe(false);
+  });
+
+  it('anchors a mid-chapter heading to the following verse without mixing its text into either verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 The Creation\n\\p\n\\v 2 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+      },
+    ]);
+  });
+
+  it('keeps several headings in source order on an empty following verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\ms1 Book One\n\\s1 The Creation\n\\p\n\\v 2'
+    );
+
+    expect(verses[1]).toEqual({
+      chapterNumber: 1,
+      verseNumber: 2,
+      text: '',
+      markers: {
+        headings: [
+          { marker: 'ms1', text: 'Book One' },
+          { marker: 's1', text: 'The Creation' },
+        ],
+      },
+    });
+  });
+
+  it('carries a heading across a chapter boundary to that chapter first verse', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 A New Chapter\n\\c 2\n\\p\n\\v 1 Second.'
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 2,
+        verseNumber: 1,
+        text: 'Second.',
+        markers: { headings: [{ marker: 's1', text: 'A New Chapter' }] },
+      },
+    ]);
+  });
+
+  it('carries a verse across a paragraph break rather than cutting it', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First half\n\\p\nsecond half.\n\\v 2 Next.'
+    );
+    expect(verses[0].text).toBe('First half second half.');
+    expect(verses[1].text).toBe('Next.');
+  });
+
+  it('does not break on a tag Fluent does not know', () => {
+    const verses = versesOf(
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 Known text.\n\\zcustom something\n\\v 2 After.'
+    );
+    expect(verses.map((v) => v.verseNumber)).toEqual([1, 2]);
+  });
+
+  it('warns about unsupported container nodes and preserves their verse text', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const usj = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'book', marker: 'id', code: 'GEN' },
+        { type: 'chapter', marker: 'c', number: '1' },
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'row',
+              content: [
+                {
+                  type: 'cell',
+                  content: [{ type: 'verse', marker: 'v', number: '1' }, 'Table verse text.'],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as USJDocument;
+
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' }],
+    });
+    expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
+      type: 'table',
+    });
+  });
+
+  it('returns nothing for a file with markers but no verses', () => {
+    expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
+  });
+
+  it('rejects a heading with no following verse instead of discarding it', () => {
+    const usj = convertUSFMToUSJ('\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Appendix');
+    if (!usj.ok) throw new Error(usj.error.message);
+
+    expect(usjToVerseTexts(usj.data)).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.USFM_INVALID },
+    });
+  });
+});
