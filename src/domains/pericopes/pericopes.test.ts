@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
-import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
 import * as repo from './pericopes.repository';
+import { asAuthenticatedUser, MOCK_PROJECT } from './pericopes.test-fixtures';
 
 import '@/domains/pericopes/pericopes.route';
 
@@ -67,41 +67,6 @@ vi.mock('./pericopes.repository', () => ({
   getPericopeVersesForChapter: vi.fn(),
 }));
 
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
-
-const APP_USER = {
-  id: 1,
-  email: 'translator@example.com',
-  role: 5,
-  roleName: 'Translator',
-  organization: 1,
-  status: 'verified' as 'verified' | 'inactive',
-};
-
-const MOCK_PROJECT = {
-  id: 10,
-  name: 'Test Project',
-  organization: 1,
-};
-
-function asAuthenticatedUser(overrides: Partial<typeof APP_USER> = {}) {
-  const user = { ...APP_USER, ...overrides };
-  (auth.api.getSession as any).mockResolvedValue({
-    session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-    user: { email: user.email },
-  });
-  (getUserByEmail as any).mockResolvedValue(ok(user));
-  (findGrantsByUserId as any).mockResolvedValue(
-    ok([
-      {
-        orgId: null,
-        projectId: null,
-        permissions: new Set(['project:view']),
-      },
-    ])
-  );
-}
-
 describe('pericopes router & service integrations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,7 +76,7 @@ describe('pericopes router & service integrations', () => {
 
   describe('gET /pericope-sets', () => {
     it('returns 401 when the user is not authenticated', async () => {
-      (auth.api.getSession as any).mockResolvedValue(null);
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
       const res = await server.request('/pericope-sets', { method: 'GET' });
 
@@ -157,7 +122,7 @@ describe('pericopes router & service integrations', () => {
 
   describe('gET /projects/:id/pericopes/:bookCode/:chapter', () => {
     it('returns 401 when the user is not authenticated', async () => {
-      (auth.api.getSession as any).mockResolvedValue(null);
+      vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
       const res = await server.request('/projects/10/pericopes/JHN/1', { method: 'GET' });
 
@@ -177,7 +142,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 404 when project member check fails (forbidden)', async () => {
       asAuthenticatedUser();
-      (findGrantsByUserId as any).mockResolvedValue(
+      vi.mocked(findGrantsByUserId).mockResolvedValue(
         ok([
           {
             orgId: 1,
@@ -186,7 +151,7 @@ describe('pericopes router & service integrations', () => {
           },
         ])
       );
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(false);
 
       const res = await server.request('/projects/10/pericopes/JHN/1', { method: 'GET' });
@@ -208,7 +173,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 200 and empty list if project has no pericope set', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(null);
 
@@ -222,7 +187,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 404 if book code is not resolved to a book ID', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(2);
       vi.mocked(repo.getBookIdByCode).mockResolvedValue(null);
@@ -237,7 +202,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 200 and empty list if no pericope verses exist for chapter', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(2);
       vi.mocked(repo.getBookIdByCode).mockResolvedValue(43);
@@ -247,12 +212,12 @@ describe('pericopes router & service integrations', () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
-      expect(repo.getPericopeVersesForChapter).toHaveBeenCalledWith(2, 43, 1);
+      expect(repo.getPericopeVersesForChapter).toHaveBeenCalledWith(2, 43, 1, false);
     });
 
     it('returns 200 and grouped pericopes array when data exists', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(2);
       vi.mocked(repo.getBookIdByCode).mockResolvedValue(43);
@@ -287,7 +252,7 @@ describe('pericopes router & service integrations', () => {
           pericopeTitle: null,
         },
       ];
-      vi.mocked(repo.getPericopeVersesForChapter).mockResolvedValue(mockVerses as any);
+      vi.mocked(repo.getPericopeVersesForChapter).mockResolvedValue(mockVerses);
 
       const res = await server.request('/projects/10/pericopes/JHN/1', { method: 'GET' });
 
@@ -316,7 +281,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 200 and groups FCBH pericopes using a composite key (section_pericopeNumber) when section is not null', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockResolvedValue(2);
       vi.mocked(repo.getBookIdByCode).mockResolvedValue(43);
@@ -351,7 +316,7 @@ describe('pericopes router & service integrations', () => {
           pericopeTitle: null,
         },
       ];
-      vi.mocked(repo.getPericopeVersesForChapter).mockResolvedValue(mockVerses as any);
+      vi.mocked(repo.getPericopeVersesForChapter).mockResolvedValue(mockVerses);
 
       const res = await server.request('/projects/10/pericopes/GEN/6', { method: 'GET' });
 
@@ -378,7 +343,7 @@ describe('pericopes router & service integrations', () => {
 
     it('returns 500 when repository throws on getChapterPericopes', async () => {
       asAuthenticatedUser();
-      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
+      vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT));
       vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
       vi.mocked(repo.getPericopeSetIdForProject).mockRejectedValue(new Error('Database error'));
 

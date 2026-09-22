@@ -61,7 +61,8 @@ export async function getPericopeSet(
 export async function getChapterPericopes(
   projectId: number,
   bookCode: string,
-  chapter: number
+  chapter: number,
+  includeFullPericopes = false
 ): Promise<Result<ChapterPericopesResponse>> {
   try {
     // 1. Get project's pericope set — if null, return empty (verse-by-verse fallback)
@@ -72,8 +73,13 @@ export async function getChapterPericopes(
     const bookId = await repo.getBookIdByCode(bookCode);
     if (!bookId) return err(ErrorCode.BOOK_NOT_FOUND);
 
-    // 3. Fetch all pericope verse rows for this chapter
-    const rows = await repo.getPericopeVersesForChapter(pericopeSetId, bookId, chapter);
+    // 3. Optionally include complete references for groups touching this chapter.
+    const rows = await repo.getPericopeVersesForChapter(
+      pericopeSetId,
+      bookId,
+      chapter,
+      includeFullPericopes
+    );
 
     // 4. No rows = book not covered in this set → verse-by-verse fallback
     if (rows.length === 0) return ok([]);

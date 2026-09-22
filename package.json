@@ -42,6 +42,7 @@
     "db:import:languages": "npx tsx src/db/scripts/import-ethnologue-languages.ts",
     "db:import:language-names": "npx tsx src/db/scripts/enrich-language-names.ts",
     "db:migrate": "drizzle-kit migrate",
+    "queue:migrate-policy": "tsx src/db/scripts/migrate-worker-queue-policy.ts",
     "db:generate": "drizzle-kit generate --name",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",

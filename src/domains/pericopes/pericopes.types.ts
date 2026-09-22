@@ -90,3 +90,15 @@ export const chapterPericopesParamSchema = z.object({
     .positive()
     .openapi({ param: { name: 'chapter', in: 'path' } }),
 });
+
+export const chapterPericopesQuerySchema = z.object({
+  includeFullPericopes: z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((value) => value === 'true' || value === '1')
+    .openapi({
+      param: { name: 'includeFullPericopes', in: 'query' },
+      description:
+        'When true or 1, return every verse in each pericope intersecting this chapter, including other chapters of the same book. Defaults to false (chapter-only references).',
+    }),
+});

@@ -1,4 +1,5 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, exists, isNull, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db';
 import { books, pericope_sets, pericope_verses, projects } from '@/db/schema';
@@ -70,8 +71,32 @@ export async function getBookIdByCode(bookCode: string): Promise<number | null> 
 export async function getPericopeVersesForChapter(
   pericopeSetId: number,
   bookId: number,
-  chapterNumber: number
+  chapterNumber: number,
+  includeFullPericopes = false
 ) {
+  const chapterVerses = alias(pericope_verses, 'chapter_verses');
+  // Select groups intersecting the requested chapter before expanding their
+  // references. FCBH numbers repeat per section; FIA sections are null.
+  const chapterFilter = includeFullPericopes
+    ? exists(
+        db
+          .select({ id: chapterVerses.id })
+          .from(chapterVerses)
+          .where(
+            and(
+              eq(chapterVerses.pericopeSetId, pericopeSetId),
+              eq(chapterVerses.bookId, bookId),
+              eq(chapterVerses.chapterNumber, chapterNumber),
+              eq(chapterVerses.pericopeNumber, pericope_verses.pericopeNumber),
+              or(
+                and(isNull(chapterVerses.section), isNull(pericope_verses.section)),
+                eq(chapterVerses.section, pericope_verses.section)
+              )
+            )
+          )
+      )
+    : eq(pericope_verses.chapterNumber, chapterNumber);
+
   return db
     .select({
       chapterNumber: pericope_verses.chapterNumber,
@@ -85,8 +110,8 @@ export async function getPericopeVersesForChapter(
       and(
         eq(pericope_verses.pericopeSetId, pericopeSetId),
         eq(pericope_verses.bookId, bookId),
-        eq(pericope_verses.chapterNumber, chapterNumber)
+        chapterFilter
       )
     )
-    .orderBy(pericope_verses.verseNumber);
+    .orderBy(pericope_verses.chapterNumber, pericope_verses.verseNumber);
 }
