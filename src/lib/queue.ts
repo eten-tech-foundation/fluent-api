@@ -14,7 +14,8 @@ export const QUEUE_NAMES = {
 } as const;
 
 export interface DblIngestTextJob {
-  projectId: number;
+  projectId?: number; // legacy
+  projectUnitId?: number;
   bibleId: number;
   bookCodes: string[];
 }

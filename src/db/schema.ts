@@ -33,6 +33,7 @@ export const projectAssignmentStatusEnum = pgEnum('project_assignment_status', [
   'active',
   'not_assigned',
 ]);
+export const milestoneTypeEnum = pgEnum('milestone_type', ['text', 'audio']);
 export const chapterStatusEnum = pgEnum('chapter_status', [
   'not_started',
   'draft',
@@ -314,9 +315,8 @@ export const project_units = pgTable('project_units', {
   projectId: integer('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-  name: varchar('name', { length: 255 }).notNull().default(''),
-  type: varchar('type', { length: 50 }).notNull().default('text'),
-  connectivityProfile: varchar('connectivity_profile', { length: 50 }),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: milestoneTypeEnum('type').notNull().default('text'),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -1045,10 +1045,13 @@ export const insertProjectsSchema = createInsertSchema(projects, {
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
   projectId: (schema) => schema.int(),
+  name: (schema) => schema.min(1).max(255),
+  type: z.enum(['text', 'audio']).default('text'),
   status: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
 })
   .required({
     projectId: true,
+    name: true,
     status: true,
   })
   .omit({
@@ -1335,6 +1338,7 @@ export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,
   createdBy: true,
+  sourceBibleId: true,
 });
 
 export const patchUsersClientSchema = patchUsersSchema;

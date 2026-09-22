@@ -55,10 +55,11 @@ vi.mock('./projects.repository', () => ({
   getProjectIdByUnitId: vi.fn(),
   getValidBookIdsForBible: vi.fn(),
   insertProjectRecord: vi.fn(),
-  insertProjectUnitRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
   updateProjectRecord: vi.fn(),
   updateProjectUnitStatusByProjectId: vi.fn(),
+  lockProjectById: vi.fn(),
+  countUnitsByProjectId: vi.fn(),
   remove: vi.fn(),
 }));
 
@@ -103,25 +104,19 @@ describe('projects service', () => {
     });
 
     it('deleteProject should call repo if no milestones exist', async () => {
-      const mockResult = ok(undefined);
-      vi.mocked(repo.remove).mockResolvedValue(mockResult);
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
+      vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(0);
+      vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
 
       const result = await deleteProject(1);
 
-      expect(repo.remove).toHaveBeenCalledWith(1);
-      expect(result).toEqual(mockResult);
+      expect(repo.remove).toHaveBeenCalledWith(1, mockTx);
+      expect(result).toEqual(ok(undefined));
     });
 
     it('deleteProject should return PROJECT_HAS_MILESTONES if milestones exist', async () => {
-      vi.mocked(db.select).mockImplementationOnce(() => {
-        const chainable = {
-          from: vi.fn().mockReturnThis(),
-          where: vi.fn().mockReturnThis(),
-          limit: vi.fn().mockReturnThis(),
-          then: (resolve: any) => resolve([{ id: 1 }]),
-        };
-        return chainable as any;
-      });
+      vi.mocked(repo.lockProjectById).mockResolvedValue(true);
+      vi.mocked(repo.countUnitsByProjectId).mockResolvedValue(1);
 
       const result = await deleteProject(1);
 

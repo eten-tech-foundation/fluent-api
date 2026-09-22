@@ -1,18 +1,11 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { createMiddleware } from 'hono/factory';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import type { ProjectAction } from '@/domains/projects/projects.types';
-import type { AppEnv } from '@/server/context.types';
-
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
-import { ProjectPolicy } from '@/domains/projects/project.policy';
-import * as projectService from '@/domains/projects/projects.service';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
-import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -21,57 +14,11 @@ import { server } from '@/server/server';
 import * as milestonesService from './milestones.service';
 import {
   createMilestoneSchema,
+  milestonePathParamsSchema,
   milestoneResponseSchema,
+  projectIdParamSchema,
   updateMilestoneSchema,
 } from './milestones.types';
-
-const projectIdParam = z.object({
-  projectId: z.coerce
-    .number()
-    .openapi({ param: { name: 'projectId', in: 'path', required: true } }),
-});
-
-const milestoneIdParam = z.object({
-  id: z.coerce.number().openapi({ param: { name: 'id', in: 'path', required: true } }),
-});
-
-const requireMilestoneAccess = (action: ProjectAction) =>
-  createMiddleware<AppEnv>(async (c, next) => {
-    const user = c.get('user')!;
-    const policyUser = { id: user.id, grants: user.grants };
-    const id = Number(c.req.param('id'));
-
-    const milestoneRes = await milestonesService.getMilestone(id);
-    if (!milestoneRes.ok)
-      return c.json({ message: 'Milestone not found' }, HttpStatusCodes.NOT_FOUND);
-
-    const projectId = milestoneRes.data.projectId;
-    const projectRes = await projectService.getProjectById(projectId);
-    if (!projectRes.ok) return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
-
-    const project = projectRes.data;
-    let allowed = false;
-
-    switch (action) {
-      case PROJECT_ACTIONS.READ: {
-        const isProjectMember = await resolveIsProjectMember(projectId, user.id);
-        allowed = ProjectPolicy.read(policyUser, project, isProjectMember);
-        break;
-      }
-      case PROJECT_ACTIONS.UPDATE:
-        allowed = ProjectPolicy.update(policyUser, project);
-        break;
-      case PROJECT_ACTIONS.DELETE:
-        allowed = ProjectPolicy.delete(policyUser, project);
-        break;
-    }
-
-    if (!allowed) {
-      return c.json({ message: 'Milestone not found' }, HttpStatusCodes.NOT_FOUND);
-    }
-
-    return next();
-  });
 
 // ─── POST /projects/:projectId/milestones ──────────────────────────────────────
 
@@ -86,7 +33,7 @@ const createMilestoneRoute = createRoute({
   ] as const,
   summary: 'Create a milestone for a project',
   request: {
-    params: projectIdParam,
+    params: projectIdParamSchema,
     body: jsonContentRequired(createMilestoneSchema, 'Milestone to create'),
   },
   responses: {
@@ -106,7 +53,13 @@ server.openapi(createMilestoneRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const input = c.req.valid('json');
 
-  const result = await milestonesService.createMilestone(projectId, input);
+  const project = c.get('project')!;
+  const sourceBibleId = project.sourceBibleId;
+  if (!sourceBibleId) {
+    return c.json({ message: 'Project has no source Bible' }, HttpStatusCodes.BAD_REQUEST);
+  }
+
+  const result = await milestonesService.createMilestone(projectId, sourceBibleId, input);
   if (result.ok) return c.json(result.data as any, HttpStatusCodes.CREATED);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
@@ -123,7 +76,7 @@ const listMilestonesRoute = createRoute({
     requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
   ] as const,
   summary: 'List milestones for a project',
-  request: { params: projectIdParam },
+  request: { params: projectIdParamSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(z.array(milestoneResponseSchema), 'List of milestones'),
   },
@@ -131,20 +84,24 @@ const listMilestonesRoute = createRoute({
 
 server.openapi(listMilestonesRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  const result = await milestonesService.getMilestones(projectId);
+  const result = await milestonesService.listMilestonesForProject(projectId);
   if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
-// ─── GET /milestones/:id ───────────────────────────────────────────────────────
+// ─── GET /projects/:projectId/milestones/:milestoneId ──────────────────────────
 
 const getMilestoneRoute = createRoute({
   tags: ['Milestones'],
   method: 'get',
-  path: '/milestones/{id}',
-  middleware: [authenticateUser, requireMilestoneAccess(PROJECT_ACTIONS.READ)] as const,
+  path: '/projects/{projectId}/milestones/{milestoneId}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
   summary: 'Get a milestone',
-  request: { params: milestoneIdParam },
+  request: { params: milestonePathParamsSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(milestoneResponseSchema, 'Milestone'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
@@ -155,55 +112,71 @@ const getMilestoneRoute = createRoute({
 });
 
 server.openapi(getMilestoneRoute, async (c) => {
-  const { id } = c.req.valid('param');
-  const result = await milestonesService.getMilestone(id);
+  const { projectId, milestoneId } = c.req.valid('param');
+  const result = await milestonesService.getMilestone(projectId, milestoneId);
   if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
-// ─── PATCH /milestones/:id ─────────────────────────────────────────────────────
+// ─── PATCH /projects/:projectId/milestones/:milestoneId ────────────────────────
 
 const updateMilestoneRoute = createRoute({
   tags: ['Milestones'],
   method: 'patch',
-  path: '/milestones/{id}',
-  middleware: [authenticateUser, requireMilestoneAccess(PROJECT_ACTIONS.UPDATE)] as const,
+  path: '/projects/{projectId}/milestones/{milestoneId}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
   summary: 'Update a milestone',
   request: {
-    params: milestoneIdParam,
+    params: milestonePathParamsSchema,
     body: jsonContentRequired(updateMilestoneSchema, 'Updates'),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(milestoneResponseSchema, 'Updated milestone'),
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.UNPROCESSABLE_ENTITY),
+      'Empty update body'
+    ),
   },
 });
 
 server.openapi(updateMilestoneRoute, async (c) => {
-  const { id } = c.req.valid('param');
+  const { projectId, milestoneId } = c.req.valid('param');
   const updates = c.req.valid('json');
 
-  const result = await milestonesService.updateMilestone(id, updates);
+  if (Object.keys(updates).length === 0) {
+    return c.json({ message: 'Empty update body' }, HttpStatusCodes.UNPROCESSABLE_ENTITY);
+  }
+
+  const result = await milestonesService.updateMilestone(projectId, milestoneId, updates);
   if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
-// ─── DELETE /milestones/:id ────────────────────────────────────────────────────
+// ─── DELETE /projects/:projectId/milestones/:milestoneId ───────────────────────
 
 const deleteMilestoneRoute = createRoute({
   tags: ['Milestones'],
   method: 'delete',
-  path: '/milestones/{id}',
-  middleware: [authenticateUser, requireMilestoneAccess(PROJECT_ACTIONS.DELETE)] as const,
+  path: '/projects/{projectId}/milestones/{milestoneId}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_UPDATE),
+    requireProjectAccess(PROJECT_ACTIONS.DELETE, 'projectId'),
+  ] as const,
   summary: 'Delete a milestone',
-  request: { params: milestoneIdParam },
+  request: { params: milestonePathParamsSchema },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Deleted' },
   },
 });
 
 server.openapi(deleteMilestoneRoute, async (c) => {
-  const { id } = c.req.valid('param');
-  const result = await milestonesService.deleteMilestone(id);
+  const { projectId, milestoneId } = c.req.valid('param');
+  const result = await milestonesService.deleteMilestone(projectId, milestoneId);
   if (result.ok) return c.body(null, HttpStatusCodes.NO_CONTENT);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

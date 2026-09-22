@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { pericope_sets, project_units } from '@/db/schema';
+import { pericope_sets } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -49,18 +49,21 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
-export async function deleteProject(id: number): Promise<Result<void>> {
-  const units = await db
-    .select({ id: project_units.id })
-    .from(project_units)
-    .where(eq(project_units.projectId, id))
-    .limit(1);
+export async function deleteProject(
+  id: number,
+  options?: { cascadeUnits?: boolean }
+): Promise<Result<void>> {
+  if (options?.cascadeUnits) return repo.remove(id);
 
-  if (units.length > 0) {
-    return err(ErrorCode.PROJECT_HAS_MILESTONES);
-  }
+  return db.transaction(async (tx) => {
+    const exists = await repo.lockProjectById(id, tx);
+    if (!exists) return err(ErrorCode.PROJECT_NOT_FOUND);
 
-  return repo.remove(id);
+    const count = await repo.countUnitsByProjectId(id, tx);
+    if (count > 0) return err(ErrorCode.PROJECT_HAS_MILESTONES);
+
+    return repo.remove(id, tx);
+  });
 }
 
 export function getProjectIdByUnitId(projectUnitId: number) {

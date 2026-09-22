@@ -162,12 +162,14 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
       }
 
       // Once text ingestion completes, ensure chapter assignments exist for the project unit
-      if (job.data.projectId && bookCodes.length > 0) {
+      if ((job.data.projectUnitId || job.data.projectId) && bookCodes.length > 0) {
         try {
-          const projectUnits = await db
-            .select({ id: project_units.id })
-            .from(project_units)
-            .where(sql`${project_units.projectId} = ${job.data.projectId}`);
+          const projectUnits = job.data.projectUnitId
+            ? [{ id: job.data.projectUnitId }]
+            : await db
+                .select({ id: project_units.id })
+                .from(project_units)
+                .where(sql`${project_units.projectId} = ${job.data.projectId}`);
 
           const bookIds = await db.query.books
             .findMany({

@@ -36,7 +36,7 @@ export const projectWithLanguageNamesSchema = selectProjectsSchema
     createdAt: z.union([z.date(), z.string()]).nullable(),
     updatedAt: z.union([z.date(), z.string()]).nullable(),
     chapterStatusCounts: chapterStatusCountsSchema,
-    milestoneCount: z.number().int().optional(),
+    milestoneCount: z.number().int().min(0),
     workflowConfig: z.array(workflowStepSchema),
   });
 

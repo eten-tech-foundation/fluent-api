@@ -9,7 +9,7 @@ import {
   createMilestone,
   deleteMilestone,
   getMilestone,
-  getMilestones,
+  listMilestonesForProject,
   updateMilestone,
 } from './milestones.service';
 
@@ -37,8 +37,9 @@ vi.mock('./milestones.repository', () => ({
   getValidBookIdsForBible: vi.fn(),
   insertMilestoneRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
-  getMilestonesByProjectId: vi.fn(),
+  listByProjectId: vi.fn(),
   getMilestoneById: vi.fn(),
+  getByIdForProject: vi.fn(),
   updateMilestoneRecord: vi.fn(),
   moveBookToMilestone: vi.fn(),
   deleteMilestoneRecord: vi.fn(),
@@ -81,8 +82,9 @@ describe('milestones service', () => {
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
         ok([])
       );
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockMilestone);
 
-      const result = await createMilestone(100, mockInput as any);
+      const result = await createMilestone(100, 10, mockInput as any);
 
       expect(repo.getValidBookIdsForBible).toHaveBeenCalledWith(10, [1, 2]);
       expect(repo.insertMilestoneRecord).toHaveBeenCalledWith(
@@ -110,7 +112,7 @@ describe('milestones service', () => {
     it('should return INVALID_BIBLE_BOOKS if any book is invalid', async () => {
       vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1]);
 
-      const result = await createMilestone(100, mockInput as any);
+      const result = await createMilestone(100, 10, mockInput as any);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -131,7 +133,7 @@ describe('milestones service', () => {
         err(ErrorCode.INTERNAL_ERROR)
       );
 
-      const result = await createMilestone(100, mockInput as any);
+      const result = await createMilestone(100, 10, mockInput as any);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -143,18 +145,19 @@ describe('milestones service', () => {
   describe('updateMilestone', () => {
     it('should update milestone successfully', async () => {
       const mockUpdatedMilestone = { id: 1, name: 'Updated' } as any;
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
 
-      const result = await updateMilestone(1, { name: 'Updated' });
+      const result = await updateMilestone(100, 1, { name: 'Updated' });
 
       expect(repo.updateMilestoneRecord).toHaveBeenCalledWith(1, { name: 'Updated' }, mockTx);
       expect(result).toEqual(ok(mockUpdatedMilestone));
     });
 
     it('should return NOT_FOUND if milestone record does not exist', async () => {
-      vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(undefined as any);
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(undefined as any);
 
-      const result = await updateMilestone(999, { name: 'Updated' });
+      const result = await updateMilestone(100, 999, { name: 'Updated' });
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -163,12 +166,13 @@ describe('milestones service', () => {
     });
 
     it('should move books if requested', async () => {
-      const mockUpdatedMilestone = { id: 1, projectId: 1, name: 'Updated' } as any;
+      const mockUpdatedMilestone = { id: 1, projectId: 100, name: 'Updated' } as any;
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
-      vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 1 } as any);
+      vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 100 } as any);
       vi.mocked(repo.moveBookToMilestone).mockResolvedValue(undefined);
 
-      const result = await updateMilestone(1, {
+      const result = await updateMilestone(100, 1, {
         moveBooks: [{ bookId: 2, targetMilestoneId: 3 }],
       });
 
@@ -178,28 +182,28 @@ describe('milestones service', () => {
   });
 
   describe('passthrough reads and deletes', () => {
-    it('getMilestones should call repo', async () => {
+    it('listMilestonesForProject should call repo', async () => {
       const mockResult = [{ id: 1 }] as any;
-      vi.mocked(repo.getMilestonesByProjectId).mockResolvedValue(mockResult);
+      vi.mocked(repo.listByProjectId).mockResolvedValue(mockResult);
 
-      const result = await getMilestones(100);
-      expect(repo.getMilestonesByProjectId).toHaveBeenCalledWith(100);
+      const result = await listMilestonesForProject(100);
+      expect(repo.listByProjectId).toHaveBeenCalledWith(100);
       expect(result).toEqual(ok(mockResult));
     });
 
     it('getMilestone should call repo', async () => {
       const mockResult = { id: 1 } as any;
-      vi.mocked(repo.getMilestoneById).mockResolvedValue(mockResult);
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockResult);
 
-      const result = await getMilestone(1);
-      expect(repo.getMilestoneById).toHaveBeenCalledWith(1);
+      const result = await getMilestone(100, 1);
+      expect(repo.getByIdForProject).toHaveBeenCalledWith(100, 1);
       expect(result).toEqual(ok(mockResult));
     });
 
     it('getMilestone should return NOT_FOUND if missing', async () => {
-      vi.mocked(repo.getMilestoneById).mockResolvedValue(undefined as any);
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(undefined as any);
 
-      const result = await getMilestone(1);
+      const result = await getMilestone(100, 1);
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.NOT_FOUND);
@@ -207,9 +211,10 @@ describe('milestones service', () => {
     });
 
     it('deleteMilestone should call repo', async () => {
+      vi.mocked(repo.getByIdForProject).mockResolvedValue({ id: 1 } as any);
       vi.mocked(repo.deleteMilestoneRecord).mockResolvedValue(undefined);
 
-      const result = await deleteMilestone(1);
+      const result = await deleteMilestone(100, 1);
       expect(repo.deleteMilestoneRecord).toHaveBeenCalledWith(1);
       expect(result).toEqual(ok(undefined));
     });

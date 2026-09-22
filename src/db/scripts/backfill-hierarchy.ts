@@ -68,15 +68,11 @@ async function backfill() {
     let updatedUnits = 0;
     for (const unit of allUnits) {
       if (!unit.unitName || unit.unitName === '') {
-        const metadata = unit.metadata as Record<string, any> | null;
-        const profile = metadata?.connectivityProfile || null;
-
         await tx
           .update(project_units)
           .set({
             name: unit.projectName,
             type: 'text', // default to text
-            connectivityProfile: profile,
           })
           .where(eq(project_units.id, unit.unitId));
         updatedUnits++;

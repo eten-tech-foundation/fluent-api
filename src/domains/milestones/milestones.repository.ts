@@ -7,17 +7,19 @@ import {
   bible_books,
   bible_texts,
   chapter_assignments,
+  chapterStatusEnum,
   project_unit_bible_books,
   project_units,
+  projects,
   translated_verses,
   verse_audio_recordings,
 } from '@/db/schema';
 
-import type { CreateMilestoneInput, UpdateMilestoneInput } from './milestones.types';
+import type { CreateMilestoneInput, MilestoneRow, UpdateMilestoneInput } from './milestones.types';
 
 export async function insertMilestoneRecord(
   projectId: number,
-  input: Omit<CreateMilestoneInput, 'bibleId' | 'bookIds'>,
+  input: Omit<CreateMilestoneInput, 'bookIds'>,
   tx: DbTransaction
 ) {
   const [milestone] = await tx
@@ -48,32 +50,87 @@ export async function getValidBookIdsForBible(bibleId: number, requestedBookIds:
   return requestedBookIds.filter((id) => validBookIdSet.has(id));
 }
 
-export async function getMilestonesByProjectId(projectId: number) {
-  const rows = await db
+function milestoneSelect(conn: typeof db | DbTransaction = db) {
+  return conn
     .select({
-      milestone: project_units,
+      id: project_units.id,
+      name: project_units.name,
+      status: project_units.status,
+      type: project_units.type,
+      projectId: project_units.projectId,
+      projectName: projects.name,
+      milestoneCount: sql<number>`(
+        SELECT count(*)::int FROM project_units pu
+        WHERE pu.project_id = project_units.project_id
+      )`.as('milestone_count'),
       bookCount: sql<number>`(
         SELECT count(*)::int FROM project_unit_bible_books
         WHERE project_unit_id = project_units.id
       )`.as('book_count'),
-      chapterStatusCounts: sql<Record<string, number>>`(
+      bookIds: sql<number[]>`COALESCE((
+        SELECT array_agg(book_id)
+        FROM project_unit_bible_books
+        WHERE project_unit_id = project_units.id
+      ), ARRAY[]::integer[])`.as('book_ids'),
+      chapterStatusCounts: sql<Record<string, number>>`COALESCE((
         SELECT jsonb_object_agg(chapter_status, count) FROM (
           SELECT chapter_status, count(*) as count FROM chapter_assignments
           WHERE project_unit_id = project_units.id
           GROUP BY chapter_status
         ) t
-      )`.as('counts'),
+      ), '{}'::jsonb)`.as('counts'),
+      updatedAt: project_units.updatedAt,
     })
     .from(project_units)
-    .where(eq(project_units.projectId, projectId));
-
-  return rows.map((row) => ({
-    ...row.milestone,
-    bookCount: row.bookCount ?? 0,
-    chapterStatusCounts: row.chapterStatusCounts ?? {},
-  }));
+    .innerJoin(projects, eq(projects.id, project_units.projectId));
 }
 
+function mapRow(row: any): MilestoneRow {
+  const defaultCounts = chapterStatusEnum.enumValues.reduce(
+    (acc, status) => {
+      acc[status] = 0;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
+  return {
+    ...row,
+    bookCount: row.bookCount ?? 0,
+    bookIds: row.bookIds ?? [],
+    chapterStatusCounts: {
+      ...defaultCounts,
+      ...(row.chapterStatusCounts || {}),
+    },
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+export async function listByProjectId(projectId: number): Promise<MilestoneRow[]> {
+  const rows = await milestoneSelect().where(eq(project_units.projectId, projectId));
+  return rows.map(mapRow);
+}
+
+export async function listByProjectIds(projectIds: number[]): Promise<MilestoneRow[]> {
+  if (projectIds.length === 0) return [];
+  const rows = await milestoneSelect().where(inArray(project_units.projectId, projectIds));
+  return rows.map(mapRow);
+}
+
+export async function getByIdForProject(
+  projectId: number,
+  milestoneId: number,
+  tx?: DbTransaction
+): Promise<MilestoneRow | null> {
+  const conn = tx ?? db;
+  const rows = await milestoneSelect(conn).where(
+    and(eq(project_units.id, milestoneId), eq(project_units.projectId, projectId))
+  );
+  if (rows.length === 0) return null;
+  return mapRow(rows[0]);
+}
+
+// Keep getMilestoneById for internal checks where only ID is known
 export async function getMilestoneById(id: number, tx?: DbTransaction) {
   const conn = tx ?? db;
   const [milestone] = await conn.select().from(project_units).where(eq(project_units.id, id));
@@ -82,7 +139,7 @@ export async function getMilestoneById(id: number, tx?: DbTransaction) {
 
 export async function updateMilestoneRecord(
   id: number,
-  input: Omit<UpdateMilestoneInput, 'moveBooks'>,
+  input: Omit<UpdateMilestoneInput, 'moveBooks' | 'bibleId' | 'addBooks' | 'removeBooks'>,
   tx: DbTransaction
 ) {
   const updateData: Partial<typeof project_units.$inferInsert> = {};
@@ -91,7 +148,7 @@ export async function updateMilestoneRecord(
   if (input.status !== undefined) updateData.status = input.status;
 
   if (Object.keys(updateData).length === 0) {
-    return await getMilestoneById(id, tx); // no-op update
+    return await getMilestoneById(id, tx);
   }
 
   const [milestone] = await tx
@@ -119,6 +176,7 @@ export async function deleteBibleBookLinks(
   tx?: DbTransaction
 ) {
   const conn = tx ?? db;
+  if (bookIds.length === 0) return;
   await conn
     .delete(project_unit_bible_books)
     .where(
@@ -186,11 +244,6 @@ export async function moveBookToMilestone(
     );
 }
 
-/**
- * Delete translated_verses and verse_audio_recordings for a set of books
- * being removed from a milestone. Uses a subquery through bible_texts to
- * find the relevant bible_text IDs by bookId.
- */
 export async function deleteTranslatedDataForBooks(
   projectUnitId: number,
   bookIds: number[],

@@ -10,16 +10,17 @@ import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateMilestoneInput, Milestone, UpdateMilestoneInput } from './milestones.types';
+import type { CreateMilestoneInput, MilestoneRow, UpdateMilestoneInput } from './milestones.types';
 
 import * as repo from './milestones.repository';
 
 export async function createMilestone(
   projectId: number,
+  sourceBibleId: number,
   input: CreateMilestoneInput
-): Promise<Result<Milestone>> {
+): Promise<Result<MilestoneRow>> {
   try {
-    const validBookIds = await repo.getValidBookIdsForBible(input.bibleId, input.bookIds);
+    const validBookIds = await repo.getValidBookIdsForBible(sourceBibleId, input.bookIds);
     if (validBookIds.length !== input.bookIds.length) {
       return err(ErrorCode.INVALID_BIBLE_BOOKS);
     }
@@ -37,7 +38,7 @@ export async function createMilestone(
 
       const links = input.bookIds.map((bookId) => ({
         projectUnitId: milestone.id,
-        bibleId: input.bibleId,
+        bibleId: sourceBibleId,
         bookId,
       }));
       await repo.insertBibleBookLinks(links, tx);
@@ -45,7 +46,7 @@ export async function createMilestone(
       const chapterAssignmentsResult =
         await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
           milestone.id,
-          input.bibleId,
+          sourceBibleId,
           input.bookIds,
           tx
         );
@@ -67,14 +68,19 @@ export async function createMilestone(
       if (boss) {
         for (const book of bookRecords) {
           try {
-            await boss.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
-              bibleId: input.bibleId,
-              bookCode: book.code,
-            });
+            await boss.send(
+              QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+              {
+                bibleId: sourceBibleId,
+                bookCode: book.code,
+                projectUnitId: result.id,
+              },
+              { priority: 10 }
+            );
           } catch (e) {
             logger.error({
               message: 'Failed to enqueue DBL ingest job',
-              context: { bibleId: input.bibleId, bookCode: book.code, error: e },
+              context: { bibleId: sourceBibleId, bookCode: book.code, error: e },
             });
           }
         }
@@ -82,11 +88,14 @@ export async function createMilestone(
     } else {
       logger.warn({
         message: 'No valid books found for Bible, skipping text ingestion',
-        context: { bibleId: input.bibleId },
+        context: { bibleId: sourceBibleId },
       });
     }
 
-    return ok(result);
+    const enrichedMilestone = await repo.getByIdForProject(projectId, result.id);
+    if (!enrichedMilestone) return err(ErrorCode.NOT_FOUND);
+
+    return ok(enrichedMilestone);
   } catch (error) {
     logger.error({
       cause: error,
@@ -97,44 +106,57 @@ export async function createMilestone(
   }
 }
 
-export async function getMilestones(projectId: number): Promise<Result<Milestone[]>> {
-  const milestones = await repo.getMilestonesByProjectId(projectId);
+export async function listMilestonesForProject(projectId: number): Promise<Result<MilestoneRow[]>> {
+  const milestones = await repo.listByProjectId(projectId);
   return ok(milestones);
 }
 
-export async function getMilestone(id: number): Promise<Result<Milestone>> {
-  const milestone = await repo.getMilestoneById(id);
+export async function listMilestonesForProjects(
+  projectIds: number[]
+): Promise<Result<MilestoneRow[]>> {
+  const milestones = await repo.listByProjectIds(projectIds);
+  return ok(milestones);
+}
+
+export async function getMilestone(
+  projectId: number,
+  milestoneId: number
+): Promise<Result<MilestoneRow>> {
+  const milestone = await repo.getByIdForProject(projectId, milestoneId);
   if (!milestone) return err(ErrorCode.NOT_FOUND);
   return ok(milestone);
 }
 
 export async function updateMilestone(
-  id: number,
+  projectId: number,
+  milestoneId: number,
   input: UpdateMilestoneInput
-): Promise<Result<Milestone>> {
+): Promise<Result<MilestoneRow>> {
   try {
+    const existing = await repo.getByIdForProject(projectId, milestoneId);
+    if (!existing) return err(ErrorCode.NOT_FOUND);
+
     const { moveBooks, addBooks, removeBooks, bibleId, ...updates } = input;
 
     if (addBooks && addBooks.length > 0 && !bibleId) {
       return err(ErrorCode.VALIDATION_ERROR);
     }
 
-    const result = await db.transaction(async (tx) => {
-      const milestone = await repo.updateMilestoneRecord(id, updates, tx);
-      if (!milestone) throw new Error('MILESTONE_NOT_FOUND');
+    await db.transaction(async (tx) => {
+      await repo.updateMilestoneRecord(milestoneId, updates, tx);
 
       if (moveBooks && moveBooks.length > 0) {
         // Authorization: verify all target milestones belong to the same project
         for (const move of moveBooks) {
           const targetMilestone = await repo.getMilestoneById(move.targetMilestoneId, tx);
-          if (!targetMilestone || targetMilestone.projectId !== milestone.projectId) {
+          if (!targetMilestone || targetMilestone.projectId !== projectId) {
             throw new Error('CROSS_PROJECT_MOVE');
           }
         }
 
         await Promise.all(
           moveBooks.map((move) =>
-            repo.moveBookToMilestone(move.bookId, id, move.targetMilestoneId, tx)
+            repo.moveBookToMilestone(move.bookId, milestoneId, move.targetMilestoneId, tx)
           )
         );
       }
@@ -146,7 +168,7 @@ export async function updateMilestone(
         }
 
         const links = addBooks.map((bookId) => ({
-          projectUnitId: id,
+          projectUnitId: milestoneId,
           bibleId,
           bookId,
         }));
@@ -154,7 +176,7 @@ export async function updateMilestone(
 
         const chapterAssignmentsResult =
           await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-            id,
+            milestoneId,
             bibleId,
             addBooks,
             tx
@@ -166,36 +188,41 @@ export async function updateMilestone(
 
       if (removeBooks && removeBooks.length > 0) {
         // Cascade: also remove translated data (verses, audio) for these books
-        await repo.deleteTranslatedDataForBooks(id, removeBooks, tx);
-        await repo.deleteBibleBookLinks(id, removeBooks, tx);
-        await chapterAssignmentsRepo.deleteByProjectUnitAndBooks(id, removeBooks, tx);
+        await repo.deleteTranslatedDataForBooks(milestoneId, removeBooks, tx);
+        await repo.deleteBibleBookLinks(milestoneId, removeBooks, tx);
+        await chapterAssignmentsRepo.deleteByProjectUnitAndBooks(milestoneId, removeBooks, tx);
       }
-
-      return milestone;
     });
 
-    return ok(result);
+    const updated = await repo.getByIdForProject(projectId, milestoneId);
+    if (!updated) return err(ErrorCode.NOT_FOUND);
+    return ok(updated);
   } catch (error: any) {
-    if (error.message === 'MILESTONE_NOT_FOUND') return err(ErrorCode.NOT_FOUND);
     if (error.message === 'CROSS_PROJECT_MOVE') return err(ErrorCode.FORBIDDEN);
     logger.error({
       cause: error,
       message: 'Failed to update milestone',
-      context: { id },
+      context: { milestoneId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
 
-export async function deleteMilestone(id: number): Promise<Result<void>> {
+export async function deleteMilestone(
+  projectId: number,
+  milestoneId: number
+): Promise<Result<void>> {
   try {
-    await repo.deleteMilestoneRecord(id);
+    const existing = await repo.getByIdForProject(projectId, milestoneId);
+    if (!existing) return err(ErrorCode.NOT_FOUND);
+
+    await repo.deleteMilestoneRecord(milestoneId);
     return ok(undefined);
   } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to delete milestone',
-      context: { id },
+      context: { milestoneId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
