@@ -83,6 +83,8 @@ export const ErrorCode = {
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
   // Aquifer (translation resources) upstream errors → HTTP 502
   AQUIFER_SERVICE_UNAVAILABLE: 'AQUIFER_SERVICE_UNAVAILABLE',
+  // YouVersion (Bible text for the Reference column) upstream errors → HTTP 502
+  YOUVERSION_SERVICE_UNAVAILABLE: 'YOUVERSION_SERVICE_UNAVAILABLE',
   // DBL upstream errors
   DBL_SERVICE_UNAVAILABLE: 'DBL_SERVICE_UNAVAILABLE',
   DBL_NOT_CONFIGURED: 'DBL_NOT_CONFIGURED',
@@ -134,6 +136,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
   AQUIFER_SERVICE_UNAVAILABLE: 'Aquifer service is unavailable',
+  YOUVERSION_SERVICE_UNAVAILABLE: 'YouVersion service is unavailable',
   DBL_SERVICE_UNAVAILABLE: 'DBL API is unavailable',
   DBL_NOT_CONFIGURED: 'DBL API key is not configured',
   LANGUAGE_NOT_FOUND: 'Language not found',
@@ -150,6 +153,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
   AQUIFER_SERVICE_UNAVAILABLE: 502,
+  YOUVERSION_SERVICE_UNAVAILABLE: 502,
   DBL_SERVICE_UNAVAILABLE: 502,
   DBL_NOT_CONFIGURED: 503,
   LANGUAGE_NOT_FOUND: 404,
