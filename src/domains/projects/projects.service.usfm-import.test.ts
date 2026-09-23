@@ -139,7 +139,7 @@ describe('createProject from USFM files (#419)', () => {
     );
   });
 
-  it('materializes imports when another worker completes during the queue decision', async () => {
+  it('materializes completed imports without an available queue', async () => {
     let sourceComplete = false;
     vi.mocked(db.select).mockReturnValueOnce({
       from: vi.fn().mockReturnValue({
@@ -156,12 +156,12 @@ describe('createProject from USFM files (#419)', () => {
     vi.mocked(usfmImportService.materializePendingUsfmImports).mockImplementationOnce(async () =>
       ok({ materialized: sourceComplete ? 2 : 0, pending: sourceComplete ? 0 : 2 })
     );
-    const send = vi.fn();
-    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+    vi.mocked(getQueue).mockRejectedValue(new Error('queue unavailable'));
 
-    await createProject({ ...BASE, usfmFiles: FILES });
+    const result = await createProject({ ...BASE, usfmFiles: FILES });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(result).toEqual(ok({ id: 500 }));
+    expect(getQueue).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Imported USFM materialised at project creation', {
       projectId: 500,
       materialized: 2,

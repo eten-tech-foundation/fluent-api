@@ -184,8 +184,6 @@ export async function createProject(
       // rolling the creation back lets the caller retry instead of owning a project whose
       // verses can never arrive.
       try {
-        const queue = await getQueue();
-
         // Imported verses need a complete source book, including when another project is
         // still ingesting it. Preserve the existing queue policy for blank projects.
         const ingestedBooks = importedFiles
@@ -226,6 +224,7 @@ export async function createProject(
 
         // Enqueue priority ingestion for the exact requested books
         if (priorityBookCodes.length > 0) {
+          const queue = await getQueue();
           await queue.send(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
             {
