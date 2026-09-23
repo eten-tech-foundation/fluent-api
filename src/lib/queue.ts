@@ -12,12 +12,18 @@ export const QUEUE_NAMES = {
   AI_SUGGESTIONS: 'ai-suggestions',
   DBL_INGEST_TEXT: 'dbl-ingest-text',
   DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
+  USFM_IMPORT_MATERIALIZE: 'usfm-import-materialize',
 } as const;
 
 export interface DblIngestTextJob {
   projectId: number;
   bibleId: number;
   bookCodes: string[];
+}
+
+export interface UsfmImportMaterializeJob {
+  bibleId: number;
+  bookId: number;
 }
 
 export interface USFMExportJob {
