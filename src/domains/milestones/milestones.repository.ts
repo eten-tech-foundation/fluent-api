@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { DbTransaction } from '@/lib/types';
 
@@ -50,6 +50,25 @@ export async function getValidBookIdsForBible(bibleId: number, requestedBookIds:
   return requestedBookIds.filter((id) => validBookIdSet.has(id));
 }
 
+export async function getExistingBookAssignmentsForProject(
+  projectId: number,
+  bookIds: number[],
+  tx: typeof db | DbTransaction = db
+) {
+  if (bookIds.length === 0) return [];
+  return tx
+    .select({
+      bookId: project_unit_bible_books.bookId,
+      projectUnitId: project_unit_bible_books.projectUnitId,
+      deletedAt: project_unit_bible_books.deletedAt,
+    })
+    .from(project_unit_bible_books)
+    .innerJoin(project_units, eq(project_units.id, project_unit_bible_books.projectUnitId))
+    .where(
+      and(eq(project_units.projectId, projectId), inArray(project_unit_bible_books.bookId, bookIds))
+    );
+}
+
 function milestoneSelect(conn: typeof db | DbTransaction = db) {
   return conn
     .select({
@@ -65,18 +84,19 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
       )`.as('milestone_count'),
       bookCount: sql<number>`(
         SELECT count(*)::int FROM project_unit_bible_books
-        WHERE project_unit_id = project_units.id
+        WHERE project_unit_id = project_units.id AND deleted_at IS NULL
       )`.as('book_count'),
       bookIds: sql<number[]>`COALESCE((
         SELECT array_agg(book_id)
         FROM project_unit_bible_books
-        WHERE project_unit_id = project_units.id
+        WHERE project_unit_id = project_units.id AND deleted_at IS NULL
       ), ARRAY[]::integer[])`.as('book_ids'),
       chapterStatusCounts: sql<Record<string, number>>`COALESCE((
         SELECT jsonb_object_agg(chapter_status, count) FROM (
-          SELECT chapter_status, count(*) as count FROM chapter_assignments
-          WHERE project_unit_id = project_units.id
-          GROUP BY chapter_status
+          SELECT ca.chapter_status, count(*) as count FROM chapter_assignments ca
+          INNER JOIN project_unit_bible_books pubb ON pubb.project_unit_id = ca.project_unit_id AND pubb.book_id = ca.book_id
+          WHERE ca.project_unit_id = project_units.id AND pubb.deleted_at IS NULL
+          GROUP BY ca.chapter_status
         ) t
       ), '{}'::jsonb)`.as('counts'),
       updatedAt: project_units.updatedAt,
@@ -167,7 +187,12 @@ export async function getBooksForMilestone(milestoneId: number) {
   return await db
     .select()
     .from(project_unit_bible_books)
-    .where(eq(project_unit_bible_books.projectUnitId, milestoneId));
+    .where(
+      and(
+        eq(project_unit_bible_books.projectUnitId, milestoneId),
+        isNull(project_unit_bible_books.deletedAt)
+      )
+    );
 }
 
 export async function deleteBibleBookLinks(
@@ -178,7 +203,8 @@ export async function deleteBibleBookLinks(
   const conn = tx ?? db;
   if (bookIds.length === 0) return;
   await conn
-    .delete(project_unit_bible_books)
+    .update(project_unit_bible_books)
+    .set({ deletedAt: new Date() })
     .where(
       and(
         eq(project_unit_bible_books.projectUnitId, projectUnitId),
@@ -196,7 +222,7 @@ export async function moveBookToMilestone(
   // 1. Move the bible book link
   await tx
     .update(project_unit_bible_books)
-    .set({ projectUnitId: targetMilestoneId })
+    .set({ projectUnitId: targetMilestoneId, deletedAt: null })
     .where(
       and(
         eq(project_unit_bible_books.projectUnitId, currentMilestoneId),

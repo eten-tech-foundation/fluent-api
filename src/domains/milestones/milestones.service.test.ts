@@ -43,6 +43,7 @@ vi.mock('./milestones.repository', () => ({
   updateMilestoneRecord: vi.fn(),
   moveBookToMilestone: vi.fn(),
   deleteMilestoneRecord: vi.fn(),
+  getExistingBookAssignmentsForProject: vi.fn(),
 }));
 
 vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
@@ -79,6 +80,7 @@ describe('milestones service', () => {
       vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
       vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
       vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
         ok([])
       );
@@ -128,6 +130,7 @@ describe('milestones service', () => {
 
       vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
       vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
 
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
         err(ErrorCode.INTERNAL_ERROR)
@@ -147,8 +150,9 @@ describe('milestones service', () => {
       const mockUpdatedMilestone = { id: 1, name: 'Updated' } as any;
       vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
 
-      const result = await updateMilestone(100, 1, { name: 'Updated' });
+      const result = await updateMilestone(100, 1, { name: 'Updated' }, null);
 
       expect(repo.updateMilestoneRecord).toHaveBeenCalledWith(1, { name: 'Updated' }, mockTx);
       expect(result).toEqual(ok(mockUpdatedMilestone));
@@ -157,7 +161,7 @@ describe('milestones service', () => {
     it('should return NOT_FOUND if milestone record does not exist', async () => {
       vi.mocked(repo.getByIdForProject).mockResolvedValue(undefined as any);
 
-      const result = await updateMilestone(100, 999, { name: 'Updated' });
+      const result = await updateMilestone(100, 999, { name: 'Updated' }, null);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -169,12 +173,18 @@ describe('milestones service', () => {
       const mockUpdatedMilestone = { id: 1, projectId: 100, name: 'Updated' } as any;
       vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
       vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 100 } as any);
       vi.mocked(repo.moveBookToMilestone).mockResolvedValue(undefined);
 
-      const result = await updateMilestone(100, 1, {
-        moveBooks: [{ bookId: 2, targetMilestoneId: 3 }],
-      });
+      const result = await updateMilestone(
+        100,
+        1,
+        {
+          moveBooks: [{ bookId: 2, targetMilestoneId: 3 }],
+        },
+        null
+      );
 
       expect(repo.moveBookToMilestone).toHaveBeenCalledWith(2, 1, 3, mockTx);
       expect(result).toEqual(ok(mockUpdatedMilestone));

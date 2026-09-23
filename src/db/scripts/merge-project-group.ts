@@ -84,28 +84,33 @@ export async function mergeProjectGroup(
       `  Merging Project ID ${dup.id} ("${dup.name}") into Master ID ${master.id} ("${master.name}")`
     );
 
-    // Queue this duplicate's milestone entry (audit trail in master.metadata,
-    // written in one update at the end) and compute the label used to rename
-    // its project_units row(s) below.
-    const milestoneName = `Milestone ${milestones.length + 1}`;
-    milestones.push({
-      name: milestoneName,
-      originalName: dup.name,
-      sourceProjectId: dup.id,
-      metadata: dup.metadata ?? null,
-      mergedAt: new Date().toISOString(),
-    });
+    // 1. Move project_units to master, giving each unit its own milestone
+    // label and its own audit-trail entry in master.metadata.
+    const dupUnits = await tx
+      .select()
+      .from(project_units)
+      .where(eq(project_units.projectId, dup.id));
 
-    // 1. Move project_units to master, renaming them to the milestone label.
-    if (!isDryRun) {
-      await tx
-        .update(project_units)
-        .set({ projectId: master.id, name: milestoneName })
-        .where(eq(project_units.projectId, dup.id));
-    } else {
-      console.log(
-        `    [DRY RUN] Would move unit(s) of Project ${dup.id} to master ${master.id}, renamed to "${milestoneName}"`
-      );
+    for (const unit of dupUnits) {
+      const milestoneName = `Milestone ${milestones.length + 1}`;
+      milestones.push({
+        name: milestoneName,
+        originalName: dup.name,
+        sourceProjectId: dup.id,
+        metadata: dup.metadata ?? null,
+        mergedAt: new Date().toISOString(),
+      });
+
+      if (!isDryRun) {
+        await tx
+          .update(project_units)
+          .set({ projectId: master.id, name: milestoneName })
+          .where(eq(project_units.id, unit.id));
+      } else {
+        console.log(
+          `    [DRY RUN] Would move unit "${unit.name}" of Project ${dup.id} to master ${master.id}, renamed to "${milestoneName}"`
+        );
+      }
     }
 
     // 2. Move user_roles to master, avoiding duplicates

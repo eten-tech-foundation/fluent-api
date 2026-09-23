@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -52,6 +52,7 @@ export async function validateBookIds(
       .where(
         and(
           eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt),
           inArray(project_unit_bible_books.bookId, bookIds)
         )
       );
@@ -88,6 +89,7 @@ export async function getProjectBooks(
       .where(
         and(
           eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt),
           ...(bookIds?.length ? [inArray(project_unit_bible_books.bookId, bookIds)] : [])
         )
       )
@@ -135,7 +137,8 @@ export async function getBookVerses(
           and(
             eq(project_unit_bible_books.bookId, bible_texts.bookId),
             eq(project_unit_bible_books.bibleId, bible_texts.bibleId),
-            eq(project_unit_bible_books.projectUnitId, projectUnitId)
+            eq(project_unit_bible_books.projectUnitId, projectUnitId),
+            isNull(project_unit_bible_books.deletedAt)
           )
         )
         .leftJoin(
@@ -205,7 +208,12 @@ export async function getAvailableBooksForExport(projectUnitId: number) {
           eq(translated_verses.projectUnitId, projectUnitId)
         )
       )
-      .where(eq(project_unit_bible_books.projectUnitId, projectUnitId))
+      .where(
+        and(
+          eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt)
+        )
+      )
       .groupBy(project_unit_bible_books.bookId, books.code, books.eng_display_name)
       .orderBy(asc(project_unit_bible_books.bookId));
 

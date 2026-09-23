@@ -146,12 +146,18 @@ const updateMilestoneRoute = createRoute({
 server.openapi(updateMilestoneRoute, async (c) => {
   const { projectId, milestoneId } = c.req.valid('param');
   const updates = c.req.valid('json');
+  const project = c.get('project')!;
 
   if (Object.keys(updates).length === 0) {
     return c.json({ message: 'Empty update body' }, HttpStatusCodes.UNPROCESSABLE_ENTITY);
   }
 
-  const result = await milestonesService.updateMilestone(projectId, milestoneId, updates);
+  const result = await milestonesService.updateMilestone(
+    projectId,
+    milestoneId,
+    updates,
+    project.sourceBibleId
+  );
   if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
@@ -165,7 +171,7 @@ const deleteMilestoneRoute = createRoute({
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.PROJECT_UPDATE),
-    requireProjectAccess(PROJECT_ACTIONS.DELETE, 'projectId'),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
   ] as const,
   summary: 'Delete a milestone',
   request: { params: milestonePathParamsSchema },

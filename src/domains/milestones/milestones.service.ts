@@ -4,7 +4,6 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { books } from '@/db/schema';
-import * as chapterAssignmentsRepo from '@/domains/chapter-assignments/chapter-assignments.repository';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
@@ -36,31 +35,57 @@ export async function createMilestone(
         tx
       );
 
-      const links = input.bookIds.map((bookId) => ({
-        projectUnitId: milestone.id,
-        bibleId: sourceBibleId,
-        bookId,
-      }));
-      await repo.insertBibleBookLinks(links, tx);
+      const existingAssignments = await repo.getExistingBookAssignmentsForProject(
+        projectId,
+        input.bookIds,
+        tx
+      );
+      const existingBookIds = new Set(existingAssignments.map((a) => a.bookId));
 
-      const chapterAssignmentsResult =
-        await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-          milestone.id,
-          sourceBibleId,
-          input.bookIds,
-          tx
-        );
+      const newBooks = input.bookIds.filter((id) => !existingBookIds.has(id));
 
-      if (!chapterAssignmentsResult.ok) {
-        throw new Error('Failed to create chapter assignments');
+      if (newBooks.length > 0) {
+        const links = newBooks.map((bookId) => ({
+          projectUnitId: milestone.id,
+          bibleId: sourceBibleId,
+          bookId,
+        }));
+        await repo.insertBibleBookLinks(links, tx);
       }
 
-      return milestone;
+      if (existingAssignments.length > 0) {
+        await Promise.all(
+          existingAssignments.map((assignment) =>
+            repo.moveBookToMilestone(assignment.bookId, assignment.projectUnitId, milestone.id, tx)
+          )
+        );
+      }
+
+      let booksToIngest: number[] = [];
+      if (newBooks.length > 0) {
+        const chapterAssignmentsResult =
+          await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
+            milestone.id,
+            sourceBibleId,
+            newBooks,
+            tx
+          );
+
+        if (!chapterAssignmentsResult.ok) {
+          throw new Error('Failed to create chapter assignments');
+        }
+
+        if (chapterAssignmentsResult.data.length === 0) {
+          booksToIngest = newBooks;
+        }
+      }
+
+      return { milestone, booksToIngest };
     });
 
-    if (validBookIds.length > 0) {
+    if (result.booksToIngest.length > 0) {
       const bookRecords = await db.query.books.findMany({
-        where: inArray(books.id, validBookIds),
+        where: inArray(books.id, result.booksToIngest),
         columns: { code: true },
       });
 
@@ -72,8 +97,8 @@ export async function createMilestone(
               QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
               {
                 bibleId: sourceBibleId,
-                bookCode: book.code,
-                projectUnitId: result.id,
+                bookCodes: [book.code],
+                projectUnitId: result.milestone.id,
               },
               { priority: 10 }
             );
@@ -92,7 +117,7 @@ export async function createMilestone(
       });
     }
 
-    const enrichedMilestone = await repo.getByIdForProject(projectId, result.id);
+    const enrichedMilestone = await repo.getByIdForProject(projectId, result.milestone.id);
     if (!enrichedMilestone) return err(ErrorCode.NOT_FOUND);
 
     return ok(enrichedMilestone);
@@ -130,7 +155,8 @@ export async function getMilestone(
 export async function updateMilestone(
   projectId: number,
   milestoneId: number,
-  input: UpdateMilestoneInput
+  input: UpdateMilestoneInput,
+  sourceBibleId: number | null
 ): Promise<Result<MilestoneRow>> {
   try {
     const existing = await repo.getByIdForProject(projectId, milestoneId);
@@ -138,9 +164,11 @@ export async function updateMilestone(
 
     const { moveBooks, addBooks, removeBooks, bibleId, ...updates } = input;
 
-    if (addBooks && addBooks.length > 0 && !bibleId) {
+    if (addBooks && addBooks.length > 0 && (!bibleId || bibleId !== sourceBibleId)) {
       return err(ErrorCode.VALIDATION_ERROR);
     }
+
+    let enqueueBooksForIngestion: { id: number; code: string }[] = [];
 
     await db.transaction(async (tx) => {
       await repo.updateMilestoneRecord(milestoneId, updates, tx);
@@ -167,32 +195,80 @@ export async function updateMilestone(
           throw new Error('Invalid bible books');
         }
 
-        const links = addBooks.map((bookId) => ({
-          projectUnitId: milestoneId,
-          bibleId,
-          bookId,
-        }));
-        await repo.insertBibleBookLinks(links, tx);
+        const existingAssignments = await repo.getExistingBookAssignmentsForProject(
+          projectId,
+          addBooks,
+          tx
+        );
+        const activeAssignments = existingAssignments.filter((a) => !a.deletedAt);
+        if (activeAssignments.length > 0) {
+          throw new Error('Books already assigned to another milestone');
+        }
 
-        const chapterAssignmentsResult =
-          await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
-            milestoneId,
-            bibleId,
-            addBooks,
-            tx
+        const softDeletedAssignments = existingAssignments.filter((a) => a.deletedAt);
+        const softDeletedBookIds = new Set(softDeletedAssignments.map((a) => a.bookId));
+
+        // Restore soft-deleted books by moving them to the current milestone
+        if (softDeletedAssignments.length > 0) {
+          await Promise.all(
+            softDeletedAssignments.map((assignment) =>
+              repo.moveBookToMilestone(assignment.bookId, assignment.projectUnitId, milestoneId, tx)
+            )
           );
-        if (!chapterAssignmentsResult.ok) {
-          throw new Error('Failed to create chapter assignments');
+        }
+
+        const trulyNewBooks = addBooks.filter((id) => !softDeletedBookIds.has(id));
+
+        if (trulyNewBooks.length > 0) {
+          const links = trulyNewBooks.map((bookId) => ({
+            projectUnitId: milestoneId,
+            bibleId,
+            bookId,
+          }));
+          await repo.insertBibleBookLinks(links, tx);
+
+          const chapterAssignmentsResult =
+            await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
+              milestoneId,
+              bibleId,
+              trulyNewBooks,
+              tx
+            );
+          if (!chapterAssignmentsResult.ok) {
+            throw new Error('Failed to create chapter assignments');
+          }
+
+          if (chapterAssignmentsResult.data.length === 0) {
+            enqueueBooksForIngestion = await db.query.books.findMany({
+              where: inArray(books.id, trulyNewBooks),
+              columns: { code: true, id: true },
+            });
+          }
         }
       }
 
       if (removeBooks && removeBooks.length > 0) {
-        // Cascade: also remove translated data (verses, audio) for these books
-        await repo.deleteTranslatedDataForBooks(milestoneId, removeBooks, tx);
+        // Soft delete the book links, retaining translated data and chapter assignments
         await repo.deleteBibleBookLinks(milestoneId, removeBooks, tx);
-        await chapterAssignmentsRepo.deleteByProjectUnitAndBooks(milestoneId, removeBooks, tx);
       }
     });
+
+    if (enqueueBooksForIngestion.length > 0 && sourceBibleId) {
+      const boss = await getQueue();
+      if (boss) {
+        for (const book of enqueueBooksForIngestion) {
+          await boss.send(
+            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+            {
+              bibleId: sourceBibleId,
+              bookCodes: [book.code],
+              projectUnitId: milestoneId,
+            },
+            { priority: 10 }
+          );
+        }
+      }
+    }
 
     const updated = await repo.getByIdForProject(projectId, milestoneId);
     if (!updated) return err(ErrorCode.NOT_FOUND);

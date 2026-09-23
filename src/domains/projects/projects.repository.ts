@@ -297,6 +297,6 @@ export async function countUnitsByProjectId(
 
 export async function lockProjectById(id: number, tx: DbTransaction): Promise<boolean> {
   // Use a raw SQL query since Drizzle doesn't have a first-class FOR UPDATE yet without trickery
-  const res = await tx.execute(sql`SELECT id FROM ${projects} WHERE id = ${id} FOR UPDATE`);
-  return (res as any).rows.length > 0;
+  const rows = await tx.execute(sql`SELECT id FROM ${projects} WHERE id = ${id} FOR UPDATE`);
+  return (rows as any[]).length > 0;
 }

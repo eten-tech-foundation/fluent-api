@@ -145,6 +145,36 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
  * Internal cross-domain function called during project-unit setup —
  * returns raw records since this is never sent directly to a client.
  */
+async function createChapterAssignmentForProjectUnitInTransaction(
+  projectUnitId: number,
+  bibleId: number,
+  bookIds: number[],
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord[]> {
+  const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
+  if (chapters.length === 0) return [];
+
+  const records = chapters.map((c) => ({
+    projectUnitId,
+    bibleId: c.bibleId,
+    bookId: c.bookId,
+    chapterNumber: c.chapterNumber,
+    assignedUserId: null as null,
+    peerCheckerId: null as null,
+  }));
+
+  const inserted = await repo.insertMany(records, tx);
+  if (inserted.length > 0) {
+    const historyRecords = inserted.map((a) => ({
+      chapterAssignmentId: a.id,
+      status: 'not_started' as ChapterAssignmentStatus,
+    }));
+    await repo.insertManyStatusHistory(tx, historyRecords);
+  }
+
+  return inserted;
+}
+
 export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
@@ -152,27 +182,21 @@ export async function createChapterAssignmentForProjectUnit(
   tx?: DbTransaction
 ) {
   try {
-    const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
-    if (chapters.length === 0) return ok([]);
-
-    const records = chapters.map((c) => ({
-      projectUnitId,
-      bibleId: c.bibleId,
-      bookId: c.bookId,
-      chapterNumber: c.chapterNumber,
-      assignedUserId: null as null,
-      peerCheckerId: null as null,
-    }));
-
-    const inserted = await repo.insertMany(records, tx);
-
-    if (inserted.length > 0 && tx) {
-      const historyRecords = inserted.map((a) => ({
-        chapterAssignmentId: a.id,
-        status: 'not_started' as ChapterAssignmentStatus,
-      }));
-      await repo.insertManyStatusHistory(tx, historyRecords);
-    }
+    const inserted = tx
+      ? await createChapterAssignmentForProjectUnitInTransaction(
+          projectUnitId,
+          bibleId,
+          bookIds,
+          tx
+        )
+      : await db.transaction((transaction) =>
+          createChapterAssignmentForProjectUnitInTransaction(
+            projectUnitId,
+            bibleId,
+            bookIds,
+            transaction
+          )
+        );
 
     return ok(inserted);
   } catch (error: any) {

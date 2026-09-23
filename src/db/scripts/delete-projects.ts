@@ -61,6 +61,8 @@ async function deleteProjects() {
 
   console.log(`\nAbout to permanently delete ${rows.length} project(s):\n`);
 
+  const initialCounts = new Map<number, { unitCount: number; roleCount: number }>();
+
   for (const proj of rows) {
     const [unitCount] = await db
       .select({ count: sql<number>`count(*)` })
@@ -76,6 +78,10 @@ async function deleteProjects() {
         `and ${roleCount.count} user role grant(s), plus everything under those units ` +
         `(verses, assignments, AI suggestions, audio recordings, etc.).`
     );
+    initialCounts.set(proj.id, {
+      unitCount: Number(unitCount.count),
+      roleCount: Number(roleCount.count),
+    });
   }
 
   if (isDryRun) {
@@ -98,12 +104,42 @@ async function deleteProjects() {
     }
   }
 
-  await db.delete(projects).where(
-    inArray(
-      projects.id,
-      rows.map((r) => r.id)
-    )
-  );
+  await db.transaction(async (tx) => {
+    // Lock the rows
+    const projectIds = rows.map((r) => sql`${r.id}`);
+    await tx.execute(
+      sql`SELECT id FROM ${projects} WHERE id IN (${sql.join(projectIds, sql`, `)}) FOR UPDATE`
+    );
+
+    // Recompute counts and abort if they differ
+    for (const proj of rows) {
+      const [unitCount] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(project_units)
+        .where(eq(project_units.projectId, proj.id));
+      const [roleCount] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(user_roles)
+        .where(eq(user_roles.projectId, proj.id));
+
+      const initial = initialCounts.get(proj.id)!;
+      if (
+        Number(unitCount.count) !== initial.unitCount ||
+        Number(roleCount.count) !== initial.roleCount
+      ) {
+        throw new Error(
+          `Concurrency error: Project ${proj.id} has had units or roles added since the preview. Aborting.`
+        );
+      }
+    }
+
+    await tx.delete(projects).where(
+      inArray(
+        projects.id,
+        rows.map((r) => r.id)
+      )
+    );
+  });
 
   console.log(`\nDeleted ${rows.length} project(s) and all cascaded data.`);
   process.exit(0);

@@ -352,6 +352,7 @@ export const project_unit_bible_books = pgTable(
     updatedAt: timestamp('updated_at')
       .defaultNow()
       .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at'),
   },
   (table) => [primaryKey({ columns: [table.projectUnitId, table.bookId] })]
 );

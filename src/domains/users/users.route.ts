@@ -569,7 +569,6 @@ server.openapi(updateActiveOrgRoute, async (c) => {
     return c.json(
       { message: 'User does not belong to this organization' },
       HttpStatusCodes.FORBIDDEN
-      // eslint-disable-next-line max-lines
     );
   }
 

@@ -14,12 +14,10 @@ export const QUEUE_NAMES = {
   DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
 } as const;
 
-export interface DblIngestTextJob {
-  projectId?: number; // legacy
-  projectUnitId?: number;
+export type DblIngestTextJob = {
   bibleId: number;
   bookCodes: string[];
-}
+} & ({ projectId: number; projectUnitId?: number } | { projectUnitId: number; projectId?: number });
 
 export interface USFMExportJob {
   projectUnitId: number;
