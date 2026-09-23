@@ -272,6 +272,11 @@ export async function createFeature(input: CreateFeatureInput): Promise<Feature>
 We use **Vitest** for testing. Tests are placed next to the code they test:
 
 - `src/handlers/task.handler.test.ts` - Handler tests
+- `*.test.ts` - Service and route tests with mocked repository boundaries
+- `*.integration.test.ts` - Database-backed tests with real repository SQL (including PGlite)
+
+See [Database-Backed Integration Tests](ARCHITECTURE.md#database-backed-integration-tests)
+for the connection substitution, schema, and fixture conventions.
 
 ### Test Utilities
 

@@ -9,6 +9,7 @@ import { db } from '../db';
 import { bible_books, bible_texts, project_units } from '../db/schema';
 import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
 import * as usfmImportService from '../domains/projects/usfm-import.service';
+import { ensureWorkerQueue } from '../lib/dead-letter-queues';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
 import { dblClient } from '../lib/services/dbl/dbl.client';
@@ -272,8 +273,8 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
   };
 
   // Register handler on both queues; priority queue processes first
-  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT);
-  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
+  await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT);
+  await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
 
   const workOptions = { batchSize: 1 };
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT, workOptions, handler);

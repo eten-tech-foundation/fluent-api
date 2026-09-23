@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakeBoss, jobResult } from '@/test/utils/test-helpers';
+
 import { db } from '../db';
 import { bible_books } from '../db/schema';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
@@ -59,20 +61,13 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('registers handlers for both priority and background queues', async () => {
-    const mockBoss = {
-      createQueue: vi.fn().mockResolvedValue(undefined),
-      work: vi.fn().mockResolvedValue(undefined),
-    } as any;
+    const { boss, work } = fakeBoss();
 
-    await registerDblIngestTextWorker(mockBoss);
+    await registerDblIngestTextWorker(boss);
 
-    expect(mockBoss.work).toHaveBeenCalledTimes(2);
-    expect(mockBoss.work).toHaveBeenCalledWith(
-      'dbl-ingest-text',
-      { batchSize: 1 },
-      expect.any(Function)
-    );
-    expect(mockBoss.work).toHaveBeenCalledWith(
+    expect(work).toHaveBeenCalledTimes(2);
+    expect(work).toHaveBeenCalledWith('dbl-ingest-text', { batchSize: 1 }, expect.any(Function));
+    expect(work).toHaveBeenCalledWith(
       'dbl-ingest-text-priority',
       { batchSize: 1 },
       expect.any(Function)
@@ -80,12 +75,12 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('handles partial download error recovery gracefully', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-    await registerDblIngestTextWorker(mockBoss);
+    const { boss, work } = fakeBoss();
+    await registerDblIngestTextWorker(boss);
 
     // Extract the handler. pg-boss's WorkHandler always receives the batch as
     // an array, even at batchSize: 1 — see the array-wrapped call below.
-    const handler = mockBoss.work.mock.calls[0][2];
+    const handler = work.mock.calls[0][2];
 
     vi.mocked(db.query.bibles.findFirst).mockResolvedValue({
       id: 1,
@@ -109,7 +104,7 @@ describe('dblIngestTextWorker', () => {
       });
 
     await expect(
-      handler([{ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-1' }])
+      handler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'job-1' })])
     ).rejects.toThrow(/trigger retry/);
 
     // It should have continued to chapter 2 despite the error in chapter 1
@@ -119,9 +114,9 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('logs a warning and skips the book instead of silently ignoring it when no matching book exists', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-    await registerDblIngestTextWorker(mockBoss);
-    const handler = mockBoss.work.mock.calls[0][2];
+    const { boss, work } = fakeBoss();
+    await registerDblIngestTextWorker(boss);
+    const handler = work.mock.calls[0][2];
     const { logger } = await import('../lib/logger');
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as any);
 
@@ -132,7 +127,7 @@ describe('dblIngestTextWorker', () => {
     // No book in the DB matches this code.
     vi.mocked(db.query.books.findFirst).mockResolvedValue(undefined);
 
-    await handler([{ data: { bibleId: 1, bookCodes: ['XYZ'] }, id: 'job-2' }]);
+    await handler([jobResult({ bibleId: 1, bookCodes: ['XYZ'] }, { id: 'job-2' })]);
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('XYZ'),
@@ -143,9 +138,9 @@ describe('dblIngestTextWorker', () => {
   });
 
   it('marks a failed chapter-list fetch as a job failure so pg-boss retries, instead of silently dropping the whole book', async () => {
-    const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-    await registerDblIngestTextWorker(mockBoss);
-    const handler = mockBoss.work.mock.calls[0][2];
+    const { boss, work } = fakeBoss();
+    await registerDblIngestTextWorker(boss);
+    const handler = work.mock.calls[0][2];
 
     vi.mocked(db.query.bibles.findFirst).mockResolvedValue({
       id: 1,
@@ -158,7 +153,7 @@ describe('dblIngestTextWorker', () => {
     });
 
     await expect(
-      handler([{ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-3' }])
+      handler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'job-3' })])
     ).rejects.toThrow(/trigger retry/);
 
     // A book whose chapter list couldn't be fetched has no chapters to fetch
@@ -207,12 +202,14 @@ describe('dblIngestTextWorker', () => {
             data: [{ id: 'GEN.bad', number: 'bad' }],
           });
         }
-        const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-        await registerDblIngestTextWorker(mockBoss);
-        const handler = mockBoss.work.mock.calls[0][2];
+        const { boss, work } = fakeBoss();
+        await registerDblIngestTextWorker(boss);
+        const handler = work.mock.calls[0][2];
 
         await expect(
-          handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'incomplete' }])
+          handler([
+            jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'incomplete' }),
+          ])
         ).rejects.toThrow(/trigger retry/);
 
         expect(db.insert).not.toHaveBeenCalledWith(bible_books);
@@ -222,9 +219,9 @@ describe('dblIngestTextWorker', () => {
     );
 
     it('logs success only when the assignment Result is ok', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-      await registerDblIngestTextWorker(mockBoss);
-      const handler = mockBoss.work.mock.calls[0][2];
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
       const { logger } = await import('../lib/logger');
       const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined as any);
 
@@ -237,7 +234,9 @@ describe('dblIngestTextWorker', () => {
       } as any);
       setupProjectUnitsAndBooks([42], [7]);
 
-      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-4' }]);
+      await handler([
+        jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'job-4' }),
+      ]);
 
       expect(infoSpy).toHaveBeenCalledWith(
         'Created chapter assignments for project unit after text ingestion',
@@ -246,9 +245,9 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('finishes any imported USFM waiting on this text, once the book is complete (#419)', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-      await registerDblIngestTextWorker(mockBoss);
-      const handler = mockBoss.work.mock.calls[0][2];
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
 
       const chapterAssignmentsService = await import(
         '../domains/chapter-assignments/chapter-assignments.service'
@@ -260,7 +259,9 @@ describe('dblIngestTextWorker', () => {
       const usfmImportService = await import('../domains/projects/usfm-import.service');
       setupProjectUnitsAndBooks([42], [7]);
 
-      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-6' }]);
+      await handler([
+        jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'job-6' }),
+      ]);
 
       expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
       const completionIndex = vi
@@ -280,12 +281,12 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('reconciles the completed book for every project, including a job with no project of its own', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-      await registerDblIngestTextWorker(mockBoss);
-      const handler = mockBoss.work.mock.calls[0][2];
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
       const usfmImportService = await import('../domains/projects/usfm-import.service');
 
-      await handler([{ data: { bibleId: 1, bookCodes: ['GEN'] }, id: 'job-7' }]);
+      await handler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'job-7' })]);
 
       // Scoped to the source book, not to the project unit whose job fetched it, so an import
       // whose own ingestion job was never queued is finished here too.
@@ -293,9 +294,9 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('materialises a completed book before another book failure sends the job back for a retry', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-      await registerDblIngestTextWorker(mockBoss);
-      const handler = mockBoss.work.mock.calls[0][2];
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
       const usfmImportService = await import('../domains/projects/usfm-import.service');
 
       vi.mocked(db.query.books.findFirst)
@@ -306,7 +307,9 @@ describe('dblIngestTextWorker', () => {
         .mockResolvedValueOnce({ ok: false, error: { message: 'DBL returned 503' } });
 
       await expect(
-        handler([{ data: { bibleId: 1, bookCodes: ['GEN', 'MAT'], projectId: 99 }, id: 'job-8' }])
+        handler([
+          jobResult({ bibleId: 1, bookCodes: ['GEN', 'MAT'], projectId: 99 }, { id: 'job-8' }),
+        ])
       ).rejects.toThrow(/trigger retry/);
 
       // Genesis completed; Matthew keeps failing. Its import must not wait on those retries.
@@ -314,9 +317,9 @@ describe('dblIngestTextWorker', () => {
     });
 
     it('does not log success and throws to trigger a retry when the assignment Result is an error', async () => {
-      const mockBoss = { createQueue: vi.fn(), work: vi.fn() } as any;
-      await registerDblIngestTextWorker(mockBoss);
-      const handler = mockBoss.work.mock.calls[0][2];
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
       const { logger } = await import('../lib/logger');
       const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined as any);
       const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as any);
@@ -331,7 +334,7 @@ describe('dblIngestTextWorker', () => {
       setupProjectUnitsAndBooks([42], [7]);
 
       await expect(
-        handler([{ data: { bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, id: 'job-5' }])
+        handler([jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'job-5' })])
       ).rejects.toThrow(/Failed to create chapter assignments/);
 
       expect(infoSpy).not.toHaveBeenCalledWith(
