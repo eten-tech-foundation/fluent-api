@@ -1,5 +1,7 @@
 import type { Context } from 'hono';
+import type { Db, Job, QueueResult } from 'pg-boss';
 
+import { PgBoss } from 'pg-boss';
 import { vi } from 'vitest';
 
 import { ErrorCode } from '@/lib/types';
@@ -292,4 +294,58 @@ export function createResult<T>(data: T, success: boolean = true) {
           message: typeof data === 'string' ? data : 'Error occurred',
         },
       };
+}
+
+/** A complete pg-boss queue fixture with overridable settings. */
+export function queueResult(name: string, overrides: Partial<QueueResult> = {}): QueueResult {
+  return {
+    name,
+    policy: 'standard',
+    deferredCount: 0,
+    queuedCount: 0,
+    activeCount: 0,
+    totalCount: 0,
+    table: 'job',
+    createdOn: new Date('2026-01-01T00:00:00Z'),
+    updatedOn: new Date('2026-01-01T00:00:00Z'),
+    singletonsActive: null,
+    ...overrides,
+  };
+}
+
+/** A complete job fixture for invoking a registered pg-boss handler. */
+export function jobResult<T>(data: T, overrides: Partial<Job<T>> = {}): Job<T> {
+  return { id: 'job-1', name: 'test-queue', data, expireInSeconds: 900, ...overrides };
+}
+
+/**
+ * Uses an unstarted instance so spies keep pg-boss's real method contracts.
+ * The stub database prevents these unit-test queues from opening a connection.
+ */
+export function fakeBoss() {
+  const executeSql = vi.fn<Db['executeSql']>().mockImplementation(async (query) => {
+    if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+    return {
+      rows: [{ depth: 0, queuedCount: 0, activeCount: 0, deferredCount: 0, oldestCreatedOn: null }],
+    };
+  });
+  const boss = new PgBoss({ db: { executeSql } });
+  const getQueue = vi.spyOn(boss, 'getQueue').mockResolvedValue(null);
+  const createQueue = vi.spyOn(boss, 'createQueue').mockResolvedValue(undefined);
+  const updateQueue = vi.spyOn(boss, 'updateQueue').mockResolvedValue(undefined);
+  const deleteQueue = vi.spyOn(boss, 'deleteQueue').mockResolvedValue(undefined);
+  const getQueues = vi.spyOn(boss, 'getQueues').mockResolvedValue([]);
+  const getDb = vi.spyOn(boss, 'getDb').mockReturnValue({ executeSql });
+  const work = vi.spyOn(boss, 'work').mockResolvedValue('test-worker');
+  return {
+    boss,
+    getQueue,
+    createQueue,
+    updateQueue,
+    deleteQueue,
+    getQueues,
+    getDb,
+    executeSql,
+    work,
+  };
 }
