@@ -15,6 +15,7 @@ export interface MilestoneRow {
   bookCount: number;
   bookIds: number[];
   chapterStatusCounts: Record<string, number>;
+  createdAt: string | null;
   updatedAt: string | null;
 }
 
@@ -30,6 +31,7 @@ export const milestoneResponseSchema = z
     bookCount: z.number().int().min(0),
     bookIds: z.array(z.number().int()),
     chapterStatusCounts: chapterStatusCountsSchema,
+    createdAt: z.string().nullable().optional(),
     updatedAt: z.string().nullable().optional(),
   })
   .openapi('Milestone');
@@ -39,40 +41,52 @@ export const createMilestoneSchema = z.object({
   type: z.enum(['text', 'audio']).default('text'),
   status: z.enum(projectStatusEnum.enumValues).default('not_started'),
   bookIds: z
-    .array(z.number().int())
+    .array(z.number().int().positive())
     .min(1)
     .refine((arr) => new Set(arr).size === arr.length, 'Duplicate book IDs not allowed'),
 });
 
-export const updateMilestoneSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  type: z.enum(['text', 'audio']).optional(),
-  status: z.enum(projectStatusEnum.enumValues).optional(),
-  bibleId: z.number().int().optional(),
-  addBooks: z
-    .array(z.number().int())
-    .min(1)
-    .refine((arr) => new Set(arr).size === arr.length, 'Duplicate book IDs not allowed')
-    .optional(),
-  removeBooks: z
-    .array(z.number().int())
-    .min(1)
-    .refine((arr) => new Set(arr).size === arr.length, 'Duplicate book IDs not allowed')
-    .optional(),
-  moveBooks: z
-    .array(
-      z.object({
-        bookId: z.number().int(),
-        targetMilestoneId: z.number().int(),
-      })
-    )
-    .min(1)
-    .refine(
-      (arr) => new Set(arr.map((item) => item.bookId)).size === arr.length,
-      'Duplicate book IDs not allowed'
-    )
-    .optional(),
-});
+export const updateMilestoneSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    type: z.enum(['text', 'audio']).optional(),
+    status: z.enum(projectStatusEnum.enumValues).optional(),
+    addBooks: z
+      .array(z.number().int().positive())
+      .min(1)
+      .refine((arr) => new Set(arr).size === arr.length, 'Duplicate book IDs not allowed')
+      .optional(),
+    removeBooks: z
+      .array(z.number().int().positive())
+      .min(1)
+      .refine((arr) => new Set(arr).size === arr.length, 'Duplicate book IDs not allowed')
+      .optional(),
+    moveBooks: z
+      .array(
+        z.object({
+          bookId: z.number().int(),
+          targetMilestoneId: z.number().int(),
+        })
+      )
+      .min(1)
+      .refine(
+        (arr) => new Set(arr.map((item) => item.bookId)).size === arr.length,
+        'Duplicate book IDs not allowed'
+      )
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      const hasMove = data.moveBooks && data.moveBooks.length > 0;
+      const hasAdd = data.addBooks && data.addBooks.length > 0;
+      const hasRemove = data.removeBooks && data.removeBooks.length > 0;
+      const ops = [hasMove, hasAdd, hasRemove].filter(Boolean).length;
+      return ops <= 1;
+    },
+    {
+      message: 'Cannot combine moveBooks, addBooks, or removeBooks in the same request',
+    }
+  );
 
 export const projectIdParamSchema = z.object({
   projectId: z.coerce.number().int().positive(),

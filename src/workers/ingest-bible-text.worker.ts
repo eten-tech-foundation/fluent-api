@@ -1,6 +1,6 @@
 import type { PgBoss } from 'pg-boss';
 
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { DblIngestTextJob } from '../lib/queue';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
@@ -170,7 +170,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
             : await db
                 .select({ id: project_units.id })
                 .from(project_units)
-                .where(sql`${project_units.projectId} = ${job.data.projectId}`);
+                .where(eq(project_units.projectId, job.data.projectId!));
 
           const bookIds = await db.query.books
             .findMany({

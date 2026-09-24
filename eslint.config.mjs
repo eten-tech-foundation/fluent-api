@@ -15,7 +15,7 @@ export default antfu(
       'max-lines': [
         'warn',
         {
-          max: 600,
+          max: 500,
           skipBlankLines: true,
           skipComments: true,
         },
@@ -43,6 +43,19 @@ export default antfu(
     files: ['src/db/scripts/**', 'src/db/seeds/**'],
     rules: {
       'no-console': 'off',
+    },
+  },
+  {
+    files: ['**/schema.ts'],
+    rules: {
+      'max-lines': [
+        'warn',
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: true,
+        },
+      ],
     },
   }
 );

@@ -66,9 +66,14 @@ async function runConsolidation() {
     // Sort by createdAt ascending, so the oldest becomes the master.
     // If createdAt is missing, fallback to id ascending.
     group.sort((a, b) => {
-      const timeA = a.createdAt ? new Date(a.createdAt as string).getTime() : a.id;
-      const timeB = b.createdAt ? new Date(b.createdAt as string).getTime() : b.id;
-      return timeA - timeB;
+      if (a.createdAt && b.createdAt) {
+        return (
+          new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
+        );
+      }
+      if (a.createdAt && !b.createdAt) return 1;
+      if (!a.createdAt && b.createdAt) return -1;
+      return a.id - b.id;
     });
     const master = group[0];
     const candidateDuplicates = group.slice(1);

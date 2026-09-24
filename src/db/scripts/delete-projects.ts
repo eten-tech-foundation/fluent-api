@@ -108,7 +108,7 @@ async function deleteProjects() {
     // Lock the rows
     const projectIds = rows.map((r) => sql`${r.id}`);
     await tx.execute(
-      sql`SELECT id FROM ${projects} WHERE id IN (${sql.join(projectIds, sql`, `)}) FOR UPDATE`
+      sql`SELECT id FROM ${projects} WHERE id IN (${sql.join(projectIds, sql`, `)}) ORDER BY id FOR UPDATE`
     );
 
     // Recompute counts and abort if they differ

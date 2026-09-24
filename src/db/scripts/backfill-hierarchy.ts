@@ -79,7 +79,7 @@ async function backfill() {
         needsUpdate = true;
       }
 
-      if (profile !== undefined) {
+      if (profile !== null) {
         updates.connectivityProfile = profile;
         needsUpdate = true;
       }

@@ -1,9 +1,11 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { DbTransaction } from '@/lib/types';
 
 import { db } from '@/db';
 import {
+  ai_suggestion_usage_log,
+  ai_suggestions,
   bible_books,
   bible_texts,
   chapter_assignments,
@@ -41,8 +43,12 @@ export async function insertBibleBookLinks(
   await tx.insert(project_unit_bible_books).values(links);
 }
 
-export async function getValidBookIdsForBible(bibleId: number, requestedBookIds: number[]) {
-  const validBooks = await db
+export async function getValidBookIdsForBible(
+  bibleId: number,
+  requestedBookIds: number[],
+  tx: typeof db | DbTransaction = db
+) {
+  const validBooks = await tx
     .select({ bookId: bible_books.bookId })
     .from(bible_books)
     .where(eq(bible_books.bibleId, bibleId));
@@ -99,13 +105,16 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
           GROUP BY ca.chapter_status
         ) t
       ), '{}'::jsonb)`.as('counts'),
+      createdAt: project_units.createdAt,
       updatedAt: project_units.updatedAt,
     })
     .from(project_units)
     .innerJoin(projects, eq(projects.id, project_units.projectId));
 }
 
-function mapRow(row: any): MilestoneRow {
+type MilestoneSelectRow = Awaited<ReturnType<typeof milestoneSelect>>[number];
+
+function mapRow(row: MilestoneSelectRow): MilestoneRow {
   const defaultCounts = chapterStatusEnum.enumValues.reduce(
     (acc, status) => {
       acc[status] = 0;
@@ -122,6 +131,7 @@ function mapRow(row: any): MilestoneRow {
       ...defaultCounts,
       ...(row.chapterStatusCounts || {}),
     },
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };
 }
@@ -148,7 +158,7 @@ export async function getByIdForProject(
 export async function getMilestoneById(id: number, tx?: DbTransaction) {
   const conn = tx ?? db;
   const [milestone] = await conn.select().from(project_units).where(eq(project_units.id, id));
-  return milestone;
+  return milestone ?? null;
 }
 
 export async function updateMilestoneRecord(
@@ -173,8 +183,18 @@ export async function updateMilestoneRecord(
   return milestone;
 }
 
-export async function deleteMilestoneRecord(id: number) {
-  await db.delete(project_units).where(eq(project_units.id, id));
+export async function hasAnyBooks(milestoneId: number, tx?: DbTransaction): Promise<boolean> {
+  const conn = tx ?? db;
+  const [row] = await conn
+    .select({ count: sql<number>`count(*)::int` })
+    .from(project_unit_bible_books)
+    .where(eq(project_unit_bible_books.projectUnitId, milestoneId));
+  return (row?.count ?? 0) > 0;
+}
+
+export async function deleteMilestoneRecord(id: number, tx?: DbTransaction) {
+  const conn = tx ?? db;
+  await conn.delete(project_units).where(eq(project_units.id, id));
 }
 
 export async function deleteBibleBookLinks(
@@ -190,7 +210,8 @@ export async function deleteBibleBookLinks(
     .where(
       and(
         eq(project_unit_bible_books.projectUnitId, projectUnitId),
-        inArray(project_unit_bible_books.bookId, bookIds)
+        inArray(project_unit_bible_books.bookId, bookIds),
+        isNull(project_unit_bible_books.deletedAt)
       )
     );
 }
@@ -248,6 +269,28 @@ export async function moveBookToMilestone(
       and(
         eq(verse_audio_recordings.projectUnitId, currentMilestoneId),
         inArray(verse_audio_recordings.bibleTextId, bibleTextIdsForBook)
+      )
+    );
+
+  // 5. Move AI suggestions
+  await tx
+    .update(ai_suggestions)
+    .set({ projectUnitId: targetMilestoneId })
+    .where(
+      and(
+        eq(ai_suggestions.projectUnitId, currentMilestoneId),
+        inArray(ai_suggestions.bibleTextId, bibleTextIdsForBook)
+      )
+    );
+
+  // 6. Move AI suggestion usage log
+  await tx
+    .update(ai_suggestion_usage_log)
+    .set({ projectUnitId: targetMilestoneId })
+    .where(
+      and(
+        eq(ai_suggestion_usage_log.projectUnitId, currentMilestoneId),
+        inArray(ai_suggestion_usage_log.bibleTextId, bibleTextIdsForBook)
       )
     );
 }
