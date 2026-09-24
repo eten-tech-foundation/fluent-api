@@ -63,6 +63,9 @@ interface FlagDefinition {
  */
 const aiIsWired: DefaultResolver = (e) => Boolean(e.FLUENT_AI_URL && e.FLUENT_AI_KEY);
 
+/** Keeps a feature unpublished until an operator explicitly enables it. */
+const offByDefault: DefaultResolver = () => false;
+
 /**
  * The flag registry. Keys are the camelCase WIRE keys (what the API publishes
  * and fluent-web reads); each value ties that wire key to its backing env var
@@ -85,12 +88,11 @@ export const FLAGS = {
   // EN_FEATURE_AI_SUGGESTIONS is unset.
   aiSuggestions: { env: 'EN_FEATURE_AI_SUGGESTIONS', default: aiIsWired },
   // Source Audio (hear the source text — recorded where it exists, synthesized
-  // where it does not). ONE gate for both provenances (Q11). Same contract as
-  // the flags above. `aiIsWired` means "safe-off when fluent-ai is absent",
-  // which is the condition these flags were invented for; env.ts records why it
-  // is kept even though this repo's env schema makes fluent-ai mandatory and so
-  // never exercises the false branch.
-  sourceAudio: { env: 'EN_FEATURE_SOURCE_AUDIO', default: aiIsWired },
+  // where it does not). ONE gate for both provenances (Q11). It ships dark:
+  // fluent-ai wiring alone never publishes the controls. An operator must set
+  // EN_FEATURE_SOURCE_AUDIO=true (or a browser may use the local /debug
+  // override) to expose them.
+  sourceAudio: { env: 'EN_FEATURE_SOURCE_AUDIO', default: offByDefault },
 } as const satisfies Record<string, FlagDefinition>;
 
 /** The set of known wire keys, e.g. `'repeatedWordCheck'`. */
