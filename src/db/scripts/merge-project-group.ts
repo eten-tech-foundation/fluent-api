@@ -42,7 +42,7 @@ export async function mergeProjectGroup(
   master: ProjectRow,
   duplicates: ProjectRow[],
   { isDryRun }: MergeOptions
-) {
+): Promise<boolean> {
   // Check for active book assignment overlaps across the entire group
   const allProjectIds = [master.id, ...duplicates.map((d) => d.id)];
   const activeBooks = await tx
@@ -65,7 +65,7 @@ export async function mergeProjectGroup(
       console.warn(
         `\n[ABORT] Group overlap detected! Book ${row.bookId} is in multiple projects. Skipping merge for this group.`
       );
-      return;
+      return false;
     }
     bookIdToProjectId.set(row.bookId, row.projectId!);
   }
@@ -220,4 +220,6 @@ export async function mergeProjectGroup(
       `    [DRY RUN] Would record ${duplicates.length} milestone(s) on master ${master.id}'s metadata`
     );
   }
+
+  return true;
 }

@@ -106,9 +106,11 @@ async function runConsolidation() {
     if (duplicatesToMerge.length === 0) continue;
 
     await db.transaction(async (tx) => {
-      masterProjectsCount++;
-      await mergeProjectGroup(tx, master, duplicatesToMerge, { isDryRun });
-      mergedProjectsCount += duplicatesToMerge.length;
+      const success = await mergeProjectGroup(tx, master, duplicatesToMerge, { isDryRun });
+      if (success) {
+        masterProjectsCount++;
+        mergedProjectsCount += duplicatesToMerge.length;
+      }
     });
   }
 
