@@ -139,9 +139,8 @@ describe('gET /config/features', () => {
     const res = await getFeatures();
     const json = await res.json();
 
-    // .env.test wires FLUENT_AI_URL + FLUENT_AI_KEY and leaves the flag unset,
-    // so the derived (safe) default resolves to true in the test env.
+    // Source audio ships dark: AI wiring alone does not publish the controls.
     expect(json.features).toHaveProperty('sourceAudio');
-    expect(json.features.sourceAudio).toBe(true);
+    expect(json.features.sourceAudio).toBe(false);
   });
 });
