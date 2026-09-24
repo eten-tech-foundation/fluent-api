@@ -5,11 +5,11 @@ Branch: `task/migrate-email-to-cloudflare`.
 
 ## Addresses
 
-| Address                | Meaning                                                                                                                                        |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `noreply@fluent.bible` | Sender/from address for all transactional email. Also receives replies — aliased to `support@fluent.bible` at the mail host.                     |
-| `help@fluent.bible`    | Public contact address — aliased to `support@fluent.bible` at the mail host.                                                                   |
-| `support@fluent.bible` | Human-read inbox, hosted at an external mail provider (Google Workspace / M365 / etc. — provider provisioning is a manual step below).          |
+| Address                | Meaning                                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `noreply@fluent.bible` | Sender/from address for all transactional email. Also receives replies — aliased to `support@fluent.bible` at the mail host.           |
+| `help@fluent.bible`    | Public contact address — aliased to `support@fluent.bible` at the mail host.                                                           |
+| `support@fluent.bible` | Human-read inbox, hosted at an external mail provider (Google Workspace / M365 / etc. — provider provisioning is a manual step below). |
 
 ## Current state (audit)
 
