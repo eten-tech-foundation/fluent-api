@@ -3,23 +3,24 @@
 Plan for [#234](https://github.com/eten-tech-foundation/fluent-api/issues/234).
 Branch: `task/migrate-email-to-cloudflare`.
 
-## Placeholders — fill in before executing
+## Addresses
 
-| Placeholder | Meaning |
-|---|---|
-| `noreply@fluent.bible` | Sender/from address on `fluent.bible` used for all transactional email (e.g. `no-reply@fluent.bible`). Replies to this address are what Email Routing forwards. |
-| `support@fluent.bible` | Verified destination mailbox that receives mail forwarded by Email Routing (the real inbox a human reads). |
+| Address                | Meaning                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `noreply@fluent.bible` | Sender/from address for all transactional email. Also receives replies — aliased to `support@fluent.bible` at the mail host.                     |
+| `help@fluent.bible`    | Public contact address — aliased to `support@fluent.bible` at the mail host.                                                                   |
+| `support@fluent.bible` | Human-read inbox, hosted at an external mail provider (Google Workspace / M365 / etc. — provider provisioning is a manual step below).          |
 
 ## Current state (audit)
 
 All outbound email flows through `src/lib/services/notifications/mailgun.service.ts`
 (`mailgun.js` v12.0.3, `https://api.mailgun.net`):
 
-| Send site | Caller | Shape |
-|---|---|---|
-| `sendEmail({to, subject, html})` | BetterAuth hooks in `src/lib/auth.ts` — password reset (line ~69), 2FA OTP (~135), magic-link invite (~154) | Inline HTML, log-and-continue on error |
-| `sendExistingUserOrgInviteEmail(data)` | `src/lib/services/auth/auth.service.ts:205` | Inline HTML, delegates to `sendEmail` |
-| `sendInvitationEmail(...)` | **none — dead code** | Uses Mailgun-hosted template `'user invite'` + `X-Mailgun-Variables` |
+| Send site                              | Caller                                                                                                      | Shape                                                                |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `sendEmail({to, subject, html})`       | BetterAuth hooks in `src/lib/auth.ts` — password reset (line ~69), 2FA OTP (~135), magic-link invite (~154) | Inline HTML, log-and-continue on error                               |
+| `sendExistingUserOrgInviteEmail(data)` | `src/lib/services/auth/auth.service.ts:205`                                                                 | Inline HTML, delegates to `sendEmail`                                |
+| `sendInvitationEmail(...)`             | **none — dead code**                                                                                        | Uses Mailgun-hosted template `'user invite'` + `X-Mailgun-Variables` |
 
 Config: `EMAIL_SERVICE_API_KEY`, `EMAIL_SERVICE_DOMAIN`, `EMAIL_SERVICE_SENDER` —
 all required in `src/env.ts` (boot fails if unset). Deployed values live in Azure
@@ -31,37 +32,39 @@ reference none of them.
 - **Transport: Cloudflare Email Service REST API** — `POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send`, `Authorization: Bearer <token>`. No new dependency (native `fetch`, same convention as `callFluentAi`). The Workers binding is not an option — fluent-api is a Node app on Azure. SMTP rejected: would add a dependency for no benefit.
 - **`sendInvitationEmail` is deleted, not ported.** Zero callers; it's the only Mailgun-template user, so no hosted-template replacement is needed on Cloudflare. Flag in the PR so a reviewer can confirm it's dead. The `'user invite'` template dies with the Mailgun account.
 - **Env names stay provider-agnostic:** `EMAIL_SERVICE_API_TOKEN` + `EMAIL_SERVICE_ACCOUNT_ID` + `EMAIL_SERVICE_SENDER`. `EMAIL_SERVICE_API_KEY` and `EMAIL_SERVICE_DOMAIN` are removed (Cloudflare infers the domain from the sender address + onboarded domains on the account).
-- **Routing = dashboard forwarding, no Worker.** Mail to `noreply@fluent.bible` forwards to `support@fluent.bible` (replies/bounces a human can read). `fluent.bible` receives no other mail, so onboarding Email Routing at the root domain is safe — no MX hijack risk.
+- **Inbound mail = mail-host aliases, NOT Cloudflare Email Routing.** `support@fluent.bible` will be a real hosted mailbox, so MX for `fluent.bible` belongs to that mail host — **do not onboard Email Routing for the root domain** (it would hijack inbound mail headed for the hosted inbox). `noreply@` and `help@` are aliases → `support@` configured at the mail host. No Email Worker.
 - **`fluent.bible` is already on Cloudflare DNS** (hard prerequisite — satisfied). One onboarded domain, one sender address across dev/qa/prod; **separate API tokens per env** for blast-radius control.
 - **Deliverable: this plan only** — #234 is the ticket; no ADR (rationale lives here and in the issue).
 
-## Manual prerequisites — Cloudflare dashboard (human)
+## Manual prerequisites (human)
 
 These cannot be done from code. Order matters: DNS must exist before verification.
 
-### Email Sending
+### Email Sending — Cloudflare dashboard
 
 1. Dashboard → **Compute → Email Service → Email Sending** → **Onboard Domain** → `fluent.bible`.
-2. Review the DNS records Cloudflare adds (on the `cf-bounce` subdomain): MX for
-   bounce handling, plus SPF / DKIM / DMARC TXT records.
-3. **SPF audit first:** `dig TXT fluent.bible` — if an SPF record (`v=spf1 ...`)
-   already exists at the root, merge mechanisms into ONE record; two SPF TXT
-   records on one hostname break both. Same check for an existing `_dmarc` TXT.
+2. Review the DNS records Cloudflare adds: MX + SPF + DKIM land on the `cf-bounce`
+   subdomain (bounce handling — no conflict with the mail host's root MX), plus a
+   DMARC TXT on `_dmarc.fluent.bible`.
+3. **DNS audit first:** `dig TXT fluent.bible` and `dig TXT _dmarc.fluent.bible` —
+   the mail host below will publish its own root SPF (`v=spf1 include:...`) and
+   likely a DMARC record. SPF: merge mechanisms into ONE TXT record (two SPF
+   records on one hostname break both). DMARC: keep a single `_dmarc` policy —
+   reconcile with whatever onboarding wants to add.
 4. Create one **API token per env** (dev / qa / prod) with permission
    **Email Sending: Edit** on the account. Store per-env in Azure App Service
    settings; dev token in local `.env`.
 
-### Email Routing
+### Inbound mail — mail host (NOT Cloudflare Email Routing)
 
-5. Dashboard → **Email Service → Email Routing** → **Onboard Domain** → `fluent.bible`
-   (adds MX/SPF/DKIM at the root — safe here since nothing else receives mail for
-   the domain).
-6. **Destination Addresses** → add `support@fluent.bible` → open the verification
-   email and confirm.
-7. **Routing Rules** → create rule: pattern = local part of `noreply@fluent.bible`
-   on `fluent.bible` → action **Send to an email** → `support@fluent.bible`.
-8. Test: send mail to `noreply@fluent.bible` from an unrelated external account →
-   confirm arrival at `support@fluent.bible`.
+5. Provision the `support@fluent.bible` mailbox at the chosen mail provider.
+6. In the Cloudflare **DNS** dashboard, point `fluent.bible` MX records at the
+   mail host (values come from the provider). Do **not** onboard Email Routing —
+   Cloudflare must not own inbound MX for this domain.
+7. At the mail host, create aliases/forwards so both `noreply@fluent.bible` and
+   `help@fluent.bible` deliver to the `support@fluent.bible` inbox.
+8. Test: send mail to `noreply@fluent.bible` and `help@fluent.bible` from an
+   unrelated external account → confirm both arrive in the `support@` inbox.
 
 ## Code changes
 
@@ -113,22 +116,28 @@ These cannot be done from code. Order matters: DNS must exist before verificatio
   delivery **from `noreply@fluent.bible`** (ticket acceptance criterion).
 - **Audit:** `rg -i mailgun` and `rg EMAIL_SERVICE_DOMAIN` → zero hits in code,
   `.env.example`, and docs outside this plan.
-- **Routing:** step 8 of manual prerequisites.
+- **Inbound:** step 8 of manual prerequisites (`noreply@` + `help@` → `support@`).
 
 ## Rollout order
 
-1. Human: Email Sending onboarding + DNS/SPF audit (propagation ~5–15 min, up to 24 h).
-2. Human: create per-env API tokens; set env vars in dev/QA.
-3. Merge code → deploy QA → run E2E verification.
-4. Human: Email Routing onboarding + destination verify + rule + test.
+1. Human: provision `support@fluent.bible` mailbox + point `fluent.bible` MX at
+   the mail host + create `noreply@`/`help@` aliases (can run in parallel with
+   the rest; must exist before prod users start replying).
+2. Human: Email Sending onboarding + DNS/SPF/DMARC audit (propagation ~5–15 min,
+   up to 24 h).
+3. Human: create per-env API tokens; set env vars in dev/QA.
+4. Merge code → deploy QA → run E2E verification.
 5. Prod env vars → deploy prod → verify a representative email.
 6. **Cleanup:** remove Mailgun DNS records (the old `mg.*`/mailgun TXT/MX on
-   `fluent.bible` if present), revoke the Mailgun API key, close the personal
-   Mailgun account once prod is confirmed.
+   `fluent.bible` if present — the inbound MX now belongs to the mail host),
+   revoke the Mailgun API key, close the personal Mailgun account once prod is
+   confirmed.
 
 ## Out of scope
 
 - Email content/template redesign; adding `text/plain` bodies (Cloudflare
   accepts `text`, current emails are HTML-only — preserve behavior).
 - New transactional email types; marketing/bulk email.
-- Inbound mail processing beyond forwarding (no Email Worker).
+- Choosing/provisioning the mail host for `support@fluent.bible` (manual step).
+- Inbound mail processing beyond mail-host aliases (no Email Worker; Cloudflare
+  Email Routing is deliberately not used — see settled decisions).
