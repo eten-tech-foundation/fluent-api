@@ -1,10 +1,25 @@
 # Clear `max-lines` CI Annotations — Implementation Plan
 
-**Goal:** Remove all four `max-lines` ESLint warnings (cap: 500 counted lines, `warn` severity, applies to test files) by extracting cohesive concerns along the repo's existing module conventions. No `eslint-disable`, no cap changes.
+**Goal:** Remove every `max-lines` violation (cap: 500 counted lines, `warn` severity, repo-wide): the four warnings CI annotates, plus the suppressed violation in `users.route.ts`. Extractions follow the repo's existing module conventions. No new `eslint-disable`, no cap changes.
 
-**Architecture:** Four independent file fixes across two domains. The verse-audio domain gets a response-hydration module (`verse-audio.responses.ts`), a takes-table repository (`verse-audio-takes.repository.ts`, mirroring the existing `storage-objects.repository.ts` extraction), and a 3-way test split (per the `ai-suggestions.activation.service.test.ts` precedent) with shared fixtures (`verse-audio.test-fixtures.ts`, per the `pericopes.test-fixtures.ts` precedent). Chapter-assignments gets a progress-rollup repository extraction.
+## Inventory (`npx eslint .`, cap = 500 counted lines)
 
-**Out of scope:** `ubuntu-latest` pinning (GitHub migrates it to Ubuntu 26 on 2026-10-19 — handle in a separate PR if desired). No behavior changes anywhere.
+| File                                | Counted | Status                                            |
+| ----------------------------------- | ------- | ------------------------------------------------- |
+| `verse-audio.service.test.ts`       | 982     | warning → Task 2                                  |
+| `verse-audio.repository.ts`         | 568     | warning → Task 3                                  |
+| `chapter-assignments.repository.ts` | 520     | warning → Task 4                                  |
+| `users.route.ts`                    | 514     | suppressed by inline disable → Task 5             |
+| `verse-audio.service.ts`            | 512     | warning → Task 1                                  |
+| `src/db/schema.ts`                  | ~1,300  | file-level disable — deliberate exemption (below) |
+
+Near-limit watchlist (450–499, not yet surfacing — no action this PR): `ai-suggestions.repository.ts` 497, `youversion.client.test.ts` 481, `chapter-assignments.service.ts` 480, `usfm.route.ts` 456. Flagged so the next feature touching them knows the headroom is gone.
+
+**Architecture:** Five independent file fixes across three domains. The verse-audio domain gets a response-hydration module (`verse-audio.responses.ts`), a takes-table repository (`verse-audio-takes.repository.ts`, mirroring the existing `storage-objects.repository.ts` extraction), and a 3-way test split (per the `ai-suggestions.activation.service.test.ts` precedent) with shared fixtures (`verse-audio.test-fixtures.ts`, per the `pericopes.test-fixtures.ts` precedent). Chapter-assignments gets a progress-rollup repository extraction. Users gets a single-route extraction (`users.active-org.route.ts`, per the `project-chapter-assignments.route.ts` multi-file-route precedent) that removes a stray suppression.
+
+**`src/db/schema.ts` exemption:** the file-level `/* eslint-disable max-lines */` stays. Splitting is feasible (`drizzle.config.ts` `schema` accepts a glob) but carries a real circular-FK hazard (`verse_audio_recordings.activeTakeId ↔ verse_audio_takes.recordingId`, currently bridged by `AnyPgColumn` in one file) and requires a zero-diff `drizzle-kit generate` proof. Shelved as a possible standalone effort — the "no `eslint-disable`" goal means no _new_ disables.
+
+**Out of scope:** schema split (above), the near-limit watchlist (above), `ubuntu-latest` pinning (GitHub migrates it to Ubuntu 26 on 2026-10-19 — handle in a separate PR if desired). No behavior changes anywhere.
 
 **Tech Stack:** TypeScript, Drizzle ORM, Vitest — no new dependencies.
 
@@ -103,9 +118,33 @@
 
 ---
 
-### Task 5: Final verification
+### Task 5: Extract the active-org route from `users.route.ts` (514 → ~470)
 
-- [ ] `npm run lint` — zero `max-lines` warnings repo-wide.
+`users.route.ts` violates the cap but is hidden from CI by a stray `// eslint-disable-next-line max-lines` at line 572 — placed mid-expression inside the `updateActiveOrg` handler's `c.json()` call, exactly where the rule reports. This task removes the violation and the suppression together.
+
+**Files:**
+
+- Create: `src/domains/users/users.active-org.route.ts`
+- Modify: `src/domains/users/users.route.ts`, `src/app.ts`
+
+**Interfaces:**
+
+- Move `updateActiveOrgRoute` + its `server.openapi` handler (lines 538–590, the `PATCH /users/me/active-org` block) verbatim, keeping the `// Verify the user actually belongs to this org` comment.
+- **Delete** the `// eslint-disable-next-line max-lines` comment — do not move it. Unused disable directives are themselves reported as warnings.
+- New-file imports: `createRoute` (`@hono/zod-openapi`), `eq` (`drizzle-orm`), `HttpStatusCodes` (`stoker/http-status-codes`), `jsonContent` (`stoker/openapi/helpers`), `createMessageObjectSchema` (`stoker/openapi/schemas`), `db` (`@/db`), `schema` (`@/db/schema`), `authenticateUser` (`@/middlewares/role-auth`), `server` (`@/server/server`), `updateActiveOrgRequestSchema` (`./users.types`). The block uses no `z`, no `userService`, no `PERMISSIONS` — don't copy them.
+- Register in `src/app.ts` adjacent to `import '@/domains/users/users.route'` (side-effect registration, per the `project-chapter-assignments.route.ts` precedent), positioned per `perfectionist/sort-imports`.
+
+- [ ] Create `users.active-org.route.ts` with the moved route + handler.
+- [ ] Trim `users.route.ts`: remove lines 538–590 and the now-orphaned imports (`db`, `schema`, `eq` are used only by this handler; `updateActiveOrgRequestSchema` only by this route — verify no other use before deleting).
+- [ ] Add the side-effect import in `src/app.ts`.
+- [ ] `npm run lint -- src/domains/users/` — no warnings; zero `max-lines` disable directives in either file.
+- [ ] `npm run typecheck`; `npm run test -- users` — green unchanged.
+
+---
+
+### Task 6: Final verification
+
+- [ ] `npm run lint` — zero `max-lines` warnings repo-wide, and zero `max-lines` disable directives outside `src/db/schema.ts`.
 - [ ] `npm run format:check` — clean.
 - [ ] `npm run typecheck` — clean.
 - [ ] `npm run test` — full suite green, same test count as before the refactor (modulo the deleted `insertRecording` test).
