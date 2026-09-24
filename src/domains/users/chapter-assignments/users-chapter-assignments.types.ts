@@ -14,7 +14,7 @@ export interface UserChapterAssignment {
   bibleName: string;
   /** Whether anyone may synthesise speech from this Bible; never a user permission. */
   ttsLicenseStatus: TtsLicenseStatus;
-  /** Human-curated attribution for this Bible, shown with its audio. */
+  /** Provider-qualified text identity (`aq-`/`yv-`/`dbl-`), or null if unregistered. */
   textBibleKey: string | null;
   selectedRecordingKey: string | null;
   chapterStatus: string;
