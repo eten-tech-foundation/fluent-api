@@ -204,6 +204,13 @@
       "when": 1788971960061,
       "tag": "0028_add_audio_availability",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789579279709,
+      "tag": "0029_add_milestone_fields",
+      "breakpoints": true
     }
   ]
 }

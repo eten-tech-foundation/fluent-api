@@ -7,6 +7,8 @@ import '@/routes/auth-doc.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
 import '@/domains/projects/projects.route';
+import '@/domains/milestones/milestones.route';
+import '@/domains/users/milestones/user-milestones.route';
 import '@/domains/projects/chapter-assignments/project-chapter-assignments.route';
 import '@/domains/chapter-assignments/chapter-assignments.route';
 import '@/domains/languages/languages.route';

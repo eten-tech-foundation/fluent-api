@@ -51,8 +51,37 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
-export function deleteProject(id: number) {
-  return repo.remove(id);
+export async function deleteProject(id: number, options?: { cascadeUnits?: boolean }) {
+  // cascadeUnits: compensating path (e.g. POST /projects grant failure).
+  // Public DELETE still 409s; FK on project_units.project_id cascades children.
+  if (options?.cascadeUnits) {
+    return repo.remove(id);
+  }
+
+  try {
+    return await db.transaction(async (tx) => {
+      const exists = await repo.lockProjectById(id, tx);
+      if (!exists) {
+        return err(ErrorCode.PROJECT_NOT_FOUND);
+      }
+
+      const milestoneCount = await repo.countUnitsByProjectId(id, tx);
+      if (milestoneCount > 0) {
+        return {
+          ok: false as const,
+          error: {
+            code: ErrorCode.CONFLICT,
+            message: `Project has ${milestoneCount} milestone(s); delete them first`,
+          },
+        };
+      }
+
+      return repo.remove(id, tx);
+    });
+  } catch (error) {
+    logger.error({ cause: error, message: 'Failed to delete project', context: { id } });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export function getProjectIdByUnitId(projectUnitId: number) {
@@ -118,12 +147,12 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
 
       const project = await repo.insertProjectRecord(
-        { ...projectData, status: 'not_assigned' },
+        { ...projectData, status: 'not_assigned', sourceBibleId: bibleId },
         tx
       );
 
       const projectUnit = await repo.insertProjectUnitRecord(
-        { projectId: project.id, status: projectUnitStatus },
+        { projectId: project.id, status: projectUnitStatus, name: project.name, type: 'text' },
         tx
       );
 
@@ -146,81 +175,66 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
       }
 
-      return ok(project);
+      return { project, projectUnitId: projectUnit.id };
     });
 
     // Enqueue the on-demand text ingestion job
-    if (result.ok) {
-      try {
-        const queue = await getQueue();
+    try {
+      const queue = await getQueue();
 
-        // Detect which books have already been ingested for this Bible
-        const ingestedBooks = await db
-          .selectDistinct({ bookId: bible_texts.bookId })
-          .from(bible_texts)
-          .where(eq(bible_texts.bibleId, input.bibleId));
-        const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
+      // Detect which books have already been ingested for this Bible
+      const ingestedBooks = await db
+        .selectDistinct({ bookId: bible_texts.bookId })
+        .from(bible_texts)
+        .where(eq(bible_texts.bibleId, input.bibleId));
+      const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
 
-        // Get all available books for this Bible
-        const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
-        if (validBookIds.length === 0) {
-          logger.warn('No valid books found for Bible, skipping text ingestion', {
-            bibleId: input.bibleId,
-          });
-          return result;
-        }
-        const dbBooks = await db.query.books.findMany({
-          where: (books, { inArray }) => inArray(books.id, validBookIds),
+      // Get all available books for this Bible
+      const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
+      if (validBookIds.length === 0) {
+        logger.warn('No valid books found for Bible, skipping text ingestion', {
+          bibleId: input.bibleId,
         });
-
-        const priorityBookCodes = dbBooks
-          .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
-          .map((b) => b.code);
-
-        // As per discussion: only pulling up selected books for now.
-        // Background ingestion of remaining Bible books is disabled until
-        // we have proper rate-limit budgeting and a clear product need.
-        // const backgroundBookCodes = dbBooks
-        //   .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
-        //   .map((b) => b.code);
-
-        // Enqueue priority ingestion for the exact requested books
-        if (priorityBookCodes.length > 0) {
-          await queue.send(
-            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
-            {
-              projectId: result.data.id,
-              bibleId: input.bibleId,
-              bookCodes: priorityBookCodes,
-            },
-            { priority: 10 }
-          );
-          logger.info('Enqueued text ingestion job for requested books', {
-            projectId: result.data.id,
-            bookCodes: priorityBookCodes,
-          });
-        }
-
-        // As per discussion: only pulling up selected books for now.
-        // Uncomment the block below to enable background ingestion of
-        // remaining books in the Bible for future projects.
-        // if (backgroundBookCodes.length > 0) {
-        //   await queue.send(QUEUE_NAMES.DBL_INGEST_TEXT, {
-        //     projectId: result.data.id,
-        //     bibleId: input.bibleId,
-        //     bookCodes: backgroundBookCodes,
-        //   });
-        //   logger.info('Enqueued text ingestion job for remaining books', {
-        //     projectId: result.data.id,
-        //     bookCodes: backgroundBookCodes,
-        //   });
-        // }
-      } catch (error) {
-        logger.error('Failed to enqueue text ingestion job', { error });
+        return ok(result.project);
       }
+      const dbBooks = await db.query.books.findMany({
+        where: (books, { inArray }) => inArray(books.id, validBookIds),
+      });
+
+      const priorityBookCodes = dbBooks
+        .filter((b) => input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
+        .map((b) => b.code);
+
+      // As per discussion: only pulling up selected books for now.
+      // Background ingestion of remaining Bible books is disabled until
+      // we have proper rate-limit budgeting and a clear product need.
+      // const backgroundBookCodes = dbBooks
+      //   .filter((b) => !input.bookId.includes(b.id) && !ingestedBookIds.includes(b.id))
+      //   .map((b) => b.code);
+
+      // Enqueue priority ingestion for the exact requested books
+      if (priorityBookCodes.length > 0) {
+        await queue.send(
+          QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+          {
+            projectId: result.project.id,
+            projectUnitId: result.projectUnitId,
+            bibleId: input.bibleId,
+            bookCodes: priorityBookCodes,
+          },
+          { priority: 10 }
+        );
+        logger.info('Enqueued text ingestion job for requested books', {
+          projectId: result.project.id,
+          projectUnitId: result.projectUnitId,
+          bookCodes: priorityBookCodes,
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to enqueue text ingestion job', { error });
     }
 
-    return result;
+    return ok(result.project);
   } catch (error) {
     logger.error({
       cause: error,
@@ -252,16 +266,12 @@ export async function updateProject(
     }
 
     return await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus, ...projectData } = input;
+      const { bibleId: _bibleId, bookId: _bookId, ...projectData } = input;
 
       const updatedProject = await repo.updateProjectRecord(id, projectData, tx);
 
       if (!updatedProject) {
         return err(ErrorCode.PROJECT_NOT_FOUND);
-      }
-
-      if (projectUnitStatus !== undefined) {
-        await repo.updateProjectUnitStatusByProjectId(id, projectUnitStatus, tx);
       }
 
       return ok(updatedProject);

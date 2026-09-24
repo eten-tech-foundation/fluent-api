@@ -167,7 +167,6 @@ export const sampleProjects = {
     metadata: { priority: 'medium', category: 'updated' },
     bibleId: 2,
     bookId: [3, 4, 5],
-    projectUnitStatus: 'in_progress' as const,
   },
   projectWithLanguageNames1: {
     id: 1,
@@ -178,9 +177,11 @@ export const sampleProjects = {
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
     metadata: { priority: 'high', category: 'marketing' },
+    sourceBibleId: 1,
     sourceLanguageName: 'English',
     targetLanguageName: 'Spanish',
     sourceName: 'King James Version',
+    milestoneCount: 1,
   },
 };
 
@@ -188,6 +189,8 @@ export const sampleProjectUnits = {
   unit1: {
     id: 1,
     projectId: 1,
+    name: 'Test Project',
+    type: 'text' as const,
     status: 'not_started' as const,
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
@@ -195,12 +198,16 @@ export const sampleProjectUnits = {
   unit2: {
     id: 2,
     projectId: 1,
+    name: 'Second milestone',
+    type: 'text' as const,
     status: 'in_progress' as const,
     createdAt: new Date('2024-01-01T00:00:00Z'),
     updatedAt: new Date('2024-01-01T00:00:00Z'),
   },
   newUnit: {
     projectId: 1,
+    name: 'New milestone',
+    type: 'text' as const,
     status: 'not_started' as const,
   },
 };

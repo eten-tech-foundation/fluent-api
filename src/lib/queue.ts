@@ -18,6 +18,8 @@ export interface DblIngestTextJob {
   projectId: number;
   bibleId: number;
   bookCodes: string[];
+  /** When set, post-ingest assignments are created only for this unit. */
+  projectUnitId?: number;
 }
 
 export interface USFMExportJob {

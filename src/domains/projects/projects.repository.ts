@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -52,6 +52,7 @@ export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWit
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
     workflowConfig: WORKFLOW_DEFINITION,
+    milestoneCount: Number(rawProject.milestoneCount ?? 0),
   };
 }
 
@@ -190,7 +191,13 @@ export async function insertProjectRecord(
 }
 
 export async function insertProjectUnitRecord(
-  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
+  unitData: {
+    projectId: number;
+    status: 'not_started' | 'in_progress' | 'completed';
+    name: string;
+    type?: 'text' | 'audio';
+    connectivityProfile?: string | null;
+  },
   tx: DbTransaction
 ) {
   const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
@@ -227,9 +234,32 @@ export async function updateProjectUnitStatusByProjectId(
   await tx.update(project_units).set({ status }).where(eq(project_units.projectId, projectId));
 }
 
-export async function remove(id: number): Promise<Result<void>> {
+export async function countUnitsByProjectId(
+  projectId: number,
+  tx?: DbTransaction
+): Promise<number> {
+  const conn = tx ?? db;
+  const [row] = await conn
+    .select({ count: sql<number>`count(*)::int` })
+    .from(project_units)
+    .where(eq(project_units.projectId, projectId));
+  return row?.count ?? 0;
+}
+
+export async function lockProjectById(id: number, tx: DbTransaction): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, id))
+    .for('update')
+    .limit(1);
+  return row != null;
+}
+
+export async function remove(id: number, tx?: DbTransaction): Promise<Result<void>> {
   try {
-    const [deleted] = await db
+    const conn = tx ?? db;
+    const [deleted] = await conn
       .delete(projects)
       .where(eq(projects.id, id))
       .returning({ id: projects.id });

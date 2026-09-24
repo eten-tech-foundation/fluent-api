@@ -54,6 +54,7 @@ export function getChapterAssignmentWithAuthContext(
 export function getAssignmentsProgress(
   filters: {
     projectId?: number;
+    projectUnitId?: number;
     orgId?: number;
     assignedUserId?: number;
     peerCheckerId?: number;
