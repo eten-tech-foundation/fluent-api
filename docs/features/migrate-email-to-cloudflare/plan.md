@@ -7,8 +7,8 @@ Branch: `task/migrate-email-to-cloudflare`.
 
 | Placeholder | Meaning |
 |---|---|
-| `<send-email-address>` | Sender/from address on `fluent.bible` used for all transactional email (e.g. `no-reply@fluent.bible`). Replies to this address are what Email Routing forwards. |
-| `<route-email-address>` | Verified destination mailbox that receives mail forwarded by Email Routing (the real inbox a human reads). |
+| `noreply@fluent.bible` | Sender/from address on `fluent.bible` used for all transactional email (e.g. `no-reply@fluent.bible`). Replies to this address are what Email Routing forwards. |
+| `support@fluent.bible` | Verified destination mailbox that receives mail forwarded by Email Routing (the real inbox a human reads). |
 
 ## Current state (audit)
 
@@ -31,7 +31,7 @@ reference none of them.
 - **Transport: Cloudflare Email Service REST API** — `POST https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send`, `Authorization: Bearer <token>`. No new dependency (native `fetch`, same convention as `callFluentAi`). The Workers binding is not an option — fluent-api is a Node app on Azure. SMTP rejected: would add a dependency for no benefit.
 - **`sendInvitationEmail` is deleted, not ported.** Zero callers; it's the only Mailgun-template user, so no hosted-template replacement is needed on Cloudflare. Flag in the PR so a reviewer can confirm it's dead. The `'user invite'` template dies with the Mailgun account.
 - **Env names stay provider-agnostic:** `EMAIL_SERVICE_API_TOKEN` + `EMAIL_SERVICE_ACCOUNT_ID` + `EMAIL_SERVICE_SENDER`. `EMAIL_SERVICE_API_KEY` and `EMAIL_SERVICE_DOMAIN` are removed (Cloudflare infers the domain from the sender address + onboarded domains on the account).
-- **Routing = dashboard forwarding, no Worker.** Mail to `<send-email-address>` forwards to `<route-email-address>` (replies/bounces a human can read). `fluent.bible` receives no other mail, so onboarding Email Routing at the root domain is safe — no MX hijack risk.
+- **Routing = dashboard forwarding, no Worker.** Mail to `noreply@fluent.bible` forwards to `support@fluent.bible` (replies/bounces a human can read). `fluent.bible` receives no other mail, so onboarding Email Routing at the root domain is safe — no MX hijack risk.
 - **`fluent.bible` is already on Cloudflare DNS** (hard prerequisite — satisfied). One onboarded domain, one sender address across dev/qa/prod; **separate API tokens per env** for blast-radius control.
 - **Deliverable: this plan only** — #234 is the ticket; no ADR (rationale lives here and in the issue).
 
@@ -56,12 +56,12 @@ These cannot be done from code. Order matters: DNS must exist before verificatio
 5. Dashboard → **Email Service → Email Routing** → **Onboard Domain** → `fluent.bible`
    (adds MX/SPF/DKIM at the root — safe here since nothing else receives mail for
    the domain).
-6. **Destination Addresses** → add `<route-email-address>` → open the verification
+6. **Destination Addresses** → add `support@fluent.bible` → open the verification
    email and confirm.
-7. **Routing Rules** → create rule: pattern = local part of `<send-email-address>`
-   on `fluent.bible` → action **Send to an email** → `<route-email-address>`.
-8. Test: send mail to `<send-email-address>` from an unrelated external account →
-   confirm arrival at `<route-email-address>`.
+7. **Routing Rules** → create rule: pattern = local part of `noreply@fluent.bible`
+   on `fluent.bible` → action **Send to an email** → `support@fluent.bible`.
+8. Test: send mail to `noreply@fluent.bible` from an unrelated external account →
+   confirm arrival at `support@fluent.bible`.
 
 ## Code changes
 
@@ -96,11 +96,11 @@ These cannot be done from code. Order matters: DNS must exist before verificatio
   # Cloudflare account ID that owns the onboarded sending domain.
   EMAIL_SERVICE_ACCOUNT_ID=
   # From address on the onboarded domain.
-  EMAIL_SERVICE_SENDER=<send-email-address>
+  EMAIL_SERVICE_SENDER=noreply@fluent.bible
   ```
 - **Azure App Service settings (per env):** add `EMAIL_SERVICE_API_TOKEN`,
   `EMAIL_SERVICE_ACCOUNT_ID`; update `EMAIL_SERVICE_SENDER` to
-  `<send-email-address>`; delete `EMAIL_SERVICE_API_KEY` and `EMAIL_SERVICE_DOMAIN`.
+  `noreply@fluent.bible`; delete `EMAIL_SERVICE_API_KEY` and `EMAIL_SERVICE_DOMAIN`.
 
 ## Verification
 
@@ -110,7 +110,7 @@ These cannot be done from code. Order matters: DNS must exist before verificatio
 - **Smoke (manual):** `curl` the REST endpoint with the dev token — expect
   `result.delivered` to contain the recipient.
 - **E2E (QA):** trigger a real password reset and a magic-link invite; confirm
-  delivery **from `<send-email-address>`** (ticket acceptance criterion).
+  delivery **from `noreply@fluent.bible`** (ticket acceptance criterion).
 - **Audit:** `rg -i mailgun` and `rg EMAIL_SERVICE_DOMAIN` → zero hits in code,
   `.env.example`, and docs outside this plan.
 - **Routing:** step 8 of manual prerequisites.
