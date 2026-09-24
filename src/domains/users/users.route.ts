@@ -235,7 +235,8 @@ const createUserWithInvitationRoute = createRoute({
     ),
   },
   summary: 'Create user and send invitation',
-  description: 'Creates a new user in database and sends magic link invitation email',
+  description:
+    'Creates a new user in database and sends magic link invitation email. Returns 201 when a new Fluent account is created (magic link sent) and 200 when an existing account is added to the org (login link sent).',
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
@@ -568,8 +569,8 @@ server.openapi(updateActiveOrgRoute, async (c) => {
   if (!belongsToOrg) {
     return c.json(
       { message: 'User does not belong to this organization' },
-      HttpStatusCodes.FORBIDDEN
       // eslint-disable-next-line max-lines
+      HttpStatusCodes.FORBIDDEN
     );
   }
 

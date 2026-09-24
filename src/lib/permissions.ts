@@ -25,6 +25,10 @@ export const PERMISSIONS = {
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
 
+  // ── Organizations ───────────────────────────────────────────────────
+  ORG_VIEW: 'org:view',
+  ORG_CREATE: 'org:create',
+
   // ── Membership / role assignment ────────────────────────────────────
   MEMBERSHIP_REVOKE: 'membership:revoke',
   ROLE_ASSIGN_PROJECT: 'role:assign:project',
