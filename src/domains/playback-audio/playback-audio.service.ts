@@ -256,19 +256,18 @@ async function dbl(
       sourceBibleId === undefined
         ? await dblClient.getVerses(identity.externalId, `${input.bookCode}.${input.chapter}`)
         : await getSourceChapterVerseCount(sourceBibleId, input.bookCode, input.chapter);
-    // If the text count is unavailable, keep the chapter recording but leave
-    // verse addressing disabled; unknown length cannot establish completeness.
-    if (expected.ok) {
-      const expectedVerses = Array.isArray(expected.data) ? expected.data.length : expected.data;
-      // The browser chooses the sole timecoded track when there is one, or the
-      // first track otherwise. Judge that same track, never the merged timestamps.
-      const timecoded = trackWindows.filter((window) => window.starts.size > 0);
-      const chosen = timecoded.length === 1 ? timecoded[0] : trackWindows[0];
-      base.verseAddressable =
-        expectedVerses > 0 &&
-        chosen?.starts.size === expectedVerses &&
-        chosen.maximum === expectedVerses;
-    }
+    // A failed lookup is not evidence that the text has zero verses. Propagate
+    // local database and DBL provider failures rather than inviting TTS fallback.
+    if (!expected.ok) return expected;
+    const expectedVerses = Array.isArray(expected.data) ? expected.data.length : expected.data;
+    // The browser chooses the sole timecoded track when there is one, or the
+    // first track otherwise. Judge that same track, never the merged timestamps.
+    const timecoded = trackWindows.filter((window) => window.starts.size > 0);
+    const chosen = timecoded.length === 1 ? timecoded[0] : trackWindows[0];
+    base.verseAddressable =
+      expectedVerses > 0 &&
+      chosen?.starts.size === expectedVerses &&
+      chosen.maximum === expectedVerses;
   }
   return ok(base);
 }

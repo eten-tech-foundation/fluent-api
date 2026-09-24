@@ -322,11 +322,28 @@ describe('dBL actual audio identity and timing', () => {
     expect(getSourceChapterVerseCount).not.toHaveBeenCalled();
   });
 
-  it('keeps the recording windowless when the expected text count is unavailable', async () => {
+  it('propagates a failed local source chapter count instead of claiming absent windows', async () => {
     vi.mocked(getSourceChapterVerseCount).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
-    const result = await getSourcePlayback({ ...input, fluentBibleId: 1 });
-    expect(result).toMatchObject({ ok: true, data: { verseAddressable: false } });
-    if (result.ok) expect(result.data.items).toHaveLength(2);
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toEqual(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+  });
+
+  it('treats a confirmed empty source chapter as windowless', async () => {
+    vi.mocked(getSourceChapterVerseCount).mockResolvedValue(ok(0));
+
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: true,
+      data: { verseAddressable: false },
+    });
+  });
+
+  it('propagates a failed DBL reference verse list lookup', async () => {
+    vi.mocked(dblClient.getVerses).mockResolvedValue(err(ErrorCode.DBL_SERVICE_UNAVAILABLE));
+
+    expect(await getReferencePlayback({ ...input, identity: text })).toEqual(
+      err(ErrorCode.DBL_SERVICE_UNAVAILABLE)
+    );
   });
 });
