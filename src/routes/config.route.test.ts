@@ -132,4 +132,15 @@ describe('gET /config/features', () => {
     expect(json.features).toHaveProperty('aiSuggestions');
     expect(json.features.aiSuggestions).toBe(true);
   });
+
+  it('publishes the sourceAudio flag (authenticated)', async () => {
+    authenticateAs(USER);
+
+    const res = await getFeatures();
+    const json = await res.json();
+
+    // Source audio ships dark: AI wiring alone does not publish the controls.
+    expect(json.features).toHaveProperty('sourceAudio');
+    expect(json.features.sourceAudio).toBe(false);
+  });
 });

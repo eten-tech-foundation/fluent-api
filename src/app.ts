@@ -28,9 +28,11 @@ import '@/domains/chapter-assignments/presence/chapter-assignments-presence.rout
 import '@/domains/ai-suggestions/ai-suggestions.route';
 import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
+import '@/domains/ai-tools/tts.route';
 import '@/domains/pericopes/pericopes.route';
 import '@/domains/translation-resources/translation-resources.route';
 import '@/domains/source-audio/source-audio.route';
+import '@/domains/playback-audio/playback-audio.route';
 import '@/domains/self/settings/self-settings.route';
 import '@/domains/aquifer-resources/aquifer-resources.route';
 import '@/domains/youversion/youversion.route';

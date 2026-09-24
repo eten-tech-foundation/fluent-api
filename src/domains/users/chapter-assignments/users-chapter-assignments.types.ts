@@ -1,5 +1,9 @@
 import { z } from '@hono/zod-openapi';
 
+import type { TtsLicenseStatus } from '@/domains/bibles/bibles.types';
+
+import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
+
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 export interface UserChapterAssignment {
   chapterAssignmentId: number;
@@ -8,6 +12,11 @@ export interface UserChapterAssignment {
   projectUnitId: number;
   bibleId: number;
   bibleName: string;
+  /** Whether anyone may synthesise speech from this Bible; never a user permission. */
+  ttsLicenseStatus: TtsLicenseStatus;
+  /** Provider-qualified text identity (`aq-`/`yv-`/`dbl-`), or null if unregistered. */
+  textBibleKey: string | null;
+  selectedRecordingKey: string | null;
   chapterStatus: string;
   /** Human-readable target language display NAME, e.g. "English". */
   targetLanguage: string;
@@ -38,6 +47,12 @@ export const userChapterAssignmentResponseSchema = z.object({
   projectUnitId: z.number().int(),
   bibleId: z.number().int(),
   bibleName: z.string(),
+  // The drafting page reads the source Bible's audio licence from the
+  // assignment it already loads, so the answer is in hand before any audio
+  // provider is called — and stays in hand when one is unreachable.
+  ttsLicenseStatus: ttsLicenseStatusSchema,
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
   chapterStatus: z.string(),
   targetLanguage: z.string(),
   targetLangCode: z.string(),

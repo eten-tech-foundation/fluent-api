@@ -139,6 +139,13 @@ const EnvBaseSchema = z.object({
   // Key used to authenticate incoming webhook callbacks from fluent-ai
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
+  // ── Source TTS ─────────────────────────────────────────────────────
+  // There is deliberately NO TTS_MAX_TEXT_LENGTH here (T27). fluent-ai owns the
+  // text-length tripwire and holds the only copy of the number, so this proxy
+  // cannot drift out of step with it; POST /ai/tts/generate validates shape
+  // only (required, non-empty) and forwards the rest. See tts.types.ts for why
+  // re-adding a cap "just to be safe" is the wrong instinct.
+
   // ── Aquifer (translation resources: TN / TQ / Images) ─────────────────
   // Base URL of the Aquifer API (no trailing slash). Defaults to production.
   AQUIFER_API_URL: z.string().url().default('https://api.aquifer.bible'),
@@ -187,7 +194,8 @@ const EnvBaseSchema = z.object({
   //    src/lib/features.test.ts fails on drift, in both directions):
   //      1. this env-schema line          (operator's catalog + validation)
   //      2. the FLAGS registry            (src/lib/features.ts — env↔wire mapping + default)
-  //      3. the OpenAPI response schema   (src/routes/config.route.ts — programmer's catalog)
+  //      3. the OpenAPI response schema   (`featuresSchema`, also in src/lib/features.ts —
+  //                                        programmer's catalog; config.route.ts only wraps it)
   //    …plus a line in .env.example.
   //
   // Repeated Word Check — the one AI-dependent feature today. Left optional so
@@ -200,6 +208,23 @@ const EnvBaseSchema = z.object({
   // AI Suggestions — same contract as EN_FEATURE_REPEATED_WORD_CHECK above:
   // unset derives from AI wiring (aiIsWired), safe-off when AI isn't wired.
   EN_FEATURE_AI_SUGGESTIONS: envBool().optional(),
+  // Source Audio — lets a drafter hear the source text, however it is produced:
+  // a real recording where one exists, synthesized speech where one does not.
+  // One gate because recorded audio and TTS ship as one feature, and runtime
+  // fallback needs both. Mixed availability is routine, not an impossible state.
+  // This feature ships dark: unset/blank publishes false even when fluent-ai is
+  // wired. Explicit true without fluent-ai is unsupported — do not enable that
+  // configuration.
+  //
+  // Renamed from EN_FEATURE_SOURCE_TTS 2026-08-31, while free: the flag is not
+  // on origin/main, nothing is merged or deployed, and no environment sets it.
+  // After merge this becomes a coordinated config change across every env.
+  //
+  // Publishing this flag ON does not by itself grant access to the TTS routes:
+  // those carry their own permission check (PERMISSIONS.TTS_USE). The
+  // publish-vs-enforce split (D5) is unchanged — this only says "the UI may
+  // render the listen controls in this environment".
+  EN_FEATURE_SOURCE_AUDIO: envBool().optional(),
 });
 
 const R2_BUCKET_KEYS = ['R2_EXPORTS_BUCKET', 'R2_AUDIO_BUCKET'] as const;

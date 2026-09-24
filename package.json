@@ -15,6 +15,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "cross-env NODE_ENV=test vitest",
+    "test:live": "cross-env NODE_ENV=test vitest run --config vitest.live.config.ts",
+    "test:db": "cross-env NODE_ENV=test vitest run --config vitest.db.config.ts",
     "build": "tsc && tsc-alias",
     "build:webjob": "npm run build && node scripts/setup-webjob.js",
     "deploy:prepare": "npm run build:webjob && cd wwwroot && zip -r ../deploy.zip . && cd ..",

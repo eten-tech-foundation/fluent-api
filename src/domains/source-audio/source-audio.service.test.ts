@@ -39,6 +39,7 @@ const fluentBible: Bible = {
   languageId: 1,
   provider: 'dbl',
   externalId: null,
+  audioResourceId: null,
   hasAudio: false,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -355,5 +356,112 @@ describe('getSourceAudioManifest', () => {
       expect(result.data.items).toEqual([]);
     }
     expect(getBibleText).not.toHaveBeenCalled();
+  });
+});
+
+describe('legacy source and manifest isolation from explicit playback selections', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, audioResourceId: 999 }));
+    vi.mocked(getBookByCode).mockResolvedValue(
+      ok({ id: 41, code: 'MRK', eng_display_name: 'Mark' })
+    );
+  });
+  it('keeps linked windowless DBL ahead of Aquifer despite a selected recording FK', async () => {
+    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
+      ok([
+        {
+          audioBibleId: 'linked-audio',
+          name: 'DBL',
+          chapterId: 'MRK.14',
+          resourceUrl: 'https://example.com/dbl.mp3',
+          expiresAt: null,
+        },
+      ])
+    );
+    const result = await getChapterSourceAudio({
+      fluentBibleId: 1,
+      languageCode: 'eng',
+      bookCode: 'MRK',
+      chapter: 14,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      data: { provider: 'dbl', items: [{ dblAudioBibleId: 'linked-audio' }] },
+    });
+    expect(getBibles).not.toHaveBeenCalled();
+    if (result.ok) {
+      expect(result.data).not.toHaveProperty('ttsLicenseStatus');
+      expect(result.data).not.toHaveProperty('selectedRecordingKey');
+      expect(result.data).not.toHaveProperty('verseAddressable');
+    }
+  });
+  it('manifest still name-matches and retains download metadata while omitting unknown sizes', async () => {
+    vi.mocked(getBibles).mockResolvedValue(
+      ok([{ id: 11, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true }])
+    );
+    vi.mocked(getBibleText).mockResolvedValue(
+      ok({
+        bibleId: 11,
+        bibleName: 'Berean Standard Bible',
+        bibleAbbreviation: 'BSB',
+        bookName: 'Mark',
+        bookCode: 'MRK',
+        chapters: [
+          {
+            number: 14,
+            audio: {
+              mp3: { url: 'https://example.com/a.mp3', size: 99 },
+              webm: { url: 'https://example.com/a.webm' },
+            },
+            verses: [],
+          },
+        ],
+      })
+    );
+    expect(
+      await getSourceAudioManifest({
+        projectId: 10,
+        fluentBibleId: 1,
+        languageCode: 'eng',
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      })
+    ).toEqual(
+      ok({
+        projectId: 10,
+        sourceLanguageCode: 'eng',
+        provider: 'aquifer',
+        totalBytes: 99,
+        items: [
+          {
+            id: 'source-audio-11-MRK-14-mp3',
+            tier: 1,
+            kind: 'audio',
+            resourceName: 'Source Bible Audio',
+            label: 'BSB MRK 14 (mp3)',
+            required: true,
+            removable: false,
+            bytesTotal: 99,
+            sourceUrl: 'https://example.com/a.mp3',
+            fileExt: 'mp3',
+            languageCode: 'eng',
+            bookCode: 'MRK',
+            startChapter: 14,
+            endChapter: 14,
+            format: 'mp3',
+            aquiferBibleId: 11,
+          },
+        ],
+      })
+    );
+    expect(getBibleText).toHaveBeenCalledWith({
+      aquiferBibleId: 11,
+      bookCode: 'MRK',
+      startChapter: 14,
+      endChapter: 14,
+      includeAudio: true,
+    });
   });
 });

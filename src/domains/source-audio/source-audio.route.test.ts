@@ -81,6 +81,7 @@ const MANIFEST_PATH =
 
 const SAMPLE_RESPONSE = {
   provider: 'aquifer' as const,
+  verseAddressable: false,
   bible: {
     aquiferBibleId: 42,
     name: 'Berean Standard Bible',
@@ -166,6 +167,7 @@ describe('source-audio routes', () => {
       expect(body.items).toHaveLength(1);
       expect(body.items[0].url).toBe('https://cdn.example/audio.mp3');
       expect(body.provider).toBe('aquifer');
+      expect(body.verseAddressable).toBe(false);
     });
 
     it('returns 502 on Aquifer upstream failure', async () => {
