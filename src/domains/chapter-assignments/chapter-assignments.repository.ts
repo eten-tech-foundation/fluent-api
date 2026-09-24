@@ -414,12 +414,37 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
+export async function deleteByProjectUnitAndBooks(
+  projectUnitId: number,
+  bookIds: number[],
+  tx?: DbTransaction
+): Promise<void> {
+  if (bookIds.length === 0) return;
+  const conn = tx ?? db;
+  await conn
+    .delete(chapter_assignments)
+    .where(
+      and(
+        eq(chapter_assignments.projectUnitId, projectUnitId),
+        inArray(chapter_assignments.bookId, bookIds)
+      )
+    );
+}
+
 export async function insertStatusHistory(
   tx: DbTransaction,
   chapterAssignmentId: number,
   status: ChapterAssignmentStatus
 ): Promise<void> {
   await tx.insert(chapter_assignment_status_history).values({ chapterAssignmentId, status });
+}
+
+export async function insertManyStatusHistory(
+  tx: DbTransaction,
+  records: { chapterAssignmentId: number; status: ChapterAssignmentStatus }[]
+): Promise<void> {
+  if (records.length === 0) return;
+  await tx.insert(chapter_assignment_status_history).values(records);
 }
 
 export async function insertUserAssignmentHistory(

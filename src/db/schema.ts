@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Json } from 'drizzle-zod';
 
@@ -33,6 +32,7 @@ export const projectAssignmentStatusEnum = pgEnum('project_assignment_status', [
   'active',
   'not_assigned',
 ]);
+export const milestoneTypeEnum = pgEnum('milestone_type', ['text', 'audio']);
 export const chapterStatusEnum = pgEnum('chapter_status', [
   'not_started',
   'draft',
@@ -190,31 +190,6 @@ export const pericope_sets = pgTable('pericope_sets', {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const projects = pgTable('projects', {
-  id: serial('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  sourceLanguage: integer('source_language')
-    .notNull()
-    .references(() => languages.id),
-  targetLanguage: integer('target_language')
-    .notNull()
-    .references(() => languages.id),
-  organization: integer('organization')
-    .notNull()
-    .references(() => organizations.id),
-  isActive: boolean('is_active').default(true),
-  status: projectAssignmentStatusEnum('status').notNull().default('not_assigned'),
-  createdBy: integer('created_by').references(() => users.id),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-  metadata: jsonb('metadata').$type<Json>().notNull().default({}),
-  // Nullable — existing projects have no pericope set; new projects may select one
-  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
-  lastActivityAt: timestamp('last_activity_at'),
-});
-
 export const bibles = pgTable(
   'bibles',
   {
@@ -240,6 +215,32 @@ export const bibles = pgTable(
       .where(sql`${table.externalId} IS NOT NULL`),
   ]
 );
+
+export const projects = pgTable('projects', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  sourceLanguage: integer('source_language')
+    .notNull()
+    .references(() => languages.id),
+  targetLanguage: integer('target_language')
+    .notNull()
+    .references(() => languages.id),
+  organization: integer('organization')
+    .notNull()
+    .references(() => organizations.id),
+  isActive: boolean('is_active').default(true),
+  status: projectAssignmentStatusEnum('status').notNull().default('not_assigned'),
+  createdBy: integer('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+  metadata: jsonb('metadata').$type<Json>().notNull().default({}),
+  sourceBibleId: integer('source_bible_id').references(() => bibles.id),
+  // Nullable — existing projects have no pericope set; new projects may select one
+  pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
+  lastActivityAt: timestamp('last_activity_at'),
+});
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),
@@ -313,6 +314,9 @@ export const project_units = pgTable('project_units', {
   projectId: integer('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  type: milestoneTypeEnum('type').notNull().default('text'),
+  connectivityProfile: varchar('connectivity_profile', { length: 255 }),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -320,33 +324,38 @@ export const project_units = pgTable('project_units', {
     .$onUpdate(() => new Date()),
 });
 
-export const project_unit_bible_books = pgTable('project_unit_bible_books', {
-  projectUnitId: integer('project_unit_id')
-    .notNull()
-    .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-  bibleId: integer('bible_id')
-    .notNull()
-    .references(() => bibles.id),
-  bookId: integer('book_id')
-    .notNull()
-    .references(() => books.id),
-  // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
-  // Null falls back to the book's display name in the export, as before.
-  runningHeader: varchar('running_header'),
-  bookTitle: varchar('book_title'),
-  // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
-  // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
-  // have no display-name fallback — a null or blank value omits the line from the
-  // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
-  // which is how the dialog drives the main title without ever rewriting book_title.
-  tocLongName: varchar('toc_long_name'),
-  tocShortName: varchar('toc_short_name'),
-  tocAbbreviation: varchar('toc_abbreviation'),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const project_unit_bible_books = pgTable(
+  'project_unit_bible_books',
+  {
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
+    // Null falls back to the book's display name in the export, as before.
+    runningHeader: varchar('running_header'),
+    bookTitle: varchar('book_title'),
+    // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
+    // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
+    // have no display-name fallback — a null or blank value omits the line from the
+    // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
+    // which is how the dialog drives the main title without ever rewriting book_title.
+    tocLongName: varchar('toc_long_name'),
+    tocShortName: varchar('toc_short_name'),
+    tocAbbreviation: varchar('toc_abbreviation'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => [primaryKey({ columns: [table.projectUnitId, table.bookId] })]
+);
 
 export const bible_texts = pgTable(
   'bible_texts',
@@ -1037,10 +1046,13 @@ export const insertProjectsSchema = createInsertSchema(projects, {
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
   projectId: (schema) => schema.int(),
+  name: (schema) => schema.min(1).max(255),
+  type: z.enum(['text', 'audio']).default('text'),
   status: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
 })
   .required({
     projectId: true,
+    name: true,
     status: true,
   })
   .omit({
@@ -1327,6 +1339,7 @@ export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,
   createdBy: true,
+  sourceBibleId: true,
 });
 
 export const patchUsersClientSchema = patchUsersSchema;

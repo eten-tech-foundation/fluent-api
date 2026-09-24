@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -38,7 +38,12 @@ export async function list(projectUnitId: number): Promise<Result<BookDetails[]>
       .selectDistinct(BOOK_DETAILS_PROJECTION)
       .from(project_unit_bible_books)
       .innerJoin(books, eq(project_unit_bible_books.bookId, books.id))
-      .where(eq(project_unit_bible_books.projectUnitId, projectUnitId))
+      .where(
+        and(
+          eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt)
+        )
+      )
       .orderBy(asc(project_unit_bible_books.bookId));
 
     return ok(rows);
@@ -76,7 +81,8 @@ export async function update(
         .where(
           and(
             eq(project_unit_bible_books.projectUnitId, projectUnitId),
-            eq(project_unit_bible_books.bookId, bookId)
+            eq(project_unit_bible_books.bookId, bookId),
+            isNull(project_unit_bible_books.deletedAt)
           )
         )
         .returning({ bookId: project_unit_bible_books.bookId });
@@ -92,7 +98,8 @@ export async function update(
         .where(
           and(
             eq(project_unit_bible_books.projectUnitId, projectUnitId),
-            eq(project_unit_bible_books.bookId, bookId)
+            eq(project_unit_bible_books.bookId, bookId),
+            isNull(project_unit_bible_books.deletedAt)
           )
         );
 

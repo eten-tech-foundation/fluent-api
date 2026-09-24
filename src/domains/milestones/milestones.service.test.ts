@@ -1,0 +1,253 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { db } from '@/db';
+import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
+import { err, ErrorCode, ok } from '@/lib/types';
+
+import * as repo from './milestones.repository';
+import {
+  createMilestone,
+  deleteMilestone,
+  getMilestone,
+  listMilestonesForProject,
+  updateMilestone,
+} from './milestones.service';
+
+const mockTx = { _isMockTx: true };
+
+vi.mock('@/db', () => ({
+  db: {
+    transaction: vi.fn(),
+    query: {
+      books: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    },
+  },
+}));
+
+vi.mock('@/lib/queue', () => ({
+  getQueue: vi.fn(),
+  QUEUE_NAMES: {
+    DBL_INGEST_TEXT: 'dbl-ingest-text',
+    DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
+  },
+}));
+
+vi.mock('./milestones.repository', () => ({
+  getValidBookIdsForBible: vi.fn(),
+  insertMilestoneRecord: vi.fn(),
+  insertBibleBookLinks: vi.fn(),
+  listByProjectId: vi.fn(),
+  getMilestoneById: vi.fn(),
+  getByIdForProject: vi.fn(),
+  updateMilestoneRecord: vi.fn(),
+  moveBookToMilestone: vi.fn(),
+  deleteMilestoneRecord: vi.fn(),
+  hasAnyBooks: vi.fn(),
+  getExistingBookAssignmentsForProject: vi.fn(),
+}));
+
+vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
+  createChapterAssignmentForProjectUnit: vi.fn(),
+}));
+
+vi.mock('@/domains/projects/projects.repository', () => ({
+  lockProjectById: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@/lib/logger', () => ({
+  logger: {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
+describe('milestones service', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx as any));
+  });
+
+  describe('createMilestone', () => {
+    const mockInput = {
+      name: 'New Milestone',
+      type: 'translation',
+      status: 'not_started' as const,
+      bibleId: 10,
+      bookIds: [1, 2],
+    };
+
+    it('should create milestone successfully', async () => {
+      const mockMilestone = { id: 200, projectId: 100 } as any;
+
+      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
+      vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
+      vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
+        ok([])
+      );
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockMilestone);
+
+      const result = await createMilestone(100, 10, mockInput as any);
+
+      expect(repo.getValidBookIdsForBible).toHaveBeenCalledWith(10, [1, 2]);
+      expect(repo.insertMilestoneRecord).toHaveBeenCalledWith(
+        100,
+        { name: 'New Milestone', type: 'translation', status: 'not_started' },
+        mockTx
+      );
+      expect(repo.insertBibleBookLinks).toHaveBeenCalledWith(
+        [
+          { projectUnitId: 200, bibleId: 10, bookId: 1 },
+          { projectUnitId: 200, bibleId: 10, bookId: 2 },
+        ],
+        mockTx
+      );
+      expect(chapterAssignmentsService.createChapterAssignmentForProjectUnit).toHaveBeenCalledWith(
+        200,
+        10,
+        [1, 2],
+        mockTx
+      );
+
+      expect(result).toEqual(ok(mockMilestone));
+    });
+
+    it('should return INVALID_BIBLE_BOOKS if any book is invalid', async () => {
+      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1]);
+
+      const result = await createMilestone(100, 10, mockInput as any);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.INVALID_BIBLE_BOOKS);
+      }
+
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(repo.insertMilestoneRecord).not.toHaveBeenCalled();
+    });
+
+    it('should rollback (return error) if cross-domain assignment fails', async () => {
+      const mockMilestone = { id: 200 } as any;
+
+      vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
+      vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
+        err(ErrorCode.INTERNAL_ERROR)
+      );
+
+      const result = await createMilestone(100, 10, mockInput as any);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
+      }
+    });
+  });
+
+  describe('updateMilestone', () => {
+    it('should update milestone successfully', async () => {
+      const mockUpdatedMilestone = { id: 1, name: 'Updated' } as any;
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+
+      const result = await updateMilestone(100, 1, { name: 'Updated' }, null);
+
+      expect(repo.updateMilestoneRecord).toHaveBeenCalledWith(1, { name: 'Updated' }, mockTx);
+      expect(result).toEqual(ok(mockUpdatedMilestone));
+    });
+
+    it('should return NOT_FOUND if milestone record does not exist', async () => {
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(undefined as any);
+
+      const result = await updateMilestone(100, 999, { name: 'Updated' }, null);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.NOT_FOUND);
+      }
+    });
+
+    it('should move books if requested', async () => {
+      const mockUpdatedMilestone = { id: 1, projectId: 100, name: 'Updated', bookIds: [2] } as any;
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
+      vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 100 } as any);
+      vi.mocked(repo.moveBookToMilestone).mockResolvedValue(undefined);
+
+      const result = await updateMilestone(
+        100,
+        1,
+        {
+          moveBooks: [{ bookId: 2, targetMilestoneId: 3 }],
+        },
+        null
+      );
+
+      expect(repo.moveBookToMilestone).toHaveBeenCalledWith(2, 1, 3, mockTx);
+      expect(result).toEqual(ok(mockUpdatedMilestone));
+    });
+  });
+
+  describe('passthrough reads and deletes', () => {
+    it('listMilestonesForProject should call repo', async () => {
+      const mockResult = [{ id: 1 }] as any;
+      vi.mocked(repo.listByProjectId).mockResolvedValue(mockResult);
+
+      const result = await listMilestonesForProject(100);
+      expect(repo.listByProjectId).toHaveBeenCalledWith(100);
+      expect(result).toEqual(ok(mockResult));
+    });
+
+    it('getMilestone should call repo', async () => {
+      const mockResult = { id: 1 } as any;
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(mockResult);
+
+      const result = await getMilestone(100, 1);
+      expect(repo.getByIdForProject).toHaveBeenCalledWith(100, 1);
+      expect(result).toEqual(ok(mockResult));
+    });
+
+    it('getMilestone should return NOT_FOUND if missing', async () => {
+      vi.mocked(repo.getByIdForProject).mockResolvedValue(undefined as any);
+
+      const result = await getMilestone(100, 1);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.NOT_FOUND);
+      }
+    });
+
+    it('deleteMilestone should call repo when no books exist', async () => {
+      vi.mocked(repo.getByIdForProject).mockResolvedValue({ id: 1 } as any);
+      vi.mocked(repo.hasAnyBooks).mockResolvedValue(false);
+      vi.mocked(repo.deleteMilestoneRecord).mockResolvedValue(undefined);
+
+      const result = await deleteMilestone(100, 1);
+      expect(repo.hasAnyBooks).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.deleteMilestoneRecord).toHaveBeenCalledWith(1, mockTx);
+      expect(result).toEqual(ok(undefined));
+    });
+
+    it('deleteMilestone should return VALIDATION_ERROR when books exist', async () => {
+      vi.mocked(repo.getByIdForProject).mockResolvedValue({ id: 1 } as any);
+      vi.mocked(repo.hasAnyBooks).mockResolvedValue(true);
+
+      const result = await deleteMilestone(100, 1);
+      expect(repo.hasAnyBooks).toHaveBeenCalledWith(1, mockTx);
+      expect(repo.deleteMilestoneRecord).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.VALIDATION_ERROR);
+      }
+    });
+  });
+});
