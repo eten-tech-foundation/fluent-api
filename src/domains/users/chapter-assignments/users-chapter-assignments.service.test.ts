@@ -67,16 +67,14 @@ describe('toResponse', () => {
   });
 
   it.each([
-    ['allowed' as const, 'Berean Standard Bible (BSB). Public domain.'],
+    ['allowed' as const, 'dbl-bba9f40183526463-01'],
     ['forbidden' as const, null],
     ['unknown' as const, null],
   ])(
-    "carries the source Bible's %s audio licence so the drafting page never has to ask a provider for it",
+    "carries the source Bible's %s speech clearance and text identity to the drafting page",
     (ttsLicenseStatus, textBibleKey) => {
-      // The drafting page decides whether it may synthesise speech from this
-      // Bible. Dropping either field here would push that decision onto the
-      // chapter-audio response, which fails when Aquifer or DBL are down — and
-      // an unreadable licence is not a clearance.
+      // The drafting page uses clearance for its speech decision and the
+      // provider-qualified key to identify the text independently of audio.
       const response = toResponse(makeProgressInfo({ ttsLicenseStatus, textBibleKey }));
       expect(response.ttsLicenseStatus).toBe(ttsLicenseStatus);
       expect(response.textBibleKey).toBe(textBibleKey);

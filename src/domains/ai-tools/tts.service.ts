@@ -63,6 +63,7 @@ export async function generateTtsAudio(
   }
 
   let response: Response;
+  let rawBody: string;
   try {
     response = await fetch(url, {
       method: 'POST',
@@ -76,6 +77,7 @@ export async function generateTtsAudio(
       body: JSON.stringify(request),
       signal,
     });
+    rawBody = await response.text();
   } catch (error) {
     const isAbort = error instanceof Error && error.name === 'AbortError';
     if (isAbort) {
@@ -89,8 +91,6 @@ export async function generateTtsAudio(
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
-
-  const rawBody = await response.text();
 
   // KNOWN FLATTENING, accepted rather than overlooked. Every non-2xx becomes
   // AI_SERVICE_UNAVAILABLE, so fluent-ai's own 4xx codes do not reach the

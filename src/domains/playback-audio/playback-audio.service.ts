@@ -12,6 +12,8 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { PlaybackAudioResponse } from './playback-audio.types';
 
+import { getSourceChapterVerseCount } from './playback-audio.repository';
+
 interface ChapterInput {
   languageCode: string;
   bookCode: UsfmBookCode;
@@ -61,7 +63,7 @@ export async function getSourcePlayback(
   if (!selected.ok) return selected;
   // A missing selected FK is corruption, not permission to change providers.
   if (source.data.audioResourceId !== null && !selected.data) return err(ErrorCode.INTERNAL_ERROR);
-  const result = await resolve(input, text, selected.data, selected.data !== null);
+  const result = await resolve(input, text, selected.data, selected.data !== null, source.data.id);
   if (result.ok) result.data.bible.fluentBibleId = source.data.id;
   return result;
 }
@@ -74,7 +76,8 @@ async function resolve(
   input: ChapterInput,
   text: ProviderIdentity | null,
   selected: ProviderIdentity | null,
-  directAudio: boolean
+  directAudio: boolean,
+  sourceBibleId?: number
 ): Promise<Result<PlaybackAudioResponse>> {
   // Read text policy independently; media never confers permission.
   const facts = text ? await getResourceFacts(text) : ok(null);
@@ -82,7 +85,8 @@ async function resolve(
   const recording = selected ?? text;
   let result: Result<PlaybackAudioResponse> = ok(empty(input, recording));
   if (recording?.provider === 'aquifer') result = await aquifer(input, recording);
-  if (recording?.provider === 'dbl') result = await dbl(input, recording, directAudio);
+  if (recording?.provider === 'dbl')
+    result = await dbl(input, recording, directAudio, sourceBibleId);
   if (!result.ok) return result;
   return ok({
     ...result.data,
@@ -181,7 +185,8 @@ export function dblSeconds(value: string): number | undefined {
 async function dbl(
   input: ChapterInput,
   identity: ProviderIdentity,
-  directAudio: boolean
+  directAudio: boolean,
+  sourceBibleId?: number
 ): Promise<Result<PlaybackAudioResponse>> {
   const base = empty(input, identity);
   let audioIds: { id: string; name?: string }[] = [{ id: identity.externalId }];
@@ -192,6 +197,7 @@ async function dbl(
     base.bible = { name: textBible.data.name, abbreviation: textBible.data.abbreviation };
   }
   const timestamps: NonNullable<PlaybackAudioResponse['verseTimestamps']> = [];
+  const trackWindows: { starts: Set<number>; maximum: number }[] = [];
   for (const audio of audioIds) {
     const chapter = await dblClient.getAudioChapter(audio.id, `${input.bookCode}.${input.chapter}`);
     if (!chapter.ok) {
@@ -240,8 +246,29 @@ async function dbl(
         dblAudioBibleId: audio.id,
       });
     }
-    if (maximum > 0 && starts.size === maximum) base.verseAddressable = true;
+    trackWindows.push({ starts, maximum });
   }
   if (timestamps.length) base.verseTimestamps = timestamps;
+  if (timestamps.length) {
+    // Source chapters use the local text being drafted; references use the DBL
+    // text Bible's verse list. Never infer chapter length from audio timecodes.
+    const expected =
+      sourceBibleId === undefined
+        ? await dblClient.getVerses(identity.externalId, `${input.bookCode}.${input.chapter}`)
+        : await getSourceChapterVerseCount(sourceBibleId, input.bookCode, input.chapter);
+    // If the text count is unavailable, keep the chapter recording but leave
+    // verse addressing disabled; unknown length cannot establish completeness.
+    if (expected.ok) {
+      const expectedVerses = Array.isArray(expected.data) ? expected.data.length : expected.data;
+      // The browser chooses the sole timecoded track when there is one, or the
+      // first track otherwise. Judge that same track, never the merged timestamps.
+      const timecoded = trackWindows.filter((window) => window.starts.size > 0);
+      const chosen = timecoded.length === 1 ? timecoded[0] : trackWindows[0];
+      base.verseAddressable =
+        expectedVerses > 0 &&
+        chosen?.starts.size === expectedVerses &&
+        chosen.maximum === expectedVerses;
+    }
+  }
   return ok(base);
 }

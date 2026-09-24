@@ -235,4 +235,42 @@ describe('generateTtsAudio', () => {
     // Unlike get-audio, generate synthesizes nothing and must not hang forever.
     expect(fetchOptions().signal).toBeInstanceOf(AbortSignal);
   });
+
+  it('keeps the timeout active until the upstream body is read', async () => {
+    let finishBody!: (body: string) => void;
+    let bodyStarted!: () => void;
+    const bodyReadStarted = new Promise<void>((resolve) => (bodyStarted = resolve));
+    const response = jsonResponse(OK_BODY);
+    vi.spyOn(response, 'text').mockImplementation(() => {
+      bodyStarted();
+      return new Promise<string>((resolve) => (finishBody = resolve));
+    });
+    fetchMock.mockResolvedValue(response);
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    try {
+      const pending = generateTtsAudio({ text: 'hello' });
+      await bodyReadStarted;
+      expect(clearTimeoutSpy).not.toHaveBeenCalled();
+
+      finishBody(JSON.stringify(OK_BODY));
+      expect(await pending).toMatchObject({ ok: true, data: OK_BODY });
+      expect(clearTimeoutSpy).toHaveBeenCalledOnce();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+
+  it('maps an upstream body-read failure to service unavailable', async () => {
+    const response = jsonResponse(OK_BODY);
+    vi.spyOn(response, 'text').mockRejectedValue(new Error('connection reset during body'));
+    fetchMock.mockResolvedValue(response);
+
+    const result = await generateTtsAudio({ text: 'hello' });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.AI_SERVICE_UNAVAILABLE },
+    });
+  });
 });
