@@ -1,6 +1,8 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
-import { project_units, projects, user_roles } from '../schema';
+import type { DbTransaction } from '@/lib/types';
+
+import { project_unit_bible_books, project_units, projects, user_roles } from '../schema';
 
 export interface ProjectRow {
   id: number;
@@ -36,11 +38,37 @@ interface MilestoneEntry {
  *  - Deletes the duplicate project row once verified empty.
  */
 export async function mergeProjectGroup(
-  tx: any, // replace `any` with your drizzle transaction type
+  tx: DbTransaction,
   master: ProjectRow,
   duplicates: ProjectRow[],
   { isDryRun }: MergeOptions
 ) {
+  // Check for active book assignment overlaps across the entire group
+  const allProjectIds = [master.id, ...duplicates.map((d) => d.id)];
+  const activeBooks = await tx
+    .select({
+      projectId: project_units.projectId,
+      bookId: project_unit_bible_books.bookId,
+    })
+    .from(project_unit_bible_books)
+    .innerJoin(project_units, eq(project_unit_bible_books.projectUnitId, project_units.id))
+    .where(
+      and(
+        inArray(project_units.projectId, allProjectIds),
+        isNull(project_unit_bible_books.deletedAt)
+      )
+    );
+
+  const bookIdToProjectId = new Map<number, number>();
+  for (const row of activeBooks) {
+    if (bookIdToProjectId.has(row.bookId) && bookIdToProjectId.get(row.bookId) !== row.projectId) {
+      console.warn(
+        `\n[ABORT] Group overlap detected! Book ${row.bookId} is in multiple projects. Skipping merge for this group.`
+      );
+      return;
+    }
+    bookIdToProjectId.set(row.bookId, row.projectId!);
+  }
   const masterMetadata = (master.metadata as Record<string, any>) || {};
   const milestones: MilestoneEntry[] = Array.isArray(masterMetadata.milestones)
     ? [...masterMetadata.milestones]
@@ -57,7 +85,7 @@ export async function mergeProjectGroup(
       .where(eq(project_units.projectId, master.id));
 
     for (const unit of mastersOwnUnits) {
-      const milestoneName = `Milestone ${milestones.length + 1}`;
+      const milestoneName = unit.name;
       milestones.push({
         name: milestoneName,
         originalName: master.name,
@@ -66,14 +94,15 @@ export async function mergeProjectGroup(
         mergedAt: new Date().toISOString(),
       });
 
-      if (!isDryRun) {
+      const profile = masterMetadata?.connectivityProfile;
+      if (!isDryRun && profile) {
         await tx
           .update(project_units)
-          .set({ name: milestoneName })
+          .set({ connectivityProfile: String(profile) })
           .where(eq(project_units.id, unit.id));
-      } else {
+      } else if (isDryRun && profile) {
         console.log(
-          `    [DRY RUN] Would rename master ${master.id}'s own unit "${unit.name}" to "${milestoneName}"`
+          `    [DRY RUN] Would set connectivityProfile="${profile}" on master ${master.id}'s unit "${unit.name}"`
         );
       }
     }
@@ -92,7 +121,8 @@ export async function mergeProjectGroup(
       .where(eq(project_units.projectId, dup.id));
 
     for (const unit of dupUnits) {
-      const milestoneName = `Milestone ${milestones.length + 1}`;
+      const milestoneName = unit.name;
+      const dupMetadata = (dup.metadata as Record<string, any>) || {};
       milestones.push({
         name: milestoneName,
         originalName: dup.name,
@@ -104,11 +134,16 @@ export async function mergeProjectGroup(
       if (!isDryRun) {
         await tx
           .update(project_units)
-          .set({ projectId: master.id, name: milestoneName })
+          .set({
+            projectId: master.id,
+            connectivityProfile: dupMetadata.connectivityProfile
+              ? String(dupMetadata.connectivityProfile)
+              : null,
+          })
           .where(eq(project_units.id, unit.id));
       } else {
         console.log(
-          `    [DRY RUN] Would move unit "${unit.name}" of Project ${dup.id} to master ${master.id}, renamed to "${milestoneName}"`
+          `    [DRY RUN] Would move unit "${unit.name}" of Project ${dup.id} to master ${master.id}, keeping name "${milestoneName}"`
         );
       }
     }

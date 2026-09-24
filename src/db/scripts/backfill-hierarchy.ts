@@ -67,14 +67,25 @@ async function backfill() {
 
     let updatedUnits = 0;
     for (const unit of allUnits) {
+      const metadata = (unit.metadata as Record<string, any>) || {};
+      const profile = metadata.connectivityProfile ? String(metadata.connectivityProfile) : null;
+
+      const updates: Partial<typeof project_units.$inferInsert> = {};
+      let needsUpdate = false;
+
       if (!unit.unitName || unit.unitName === '') {
-        await tx
-          .update(project_units)
-          .set({
-            name: unit.projectName,
-            type: 'text', // default to text
-          })
-          .where(eq(project_units.id, unit.unitId));
+        updates.name = unit.projectName;
+        updates.type = 'text'; // default to text
+        needsUpdate = true;
+      }
+
+      if (profile !== undefined) {
+        updates.connectivityProfile = profile;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await tx.update(project_units).set(updates).where(eq(project_units.id, unit.unitId));
         updatedUnits++;
       }
     }

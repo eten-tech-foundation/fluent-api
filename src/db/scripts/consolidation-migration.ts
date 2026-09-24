@@ -63,8 +63,13 @@ async function runConsolidation() {
   for (const [key, group] of groups.entries()) {
     if (group.length <= 1) continue; // No consolidation needed
 
-    // Sort by id descending, so the newest/highest ID becomes the master.
-    group.sort((a, b) => b.id - a.id);
+    // Sort by createdAt ascending, so the oldest becomes the master.
+    // If createdAt is missing, fallback to id ascending.
+    group.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt as string).getTime() : a.id;
+      const timeB = b.createdAt ? new Date(b.createdAt as string).getTime() : b.id;
+      return timeA - timeB;
+    });
     const master = group[0];
     const candidateDuplicates = group.slice(1);
 

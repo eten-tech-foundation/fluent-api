@@ -317,6 +317,7 @@ export const project_units = pgTable('project_units', {
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
   type: milestoneTypeEnum('type').notNull().default('text'),
+  connectivityProfile: varchar('connectivity_profile', { length: 255 }),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')

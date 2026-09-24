@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { DbTransaction } from '@/lib/types';
 
@@ -131,12 +131,6 @@ export async function listByProjectId(projectId: number): Promise<MilestoneRow[]
   return rows.map(mapRow);
 }
 
-export async function listByProjectIds(projectIds: number[]): Promise<MilestoneRow[]> {
-  if (projectIds.length === 0) return [];
-  const rows = await milestoneSelect().where(inArray(project_units.projectId, projectIds));
-  return rows.map(mapRow);
-}
-
 export async function getByIdForProject(
   projectId: number,
   milestoneId: number,
@@ -181,18 +175,6 @@ export async function updateMilestoneRecord(
 
 export async function deleteMilestoneRecord(id: number) {
   await db.delete(project_units).where(eq(project_units.id, id));
-}
-
-export async function getBooksForMilestone(milestoneId: number) {
-  return await db
-    .select()
-    .from(project_unit_bible_books)
-    .where(
-      and(
-        eq(project_unit_bible_books.projectUnitId, milestoneId),
-        isNull(project_unit_bible_books.deletedAt)
-      )
-    );
 }
 
 export async function deleteBibleBookLinks(
@@ -266,39 +248,6 @@ export async function moveBookToMilestone(
       and(
         eq(verse_audio_recordings.projectUnitId, currentMilestoneId),
         inArray(verse_audio_recordings.bibleTextId, bibleTextIdsForBook)
-      )
-    );
-}
-
-export async function deleteTranslatedDataForBooks(
-  projectUnitId: number,
-  bookIds: number[],
-  tx: DbTransaction
-) {
-  if (bookIds.length === 0) return;
-
-  const bibleTextIdsForBooks = tx
-    .select({ id: bible_texts.id })
-    .from(bible_texts)
-    .where(inArray(bible_texts.bookId, bookIds));
-
-  // Delete translated verses
-  await tx
-    .delete(translated_verses)
-    .where(
-      and(
-        eq(translated_verses.projectUnitId, projectUnitId),
-        inArray(translated_verses.bibleTextId, bibleTextIdsForBooks)
-      )
-    );
-
-  // Delete verse audio recordings
-  await tx
-    .delete(verse_audio_recordings)
-    .where(
-      and(
-        eq(verse_audio_recordings.projectUnitId, projectUnitId),
-        inArray(verse_audio_recordings.bibleTextId, bibleTextIdsForBooks)
       )
     );
 }
