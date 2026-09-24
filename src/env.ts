@@ -212,28 +212,13 @@ const EnvBaseSchema = z.object({
   // a real recording where one exists, synthesized speech where one does not.
   // One gate because recorded audio and TTS ship as one feature, and runtime
   // fallback needs both. Mixed availability is routine, not an impossible state.
-  // aiIsWired is a deployment hint for the unset default, not a runtime gate:
-  // without fluent-ai the whole feature defaults off on purpose. Explicit true
-  // without fluent-ai is unsupported — do not enable that configuration.
+  // This feature ships dark: unset/blank publishes false even when fluent-ai is
+  // wired. Explicit true without fluent-ai is unsupported — do not enable that
+  // configuration.
   //
   // Renamed from EN_FEATURE_SOURCE_TTS 2026-08-31, while free: the flag is not
   // on origin/main, nothing is merged or deployed, and no environment sets it.
   // After merge this becomes a coordinated config change across every env.
-  //
-  // On the `aiIsWired` default below: these EN_FEATURE_* flags exist BECAUSE
-  // fluent-ai was not hosted anywhere when they were introduced. The derived
-  // default encodes exactly that — "safe-off when the provider is absent" — and
-  // it is kept deliberately, not left behind.
-  //
-  // Note that it is not currently REACHABLE in this repo: FLUENT_AI_URL and
-  // FLUENT_AI_KEY are declared mandatory above (no `.optional()`, and safeParse
-  // exits the process on a miss), so any server that boots has both and the
-  // derivation always yields true. `false` needs this var set explicitly.
-  // That is a property of THIS env schema, not a settled fact about deployment
-  // — whether production can run without fluent-ai has not been confirmed. So
-  // the unreachability is a reason to leave the derivation alone, not to
-  // simplify it away: removing it would be a posture change about whether this
-  // feature fails safe, and that deserves its own decision.
   //
   // Publishing this flag ON does not by itself grant access to the TTS routes:
   // those carry their own permission check (PERMISSIONS.TTS_USE). The

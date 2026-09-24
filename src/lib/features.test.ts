@@ -68,12 +68,12 @@ describe('buildFeatures', () => {
     expect(features.sourceAudio).toBe(false);
   });
 
-  it('derives sourceAudio = true when unset and AI is wired', () => {
+  it('keeps sourceAudio = false when unset even when AI is wired', () => {
     const features = buildFeatures(makeEnv({ ...AI_WIRED }));
-    expect(features.sourceAudio).toBe(true);
+    expect(features.sourceAudio).toBe(false);
   });
 
-  it('derives sourceAudio = false (safe default) when unset and AI is not wired', () => {
+  it('keeps sourceAudio = false when unset and AI is not wired', () => {
     const features = buildFeatures(makeEnv({ ...AI_UNWIRED }));
     expect(features.sourceAudio).toBe(false);
   });
