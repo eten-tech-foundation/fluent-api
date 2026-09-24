@@ -88,7 +88,7 @@ export const FLAGS = {
   // EN_FEATURE_AI_SUGGESTIONS is unset.
   aiSuggestions: { env: 'EN_FEATURE_AI_SUGGESTIONS', default: aiIsWired },
   // Source Audio (hear the source text — recorded where it exists, synthesized
-  // where it does not). ONE gate for both provenances (Q11). It ships dark:
+  // where it does not). One gate covers both provenances. It ships dark:
   // fluent-ai wiring alone never publishes the controls. An operator must set
   // EN_FEATURE_SOURCE_AUDIO=true (or a browser may use the local /debug
   // override) to expose them.
