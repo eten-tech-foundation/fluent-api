@@ -1,6 +1,6 @@
 import { and, eq, gt, or } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts } from '@/db/schema';
@@ -89,4 +89,15 @@ export async function getByChapters(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+export async function getBookVerseReferences(bibleId: number, bookId: number, tx?: DbTransaction) {
+  return (tx ?? db)
+    .select({
+      id: bible_texts.id,
+      chapterNumber: bible_texts.chapterNumber,
+      verseNumber: bible_texts.verseNumber,
+    })
+    .from(bible_texts)
+    .where(and(eq(bible_texts.bibleId, bibleId), eq(bible_texts.bookId, bookId)));
 }

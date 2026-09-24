@@ -2,12 +2,13 @@ import type { PgBoss } from 'pg-boss';
 
 import { sql } from 'drizzle-orm';
 
-import type { DblIngestTextJob } from '../lib/queue';
+import type { DblIngestTextJob, UsfmImportMaterializeJob } from '../lib/queue';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { db } from '../db';
-import { bible_texts, project_units } from '../db/schema';
+import { bible_books, bible_texts, project_units } from '../db/schema';
 import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
+import * as usfmImportService from '../domains/projects/usfm-import.service';
 import { ensureWorkerQueue } from '../lib/dead-letter-queues';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
@@ -33,6 +34,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
     try {
       const job = jobs[0];
       let jobFailedChapters = 0;
+      const completedBookIds: number[] = [];
       const { bibleId, bookCodes } = job.data;
       logger.info(`Starting on-demand text ingestion (Job ID: ${job.id})`, {
         bibleId,
@@ -71,6 +73,8 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
           continue;
         }
         const chapters = chaptersResult.data;
+        const failuresBeforeBook = jobFailedChapters;
+        let ingestedChapters = 0;
 
         for (const chapter of chapters) {
           // API.Bible returns an 'intro' pseudo-chapter for some Bibles;
@@ -82,6 +86,7 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
             logger.warn(`Skipping chapter with unparseable number: ${chapter.number}`, {
               chapterId: chapter.id,
             });
+            jobFailedChapters++;
             continue;
           }
 
@@ -145,6 +150,10 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
               logger.info(
                 `Ingested chapter ${chapter.number} (${values.length} verses) for book ${code}`
               );
+              ingestedChapters++;
+            } else {
+              logger.warn(`Chapter ${chapter.id} returned no verse text`, { bibleId });
+              jobFailedChapters++;
             }
           } catch (error) {
             // Log and continue so a single failed chapter doesn't crash the book sync
@@ -152,9 +161,56 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
             jobFailedChapters++;
           }
         }
+
+        if (jobFailedChapters === failuresBeforeBook && ingestedChapters > 0) {
+          await db
+            .insert(bible_books)
+            .values({ bibleId, bookId: dbBook.id, textIngestedAt: new Date() })
+            .onConflictDoUpdate({
+              target: [bible_books.bibleId, bible_books.bookId],
+              set: { textIngestedAt: sql`now()` },
+            });
+          completedBookIds.push(dbBook.id);
+        } else if (jobFailedChapters === failuresBeforeBook) {
+          logger.warn(`Book ${code} returned no numbered chapters`, { bibleId });
+          jobFailedChapters++;
+        }
       }
 
       logger.info('On-demand text ingestion completed', { bibleId });
+
+      // #419: verses imported from USFM wait on their source book, in whatever project they were
+      // imported. Reconcile every book this job completed before a sibling book's failure throws
+      // for a retry, since a book that keeps failing would otherwise strand them once the retries
+      // run out. Retry materialisation separately so successfully ingested text is not fetched again.
+      if (completedBookIds.length > 0) {
+        const imported = await usfmImportService.materializePendingUsfmImportsForBible(
+          bibleId,
+          completedBookIds
+        );
+        if (imported.ok && imported.data.materialized > 0) {
+          logger.info('Materialised imported USFM after text ingestion', {
+            bibleId,
+            bookIds: completedBookIds,
+            ...imported.data,
+          });
+        } else if (!imported.ok) {
+          logger.error('Failed to materialise imported USFM after text ingestion', {
+            bibleId,
+            bookIds: completedBookIds,
+            error: imported.error,
+          });
+          // Each book is an independent, idempotent retry. The exclusive queue collapses
+          // duplicate sends from ingestion retries while an earlier retry is still pending.
+          for (const bookId of completedBookIds) {
+            await boss.send(
+              QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
+              { bibleId, bookId },
+              { singletonKey: `${bibleId}:${bookId}` }
+            );
+          }
+        }
+      }
 
       if (jobFailedChapters > 0) {
         throw new Error(
@@ -225,15 +281,64 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
     }
   };
 
-  // Register handler on both queues; priority queue processes first
+  // Register the reconciliation queue before accepting ingestion jobs that can send to it.
+  await ensureWorkerQueue(boss, QUEUE_NAMES.USFM_IMPORT_MATERIALIZE, {
+    policy: 'exclusive',
+    retryLimit: 10,
+    retryDelay: 60,
+    retryBackoff: true,
+    expireInSeconds: 600,
+  });
+
+  // Register handler on both ingestion queues; priority queue processes first.
   await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT);
   await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
 
   const workOptions = { batchSize: 1 };
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT, workOptions, handler);
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY, workOptions, handler);
+  await boss.work<UsfmImportMaterializeJob>(
+    QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
+    workOptions,
+    async (jobs) => {
+      const startTime = Date.now();
+      metricsHooks?.onBatchStart?.(jobs.length);
+      const { bibleId, bookId } = jobs[0].data;
+      try {
+        const imported = await usfmImportService.materializePendingUsfmImportsForBible(bibleId, [
+          bookId,
+        ]);
+        if (!imported.ok) {
+          logger.error('Failed to materialise imported USFM on retry', {
+            bibleId,
+            bookId,
+            error: imported.error,
+          });
+          throw new Error(
+            `Failed to materialise imported USFM for Bible ${bibleId}, book ${bookId}`
+          );
+        }
+        if (imported.data.pending > 0) {
+          throw new Error(`Imported USFM still pending for Bible ${bibleId}, book ${bookId}`);
+        }
+        if (imported.data.materialized > 0) {
+          logger.info('Materialised imported USFM on retry', {
+            bibleId,
+            bookId,
+            ...imported.data,
+          });
+        }
+        metricsHooks?.onJobSuccess?.(Date.now() - startTime);
+      } catch (error) {
+        metricsHooks?.onJobFailure?.(Date.now() - startTime);
+        throw error;
+      } finally {
+        metricsHooks?.onBatchEnd?.(jobs.length);
+      }
+    }
+  );
 
   logger.info(
-    `Registered workers for queues: ${QUEUE_NAMES.DBL_INGEST_TEXT} and ${QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY}`
+    `Registered workers for queues: ${QUEUE_NAMES.DBL_INGEST_TEXT}, ${QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY}, and ${QUEUE_NAMES.USFM_IMPORT_MATERIALIZE}`
   );
 }

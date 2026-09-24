@@ -36,10 +36,13 @@ jobs in that queue remain visible to the monitor. Sources without a destination
 use `<name>-dlq`. The destination is created or updated before enabling routing.
 Export and AI retry settings stay at three retries with 60-second exponential
 backoff. DBL queues keep their current retry settings (pg-boss defaults for new
-queues).
+queues). `usfm-import-materialize` retries reconciliation ten times with
+60-second exponential backoff, then retains the job in its dead-letter queue
+for inspection and replay. Replaying it does not fetch source Bible text again.
 
 This applies to `usfm-export`, `ai-suggestions` (formerly
-`ai-suggestion-trigger`), both `dbl-ingest-text` queues, and `dbl-sync` when its
+`ai-suggestion-trigger`), `usfm-import-materialize`, both `dbl-ingest-text`
+queues, and `dbl-sync` when its
 optional worker is registered. This change does not enable the DBL sync worker or
 add a schedule. The monitor discovers all configured dead-letter targets plus
 all existing `*-dlq` queues, including orphaned legacy queues. Future queues using

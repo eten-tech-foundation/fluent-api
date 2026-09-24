@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { err, ErrorCode } from '@/lib/types';
 import { fakeBoss, jobResult } from '@/test/utils/test-helpers';
 
 import { db } from '../db';
+import { bible_books } from '../db/schema';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
 
 // Mock dependencies
@@ -44,6 +46,12 @@ vi.mock('../lib/services/dbl/dbl.client', () => {
   };
 });
 
+vi.mock('../domains/projects/usfm-import.service', () => ({
+  materializePendingUsfmImportsForBible: vi
+    .fn()
+    .mockResolvedValue({ ok: true, data: { materialized: 0, pending: 0 } }),
+}));
+
 vi.mock('../domains/chapter-assignments/chapter-assignments.service', () => ({
   createChapterAssignmentForProjectUnit: vi.fn(),
 }));
@@ -53,17 +61,32 @@ describe('dblIngestTextWorker', () => {
     vi.clearAllMocks();
   });
 
-  it('registers handlers for both priority and background queues', async () => {
-    const { boss, work } = fakeBoss();
+  it('registers handlers for priority, background, and materialisation queues', async () => {
+    const { boss, createQueue, work } = fakeBoss();
 
     await registerDblIngestTextWorker(boss);
 
-    expect(work).toHaveBeenCalledTimes(2);
+    expect(work).toHaveBeenCalledTimes(3);
     expect(work).toHaveBeenCalledWith('dbl-ingest-text', { batchSize: 1 }, expect.any(Function));
     expect(work).toHaveBeenCalledWith(
       'dbl-ingest-text-priority',
       { batchSize: 1 },
       expect.any(Function)
+    );
+    expect(work).toHaveBeenCalledWith(
+      'usfm-import-materialize',
+      { batchSize: 1 },
+      expect.any(Function)
+    );
+    expect(createQueue).toHaveBeenCalledWith(
+      'usfm-import-materialize',
+      expect.objectContaining({
+        policy: 'exclusive',
+        retryLimit: 10,
+        retryDelay: 60,
+        retryBackoff: true,
+        deadLetter: 'usfm-import-materialize-dlq',
+      })
     );
   });
 
@@ -103,6 +126,7 @@ describe('dblIngestTextWorker', () => {
     // It should have continued to chapter 2 despite the error in chapter 1
     expect(mockDblClientInstance.getChapter).toHaveBeenCalledTimes(2);
     expect(db.insert).toHaveBeenCalledTimes(1); // Only for chapter 2
+    expect(db.insert).not.toHaveBeenCalledWith(bible_books);
   });
 
   it('logs a warning and skips the book instead of silently ignoring it when no matching book exists', async () => {
@@ -171,8 +195,44 @@ describe('dblIngestTextWorker', () => {
         externalId: 'ext-bible-1',
       } as any);
       vi.mocked(db.query.books.findFirst).mockResolvedValue({ id: 7, code: 'GEN' } as any);
-      mockDblClientInstance.getChapters.mockResolvedValue({ ok: true, data: [] });
+      mockDblClientInstance.getChapters.mockResolvedValue({
+        ok: true,
+        data: [{ id: 'GEN.1', number: '1' }],
+      });
+      mockDblClientInstance.getChapter.mockResolvedValue({
+        ok: true,
+        data: { content: '[1] In the beginning.' },
+      });
     });
+
+    it.each(['empty chapter list', 'empty chapter text', 'invalid chapter number'])(
+      'does not mark a source book complete with %s',
+      async (failure) => {
+        if (failure === 'empty chapter list') {
+          mockDblClientInstance.getChapters.mockResolvedValue({ ok: true, data: [] });
+        } else if (failure === 'empty chapter text') {
+          mockDblClientInstance.getChapter.mockResolvedValue({ ok: true, data: { content: '' } });
+        } else {
+          mockDblClientInstance.getChapters.mockResolvedValue({
+            ok: true,
+            data: [{ id: 'GEN.bad', number: 'bad' }],
+          });
+        }
+        const { boss, work } = fakeBoss();
+        await registerDblIngestTextWorker(boss);
+        const handler = work.mock.calls[0][2];
+
+        await expect(
+          handler([
+            jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'incomplete' }),
+          ])
+        ).rejects.toThrow(/trigger retry/);
+
+        expect(db.insert).not.toHaveBeenCalledWith(bible_books);
+        const usfmImportService = await import('../domains/projects/usfm-import.service');
+        expect(usfmImportService.materializePendingUsfmImportsForBible).not.toHaveBeenCalled();
+      }
+    );
 
     it('logs success only when the assignment Result is ok', async () => {
       const { boss, work } = fakeBoss();
@@ -197,6 +257,143 @@ describe('dblIngestTextWorker', () => {
       expect(infoSpy).toHaveBeenCalledWith(
         'Created chapter assignments for project unit after text ingestion',
         expect.objectContaining({ projectUnitId: 42 })
+      );
+    });
+
+    it('finishes any imported USFM waiting on this text, once the book is complete (#419)', async () => {
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
+
+      const chapterAssignmentsService = await import(
+        '../domains/chapter-assignments/chapter-assignments.service'
+      );
+      vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue({
+        ok: true,
+        data: [],
+      } as any);
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+      setupProjectUnitsAndBooks([42], [7]);
+
+      await handler([
+        jobResult({ bibleId: 1, bookCodes: ['GEN'], projectId: 99 }, { id: 'job-6' }),
+      ]);
+
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
+      const completionIndex = vi
+        .mocked(db.insert)
+        .mock.calls.findIndex(([table]) => table === bible_books);
+      expect(completionIndex).toBeGreaterThanOrEqual(0);
+      const completionInsert = vi.mocked(db.insert).mock.results[completionIndex].value;
+      expect(completionInsert.values).toHaveBeenCalledWith({
+        bibleId: 1,
+        bookId: 7,
+        textIngestedAt: expect.any(Date),
+      });
+      expect(vi.mocked(db.insert).mock.invocationCallOrder[completionIndex]).toBeLessThan(
+        vi.mocked(usfmImportService.materializePendingUsfmImportsForBible).mock
+          .invocationCallOrder[0]
+      );
+    });
+
+    it('reconciles the completed book for every project, including a job with no project of its own', async () => {
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+
+      await handler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'job-7' })]);
+
+      // Scoped to the source book, not to the project unit whose job fetched it, so an import
+      // whose own ingestion job was never queued is finished here too.
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
+    });
+
+    it('materialises a completed book before another book failure sends the job back for a retry', async () => {
+      const { boss, work } = fakeBoss();
+      await registerDblIngestTextWorker(boss);
+      const handler = work.mock.calls[0][2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+
+      vi.mocked(db.query.books.findFirst)
+        .mockResolvedValueOnce({ id: 7, code: 'GEN' } as any)
+        .mockResolvedValueOnce({ id: 8, code: 'MAT' } as any);
+      mockDblClientInstance.getChapters
+        .mockResolvedValueOnce({ ok: true, data: [{ id: 'GEN.1', number: '1' }] })
+        .mockResolvedValueOnce({ ok: false, error: { message: 'DBL returned 503' } });
+
+      await expect(
+        handler([
+          jobResult({ bibleId: 1, bookCodes: ['GEN', 'MAT'], projectId: 99 }, { id: 'job-8' }),
+        ])
+      ).rejects.toThrow(/trigger retry/);
+
+      // Genesis completed; Matthew keeps failing. Its import must not wait on those retries.
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledWith(1, [7]);
+    });
+
+    it('retries failed materialisation without fetching source text again', async () => {
+      const { boss, work } = fakeBoss();
+      const send = vi.spyOn(boss, 'send').mockResolvedValue('materialize-retry');
+      await registerDblIngestTextWorker(boss);
+      const ingestHandler = work.mock.calls.find(([name]) => name === 'dbl-ingest-text')![2];
+      const retryHandler = work.mock.calls.find(([name]) => name === 'usfm-import-materialize')![2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+      vi.mocked(usfmImportService.materializePendingUsfmImportsForBible)
+        .mockResolvedValueOnce(err(ErrorCode.INTERNAL_ERROR))
+        .mockResolvedValueOnce(err(ErrorCode.INTERNAL_ERROR))
+        .mockResolvedValueOnce({ ok: true, data: { materialized: 1, pending: 0 } });
+
+      await ingestHandler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'ingest-job' })]);
+
+      expect(send).toHaveBeenCalledWith(
+        'usfm-import-materialize',
+        { bibleId: 1, bookId: 7 },
+        { singletonKey: '1:7' }
+      );
+      const retryJob = [jobResult({ bibleId: 1, bookId: 7 }, { id: 'materialize-retry' })];
+      await expect(retryHandler(retryJob)).rejects.toThrow(/Failed to materialise imported USFM/);
+      await expect(retryHandler(retryJob)).resolves.toBeUndefined();
+
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenCalledTimes(3);
+      expect(usfmImportService.materializePendingUsfmImportsForBible).toHaveBeenLastCalledWith(1, [
+        7,
+      ]);
+      expect(mockDblClientInstance.getChapter).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries ingestion when it cannot queue a materialisation retry', async () => {
+      const { boss, work } = fakeBoss();
+      vi.spyOn(boss, 'send').mockRejectedValue(new Error('queue unavailable'));
+      await registerDblIngestTextWorker(boss);
+      const ingestHandler = work.mock.calls.find(([name]) => name === 'dbl-ingest-text')![2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+      vi.mocked(usfmImportService.materializePendingUsfmImportsForBible).mockResolvedValueOnce(
+        err(ErrorCode.INTERNAL_ERROR)
+      );
+
+      await expect(
+        ingestHandler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'ingest-job' })])
+      ).rejects.toThrow('queue unavailable');
+    });
+
+    it('accepts a duplicate materialisation retry that is already queued', async () => {
+      const { boss, work } = fakeBoss();
+      const send = vi.spyOn(boss, 'send').mockResolvedValue(null);
+      await registerDblIngestTextWorker(boss);
+      const ingestHandler = work.mock.calls.find(([name]) => name === 'dbl-ingest-text')![2];
+      const usfmImportService = await import('../domains/projects/usfm-import.service');
+      vi.mocked(usfmImportService.materializePendingUsfmImportsForBible).mockResolvedValueOnce(
+        err(ErrorCode.INTERNAL_ERROR)
+      );
+
+      await expect(
+        ingestHandler([jobResult({ bibleId: 1, bookCodes: ['GEN'] }, { id: 'ingest-job' })])
+      ).resolves.toBeUndefined();
+      expect(send).toHaveBeenCalledWith(
+        'usfm-import-materialize',
+        { bibleId: 1, bookId: 7 },
+        { singletonKey: '1:7' }
       );
     });
 
