@@ -67,12 +67,14 @@ async function runConsolidation() {
     // If createdAt is missing, fallback to id ascending.
     group.sort((a, b) => {
       if (a.createdAt && b.createdAt) {
-        return (
-          new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime()
-        );
+        const timeDiff =
+          new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime();
+        if (timeDiff !== 0) return timeDiff;
+      } else if (a.createdAt && !b.createdAt) {
+        return -1;
+      } else if (!a.createdAt && b.createdAt) {
+        return 1;
       }
-      if (a.createdAt && !b.createdAt) return 1;
-      if (!a.createdAt && b.createdAt) return -1;
       return a.id - b.id;
     });
     const master = group[0];
