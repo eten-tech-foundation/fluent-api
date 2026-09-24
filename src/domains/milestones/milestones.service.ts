@@ -139,7 +139,8 @@ export async function createMilestone(
     return ok(enrichedMilestone);
   } catch (error: any) {
     if (error.message === 'BOOKS_ALREADY_ASSIGNED') return err(ErrorCode.VALIDATION_ERROR);
-    if (Object.values(ErrorCode).includes(error.message as ErrorCode)) return err(error.message as ErrorCode);
+    if (Object.values(ErrorCode).includes(error.message as ErrorCode))
+      return err(error.message as ErrorCode);
     logger.error({
       cause: error,
       message: 'Failed to create milestone',
@@ -314,7 +315,8 @@ export async function updateMilestone(
     if (error.message === 'CROSS_PROJECT_MOVE') return err(ErrorCode.FORBIDDEN);
     if (error.message === 'INVALID_BIBLE_BOOKS') return err(ErrorCode.INVALID_BIBLE_BOOKS);
     if (error.message === 'BOOKS_ALREADY_ASSIGNED') return err(ErrorCode.VALIDATION_ERROR);
-    if (Object.values(ErrorCode).includes(error.message as ErrorCode)) return err(error.message as ErrorCode);
+    if (Object.values(ErrorCode).includes(error.message as ErrorCode))
+      return err(error.message as ErrorCode);
     logger.error({
       cause: error,
       message: 'Failed to update milestone',

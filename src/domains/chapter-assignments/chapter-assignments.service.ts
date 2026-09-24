@@ -539,7 +539,7 @@ export async function updateChapterAssignmentAiStatus(
       if (!assignment) {
         throw new Error(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
       }
-      
+
       assignmentProjectUnitId = assignment.projectUnitId;
       assignmentBibleId = assignment.bibleId;
       assignmentBookId = assignment.bookId;

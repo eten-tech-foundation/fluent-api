@@ -1,4 +1,4 @@
- import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Json } from 'drizzle-zod';
 
 import { z } from '@hono/zod-openapi';
