@@ -34,6 +34,7 @@ export async function createMilestone(
           name: input.name,
           type: input.type,
           status: input.status,
+          connectivityProfile: input.connectivityProfile,
         },
         tx
       );
@@ -186,16 +187,22 @@ export async function updateMilestone(
 
     const { moveBooks, addBooks, removeBooks, ...updates } = input;
 
+    if (addBooks && addBooks.length > 0 && !sourceBibleId) {
+      return err(ErrorCode.VALIDATION_ERROR);
+    }
+
     let booksToIngestIds: number[] = [];
 
     await db.transaction(async (tx) => {
       await projectsService.lockProjectById(projectId, tx);
+      const current = await repo.getByIdForProject(projectId, milestoneId, tx);
+      if (!current) throw new Error(ErrorCode.NOT_FOUND);
 
       await repo.updateMilestoneRecord(milestoneId, updates, tx);
 
       if (moveBooks && moveBooks.length > 0) {
         // Authorization: verify all target milestones belong to the same project
-        const sourceBookIds = new Set(existing.bookIds);
+        const sourceBookIds = new Set(current.bookIds);
         for (const move of moveBooks) {
           if (!sourceBookIds.has(move.bookId)) {
             throw new Error('INVALID_BIBLE_BOOKS');

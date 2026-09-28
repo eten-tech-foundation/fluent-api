@@ -136,9 +136,9 @@ export async function mergeProjectGroup(
           .update(project_units)
           .set({
             projectId: master.id,
-            connectivityProfile: dupMetadata.connectivityProfile
-              ? String(dupMetadata.connectivityProfile)
-              : null,
+            connectivityProfile:
+              unit.connectivityProfile ??
+              (dupMetadata.connectivityProfile ? String(dupMetadata.connectivityProfile) : null),
           })
           .where(eq(project_units.id, unit.id));
       } else {

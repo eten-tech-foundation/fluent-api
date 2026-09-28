@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { stdin as input, stdout as output } from 'node:process';
 /**
  * Auto-consolidation.
@@ -106,7 +107,16 @@ async function runConsolidation() {
     if (duplicatesToMerge.length === 0) continue;
 
     await db.transaction(async (tx) => {
-      const success = await mergeProjectGroup(tx, master, duplicatesToMerge, { isDryRun });
+      const [lockedMaster] = await tx
+        .select()
+        .from(projects)
+        .where(eq(projects.id, master.id))
+        .for('update');
+      if (!lockedMaster) throw new Error(`Master project ${master.id} no longer exists.`);
+
+      const success = await mergeProjectGroup(tx, lockedMaster as ProjectRow, duplicatesToMerge, {
+        isDryRun,
+      });
       if (success) {
         masterProjectsCount++;
         mergedProjectsCount += duplicatesToMerge.length;
