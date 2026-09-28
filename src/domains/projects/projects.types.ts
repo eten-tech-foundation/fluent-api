@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { UsjVerseText } from '@/lib/usfm-converter';
+
 import {
   chapterStatusEnum,
   insertProjectsSchema,
@@ -46,6 +48,11 @@ export const usfmFileSchema = z.object({
 });
 
 export type UsfmFileInput = z.infer<typeof usfmFileSchema>;
+
+export interface ParsedUsfmFile extends UsfmFileInput {
+  bookId: number;
+  verses: UsjVerseText[];
+}
 
 export const createProjectWithUnitsSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })

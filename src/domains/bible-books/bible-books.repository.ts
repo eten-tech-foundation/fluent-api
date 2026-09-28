@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_books, bibles, books } from '@/db/schema';
@@ -100,4 +100,12 @@ export async function remove(bibleId: number, bookId: number): Promise<Result<vo
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+export async function isTextIngested(bibleId: number, bookId: number, tx?: DbTransaction) {
+  const [book] = await (tx ?? db)
+    .select({ textIngestedAt: bible_books.textIngestedAt })
+    .from(bible_books)
+    .where(and(eq(bible_books.bibleId, bibleId), eq(bible_books.bookId, bookId)));
+  return book?.textIngestedAt != null;
 }

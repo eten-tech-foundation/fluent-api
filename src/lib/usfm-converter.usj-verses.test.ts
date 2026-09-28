@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { USJDocument } from '@/lib/types';
 
 import { logger } from '@/lib/logger';
-import { ErrorCode } from '@/lib/types';
+import { ok } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
 
@@ -126,7 +126,7 @@ describe('usjToVerseTexts (#419)', () => {
     expect(verses.map((v) => v.verseNumber)).toEqual([1, 2]);
   });
 
-  it('warns about unsupported container nodes and preserves their verse text', () => {
+  it('keeps unsupported container text out of editable verses', () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
     const usj = {
       type: 'USJ',
@@ -153,24 +153,125 @@ describe('usjToVerseTexts (#419)', () => {
 
     expect(usjToVerseTexts(usj)).toEqual({
       ok: true,
-      data: [{ chapterNumber: 1, verseNumber: 1, text: 'Table verse text.' }],
+      data: [],
     });
     expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
       type: 'table',
     });
   });
 
+  it('keeps footnote and cross reference text out of the verse it hangs off', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const verses = versesOf(
+      [
+        '\\id GEN',
+        '\\c 1',
+        '\\p',
+        '\\v 1 In the beginning\\f + \\fr 1:1 \\ft Some manuscripts read otherwise.\\f* God created.',
+        '\\v 2 The earth\\x - \\xo 1:2 \\xt Isa 45:18\\x* was formless.',
+      ].join('\n')
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'In the beginning God created.' },
+      { chapterNumber: 1, verseNumber: 2, text: 'The earth was formless.' },
+    ]);
+    expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
+      type: 'note',
+    });
+  });
+
+  it('keeps an illustration caption and a study sidebar out of the surrounding verses', () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
+    const verses = versesOf(
+      [
+        '\\id GEN',
+        '\\c 1',
+        '\\p',
+        '\\v 1 Before.\\fig Caption text|src="a.png" size="span"\\fig*',
+        '\\esb',
+        '\\p Sidebar body text.',
+        '\\esbe',
+        '\\p',
+        '\\v 2 After.',
+      ].join('\n')
+    );
+
+    expect(verses).toEqual([
+      { chapterNumber: 1, verseNumber: 1, text: 'Before.' },
+      { chapterNumber: 1, verseNumber: 2, text: 'After.' },
+    ]);
+  });
+
   it('returns nothing for a file with markers but no verses', () => {
     expect(versesOf('\\id GEN Genesis\n\\h Genesis')).toEqual([]);
   });
 
-  it('rejects a heading with no following verse instead of discarding it', () => {
+  it('leaves trailing headings to the raw import file', () => {
     const usj = convertUSFMToUSJ('\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 Appendix');
     if (!usj.ok) throw new Error(usj.error.message);
 
-    expect(usjToVerseTexts(usj.data)).toMatchObject({
-      ok: false,
-      error: { code: ErrorCode.USFM_INVALID },
+    expect(usjToVerseTexts(usj.data)).toEqual({
+      ok: true,
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'First.' }],
     });
+  });
+  it('keeps table, page break and list text out of the surrounding editable verses', () => {
+    const usj: USJDocument = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'chapter', marker: 'c', number: '1' },
+        {
+          type: 'para',
+          marker: 'p',
+          content: [{ type: 'verse', marker: 'v', number: '1' }, 'First.'],
+        },
+        ...['tr', 'pb', 'li1'].map((marker) => ({
+          type: 'para' as const,
+          marker,
+          content: ['Not verse prose.'],
+        })),
+        {
+          type: 'para',
+          marker: 'q1',
+          content: [{ type: 'verse', marker: 'v', number: '2' }, 'Second.'],
+        },
+      ],
+    };
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [
+        { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+        { chapterNumber: 1, verseNumber: 2, text: 'Second.' },
+      ],
+    });
+  });
+  it('keeps body continuation of the same verse after an unsupported paragraph', () => {
+    const usj: USJDocument = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'chapter', marker: 'c', number: '1' },
+        {
+          type: 'para',
+          marker: 'p',
+          content: [{ type: 'verse', marker: 'v', number: '1' }, 'First. '],
+        },
+        { type: 'para', marker: 'pb', content: [] },
+        { type: 'para', marker: 'li1', content: ['List apparatus.'] },
+        {
+          type: 'para',
+          marker: 'p',
+          content: ['Continued.', { type: 'verse', marker: 'v', number: '2' }, 'Second.'],
+        },
+      ],
+    };
+    expect(usjToVerseTexts(usj)).toEqual(
+      ok([
+        { chapterNumber: 1, verseNumber: 1, text: 'First. Continued.' },
+        { chapterNumber: 1, verseNumber: 2, text: 'Second.' },
+      ])
+    );
   });
 });

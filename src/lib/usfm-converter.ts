@@ -52,7 +52,8 @@ function convertUSFMToUSJ(usfmText: string): Result<USJDocument> {
 
     // Check for parser errors
     if (parser.errors && parser.errors.length > 0) {
-      logger.warn('USFM parser warnings:', { errors: parser.errors });
+      logger.warn('USFM parser errors:', { errors: parser.errors });
+      return err(ErrorCode.USFM_INVALID);
     }
 
     const usjContent = parser.toUSJ();
@@ -109,14 +110,52 @@ export interface UsjVerseText {
   markers?: NonNullable<VerseMarkers>;
 }
 
+/** Only prose and poetry contribute to editable verse text; other structure stays in the raw file. */
+const BODY_TEXT_MARKERS = new Set([
+  'p',
+  'm',
+  'po',
+  'pr',
+  'cls',
+  'pmo',
+  'pm',
+  'pmc',
+  'pmr',
+  'pi',
+  'pi1',
+  'pi2',
+  'pi3',
+  'mi',
+  'nb',
+  'pc',
+  'ph',
+  'ph1',
+  'ph2',
+  'ph3',
+  'b',
+  'q',
+  'q1',
+  'q2',
+  'q3',
+  'q4',
+  'qr',
+  'qc',
+  'qa',
+  'qm',
+  'qm1',
+  'qm2',
+  'qm3',
+  'qd',
+]);
+
 /**
  * Flattens a USJ document into one entry per verse: chapters are top-level milestones, verses
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
- * is filed under its first number. Heading words and anything before the first verse are not
- * included in verse text. Supported headings are preserved as markers on the following verse;
- * other unsupported structure remains available in the raw imported file. A heading without a
- * following verse is invalid because there is no verse row that can retain it.
+ * is filed under its first number. Heading words, note apparatus and anything before the first
+ * verse are not included in verse text. Supported headings are preserved as markers on the
+ * following verse; other unsupported structure remains available in the raw imported file. A
+ * trailing heading has no following verse and remains only in the verbatim imported file.
  */
 export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   const verses: UsjVerseText[] = [];
@@ -179,7 +218,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           }
 
           if (!headingMarkers.has(node.marker)) {
-            walk(node.content);
+            if (BODY_TEXT_MARKERS.has(node.marker)) walk(node.content);
             break;
           }
 
@@ -207,9 +246,6 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           logger.warn('Unsupported USJ node while extracting verse text', {
             type: unsupportedNode.type,
           });
-          if (Array.isArray(unsupportedNode.content)) {
-            walk(unsupportedNode.content as (USJNode | string)[]);
-          }
           break;
         }
       }
@@ -218,7 +254,6 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
 
   walk(usj.content);
   flush();
-  if (pendingHeadings.length > 0) return err(ErrorCode.USFM_INVALID);
   return ok(verses);
 }
 

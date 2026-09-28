@@ -139,7 +139,7 @@ describe('createProject from USFM files (#419)', () => {
     );
   });
 
-  it('materializes imports when another worker completes during the queue decision', async () => {
+  it('materializes completed imports without an available queue', async () => {
     let sourceComplete = false;
     vi.mocked(db.select).mockReturnValueOnce({
       from: vi.fn().mockReturnValue({
@@ -156,12 +156,12 @@ describe('createProject from USFM files (#419)', () => {
     vi.mocked(usfmImportService.materializePendingUsfmImports).mockImplementationOnce(async () =>
       ok({ materialized: sourceComplete ? 2 : 0, pending: sourceComplete ? 0 : 2 })
     );
-    const send = vi.fn();
-    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+    vi.mocked(getQueue).mockRejectedValue(new Error('queue unavailable'));
 
-    await createProject({ ...BASE, usfmFiles: FILES });
+    const result = await createProject({ ...BASE, usfmFiles: FILES });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(result).toEqual(ok({ id: 500 }));
+    expect(getQueue).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Imported USFM materialised at project creation', {
       projectId: 500,
       materialized: 2,
@@ -219,6 +219,36 @@ describe('createProject from USFM files (#419)', () => {
     });
   });
 
+  it('fails the creation when the ingestion job cannot be queued, instead of leaving the import stranded', async () => {
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([
+      { id: 1, code: 'GEN' },
+      { id: 40, code: 'MAT' },
+    ] as never);
+    vi.mocked(getQueue).mockResolvedValue({
+      send: vi.fn().mockRejectedValue(new Error('queue unavailable')),
+    } as never);
+
+    const result = await createProject({ ...BASE, usfmFiles: FILES });
+
+    // The enqueue runs inside the creating transaction, so the throw rolls the project back.
+    expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
+    expect(usfmImportService.materializePendingUsfmImports).not.toHaveBeenCalled();
+  });
+
+  it('still creates a blank project when the ingestion job cannot be queued', async () => {
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([{ id: 1, code: 'GEN' }] as never);
+    vi.mocked(getQueue).mockResolvedValue({
+      send: vi.fn().mockRejectedValue(new Error('queue unavailable')),
+    } as never);
+
+    const result = await createProject({ ...BASE, bookId: [1] });
+
+    expect(result).toEqual(ok({ id: 500 }));
+    expect(logger.error).toHaveBeenCalledWith('Failed to enqueue text ingestion job', {
+      error: expect.any(Error),
+    });
+  });
+
   it('writes nothing when a file fails to parse', async () => {
     vi.mocked(usfmImportService.parseUsfmFiles).mockResolvedValue(err(ErrorCode.USFM_INVALID));
 
@@ -226,6 +256,7 @@ describe('createProject from USFM files (#419)', () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
     expect(db.transaction).not.toHaveBeenCalled();
+    expect(repo.insertUsfmImports).not.toHaveBeenCalled();
   });
 
   it('leaves the blank-project flow exactly alone when no files are sent', async () => {

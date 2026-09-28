@@ -10,8 +10,12 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
-import type { ParsedUsfmFile } from './usfm-import.service';
+import type {
+  CreateProjectServiceInput,
+  ParsedUsfmFile,
+  Project,
+  UpdateProjectInput,
+} from './projects.types';
 
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
@@ -175,14 +179,11 @@ export async function createProject(
         createdProjectUnitId = projectUnit.id;
       }
 
-      return ok(project);
-    });
-
-    // Enqueue the on-demand text ingestion job
-    if (result.ok) {
+      // Enqueue the on-demand text ingestion job. Inside the transaction because an import
+      // whose job was never queued would sit pending forever with only a log line as evidence:
+      // rolling the creation back lets the caller retry instead of owning a project whose
+      // verses can never arrive.
       try {
-        const queue = await getQueue();
-
         // Imported verses need a complete source book, including when another project is
         // still ingesting it. Preserve the existing queue policy for blank projects.
         const ingestedBooks = importedFiles
@@ -204,7 +205,7 @@ export async function createProject(
           logger.warn('No valid books found for Bible, skipping text ingestion', {
             bibleId: input.bibleId,
           });
-          return result;
+          return ok(project);
         }
         const dbBooks = await db.query.books.findMany({
           where: (books, { inArray }) => inArray(books.id, validBookIds),
@@ -223,17 +224,18 @@ export async function createProject(
 
         // Enqueue priority ingestion for the exact requested books
         if (priorityBookCodes.length > 0) {
+          const queue = await getQueue();
           await queue.send(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
             {
-              projectId: result.data.id,
+              projectId: project.id,
               bibleId: input.bibleId,
               bookCodes: priorityBookCodes,
             },
             { priority: 10 }
           );
           logger.info('Enqueued text ingestion job for requested books', {
-            projectId: result.data.id,
+            projectId: project.id,
             bookCodes: priorityBookCodes,
           });
         }
@@ -254,8 +256,13 @@ export async function createProject(
         // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
+        // #419: only an import depends on the job to ever produce its verses. A blank project
+        // keeps the pre-existing behaviour of being created anyway.
+        if (importedFiles) throw error;
       }
-    }
+
+      return ok(project);
+    });
 
     // Decide ingestion first so completion racing with this request cannot leave an import
     // pending without its own job. Completed books are materialized here; the worker handles
