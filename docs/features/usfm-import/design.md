@@ -1,12 +1,13 @@
 # USFM import and source text completion
 
-Imported USFM is stored verbatim in `project_unit_usfm_imports`. Editable
+Imported USFM is stored verbatim in `project_unit_usfm_imports`, added by migration
+`0029_add_usfm_imports`. Editable
 `translated_verses` need the source Bible's verse IDs, so materialization waits
 until the entire source book has been ingested.
 
 ## Completion state
 
-Migration `0029_add_bible_book_text_ingestion_completion` adds nullable
+Migration `0030_add_bible_book_text_ingestion_completion` adds nullable
 `bible_books.text_ingested_at`. A null value means completion is unknown or the
 book is still incomplete. Existing `bible_texts` rows are not enough to establish
 completion, and the migration does not backfill them.

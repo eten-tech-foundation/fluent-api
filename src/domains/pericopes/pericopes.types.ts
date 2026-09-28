@@ -42,6 +42,47 @@ export function getPericopeGroupNumber(row: {
   return row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
 }
 
+export const pericopeSetGroupSchema = pericopeGroupSchema
+  .extend({ bookCode: z.string() })
+  .openapi('PericopeSetGroup');
+
+export const pericopeSetResponseSchema = z
+  .array(pericopeSetGroupSchema)
+  .openapi('PericopeSetResponse');
+
+export type PericopeSetResponse = z.infer<typeof pericopeSetResponseSchema>;
+
+export interface PericopeVerseRow {
+  chapterNumber: number;
+  verseNumber: number;
+  section: number | null;
+  pericopeNumber: string;
+  pericopeTitle: string | null;
+}
+
+export const pericopeSetParamSchema = z.object({
+  id: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(2147483647)
+    .openapi({ param: { name: 'id', in: 'path' } }),
+});
+
+export const pericopeSetQuerySchema = z.object({
+  bookCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    // eslint-disable-next-line regexp/use-ignore-case -- OpenAPI exports the pattern without regex flags.
+    .regex(/^[A-Za-z0-9]{3}$/)
+    .optional()
+    .openapi({
+      description: 'Optional three-character book code, normalized to uppercase.',
+      example: 'MRK',
+    }),
+});
+
 // ─── Route params ─────────────────────────────────────────────────────────────
 
 export const chapterPericopesParamSchema = z.object({
@@ -56,4 +97,16 @@ export const chapterPericopesParamSchema = z.object({
     .int()
     .positive()
     .openapi({ param: { name: 'chapter', in: 'path' } }),
+});
+
+export const chapterPericopesQuerySchema = z.object({
+  includeFullPericopes: z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((value) => value === 'true' || value === '1')
+    .openapi({
+      param: { name: 'includeFullPericopes', in: 'query' },
+      description:
+        'When true or 1, return every verse in each pericope intersecting this chapter, including other chapters of the same book. Defaults to false (chapter-only references).',
+    }),
 });

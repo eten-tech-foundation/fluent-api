@@ -20,9 +20,9 @@ All public endpoints reuse authenticated project access and `project:view` check
 
 Existing trigger/context fields remain required. Optional `pericopeNumber` selects a heading-only job, and API-generated jobs also include `pericopeSetId`. Heading context validates the exact server-derived range and current set. The response adds `sectionHeading:{pericopeNumber,pericopeSetId,bibleTextId,sourceTitle}` or `null` when title generation no longer applies. `sourceVerses` is ordered and limited to exact pericope membership, including for sparse ranges. The worker treats `sectionHeading:null` as a successful no-op.
 
-`POST /ai-suggestions/internal/results` continues accepting `{items:[...]}` for scripture. Heading jobs send `{items:[],heading:{projectUnitId,bibleTextId,pericopeNumber,pericopeSetId,suggestedText,modelInfo?}}`; mixed heading/scripture results are rejected. Heading text uses the same validator as authored headings: trimmed, 1–300 UTF-16 units, no backslashes or line breaks. A title result never writes scripture or markers. Results are cached once, scoped by project unit, first verse, selected set, and pericope identifier. Old-set results are rejected and old-set caches are never served for a new set.
+`POST /ai-suggestions/internal/results` continues accepting `{items:[...]}` for scripture. Heading jobs send `{items:[],heading:{projectUnitId,bibleTextId,pericopeNumber,pericopeSetId,suggestedText,modelInfo?}}`; mixed heading/scripture results are rejected. Heading text uses the same validator as authored headings: trimmed, 1–300 UTF-16 units, no backslashes or line breaks. A title result never writes scripture or markers. Results are cached once, scoped by project unit, source Bible, selected set, book, chapter, and pericope identifier. A result generated under an earlier set is stored under that set, and old-set caches are never served for a new set.
 
-Migration `0029_add_pericope_ai_suggestions` creates `ai_pericope_suggestions` and `ai_pericope_suggestion_usage`, with cascading references and uniqueness constraints. No existing translation data is rewritten.
+Migration `0031_add_pericope_ai_suggestions` creates `ai_pericope_suggestions` and `ai_pericope_suggestion_usage`, with cascading references and uniqueness constraints. No existing translation data is rewritten.
 
 ## Validation
 

@@ -42,6 +42,7 @@
     "db:import:languages": "npx tsx src/db/scripts/import-ethnologue-languages.ts",
     "db:import:language-names": "npx tsx src/db/scripts/enrich-language-names.ts",
     "db:migrate": "drizzle-kit migrate",
+    "queue:migrate-policy": "tsx src/db/scripts/migrate-worker-queue-policy.ts",
     "db:generate": "drizzle-kit generate --name",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
@@ -78,6 +79,7 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "4.18.0",
+    "@electric-sql/pglite": "0.5.8",
     "@types/archiver": "6.0.3",
     "@types/node": "24.1.0",
     "cross-env": "7.0.3",
