@@ -5,7 +5,7 @@ import type { Result } from '@/lib/types';
 import { db } from '@/db';
 import { books } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
-import * as projectsRepo from '@/domains/projects/projects.repository';
+import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -26,7 +26,7 @@ export async function createMilestone(
     }
 
     const result = await db.transaction(async (tx) => {
-      await projectsRepo.lockProjectById(projectId, tx);
+      await projectsService.lockProjectById(projectId, tx);
 
       const milestone = await repo.insertMilestoneRecord(
         projectId,
@@ -186,10 +186,10 @@ export async function updateMilestone(
 
     const { moveBooks, addBooks, removeBooks, ...updates } = input;
 
-    let enqueueBooksForIngestion: { id: number; code: string }[] = [];
+    let booksToIngestIds: number[] = [];
 
     await db.transaction(async (tx) => {
-      await projectsRepo.lockProjectById(projectId, tx);
+      await projectsService.lockProjectById(projectId, tx);
 
       await repo.updateMilestoneRecord(milestoneId, updates, tx);
 
@@ -263,13 +263,7 @@ export async function updateMilestone(
           }
 
           const assignedBookIds = new Set(chapterAssignmentsResult.data.map((a) => a.bookId));
-          const missingBookIds = trulyNewBooks.filter((id) => !assignedBookIds.has(id));
-          if (missingBookIds.length > 0) {
-            enqueueBooksForIngestion = await db.query.books.findMany({
-              where: inArray(books.id, missingBookIds),
-              columns: { code: true, id: true },
-            });
-          }
+          booksToIngestIds = trulyNewBooks.filter((id) => !assignedBookIds.has(id));
         }
       }
 
@@ -279,30 +273,37 @@ export async function updateMilestone(
       }
     });
 
-    if (enqueueBooksForIngestion.length > 0 && sourceBibleId) {
-      let boss;
-      try {
-        boss = await getQueue();
-      } catch (e) {
-        logger.error({ message: 'Failed to get queue for DBL ingest', context: { error: e } });
-      }
-      if (boss) {
-        for (const book of enqueueBooksForIngestion) {
-          try {
-            await boss.send(
-              QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
-              {
-                bibleId: sourceBibleId,
-                bookCodes: [book.code],
-                projectUnitId: milestoneId,
-              },
-              { priority: 10 }
-            );
-          } catch (e) {
-            logger.error({
-              message: 'Failed to enqueue DBL ingest job',
-              context: { bibleId: sourceBibleId, bookCode: book.code, error: e },
-            });
+    if (booksToIngestIds.length > 0) {
+      const enqueueBooksForIngestion = await db.query.books.findMany({
+        where: inArray(books.id, booksToIngestIds),
+        columns: { code: true, id: true },
+      });
+
+      if (enqueueBooksForIngestion.length > 0 && sourceBibleId) {
+        let boss;
+        try {
+          boss = await getQueue();
+        } catch (e) {
+          logger.error({ message: 'Failed to get queue for DBL ingest', context: { error: e } });
+        }
+        if (boss) {
+          for (const book of enqueueBooksForIngestion) {
+            try {
+              await boss.send(
+                QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+                {
+                  bibleId: sourceBibleId,
+                  bookCodes: [book.code],
+                  projectUnitId: milestoneId,
+                },
+                { priority: 10 }
+              );
+            } catch (e) {
+              logger.error({
+                message: 'Failed to enqueue DBL ingest job',
+                context: { bibleId: sourceBibleId, bookCode: book.code, error: e },
+              });
+            }
           }
         }
       }
@@ -335,16 +336,12 @@ export async function deleteMilestone(
     if (!existing) return err(ErrorCode.NOT_FOUND);
 
     await db.transaction(async (tx) => {
-      const hasBooks = await repo.hasAnyBooks(milestoneId, tx);
-      if (hasBooks) {
-        throw new Error('HAS_BOOKS');
-      }
+      await projectsService.lockProjectById(projectId, tx);
       await repo.deleteMilestoneRecord(milestoneId, tx);
     });
 
     return ok(undefined);
   } catch (error: any) {
-    if (error.message === 'HAS_BOOKS') return err(ErrorCode.VALIDATION_ERROR);
     logger.error({
       cause: error,
       message: 'Failed to delete milestone',

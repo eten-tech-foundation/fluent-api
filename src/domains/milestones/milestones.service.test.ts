@@ -44,7 +44,6 @@ vi.mock('./milestones.repository', () => ({
   updateMilestoneRecord: vi.fn(),
   moveBookToMilestone: vi.fn(),
   deleteMilestoneRecord: vi.fn(),
-  hasAnyBooks: vi.fn(),
   getExistingBookAssignmentsForProject: vi.fn(),
 }));
 
@@ -52,7 +51,7 @@ vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
   createChapterAssignmentForProjectUnit: vi.fn(),
 }));
 
-vi.mock('@/domains/projects/projects.repository', () => ({
+vi.mock('@/domains/projects/projects.service', () => ({
   lockProjectById: vi.fn().mockResolvedValue(true),
 }));
 
@@ -74,9 +73,8 @@ describe('milestones service', () => {
   describe('createMilestone', () => {
     const mockInput = {
       name: 'New Milestone',
-      type: 'translation',
+      type: 'text' as const,
       status: 'not_started' as const,
-      bibleId: 10,
       bookIds: [1, 2],
     };
 
@@ -97,7 +95,7 @@ describe('milestones service', () => {
       expect(repo.getValidBookIdsForBible).toHaveBeenCalledWith(10, [1, 2]);
       expect(repo.insertMilestoneRecord).toHaveBeenCalledWith(
         100,
-        { name: 'New Milestone', type: 'translation', status: 'not_started' },
+        { name: 'New Milestone', type: 'text', status: 'not_started' },
         mockTx
       );
       expect(repo.insertBibleBookLinks).toHaveBeenCalledWith(
@@ -226,28 +224,13 @@ describe('milestones service', () => {
       }
     });
 
-    it('deleteMilestone should call repo when no books exist', async () => {
+    it('deleteMilestone should call repo to delete', async () => {
       vi.mocked(repo.getByIdForProject).mockResolvedValue({ id: 1 } as any);
-      vi.mocked(repo.hasAnyBooks).mockResolvedValue(false);
       vi.mocked(repo.deleteMilestoneRecord).mockResolvedValue(undefined);
 
       const result = await deleteMilestone(100, 1);
-      expect(repo.hasAnyBooks).toHaveBeenCalledWith(1, mockTx);
       expect(repo.deleteMilestoneRecord).toHaveBeenCalledWith(1, mockTx);
       expect(result).toEqual(ok(undefined));
-    });
-
-    it('deleteMilestone should return VALIDATION_ERROR when books exist', async () => {
-      vi.mocked(repo.getByIdForProject).mockResolvedValue({ id: 1 } as any);
-      vi.mocked(repo.hasAnyBooks).mockResolvedValue(true);
-
-      const result = await deleteMilestone(100, 1);
-      expect(repo.hasAnyBooks).toHaveBeenCalledWith(1, mockTx);
-      expect(repo.deleteMilestoneRecord).not.toHaveBeenCalled();
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe(ErrorCode.VALIDATION_ERROR);
-      }
     });
   });
 });

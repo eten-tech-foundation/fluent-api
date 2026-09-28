@@ -15,6 +15,7 @@ export interface MilestoneRow {
   bookCount: number;
   bookIds: number[];
   chapterStatusCounts: Record<string, number>;
+  connectivityProfile: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -31,6 +32,7 @@ export const milestoneResponseSchema = z
     bookCount: z.number().int().min(0),
     bookIds: z.array(z.number().int()),
     chapterStatusCounts: chapterStatusCountsSchema,
+    connectivityProfile: z.string().nullable().optional(),
     createdAt: z.string().nullable().optional(),
     updatedAt: z.string().nullable().optional(),
   })
@@ -40,6 +42,7 @@ export const createMilestoneSchema = z.object({
   name: z.string().min(1).max(255),
   type: z.enum(['text', 'audio']).default('text'),
   status: z.enum(projectStatusEnum.enumValues).default('not_started'),
+  connectivityProfile: z.string().optional(),
   bookIds: z
     .array(z.number().int().positive())
     .min(1)
@@ -51,6 +54,7 @@ export const updateMilestoneSchema = z
     name: z.string().min(1).max(255).optional(),
     type: z.enum(['text', 'audio']).optional(),
     status: z.enum(projectStatusEnum.enumValues).optional(),
+    connectivityProfile: z.string().nullable().optional(),
     addBooks: z
       .array(z.number().int().positive())
       .min(1)
@@ -64,8 +68,8 @@ export const updateMilestoneSchema = z
     moveBooks: z
       .array(
         z.object({
-          bookId: z.number().int(),
-          targetMilestoneId: z.number().int(),
+          bookId: z.number().int().positive(),
+          targetMilestoneId: z.number().int().positive(),
         })
       )
       .min(1)

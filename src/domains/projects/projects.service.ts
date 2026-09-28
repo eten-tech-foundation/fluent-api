@@ -49,6 +49,10 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
+export function lockProjectById(id: number, tx: DbTransaction) {
+  return repo.lockProjectById(id, tx);
+}
+
 export async function deleteProject(
   id: number,
   options?: { cascadeUnits?: boolean }

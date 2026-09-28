@@ -31,6 +31,7 @@ export async function insertMilestoneRecord(
       name: input.name,
       type: input.type,
       status: input.status,
+      connectivityProfile: input.connectivityProfile,
     })
     .returning();
   return milestone;
@@ -82,6 +83,7 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
       name: project_units.name,
       status: project_units.status,
       type: project_units.type,
+      connectivityProfile: project_units.connectivityProfile,
       projectId: project_units.projectId,
       projectName: projects.name,
       milestoneCount: sql<number>`(
@@ -170,6 +172,8 @@ export async function updateMilestoneRecord(
   if (input.name !== undefined) updateData.name = input.name;
   if (input.type !== undefined) updateData.type = input.type;
   if (input.status !== undefined) updateData.status = input.status;
+  if (input.connectivityProfile !== undefined)
+    updateData.connectivityProfile = input.connectivityProfile;
 
   if (Object.keys(updateData).length === 0) {
     return await getMilestoneById(id, tx);
@@ -181,15 +185,6 @@ export async function updateMilestoneRecord(
     .where(eq(project_units.id, id))
     .returning();
   return milestone;
-}
-
-export async function hasAnyBooks(milestoneId: number, tx?: DbTransaction): Promise<boolean> {
-  const conn = tx ?? db;
-  const [row] = await conn
-    .select({ count: sql<number>`count(*)::int` })
-    .from(project_unit_bible_books)
-    .where(eq(project_unit_bible_books.projectUnitId, milestoneId));
-  return (row?.count ?? 0) > 0;
 }
 
 export async function deleteMilestoneRecord(id: number, tx?: DbTransaction) {
