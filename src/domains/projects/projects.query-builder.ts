@@ -30,14 +30,16 @@ export const projectWithLangNames = {
   lastChapterActivity: sql<Date>`(
     SELECT MAX(chapter_assignments.updated_at) FROM chapter_assignments
     INNER JOIN project_units ON chapter_assignments.project_unit_id = project_units.id
-    WHERE project_units.project_id = ${projects.id}
+    INNER JOIN project_unit_bible_books pubb ON pubb.project_unit_id = chapter_assignments.project_unit_id AND pubb.book_id = chapter_assignments.book_id
+    WHERE project_units.project_id = ${projects.id} AND pubb.deleted_at IS NULL
   )`.as('last_chapter_activity'),
   lastActivityAt: projects.lastActivityAt,
   counts: sql<Record<string, number>>`(
     SELECT jsonb_object_agg(t.chapter_status, t.count) FROM (
       SELECT chapter_assignments.chapter_status, count(*) as count FROM chapter_assignments
       INNER JOIN project_units ON chapter_assignments.project_unit_id = project_units.id
-      WHERE project_units.project_id = ${projects.id}
+      INNER JOIN project_unit_bible_books pubb ON pubb.project_unit_id = chapter_assignments.project_unit_id AND pubb.book_id = chapter_assignments.book_id
+      WHERE project_units.project_id = ${projects.id} AND pubb.deleted_at IS NULL
       GROUP BY chapter_assignments.chapter_status
     ) t
   )`.as('counts'),

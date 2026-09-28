@@ -100,7 +100,7 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
         WHERE project_unit_id = project_units.id AND deleted_at IS NULL
       ), ARRAY[]::integer[])`.as('book_ids'),
       chapterStatusCounts: sql<Record<string, number>>`COALESCE((
-        SELECT jsonb_object_agg(chapter_status, count) FROM (
+        SELECT jsonb_object_agg(chapter_status, count) FROM LATERAL (
           SELECT ca.chapter_status, count(*) as count FROM chapter_assignments ca
           INNER JOIN project_unit_bible_books pubb ON pubb.project_unit_id = ca.project_unit_id AND pubb.book_id = ca.book_id
           WHERE ca.project_unit_id = project_units.id AND pubb.deleted_at IS NULL
