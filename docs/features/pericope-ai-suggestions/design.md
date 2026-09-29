@@ -22,7 +22,7 @@ Existing trigger/context fields remain required. Optional `pericopeNumber` selec
 
 `POST /ai-suggestions/internal/results` continues accepting `{items:[...]}` for scripture. Heading jobs send `{items:[],heading:{projectUnitId,bibleTextId,pericopeNumber,pericopeSetId,suggestedText,modelInfo?}}`; mixed heading/scripture results are rejected. Heading text uses the same validator as authored headings: trimmed, 1–300 UTF-16 units, no backslashes or line breaks. A title result never writes scripture or markers. Results are cached once, scoped by project unit, source Bible, selected set, book, chapter, and pericope identifier. A result generated under an earlier set is stored under that set, and old-set caches are never served for a new set.
 
-Migration `0031_add_pericope_ai_suggestions` creates `ai_pericope_suggestions` and `ai_pericope_suggestion_usage`, with cascading references and uniqueness constraints. No existing translation data is rewritten.
+Migration `0032_add_pericope_ai_suggestions` creates `ai_pericope_suggestions` and `ai_pericope_suggestion_usage`, with cascading references and uniqueness constraints. No existing translation data is rewritten.
 
 ## Validation
 

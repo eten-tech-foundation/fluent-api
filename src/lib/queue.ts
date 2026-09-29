@@ -15,11 +15,10 @@ export const QUEUE_NAMES = {
   USFM_IMPORT_MATERIALIZE: 'usfm-import-materialize',
 } as const;
 
-export interface DblIngestTextJob {
-  projectId: number;
+export type DblIngestTextJob = {
   bibleId: number;
   bookCodes: string[];
-}
+} & ({ projectId: number; projectUnitId?: number } | { projectUnitId: number; projectId?: number });
 
 export interface UsfmImportMaterializeJob {
   bibleId: number;

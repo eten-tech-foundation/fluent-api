@@ -275,3 +275,49 @@ describe('usjToVerseTexts (#419)', () => {
     );
   });
 });
+
+describe('verses inside list paragraphs', () => {
+  it('preserves a list verse between body verses using the real grammar', () => {
+    expect(
+      versesOf('\\id GEN\n\\c 1\n\\p\n\\v 2 Before.\n\\li1 \\v 3 Listed.\n\\p\n\\v 4 After.')
+    ).toEqual([
+      { chapterNumber: 1, verseNumber: 2, text: 'Before.' },
+      { chapterNumber: 1, verseNumber: 3, text: 'Listed.' },
+      { chapterNumber: 1, verseNumber: 4, text: 'After.' },
+    ]);
+  });
+
+  it('excludes unsupported paragraph text before its first verse milestone', () => {
+    expect(
+      usjToVerseTexts({
+        type: 'USJ',
+        version: '3.1',
+        content: [
+          { type: 'chapter', marker: 'c', number: '1' },
+          {
+            type: 'para',
+            marker: 'p',
+            content: [{ type: 'verse', marker: 'v', number: '2' }, 'Before.'],
+          },
+          {
+            type: 'para',
+            marker: 'li1',
+            content: ['List label.', { type: 'verse', marker: 'v', number: '3' }, 'Listed.'],
+          },
+          { type: 'para', marker: 'li1', content: ['Unnumbered apparatus.'] },
+          {
+            type: 'para',
+            marker: 'p',
+            content: [{ type: 'verse', marker: 'v', number: '4' }, 'After.'],
+          },
+        ],
+      })
+    ).toEqual(
+      ok([
+        { chapterNumber: 1, verseNumber: 2, text: 'Before.' },
+        { chapterNumber: 1, verseNumber: 3, text: 'Listed.' },
+        { chapterNumber: 1, verseNumber: 4, text: 'After.' },
+      ])
+    );
+  });
+});

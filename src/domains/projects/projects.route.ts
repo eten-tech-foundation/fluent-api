@@ -17,11 +17,11 @@ import { server } from '@/server/server';
 import { requireProjectAccess } from './project-auth.middleware';
 import * as projectService from './projects.service';
 import {
-  createProjectWithUnitsSchema,
+  createProjectSchema,
   PROJECT_ACTIONS,
   projectResponseSchema,
   projectWithLanguageNamesSchema,
-  updateProjectWithUnitsSchema,
+  updateProjectSchema,
 } from './projects.types';
 
 const idParam = z.object({
@@ -117,7 +117,7 @@ const createProjectRoute = createRoute({
   summary: 'Create a new project',
   description:
     'Creates a project. If the caller has no org yet, provisions a personal org automatically (solo workflow).',
-  request: { body: jsonContentRequired(createProjectWithUnitsSchema, 'Project to create') },
+  request: { body: jsonContentRequired(createProjectSchema, 'Project to create') },
   responses: {
     [HttpStatusCodes.CREATED]: jsonContent(projectResponseSchema, 'Created project'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
@@ -305,7 +305,7 @@ const updateProjectRoute = createRoute({
   description: 'Project Manager only.',
   request: {
     params: idParam,
-    body: jsonContentRequired(updateProjectWithUnitsSchema, 'Project updates'),
+    body: jsonContentRequired(updateProjectSchema, 'Project updates'),
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(projectResponseSchema, 'Updated project'),

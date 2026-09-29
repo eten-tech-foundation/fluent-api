@@ -18,6 +18,7 @@ import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerAiTriggerWorker } from './ai-trigger.worker';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
+import { countPendingQueueJobs } from './queue-heartbeat';
 import { registerUSFMExportWorker } from './usfm-export.worker';
 
 interface WorkerMetrics {
@@ -100,7 +101,8 @@ async function startWorker() {
           const ingestPriorityStats = await boss.getQueueStats(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY
           );
-          const importMaterializeStats = await boss.getQueueStats(
+          const importMaterializeCount = await countPendingQueueJobs(
+            boss,
             QUEUE_NAMES.USFM_IMPORT_MATERIALIZE
           );
 
@@ -108,24 +110,21 @@ async function startWorker() {
             (exportStats?.queuedCount || 0) +
             (aiStats?.queuedCount || 0) +
             (ingestStats?.queuedCount || 0) +
-            (ingestPriorityStats?.queuedCount || 0) +
-            (importMaterializeStats?.queuedCount || 0);
+            (ingestPriorityStats?.queuedCount || 0);
 
           const totalActive =
             (exportStats?.activeCount || 0) +
             (aiStats?.activeCount || 0) +
             (ingestStats?.activeCount || 0) +
-            (ingestPriorityStats?.activeCount || 0) +
-            (importMaterializeStats?.activeCount || 0);
+            (ingestPriorityStats?.activeCount || 0);
 
           const totalDeferred =
             (exportStats?.deferredCount || 0) +
             (aiStats?.deferredCount || 0) +
             (ingestStats?.deferredCount || 0) +
-            (ingestPriorityStats?.deferredCount || 0) +
-            (importMaterializeStats?.deferredCount || 0);
+            (ingestPriorityStats?.deferredCount || 0);
 
-          const queueSize = totalQueued + totalActive + totalDeferred;
+          const queueSize = totalQueued + totalActive + totalDeferred + importMaterializeCount;
 
           logger.info('Worker heartbeat', {
             scope: 'aggregate_all_queues',

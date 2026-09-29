@@ -8,6 +8,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './projects.repository';
 import { createProject } from './projects.service';
+import { createProjectSchema } from './projects.types';
 import * as usfmImportService from './usfm-import.service';
 
 const mockTx = { _isMockTx: true };
@@ -36,6 +37,7 @@ vi.mock('@/lib/queue', () => ({
   QUEUE_NAMES: {
     DBL_INGEST_TEXT: 'dbl-ingest-text',
     DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
+    USFM_IMPORT_MATERIALIZE: 'usfm-import-materialize',
   },
 }));
 
@@ -269,5 +271,115 @@ describe('createProject from USFM files (#419)', () => {
       [{ projectUnitId: 600, bibleId: 3, bookId: 1 }],
       mockTx
     );
+  });
+});
+
+describe('uSFM creation retry and milestone compatibility', () => {
+  function completedBooks() {
+    vi.mocked(db.select).mockReturnValueOnce({
+      from: vi
+        .fn()
+        .mockReturnValue({ where: vi.fn().mockResolvedValue([{ bookId: 1 }, { bookId: 40 }]) }),
+    } as never);
+    vi.mocked(db.query.books.findMany).mockResolvedValueOnce([
+      { id: 1, code: 'GEN' },
+      { id: 40, code: 'MAT' },
+    ] as never);
+  }
+
+  it('queues one materialization retry per completed book after an immediate failure', async () => {
+    completedBooks();
+    vi.mocked(usfmImportService.materializePendingUsfmImports).mockResolvedValue(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+    const send = vi.fn().mockResolvedValue('retry-id');
+    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+
+    expect(await createProject({ ...BASE, usfmFiles: FILES })).toEqual(ok({ id: 500 }));
+    expect(send.mock.calls).toEqual([
+      ['usfm-import-materialize', { bibleId: 3, bookId: 1 }, { singletonKey: '3:1' }],
+      ['usfm-import-materialize', { bibleId: 3, bookId: 40 }, { singletonKey: '3:40' }],
+    ]);
+  });
+
+  it('logs a failed retry enqueue and still attempts the remaining imported books', async () => {
+    completedBooks();
+    vi.mocked(usfmImportService.materializePendingUsfmImports).mockResolvedValue(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+    const failure = new Error('queue unavailable');
+    const send = vi.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce('retry-id');
+    vi.mocked(getQueue).mockResolvedValue({ send } as never);
+
+    expect(await createProject({ ...BASE, usfmFiles: FILES })).toEqual(ok({ id: 500 }));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith(
+      'usfm-import-materialize',
+      { bibleId: 3, bookId: 40 },
+      { singletonKey: '3:40' }
+    );
+    expect(logger.error).toHaveBeenCalledWith('Failed to queue USFM materialisation retry', {
+      projectId: 500,
+      bibleId: 3,
+      bookId: 1,
+      error: failure,
+    });
+  });
+
+  it('preserves project-only creation for the current sourceBibleId contract', async () => {
+    const { bibleId, bookId: _bookId, projectUnitStatus: _status, ...project } = BASE;
+    const input = { ...project, sourceBibleId: bibleId };
+    expect(createProjectSchema.safeParse(input).success).toBe(true);
+    expect(await createProject(input)).toEqual(ok({ id: 500 }));
+    expect(repo.insertProjectRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceBibleId: 3 }),
+      mockTx
+    );
+    expect(repo.insertProjectUnitRecord).not.toHaveBeenCalled();
+    expect(repo.insertBibleBookLinks).not.toHaveBeenCalled();
+    expect(getQueue).not.toHaveBeenCalled();
+  });
+
+  it('accepts imported files with sourceBibleId and persists their source Bible', async () => {
+    const { bibleId, bookId: _bookId, ...project } = BASE;
+    const input = { ...project, sourceBibleId: bibleId, usfmFiles: FILES };
+    expect(createProjectSchema.safeParse(input).success).toBe(true);
+    expect(await createProject(input)).toEqual(ok({ id: 500 }));
+    expect(repo.insertProjectRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceBibleId: 3 }),
+      mockTx
+    );
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledTimes(1);
+    expect(usfmImportService.materializePendingUsfmImports).toHaveBeenCalledWith(
+      600,
+      3,
+      [1, 40],
+      PARSED
+    );
+  });
+
+  it('accepts the legacy Bible and book payload without changing its initial-unit flow', async () => {
+    expect(createProjectSchema.safeParse(BASE).success).toBe(true);
+    expect(await createProject(BASE)).toEqual(ok({ id: 500 }));
+    expect(repo.insertProjectRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceBibleId: 3 }),
+      mockTx
+    );
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledTimes(1);
+    expect(repo.insertBibleBookLinks).toHaveBeenCalledWith(
+      [{ projectUnitId: 600, bibleId: 3, bookId: 99 }],
+      mockTx
+    );
+  });
+
+  it('rejects conflicting source Bible IDs before writing', async () => {
+    const input = { ...BASE, sourceBibleId: 4, usfmFiles: FILES };
+    expect(createProjectSchema.safeParse(input).success).toBe(false);
+    expect(await createProject(input)).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.VALIDATION_ERROR },
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(usfmImportService.parseUsfmFiles).not.toHaveBeenCalled();
   });
 });

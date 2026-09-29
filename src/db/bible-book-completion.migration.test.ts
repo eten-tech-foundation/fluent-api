@@ -12,7 +12,7 @@ it('leaves completion unknown when a pre-existing book has only some source vers
       INSERT INTO bible_texts VALUES (1, 1);
     `);
     const migration = await readFile(
-      new URL('./migrations/0030_add_bible_book_text_ingestion_completion.sql', import.meta.url),
+      new URL('./migrations/0031_add_bible_book_text_ingestion_completion.sql', import.meta.url),
       'utf8'
     );
     await db.exec(migration);
