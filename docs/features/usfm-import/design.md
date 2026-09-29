@@ -48,6 +48,14 @@ Blank-project creation keeps tolerating a queue failure.
 If immediate materialization fails after creation commits, each imported book
 gets an independent `usfm-import-materialize` job, deduplicated by Bible and book.
 An enqueue failure is logged without preventing the other books from being queued.
+The pending import row is the durable retry intent. After registering its queues,
+the worker discovers pending imports immediately and every 60 seconds, joining
+the current active unit/book link to a source book with explicit completion. It
+queues each distinct Bible/book pair with the same singleton key. Query or send
+failures leave the rows pending for the next sweep, so a queue outage can recover
+without restarting the worker. Sweeps do not overlap, do not change completion
+timestamps, and stop before queue shutdown. Moved books are discovered at their
+current milestone; deleted links are skipped until restored.
 This also retries completed source books, which have no ingestion job to revisit
 them. The worker heartbeat reads the import queue's pending rows directly so a
 drained queue reports zero and delayed jobs are counted only once.
