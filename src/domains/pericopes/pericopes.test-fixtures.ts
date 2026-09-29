@@ -41,6 +41,8 @@ export const MOCK_PROJECT: ProjectWithLanguageNames = {
   lastChapterActivity: null,
   chapterStatusCounts: {},
   workflowConfig: [],
+  sourceBibleId: 1,
+  milestoneCount: 0,
 };
 
 // Both route suites mock these auth boundaries; the integration suite keeps SQL real.

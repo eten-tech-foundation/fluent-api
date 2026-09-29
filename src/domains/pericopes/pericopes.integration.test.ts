@@ -61,6 +61,8 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
         pericope_verses: schema.pericope_verses,
         pericope_sets: schema.pericope_sets,
         books: schema.books,
+        bibles: schema.bibles,
+        bibleProviderEnum: schema.bibleProviderEnum,
         projects: schema.projects,
         projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
         languages: schema.languages,
@@ -83,6 +85,13 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
       { id: 3, name: 'Other set' },
     ]);
     await database.insert(schema.languages).values({ id: 1, langName: 'English' });
+    await database.insert(schema.bibles).values({
+      id: 1,
+      languageId: 1,
+      name: 'Test Bible',
+      abbreviation: 'TST',
+      provider: 'dbl',
+    });
     await database.insert(schema.organizations).values({ id: 1, name: 'Test organization' });
     await database.insert(schema.projects).values(
       [1, 2, null].map((pericopeSetId, index) => ({
