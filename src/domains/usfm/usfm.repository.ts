@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -8,7 +8,6 @@ import {
   books,
   project_unit_bible_books,
   project_units,
-  projects,
   translated_verses,
 } from '@/db/schema';
 import { logger } from '@/lib/logger';
@@ -21,14 +20,13 @@ const BATCH_SIZE = 25;
 export async function getProjectName(projectUnitId: number): Promise<Result<string>> {
   try {
     const result = await db
-      .select({ name: projects.name })
-      .from(projects)
-      .innerJoin(project_units, eq(projects.id, project_units.projectId))
+      .select({ name: project_units.name })
+      .from(project_units)
       .where(eq(project_units.id, projectUnitId))
       .limit(1);
 
     if (result.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
-    return ok(result[0].name);
+    return ok(result[0].name || 'Milestone');
   } catch (error) {
     logger.error({
       cause: error,
@@ -54,6 +52,7 @@ export async function validateBookIds(
       .where(
         and(
           eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt),
           inArray(project_unit_bible_books.bookId, bookIds)
         )
       );
@@ -90,6 +89,7 @@ export async function getProjectBooks(
       .where(
         and(
           eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt),
           ...(bookIds?.length ? [inArray(project_unit_bible_books.bookId, bookIds)] : [])
         )
       )
@@ -137,7 +137,8 @@ export async function getBookVerses(
           and(
             eq(project_unit_bible_books.bookId, bible_texts.bookId),
             eq(project_unit_bible_books.bibleId, bible_texts.bibleId),
-            eq(project_unit_bible_books.projectUnitId, projectUnitId)
+            eq(project_unit_bible_books.projectUnitId, projectUnitId),
+            isNull(project_unit_bible_books.deletedAt)
           )
         )
         .leftJoin(
@@ -207,7 +208,12 @@ export async function getAvailableBooksForExport(projectUnitId: number) {
           eq(translated_verses.projectUnitId, projectUnitId)
         )
       )
-      .where(eq(project_unit_bible_books.projectUnitId, projectUnitId))
+      .where(
+        and(
+          eq(project_unit_bible_books.projectUnitId, projectUnitId),
+          isNull(project_unit_bible_books.deletedAt)
+        )
+      )
       .groupBy(project_unit_bible_books.bookId, books.code, books.eng_display_name)
       .orderBy(asc(project_unit_bible_books.bookId));
 

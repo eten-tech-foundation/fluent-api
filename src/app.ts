@@ -7,6 +7,7 @@ import '@/routes/auth-doc.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
 import '@/domains/projects/projects.route';
+import '@/domains/milestones/milestones.route';
 import '@/domains/projects/chapter-assignments/project-chapter-assignments.route';
 import '@/domains/chapter-assignments/chapter-assignments.route';
 import '@/domains/languages/languages.route';
@@ -34,6 +35,7 @@ import '@/domains/translation-resources/translation-resources.route';
 import '@/domains/source-audio/source-audio.route';
 import '@/domains/self/settings/self-settings.route';
 import '@/domains/aquifer-resources/aquifer-resources.route';
+import '@/domains/youversion/youversion.route';
 configureOpenAPI(server);
 
 export default server;

@@ -1,6 +1,6 @@
 import type { PgBoss } from 'pg-boss';
 
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import type { DblIngestTextJob } from '../lib/queue';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
@@ -8,6 +8,7 @@ import type { WorkerMetricsHooks } from './usfm-export.worker';
 import { db } from '../db';
 import { bible_texts, project_units } from '../db/schema';
 import * as chapterAssignmentsService from '../domains/chapter-assignments/chapter-assignments.service';
+import { ensureWorkerQueue } from '../lib/dead-letter-queues';
 import { logger } from '../lib/logger';
 import { QUEUE_NAMES } from '../lib/queue';
 import { dblClient } from '../lib/services/dbl/dbl.client';
@@ -162,12 +163,14 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
       }
 
       // Once text ingestion completes, ensure chapter assignments exist for the project unit
-      if (job.data.projectId && bookCodes.length > 0) {
+      if ((job.data.projectUnitId || job.data.projectId) && bookCodes.length > 0) {
         try {
-          const projectUnits = await db
-            .select({ id: project_units.id })
-            .from(project_units)
-            .where(sql`${project_units.projectId} = ${job.data.projectId}`);
+          const projectUnits = job.data.projectUnitId
+            ? [{ id: job.data.projectUnitId }]
+            : await db
+                .select({ id: project_units.id })
+                .from(project_units)
+                .where(eq(project_units.projectId, job.data.projectId!));
 
           const bookIds = await db.query.books
             .findMany({
@@ -225,8 +228,8 @@ export async function registerDblIngestTextWorker(boss: PgBoss, metricsHooks?: W
   };
 
   // Register handler on both queues; priority queue processes first
-  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT);
-  await boss.createQueue(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
+  await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT);
+  await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY);
 
   const workOptions = { batchSize: 1 };
   await boss.work<DblIngestTextJob>(QUEUE_NAMES.DBL_INGEST_TEXT, workOptions, handler);

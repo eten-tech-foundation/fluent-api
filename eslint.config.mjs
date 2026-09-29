@@ -44,5 +44,18 @@ export default antfu(
     rules: {
       'no-console': 'off',
     },
+  },
+  {
+    files: ['**/schema.ts'],
+    rules: {
+      'max-lines': [
+        'warn',
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: true,
+        },
+      ],
+    },
   }
 );
