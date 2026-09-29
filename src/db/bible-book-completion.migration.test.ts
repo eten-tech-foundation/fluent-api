@@ -16,7 +16,9 @@ it('leaves completion unknown when a pre-existing book has only some source vers
       'utf8'
     );
     await db.exec(migration);
-    const { rows } = await db.query('SELECT book_id, text_ingested_at FROM bible_books ORDER BY book_id');
+    const { rows } = await db.query(
+      'SELECT book_id, text_ingested_at FROM bible_books ORDER BY book_id'
+    );
     expect(rows).toEqual([
       { book_id: 1, text_ingested_at: null },
       { book_id: 2, text_ingested_at: null },
