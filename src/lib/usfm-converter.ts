@@ -218,7 +218,16 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           }
 
           if (!headingMarkers.has(node.marker)) {
-            if (BODY_TEXT_MARKERS.has(node.marker)) walk(node.content);
+            if (BODY_TEXT_MARKERS.has(node.marker)) {
+              walk(node.content);
+            } else {
+              // Lists and other unsupported paragraphs can still contain real verses.
+              // Keep their verse text while excluding labels before the first milestone.
+              const firstVerse = node.content.findIndex(
+                (child) => typeof child !== 'string' && child.type === 'verse'
+              );
+              if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+            }
             break;
           }
 

@@ -57,8 +57,25 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
-export function deleteProject(id: number) {
-  return repo.remove(id);
+export function lockProjectById(id: number, tx: DbTransaction) {
+  return repo.lockProjectById(id, tx);
+}
+
+export async function deleteProject(
+  id: number,
+  options?: { cascadeUnits?: boolean }
+): Promise<Result<void>> {
+  if (options?.cascadeUnits) return repo.remove(id);
+
+  return db.transaction(async (tx) => {
+    const exists = await repo.lockProjectById(id, tx);
+    if (!exists) return err(ErrorCode.PROJECT_NOT_FOUND);
+
+    const count = await repo.countUnitsByProjectId(id, tx);
+    if (count > 0) return err(ErrorCode.PROJECT_HAS_MILESTONES);
+
+    return repo.remove(id, tx);
+  });
 }
 
 export function getProjectIdByUnitId(projectUnitId: number) {
@@ -102,16 +119,28 @@ export async function createProject(
   // Create-from-existing-data (#419): every file is parsed before anything is written, and the
   // books the files carry replace whatever the client listed, since the files are the authority.
   let importedFiles: ParsedUsfmFile[] | null = null;
-  let input = requested;
+  const bibleId = requested.sourceBibleId ?? requested.bibleId;
+  if (
+    bibleId === undefined ||
+    (requested.bibleId != null &&
+      requested.sourceBibleId != null &&
+      requested.bibleId !== requested.sourceBibleId)
+  ) {
+    return err(ErrorCode.VALIDATION_ERROR);
+  }
+  let input = { ...requested, bibleId, sourceBibleId: bibleId, bookId: requested.bookId ?? [] };
+  // Current clients create milestones separately. Only imports and explicit legacy book
+  // requests keep the initial-unit creation used before milestones were introduced.
+  const createInitialUnit = requested.usfmFiles?.length || requested.bookId !== undefined;
   try {
     if (requested.usfmFiles?.length) {
       const parsed = await usfmImportService.parseUsfmFiles(requested.usfmFiles);
       if (!parsed.ok) return parsed;
       importedFiles = parsed.data;
-      input = { ...requested, bookId: importedFiles.map((file) => file.bookId) };
+      input = { ...input, bookId: importedFiles.map((file) => file.bookId) };
     }
 
-    const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
+    const validBookIds = createInitialUnit ? await repo.getValidBookIdsForBible(input.bibleId) : [];
     const hasInvalidBooks = input.bookId.some((id) => !validBookIds.includes(id));
 
     if (hasInvalidBooks) {
@@ -135,12 +164,20 @@ export async function createProject(
 
     let createdProjectUnitId: number | null = null;
     const result = await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
+      const {
+        bibleId,
+        bookId,
+        projectUnitStatus = 'not_started',
+        usfmFiles: _usfmFiles,
+        ...projectData
+      } = input;
 
       const project = await repo.insertProjectRecord(
         { ...projectData, status: 'not_assigned' },
         tx
       );
+
+      if (!createInitialUnit) return ok(project);
 
       const projectUnit = await repo.insertProjectUnitRecord(
         { projectId: project.id, status: projectUnitStatus },
@@ -288,6 +325,25 @@ export async function createProject(
             error: materialized.error,
           },
         });
+        // Completed source books have no ingestion job to revisit this import.
+        // Retry each book independently; successful inserts are idempotent.
+        for (const file of importedFiles) {
+          try {
+            const queue = await getQueue();
+            await queue.send(
+              QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
+              { bibleId: input.bibleId, bookId: file.bookId },
+              { singletonKey: `${input.bibleId}:${file.bookId}` }
+            );
+          } catch (error) {
+            logger.error('Failed to queue USFM materialisation retry', {
+              projectId: result.data.id,
+              bibleId: input.bibleId,
+              bookId: file.bookId,
+              error,
+            });
+          }
+        }
       }
     }
 
@@ -323,16 +379,10 @@ export async function updateProject(
     }
 
     return await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus, ...projectData } = input;
-
-      const updatedProject = await repo.updateProjectRecord(id, projectData, tx);
+      const updatedProject = await repo.updateProjectRecord(id, input, tx);
 
       if (!updatedProject) {
         return err(ErrorCode.PROJECT_NOT_FOUND);
-      }
-
-      if (projectUnitStatus !== undefined) {
-        await repo.updateProjectUnitStatusByProjectId(id, projectUnitStatus, tx);
       }
 
       return ok(updatedProject);

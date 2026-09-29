@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -43,7 +43,7 @@ const WORKFLOW_DEFINITION: WorkflowStep[] = chapterStatusEnum.enumValues.map((st
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
 export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
-  const { counts, ...rest } = rawProject;
+  const { counts, milestoneCount, ...rest } = rawProject;
   const defaultCounts = chapterStatusEnum.enumValues.reduce((acc, status) => {
     acc[status] = 0;
     return acc;
@@ -52,6 +52,7 @@ export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWit
   return {
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
+    milestoneCount: milestoneCount ?? 0,
     workflowConfig: WORKFLOW_DEFINITION,
   };
 }
@@ -174,37 +175,12 @@ export async function getById(id: number): Promise<Result<ProjectWithLanguageNam
   }
 }
 
-export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
-  const rows = await db
-    .select({ bookId: bible_books.bookId })
-    .from(bible_books)
-    .where(eq(bible_books.bibleId, bibleId));
-  return rows.map((r) => r.bookId);
-}
-
 export async function insertProjectRecord(
   projectData: CreateProjectData,
   tx: DbTransaction
 ): Promise<Project> {
   const [project] = await tx.insert(projects).values(projectData).returning();
   return project;
-}
-
-export async function insertProjectUnitRecord(
-  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
-  tx: DbTransaction
-) {
-  const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
-  return projectUnit;
-}
-
-export async function insertBibleBookLinks(
-  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
-  tx: DbTransaction
-) {
-  if (bibleBookEntries.length > 0) {
-    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
-  }
 }
 
 export async function updateProjectRecord(
@@ -220,17 +196,10 @@ export async function updateProjectRecord(
   return updated;
 }
 
-export async function updateProjectUnitStatusByProjectId(
-  projectId: number,
-  status: 'not_started' | 'in_progress' | 'completed',
-  tx: DbTransaction
-) {
-  await tx.update(project_units).set({ status }).where(eq(project_units.projectId, projectId));
-}
-
-export async function remove(id: number): Promise<Result<void>> {
+export async function remove(id: number, tx?: DbTransaction): Promise<Result<void>> {
   try {
-    const [deleted] = await db
+    const conn = tx ?? db;
+    const [deleted] = await conn
       .delete(projects)
       .where(eq(projects.id, id))
       .returning({ id: projects.id });
@@ -288,6 +257,50 @@ export async function findAssignmentIdsNotInProject(
 
   const validIds = new Set(rows.map((r) => r.id));
   return chapterAssignmentIds.filter((id) => !validIds.has(id));
+}
+
+export async function countUnitsByProjectId(
+  projectId: number,
+  tx?: DbTransaction
+): Promise<number> {
+  const conn = tx ?? db;
+  const rows = await conn
+    .select({ count: sql<number>`count(*)::int` })
+    .from(project_units)
+    .where(eq(project_units.projectId, projectId));
+  return rows[0].count;
+}
+
+export async function lockProjectById(id: number, tx: DbTransaction): Promise<boolean> {
+  // Use a raw SQL query since Drizzle doesn't have a first-class FOR UPDATE yet without trickery
+  const res = await tx.execute(sql`SELECT id FROM ${projects} WHERE id = ${id} FOR UPDATE`);
+  if (Array.isArray(res)) return res.length > 0;
+  return ((res as any).rows?.length ?? 0) > 0;
+}
+
+export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
+  const rows = await db
+    .select({ bookId: bible_books.bookId })
+    .from(bible_books)
+    .where(eq(bible_books.bibleId, bibleId));
+  return rows.map((r) => r.bookId);
+}
+
+export async function insertProjectUnitRecord(
+  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
+  tx: DbTransaction
+) {
+  const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
+  return projectUnit;
+}
+
+export async function insertBibleBookLinks(
+  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
+  tx: DbTransaction
+) {
+  if (bibleBookEntries.length > 0) {
+    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
+  }
 }
 
 // ─── Imported USFM (#419) ─────────────────────────────────────────────────────

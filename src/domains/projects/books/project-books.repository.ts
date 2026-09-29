@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -23,7 +23,9 @@ export async function getBooksByProjectId(projectId: number): Promise<Result<Pro
         eq(project_unit_bible_books.projectUnitId, project_units.id)
       )
       .innerJoin(books, eq(books.id, project_unit_bible_books.bookId))
-      .where(eq(project_units.projectId, projectId))
+      .where(
+        and(eq(project_units.projectId, projectId), isNull(project_unit_bible_books.deletedAt))
+      )
       .orderBy(books.id);
 
     const mappedBooks: ProjectBook[] = projectBooks.map((book) => ({

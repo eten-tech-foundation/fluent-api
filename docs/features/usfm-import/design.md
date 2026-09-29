@@ -6,7 +6,7 @@ until the entire source book has been ingested.
 
 ## Completion state
 
-Migration `0030_add_bible_book_text_ingestion_completion` adds nullable
+Migration `0031_add_bible_book_text_ingestion_completion` adds nullable
 `bible_books.text_ingested_at`. A null value means completion is unknown or the
 book is still incomplete. Existing `bible_texts` rows are not enough to establish
 completion, and no expected chapter or verse count exists to check them against,
@@ -26,6 +26,13 @@ expected corpus count, allowing previously seeded local databases to use imports
 
 ## Project creation and materialization
 
+The milestones API creates a project without an initial unit when the request
+supplies `sourceBibleId` alone. Import requests also supply `usfmFiles` and create
+the initial unit for those files. Existing clients may still supply `bibleId`
+and `bookId` to create that unit in one request; both paths save `sourceBibleId`
+on the project. Supplying different values for the two Bible IDs is rejected.
+Milestone creation and editing endpoints keep their current behavior.
+
 For USFM projects, creation queues selected books whose completion timestamp is
 null, even if some source verses already exist. This also gives each importing
 project its own completion hook when another project is ingesting the same Bible.
@@ -37,6 +44,13 @@ queued job or sees the completed source during the immediate attempt. The enqueu
 runs inside the creating transaction: an import whose job could not be queued is
 rolled back rather than committed as a project whose verses can never arrive.
 Blank-project creation keeps tolerating a queue failure.
+
+If immediate materialization fails after creation commits, each imported book
+gets an independent `usfm-import-materialize` job, deduplicated by Bible and book.
+An enqueue failure is logged without preventing the other books from being queued.
+This also retries completed source books, which have no ingestion job to revisit
+them. The worker heartbeat reads the import queue's pending rows directly so a
+drained queue reports zero and delayed jobs are counted only once.
 
 Completion reconciles every pending import for that Bible and book, whichever
 project holds it, so an import whose own job was never queued or has given up is
@@ -75,9 +89,11 @@ The persisted file remains verbatim, including its original identifier and tags.
 
 Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
 well-formed tags remain valid passthrough data; for example, custom `\z...`
-markers do not produce grammar errors. Editable rows include only prose and
-poetry body paragraphs. Tables, page breaks, lists, notes, figures and sidebars
-remain in the original file rather than being appended to a verse's prose.
+markers do not produce grammar errors. Editable rows include prose and poetry body paragraphs, plus verses that start
+inside list or other non-heading paragraphs. Text before the first verse milestone
+in those paragraphs, and paragraphs with no milestone, stay in the original file.
+Tables, notes, figures and sidebars remain in the original file rather than being
+appended to a verse's prose.
 Supported headings attach to the next verse. Headings after the last verse
 remain on the raw import row; attaching them before the last verse would change
 source order. Import does not promise export/roundtrip support yet.
