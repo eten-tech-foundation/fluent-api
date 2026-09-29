@@ -1,7 +1,7 @@
 # USFM import and source text completion
 
 Imported USFM is stored verbatim in `project_unit_usfm_imports`, added by migration
-`0029_add_usfm_imports`. Editable
+`0030_add_usfm_imports`. Editable
 `translated_verses` need the source Bible's verse IDs, so materialization waits
 until the entire source book has been ingested.
 
