@@ -26,9 +26,9 @@ A SuperAdmin must be able to create a new organization and invite its first Org 
 
 Files: `src/lib/permissions.ts`, `src/db/seeds/rbac.ts`, `src/lib/services/permissions/authorize.test.ts`
 
-- [ ] Add `ORG_VIEW: 'org:view'` and `ORG_CREATE: 'org:create'` under a new `// ── Organizations` block.
-- [ ] Add both to `PERMISSION_DEFINITIONS`. SuperAdmin gets them via the existing all-permissions spread. Do not grant to Org Manager.
-- [ ] Test: global SuperAdmin grant authorizes `ORG_CREATE` at scope `{}`; an org-scoped Org Manager grant does not.
+- [x] Add `ORG_VIEW: 'org:view'` and `ORG_CREATE: 'org:create'` under a new `// ── Organizations` block.
+- [x] Add both to `PERMISSION_DEFINITIONS`. SuperAdmin gets them via the existing all-permissions spread. Do not grant to Org Manager.
+- [x] Test: global SuperAdmin grant authorizes `ORG_CREATE` at scope `{}`; an org-scoped Org Manager grant does not.
 
 ### 2. Organizations domain module
 
@@ -54,10 +54,10 @@ POST /organizations          requirePermission(ORG_CREATE, () => ({}))  201 org 
 GET  /organizations/{orgId}  requirePermission(ORG_VIEW, () => ({}))    200 summary | 404
 ```
 
-- [ ] Failing service tests: duplicate name → `CONFLICT` (via `handleConstraintError`); list sorted by name with `orgManagerCount`; missing id → `NOT_FOUND`.
-- [ ] Repository: `findAllWithCounts()`, `findByIdWithCounts(id)`, `insert({ name })`. Count via `LEFT JOIN user_roles JOIN roles`, `countDistinct(user_roles.userId)` filtered to `roles.name = 'Org Manager' AND user_roles.projectId IS NULL`.
-- [ ] Service returns `Result<T>`; route maps errors with `getHttpStatus`. Follow the `createRoute` + `server.openapi` + `jsonContent` shape in `org-users.route.ts`.
-- [ ] Register the route import in `src/app.ts` next to `org-users.route`.
+- [x] Failing service tests: duplicate name → `CONFLICT` (via `handleConstraintError`); list sorted by name with `orgManagerCount`; missing id → `NOT_FOUND`.
+- [x] Repository: `findAllWithCounts()`, `findByIdWithCounts(id)`, `insert({ name })`. Count via `LEFT JOIN user_roles JOIN roles`, `countDistinct(user_roles.userId)` filtered to `roles.name = 'Org Manager' AND user_roles.projectId IS NULL`.
+- [x] Service returns `Result<T>`; route maps errors with `getHttpStatus`. Follow the `createRoute` + `server.openapi` + `jsonContent` shape in `org-users.route.ts`.
+- [x] Register the route import in `src/app.ts` next to `org-users.route`.
 
 ### 3. Org-scoped member list
 
@@ -67,20 +67,20 @@ Files: `src/domains/organizations/users/org-users.route.ts`, `src/domains/users/
 GET /organizations/{orgId}/users   requirePermission(USER_VIEW, orgId from path)   200 userResponseSchema[] | 404
 ```
 
-- [ ] `getUsersInOrg(orgId)` in `users.service.ts`: `repo.findByOrganizations([orgId])` + `findRoleGrantsByUserIds(ids, [orgId])`; extract the mapping shared with `getUsersForUser`.
-- [ ] Tests: grants in orgs 1 and 2 → only org-1 grants returned for org 1; project-pinned Project Manager is rejected at org scope (its `USER_VIEW` grant is not applicable); SuperAdmin and org-scoped Org Manager pass.
+- [x] `getUsersInOrg(orgId)` in `users.service.ts`: `repo.findByOrganizations([orgId])` + `findRoleGrantsByUserIds(ids, [orgId])`; extract the mapping shared with `getUsersForUser`.
+- [x] Tests: grants in orgs 1 and 2 → only org-1 grants returned for org 1; project-pinned Project Manager is rejected at org scope (its `USER_VIEW` grant is not applicable); SuperAdmin and org-scoped Org Manager pass.
 
 ### 4. Invite Org Manager — verification only
 
-- [ ] Test `requireUserAccess(USER_ACTIONS.CREATE)` with body `{ orgId, projectId: null, roleName: 'Org Manager' }`: passes for a global SuperAdmin grant, 403 for a project-pinned PM.
-- [ ] Route description of `POST /users/invite`: document 201 = new account created (magic link), 200 = existing account added to org (login link).
-- [ ] Check `sendExistingUserOrgInviteEmail` copy reads correctly with no project context; adjust if it assumes one.
+- [x] Test `requireUserAccess(USER_ACTIONS.CREATE)` with body `{ orgId, projectId: null, roleName: 'Org Manager' }`: passes for a global SuperAdmin grant, 403 for a project-pinned PM.
+- [x] Route description of `POST /users/invite`: document 201 = new account created (magic link), 200 = existing account added to org (login link).
+- [x] Check `sendExistingUserOrgInviteEmail` copy reads correctly with no project context; adjust if it assumes one.
 
 ### 5. Dev seeds
 
 File: `src/db/seeds/dev-users.ts`
 
-- [ ] Add `super_admin` (global grant, `orgId: null, projectId: null`) and `org_manager` (Org Member anchor + Org Manager grant in the dev org), following the PM pattern and password reconciliation.
+- [x] Add `super_admin` (global grant, `orgId: null, projectId: null`) and `org_manager` (Org Member anchor + Org Manager grant in the dev org), following the PM pattern and password reconciliation.
 
 ## Verification
 

@@ -72,6 +72,10 @@ const listOrgUsersRoute = createRoute({
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Organization not found'
     ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
+      'Invalid organization id'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -121,6 +125,10 @@ const removeOrgUserRoute = createRoute({
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'User is not a member of this org'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
+      'Invalid organization or user id'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -186,7 +194,7 @@ const updateOrgUserRoleRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
-      'User is not a member of this org'
+      'Invalid request parameters, or user is not a member of this org'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
