@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -19,6 +19,7 @@ import {
 import { ROLES } from '@/lib/roles';
 
 export const AUDIO_DEMO_SEED = 'source-audio-bsb-jhn';
+const AUDIO_DEMO_PROJECT_NAME = 'Source Audio Demo — BSB John';
 
 /** Only local setup creates a demo project; shared Dev/QA need their own chosen QA assignment. */
 export async function seedAudioDemo(
@@ -69,8 +70,9 @@ export async function seedAudioDemo(
       [project] = await tx
         .insert(projects)
         .values({
-          name: 'Source Audio Demo — BSB John',
+          name: AUDIO_DEMO_PROJECT_NAME,
           sourceLanguage: bible.languageId,
+          sourceBibleId: bible.id,
           targetLanguage: target.id,
           organization: org.id,
           createdBy: user.id,
@@ -79,6 +81,12 @@ export async function seedAudioDemo(
           metadata: { seed: AUDIO_DEMO_SEED },
         })
         .returning();
+    } else if (project.sourceBibleId === null) {
+      // Earlier local seeds predate the milestone hierarchy. Preserve a selected Bible on reruns.
+      await tx
+        .update(projects)
+        .set({ sourceBibleId: bible.id })
+        .where(and(eq(projects.id, project.id), isNull(projects.sourceBibleId)));
     }
     let [unit] = await tx
       .select()
@@ -86,7 +94,15 @@ export async function seedAudioDemo(
       .where(eq(project_units.projectId, project.id))
       .orderBy(project_units.id);
     if (!unit) {
-      [unit] = await tx.insert(project_units).values({ projectId: project.id }).returning();
+      [unit] = await tx
+        .insert(project_units)
+        .values({ projectId: project.id, name: project.name })
+        .returning();
+    } else if (!unit.name) {
+      await tx
+        .update(project_units)
+        .set({ name: project.name })
+        .where(and(eq(project_units.id, unit.id), eq(project_units.name, '')));
     }
     const [link] = await tx
       .select()

@@ -83,7 +83,9 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
   });
 
   it('gives the seeded user a drafting assignment with 36 texts and pericope coverage', async () => {
-    const { bible, user, project, assignment } = await fixture();
+    const { bible, user, project, unit, assignment } = await fixture();
+    expect(project.sourceBibleId).toEqual(expect.any(Number));
+    expect(unit.name.trim()).not.toBe('');
     const assigned = await getAssignedChaptersByUserId(user.id, project.organization);
     expect(assigned).toMatchObject({
       ok: true,
@@ -114,6 +116,37 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     expect([...new Set(verses)].sort((a, b) => a - b)).toEqual(
       Array.from({ length: 36 }, (_, i) => i + 1)
     );
+  });
+
+  it('repairs legacy missing milestone fields without replacing the seeded work', async () => {
+    const { bible, project, unit, assignment } = await fixture();
+    try {
+      await db.update(projects).set({ sourceBibleId: null }).where(eq(projects.id, project.id));
+      await db.update(project_units).set({ name: '' }).where(eq(project_units.id, unit.id));
+
+      await seedAudioDemo('local', localConfig.orgName, localUser.email);
+      const repaired = await fixture();
+      expect(repaired.project.sourceBibleId).toBe(bible.id);
+      expect(repaired.unit.name).toBe(project.name);
+      expect(repaired.assignment).toEqual(assignment);
+
+      await seedAudioDemo('local', localConfig.orgName, localUser.email);
+      const repeated = await fixture();
+      expect(repeated.project).toEqual(repaired.project);
+      expect(repeated.unit).toEqual(repaired.unit);
+      expect(repeated.assignment).toEqual(assignment);
+    } finally {
+      await Promise.all([
+        db
+          .update(projects)
+          .set({ sourceBibleId: project.sourceBibleId, updatedAt: project.updatedAt })
+          .where(eq(projects.id, project.id)),
+        db
+          .update(project_units)
+          .set({ name: unit.name, updatedAt: unit.updatedAt })
+          .where(eq(project_units.id, unit.id)),
+      ]);
+    }
   });
 
   it('executes the aggregated progress query with Bible licence columns and unchanged assignment grain', async () => {
