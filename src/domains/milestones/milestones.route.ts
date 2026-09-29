@@ -60,7 +60,7 @@ server.openapi(createMilestoneRoute, async (c) => {
   }
 
   const result = await milestonesService.createMilestone(projectId, sourceBibleId, input);
-  if (result.ok) return c.json(result.data as any, HttpStatusCodes.CREATED);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.CREATED);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
@@ -79,13 +79,17 @@ const listMilestonesRoute = createRoute({
   request: { params: projectIdParamSchema },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(z.array(milestoneResponseSchema), 'List of milestones'),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
   },
 });
 
 server.openapi(listMilestonesRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const result = await milestonesService.listMilestonesForProject(projectId);
-  if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
@@ -114,7 +118,7 @@ const getMilestoneRoute = createRoute({
 server.openapi(getMilestoneRoute, async (c) => {
   const { projectId, milestoneId } = c.req.valid('param');
   const result = await milestonesService.getMilestone(projectId, milestoneId);
-  if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
@@ -136,9 +140,17 @@ const updateMilestoneRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(milestoneResponseSchema, 'Updated milestone'),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Milestone not found'
+    ),
     [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.UNPROCESSABLE_ENTITY),
       'Empty update body'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
     ),
   },
 });
@@ -158,7 +170,7 @@ server.openapi(updateMilestoneRoute, async (c) => {
     updates,
     project.sourceBibleId
   );
-  if (result.ok) return c.json(result.data as any, HttpStatusCodes.OK);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 
@@ -177,6 +189,14 @@ const deleteMilestoneRoute = createRoute({
   request: { params: milestonePathParamsSchema },
   responses: {
     [HttpStatusCodes.NO_CONTENT]: { description: 'Deleted' },
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Milestone not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
   },
 });
 

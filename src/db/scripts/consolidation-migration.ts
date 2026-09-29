@@ -1,10 +1,10 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { stdin as input, stdout as output } from 'node:process';
 /**
  * Auto-consolidation.
  *
  * Grouping key is strictly organization + language pair + sourceBibleId +
- * pericopeSetId — name is deliberately NOT part of the key. Within a matched
+ * pericopeSetId + createdBy — name is deliberately NOT part of the key. Within a matched
  * group:
  *   - same name as the master  -> merged automatically, no prompt.
  *   - different name           -> you're asked interactively whether to merge it in.
@@ -18,7 +18,7 @@ import { createInterface } from 'node:readline/promises';
 import type { ProjectRow } from './merge-project-group';
 
 import { db } from '../index';
-import { projects } from '../schema';
+import { project_units, projects, user_roles } from '../schema';
 import { mergeProjectGroup } from './merge-project-group';
 
 const isDryRun = process.argv.includes('--dry-run');
@@ -50,6 +50,7 @@ async function runConsolidation() {
       proj.sourceLanguage,
       proj.sourceBibleId,
       proj.pericopeSetId ?? 'null',
+      proj.createdBy,
     ].join('-');
 
     const group = groups.get(key) || [];
@@ -106,12 +107,54 @@ async function runConsolidation() {
 
     if (duplicatesToMerge.length === 0) continue;
 
+    const initialCounts = new Map<number, { unitCount: number; roleCount: number }>();
+    for (const proj of [master, ...duplicatesToMerge]) {
+      const [unitCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(project_units)
+        .where(eq(project_units.projectId, proj.id));
+      const [roleCount] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(user_roles)
+        .where(eq(user_roles.projectId, proj.id));
+      initialCounts.set(proj.id, {
+        unitCount: Number(unitCount.count),
+        roleCount: Number(roleCount.count),
+      });
+    }
+
     await db.transaction(async (tx) => {
-      const [lockedMaster] = await tx
-        .select()
-        .from(projects)
-        .where(eq(projects.id, master.id))
-        .for('update');
+      // Lock all projects involved in the merge
+      const allProjectIds = [master.id, ...duplicatesToMerge.map((d) => d.id)];
+      const projectIdsSql = allProjectIds.map((id) => sql`${id}`);
+      await tx.execute(
+        sql`SELECT id FROM ${projects} WHERE id IN (${sql.join(projectIdsSql, sql`, `)}) ORDER BY id FOR UPDATE`
+      );
+
+      // Recompute counts and abort if they differ
+      for (const proj of [master, ...duplicatesToMerge]) {
+        const [unitCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(project_units)
+          .where(eq(project_units.projectId, proj.id));
+        const [roleCount] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(user_roles)
+          .where(eq(user_roles.projectId, proj.id));
+
+        const initial = initialCounts.get(proj.id)!;
+        if (
+          Number(unitCount.count) !== initial.unitCount ||
+          Number(roleCount.count) !== initial.roleCount
+        ) {
+          throw new Error(
+            `Concurrency error: Project ${proj.id} has had units or roles added since the preview. Aborting.`
+          );
+        }
+      }
+
+      // Check master explicitly as before to satisfy the type cast, though it's already locked
+      const [lockedMaster] = await tx.select().from(projects).where(eq(projects.id, master.id));
       if (!lockedMaster) throw new Error(`Master project ${master.id} no longer exists.`);
 
       const success = await mergeProjectGroup(tx, lockedMaster as ProjectRow, duplicatesToMerge, {

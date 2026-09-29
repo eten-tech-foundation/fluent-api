@@ -1,9 +1,6 @@
-import { inArray } from 'drizzle-orm';
-
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { books } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
@@ -93,10 +90,7 @@ export async function createMilestone(
     });
 
     if (result.booksToIngest.length > 0) {
-      const bookRecords = await db.query.books.findMany({
-        where: inArray(books.id, result.booksToIngest),
-        columns: { code: true },
-      });
+      const bookRecords = await repo.getBooksByIds(result.booksToIngest);
 
       let boss;
       try {
@@ -281,10 +275,7 @@ export async function updateMilestone(
     });
 
     if (booksToIngestIds.length > 0) {
-      const enqueueBooksForIngestion = await db.query.books.findMany({
-        where: inArray(books.id, booksToIngestIds),
-        columns: { code: true, id: true },
-      });
+      const enqueueBooksForIngestion = await repo.getBooksByIds(booksToIngestIds);
 
       if (enqueueBooksForIngestion.length > 0 && sourceBibleId) {
         let boss;

@@ -13,6 +13,7 @@ export interface ProjectRow {
   sourceBibleId: number | null;
   pericopeSetId: number | null;
   metadata: unknown;
+  createdBy: number;
   [key: string]: unknown;
 }
 

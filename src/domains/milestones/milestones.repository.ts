@@ -8,6 +8,7 @@ import {
   ai_suggestions,
   bible_books,
   bible_texts,
+  books,
   chapter_assignments,
   chapterStatusEnum,
   project_unit_bible_books,
@@ -55,6 +56,14 @@ export async function getValidBookIdsForBible(
     .where(eq(bible_books.bibleId, bibleId));
   const validBookIdSet = new Set(validBooks.map((b) => b.bookId));
   return requestedBookIds.filter((id) => validBookIdSet.has(id));
+}
+
+export async function getBooksByIds(bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({ code: books.code, id: books.id })
+    .from(books)
+    .where(inArray(books.id, bookIds));
 }
 
 export async function getExistingBookAssignmentsForProject(

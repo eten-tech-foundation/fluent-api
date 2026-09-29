@@ -18,11 +18,6 @@ const mockTx = { _isMockTx: true };
 vi.mock('@/db', () => ({
   db: {
     transaction: vi.fn(),
-    query: {
-      books: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-    },
   },
 }));
 
@@ -43,8 +38,10 @@ vi.mock('./milestones.repository', () => ({
   getByIdForProject: vi.fn(),
   updateMilestoneRecord: vi.fn(),
   moveBookToMilestone: vi.fn(),
-  deleteMilestoneRecord: vi.fn(),
   getExistingBookAssignmentsForProject: vi.fn(),
+  deleteBibleBookLinks: vi.fn(),
+  deleteMilestoneRecord: vi.fn(),
+  getBooksByIds: vi.fn(),
 }));
 
 vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
@@ -85,6 +82,7 @@ describe('milestones service', () => {
       vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
       vi.mocked(repo.insertBibleBookLinks).mockResolvedValue(undefined);
       vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(repo.getBooksByIds).mockResolvedValue([]);
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
         ok([])
       );
@@ -135,6 +133,7 @@ describe('milestones service', () => {
       vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 2]);
       vi.mocked(repo.insertMilestoneRecord).mockResolvedValue(mockMilestone);
       vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(repo.getBooksByIds).mockResolvedValue([]);
 
       vi.mocked(chapterAssignmentsService.createChapterAssignmentForProjectUnit).mockResolvedValue(
         err(ErrorCode.INTERNAL_ERROR)
@@ -155,6 +154,7 @@ describe('milestones service', () => {
       vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(repo.getBooksByIds).mockResolvedValue([]);
 
       const result = await updateMilestone(100, 1, { name: 'Updated' }, null);
 
@@ -178,6 +178,7 @@ describe('milestones service', () => {
       vi.mocked(repo.getByIdForProject).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.updateMilestoneRecord).mockResolvedValue(mockUpdatedMilestone);
       vi.mocked(repo.getExistingBookAssignmentsForProject).mockResolvedValue([]);
+      vi.mocked(repo.getBooksByIds).mockResolvedValue([]);
       vi.mocked(repo.getMilestoneById).mockResolvedValue({ id: 3, projectId: 100 } as any);
       vi.mocked(repo.moveBookToMilestone).mockResolvedValue(undefined);
 

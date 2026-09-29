@@ -4,10 +4,8 @@ import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
-  bible_books,
   chapter_assignments,
   chapterStatusEnum,
-  project_unit_bible_books,
   project_units,
   projects,
   roles,
@@ -174,29 +172,12 @@ export async function getById(id: number): Promise<Result<ProjectWithLanguageNam
   }
 }
 
-export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
-  const rows = await db
-    .select({ bookId: bible_books.bookId })
-    .from(bible_books)
-    .where(eq(bible_books.bibleId, bibleId));
-  return rows.map((r) => r.bookId);
-}
-
 export async function insertProjectRecord(
   projectData: CreateProjectData,
   tx: DbTransaction
 ): Promise<Project> {
   const [project] = await tx.insert(projects).values(projectData).returning();
   return project;
-}
-
-export async function insertBibleBookLinks(
-  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
-  tx: DbTransaction
-) {
-  if (bibleBookEntries.length > 0) {
-    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
-  }
 }
 
 export async function updateProjectRecord(
@@ -210,14 +191,6 @@ export async function updateProjectRecord(
     .where(eq(projects.id, id))
     .returning();
   return updated;
-}
-
-export async function updateProjectUnitStatusByProjectId(
-  projectId: number,
-  status: 'not_started' | 'in_progress' | 'completed',
-  tx: DbTransaction
-) {
-  await tx.update(project_units).set({ status }).where(eq(project_units.projectId, projectId));
 }
 
 export async function remove(id: number, tx?: DbTransaction): Promise<Result<void>> {
