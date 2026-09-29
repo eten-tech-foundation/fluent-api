@@ -37,6 +37,24 @@ function insertResult(rows: unknown[] = []) {
   };
 }
 
+function updateResult() {
+  return { set: vi.fn().mockReturnThis(), where: vi.fn().mockResolvedValue(undefined) };
+}
+
+function queueDemoReferences() {
+  for (const ref of [
+    { id: 1 },
+    { id: 2 },
+    { id: 3, languageId: 4 },
+    { id: 43 },
+    { id: 5 },
+    { id: 6 },
+    { id: 7 },
+  ]) {
+    dbMock.select.mockImplementationOnce(() => selectResult([ref]));
+  }
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   dbMock.transaction.mockImplementation((work: (tx: typeof txMock) => Promise<void>) =>
@@ -86,22 +104,19 @@ describe('audio seed persistence contracts (regular gate, no database or provide
   it.each([false, true])(
     'creates or preserves the local demo (already exists=%s) without overwriting assignments',
     async (exists) => {
-      const refs = [
-        { id: 1 },
-        { id: 2 },
-        { id: 3, languageId: 4 },
-        { id: 43 },
-        { id: 5 },
-        { id: 6 },
-        { id: 7 },
-      ];
-      for (const ref of refs) dbMock.select.mockImplementationOnce(() => selectResult([ref]));
+      queueDemoReferences();
       txMock.select
-        .mockImplementationOnce(() => selectResult(exists ? [{ id: 8 }] : []))
-        .mockImplementationOnce(() => selectResult(exists ? [{ id: 9 }] : []))
+        .mockImplementationOnce(() =>
+          selectResult(
+            exists ? [{ id: 8, name: 'Source Audio Demo — BSB John', sourceBibleId: 99 }] : []
+          )
+        )
+        .mockImplementationOnce(() => selectResult(exists ? [{ id: 9, name: 'Chosen name' }] : []))
         .mockImplementationOnce(() => selectResult(exists ? [{ projectUnitId: 9 }] : []));
-      const projectInsert = insertResult([{ id: 8 }]);
-      const unitInsert = insertResult([{ id: 9 }]);
+      const projectInsert = insertResult([
+        { id: 8, name: 'Source Audio Demo — BSB John', sourceBibleId: 3 },
+      ]);
+      const unitInsert = insertResult([{ id: 9, name: 'Source Audio Demo — BSB John' }]);
       const insert = insertResult();
       txMock.insert.mockImplementation((table) =>
         table === projects ? projectInsert : table === project_units ? unitInsert : insert
@@ -117,10 +132,15 @@ describe('audio seed persistence contracts (regular gate, no database or provide
         expect(projectInsert.values).toHaveBeenCalledWith(
           expect.objectContaining({
             name: 'Source Audio Demo — BSB John',
+            sourceBibleId: 3,
             pericopeSetId: 6,
             metadata: { seed: 'source-audio-bsb-jhn' },
           })
         );
+        expect(unitInsert.values).toHaveBeenCalledWith({
+          projectId: 8,
+          name: 'Source Audio Demo — BSB John',
+        });
       }
       expect(insert.values).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -144,4 +164,40 @@ describe('audio seed persistence contracts (regular gate, no database or provide
       expect(txMock.delete).not.toHaveBeenCalled();
     }
   );
+
+  it('repairs a legacy demo once, then preserves its source Bible and unit name on rerun', async () => {
+    const projectUpdate = updateResult();
+    const unitUpdate = updateResult();
+    txMock.update.mockImplementation((table) => (table === projects ? projectUpdate : unitUpdate));
+    const insert = insertResult();
+    txMock.insert.mockReturnValue(insert);
+
+    queueDemoReferences();
+    txMock.select
+      .mockImplementationOnce(() =>
+        selectResult([{ id: 8, name: 'Renamed BSB demo', sourceBibleId: null }])
+      )
+      .mockImplementationOnce(() => selectResult([{ id: 9, name: '' }]))
+      .mockImplementationOnce(() => selectResult([{ projectUnitId: 9 }]));
+    await seedAudioDemo('local', 'Fluent Dev', 'pm@fluent.local');
+    expect(txMock.update.mock.calls.map(([table]) => table)).toEqual([projects, project_units]);
+    expect(projectUpdate.set).toHaveBeenCalledWith({ sourceBibleId: 3 });
+    expect(unitUpdate.set).toHaveBeenCalledWith({ name: 'Renamed BSB demo' });
+
+    queueDemoReferences();
+    txMock.select
+      .mockImplementationOnce(() =>
+        selectResult([{ id: 8, name: 'Renamed BSB demo', sourceBibleId: 3 }])
+      )
+      .mockImplementationOnce(() => selectResult([{ id: 9, name: 'Renamed BSB demo' }]))
+      .mockImplementationOnce(() => selectResult([{ projectUnitId: 9 }]));
+    await seedAudioDemo('local', 'Fluent Dev', 'pm@fluent.local');
+    expect(txMock.update).toHaveBeenCalledTimes(2);
+    expect(txMock.insert.mock.calls.map(([table]) => table)).toEqual([
+      user_roles,
+      chapter_assignments,
+      user_roles,
+      chapter_assignments,
+    ]);
+  });
 });
