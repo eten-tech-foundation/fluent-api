@@ -14,6 +14,11 @@ import type { ParsedUsfmFile, UsfmFileInput } from './projects.types';
 
 import * as repo from './projects.repository';
 
+/** Completed-source imports whose durable intent still needs an editable projection. */
+export function getUsfmImportsReadyForMaterialization() {
+  return repo.getUsfmImportsReadyForMaterialization();
+}
+
 /** Match the upload screen: first valid id, toc3, then mt/mt1 code token. */
 function detectBookCode(usfm: string, knownCodes: Set<string>): string | undefined {
   const markers = [...usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)];

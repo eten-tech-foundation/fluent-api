@@ -336,6 +336,8 @@ export async function createProject(
               { singletonKey: `${input.bibleId}:${file.bookId}` }
             );
           } catch (error) {
+            // The pending import is also a durable intent: the worker's recurring
+            // recovery sweep rediscovers it once the queue becomes available.
             logger.error('Failed to queue USFM materialisation retry', {
               projectId: result.data.id,
               bibleId: input.bibleId,

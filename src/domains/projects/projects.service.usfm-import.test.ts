@@ -340,6 +340,43 @@ describe('uSFM creation retry and milestone compatibility', () => {
     expect(getQueue).not.toHaveBeenCalled();
   });
 
+  it.each(['getQueue', 'send'])(
+    'preserves the committed pending import when immediate materialization and %s fail',
+    async (failurePoint) => {
+      completedBooks();
+      vi.mocked(usfmImportService.materializePendingUsfmImports).mockResolvedValue(
+        err(ErrorCode.INTERNAL_ERROR)
+      );
+      const failure = new Error('queue unavailable');
+      if (failurePoint === 'getQueue') vi.mocked(getQueue).mockRejectedValue(failure);
+      else
+        vi.mocked(getQueue).mockResolvedValue({
+          send: vi.fn().mockRejectedValue(failure),
+        } as never);
+
+      expect(await createProject({ ...BASE, usfmFiles: FILES })).toEqual(ok({ id: 500 }));
+      expect(repo.insertUsfmImports).toHaveBeenCalledWith(
+        [
+          { projectUnitId: 600, bookId: 1, fileName: 'gen.usfm', usfm: FILES[0].usfm },
+          { projectUnitId: 600, bookId: 40, fileName: 'mat.usfm', usfm: FILES[1].usfm },
+        ],
+        mockTx
+      );
+      expect(logger.error).toHaveBeenCalledWith('Failed to queue USFM materialisation retry', {
+        projectId: 500,
+        bibleId: 3,
+        bookId: 1,
+        error: failure,
+      });
+      expect(logger.error).toHaveBeenCalledWith('Failed to queue USFM materialisation retry', {
+        projectId: 500,
+        bibleId: 3,
+        bookId: 40,
+        error: failure,
+      });
+    }
+  );
+
   it('accepts imported files with sourceBibleId and persists their source Bible', async () => {
     const { bibleId, bookId: _bookId, ...project } = BASE;
     const input = { ...project, sourceBibleId: bibleId, usfmFiles: FILES };

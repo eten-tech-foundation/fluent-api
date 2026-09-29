@@ -1,5 +1,5 @@
 import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DbTransaction } from '@/lib/types';
@@ -13,7 +13,10 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
-import { getPendingUsfmImportsForBible } from './projects.repository';
+import {
+  getPendingUsfmImportsForBible,
+  getUsfmImportsReadyForMaterialization,
+} from './projects.repository';
 import { createProject } from './projects.service';
 import { materializePendingUsfmImportsForBible } from './usfm-import.service';
 import './projects.route';
@@ -224,6 +227,9 @@ describe('imported USFM across project rollback and milestone moves', () => {
         .from(schema.project_unit_usfm_imports)
         .orderBy(schema.project_unit_usfm_imports.id);
       expect(imports).toEqual([{ ...imported, projectUnitId: 101 }, otherBook, otherMilestone]);
+      expect(await getUsfmImportsReadyForMaterialization()).toEqual(
+        materializedAt ? [] : [{ bibleId: 1, bookId: 41 }]
+      );
       expect(await getPendingUsfmImportsForBible(1, [41])).toEqual(
         materializedAt
           ? []
@@ -282,5 +288,70 @@ describe('imported USFM across project rollback and milestone moves', () => {
         .from(schema.project_unit_usfm_imports)
         .orderBy(schema.project_unit_usfm_imports.id)
     ).toEqual([original, destination]);
+  });
+
+  it('discovers distinct pending jobs only for the matching completed Bible and active book link', async () => {
+    await seedProject();
+    await database.insert(schema.bibles).values([
+      { id: 2, languageId: 1, name: 'Incomplete Bible', abbreviation: 'INC', provider: 'dbl' },
+      { id: 3, languageId: 1, name: 'Other complete Bible', abbreviation: 'OTH', provider: 'dbl' },
+    ]);
+    await database.insert(schema.bible_books).values([
+      { bibleId: 2, bookId: 41 },
+      { bibleId: 3, bookId: 41, textIngestedAt: MATERIALIZED_AT },
+      { bibleId: 1, bookId: 42 },
+    ]);
+    await database.insert(schema.project_units).values(
+      [102, 103, 104, 105, 106, 107, 108].map((id) => ({
+        id,
+        projectId: 10,
+        name: `Milestone ${id}`,
+      }))
+    );
+    await database.insert(schema.project_unit_bible_books).values([
+      { projectUnitId: 101, bibleId: 1, bookId: 41 },
+      { projectUnitId: 102, bibleId: 3, bookId: 41 },
+      { projectUnitId: 103, bibleId: 1, bookId: 41 },
+      { projectUnitId: 104, bibleId: 2, bookId: 41 },
+      { projectUnitId: 105, bibleId: 1, bookId: 42 },
+      { projectUnitId: 106, bibleId: 1, bookId: 41, deletedAt: MATERIALIZED_AT },
+      { projectUnitId: 108, bibleId: 1, bookId: 42 },
+    ]);
+    for (const unitId of [100, 101, 102, 104, 106, 107, 108]) await seedImport(unitId);
+    await seedImport(103, 41, MATERIALIZED_AT);
+    await seedImport(105, 42);
+    const before = await database
+      .select()
+      .from(schema.project_unit_usfm_imports)
+      .orderBy(schema.project_unit_usfm_imports.id);
+    const completionBefore = await database.select().from(schema.bible_books);
+
+    expect(await getUsfmImportsReadyForMaterialization()).toEqual(
+      expect.arrayContaining([
+        { bibleId: 1, bookId: 41 },
+        { bibleId: 3, bookId: 41 },
+      ])
+    );
+    expect(await getUsfmImportsReadyForMaterialization()).toHaveLength(2);
+    expect(
+      await database
+        .select()
+        .from(schema.project_unit_usfm_imports)
+        .orderBy(schema.project_unit_usfm_imports.id)
+    ).toEqual(before);
+    expect(await database.select().from(schema.bible_books)).toEqual(completionBefore);
+
+    await database
+      .update(schema.project_unit_usfm_imports)
+      .set({ materializedAt: MATERIALIZED_AT })
+      .where(inArray(schema.project_unit_usfm_imports.projectUnitId, [100, 101, 102]));
+    expect(await getUsfmImportsReadyForMaterialization()).toEqual([]);
+
+    // Restoring a deleted link makes its already-complete import discoverable next sweep.
+    await database
+      .update(schema.project_unit_bible_books)
+      .set({ deletedAt: null })
+      .where(eq(schema.project_unit_bible_books.projectUnitId, 106));
+    expect(await getUsfmImportsReadyForMaterialization()).toEqual([{ bibleId: 1, bookId: 41 }]);
   });
 });

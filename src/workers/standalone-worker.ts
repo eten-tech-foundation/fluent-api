@@ -20,6 +20,7 @@ import { registerAiTriggerWorker } from './ai-trigger.worker';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
 import { countPendingQueueJobs } from './queue-heartbeat';
 import { registerUSFMExportWorker } from './usfm-export.worker';
+import { startUsfmImportRecovery } from './usfm-import-recovery';
 
 interface WorkerMetrics {
   startTime: number;
@@ -77,6 +78,7 @@ async function startWorker() {
     await registerUSFMExportWorker(boss, metricsHooks);
     await registerAiTriggerWorker(boss, metricsHooks);
     await registerDblIngestTextWorker(boss, metricsHooks);
+    const stopUsfmImportRecovery = startUsfmImportRecovery(boss);
 
     logger.info('Worker started and listening for jobs');
 
@@ -152,6 +154,7 @@ async function startWorker() {
       clearInterval(cleanupInterval);
 
       try {
+        await stopUsfmImportRecovery();
         const maxWait = 30000;
         const checkInterval = 1000;
         let waited = 0;

@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -374,4 +374,35 @@ export async function markUsfmImportMaterialized(
     .update(project_unit_usfm_imports)
     .set({ materializedAt: new Date() })
     .where(eq(project_unit_usfm_imports.id, id));
+}
+
+/** Pending rows are durable retry intents, even when their original queue send failed. */
+export async function getUsfmImportsReadyForMaterialization() {
+  return db
+    .selectDistinct({
+      bibleId: project_unit_bible_books.bibleId,
+      bookId: project_unit_usfm_imports.bookId,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .innerJoin(
+      bible_books,
+      and(
+        eq(bible_books.bibleId, project_unit_bible_books.bibleId),
+        eq(bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .where(
+      and(
+        isNull(project_unit_usfm_imports.materializedAt),
+        isNull(project_unit_bible_books.deletedAt),
+        isNotNull(bible_books.textIngestedAt)
+      )
+    );
 }
