@@ -14,6 +14,7 @@ import {
   chapter_assignment_status_history,
   chapter_assignments,
   languages,
+  project_unit_bible_books,
   project_units,
   projects,
   translated_verses,
@@ -414,12 +415,37 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
+export async function deleteByProjectUnitAndBooks(
+  projectUnitId: number,
+  bookIds: number[],
+  tx?: DbTransaction
+): Promise<void> {
+  if (bookIds.length === 0) return;
+  const conn = tx ?? db;
+  await conn
+    .delete(chapter_assignments)
+    .where(
+      and(
+        eq(chapter_assignments.projectUnitId, projectUnitId),
+        inArray(chapter_assignments.bookId, bookIds)
+      )
+    );
+}
+
 export async function insertStatusHistory(
   tx: DbTransaction,
   chapterAssignmentId: number,
   status: ChapterAssignmentStatus
 ): Promise<void> {
   await tx.insert(chapter_assignment_status_history).values({ chapterAssignmentId, status });
+}
+
+export async function insertManyStatusHistory(
+  tx: DbTransaction,
+  records: { chapterAssignmentId: number; status: ChapterAssignmentStatus }[]
+): Promise<void> {
+  if (records.length === 0) return;
+  await tx.insert(chapter_assignment_status_history).values(records);
 }
 
 export async function insertUserAssignmentHistory(
@@ -500,6 +526,13 @@ export async function findAssignmentsProgress(
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
+      .innerJoin(
+        project_unit_bible_books,
+        and(
+          eq(project_unit_bible_books.projectUnitId, chapter_assignments.projectUnitId),
+          eq(project_unit_bible_books.bookId, chapter_assignments.bookId)
+        )
+      )
       .innerJoin(projects, eq(project_units.projectId, projects.id))
       .innerJoin(books, eq(chapter_assignments.bookId, books.id))
       .innerJoin(bibles, eq(bibles.id, chapter_assignments.bibleId))
@@ -523,7 +556,7 @@ export async function findAssignmentsProgress(
         )
       );
 
-    const conditions = [];
+    const conditions = [isNull(project_unit_bible_books.deletedAt)];
     if (filters.projectId !== undefined) {
       conditions.push(eq(project_units.projectId, filters.projectId));
     }
