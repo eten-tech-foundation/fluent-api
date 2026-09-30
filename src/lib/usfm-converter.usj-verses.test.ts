@@ -216,7 +216,7 @@ describe('usjToVerseTexts (#419)', () => {
       data: [{ chapterNumber: 1, verseNumber: 1, text: 'First.' }],
     });
   });
-  it('keeps table, page break and list text out of the surrounding editable verses', () => {
+  it('keeps table and page break text out of the surrounding editable verses', () => {
     const usj: USJDocument = {
       type: 'USJ',
       version: '3.1',
@@ -227,7 +227,7 @@ describe('usjToVerseTexts (#419)', () => {
           marker: 'p',
           content: [{ type: 'verse', marker: 'v', number: '1' }, 'First.'],
         },
-        ...['tr', 'pb', 'li1'].map((marker) => ({
+        ...['tr', 'pb'].map((marker) => ({
           type: 'para' as const,
           marker,
           content: ['Not verse prose.'],
@@ -259,7 +259,7 @@ describe('usjToVerseTexts (#419)', () => {
           content: [{ type: 'verse', marker: 'v', number: '1' }, 'First. '],
         },
         { type: 'para', marker: 'pb', content: [] },
-        { type: 'para', marker: 'li1', content: ['List apparatus.'] },
+        { type: 'para', marker: 'tr', content: ['Table apparatus.'] },
         {
           type: 'para',
           marker: 'p',
@@ -287,7 +287,7 @@ describe('verses inside list paragraphs', () => {
     ]);
   });
 
-  it('excludes unsupported paragraph text before its first verse milestone', () => {
+  it('keeps list continuation before the next verse milestone', () => {
     expect(
       usjToVerseTexts({
         type: 'USJ',
@@ -297,14 +297,14 @@ describe('verses inside list paragraphs', () => {
           {
             type: 'para',
             marker: 'p',
-            content: [{ type: 'verse', marker: 'v', number: '2' }, 'Before.'],
+            content: [{ type: 'verse', marker: 'v', number: '2' }, 'Before. '],
           },
           {
             type: 'para',
             marker: 'li1',
-            content: ['List label.', { type: 'verse', marker: 'v', number: '3' }, 'Listed.'],
+            content: ['Continued.', { type: 'verse', marker: 'v', number: '3' }, 'Listed. '],
           },
-          { type: 'para', marker: 'li1', content: ['Unnumbered apparatus.'] },
+          { type: 'para', marker: 'li1', content: ['Unnumbered continuation.'] },
           {
             type: 'para',
             marker: 'p',
@@ -314,10 +314,62 @@ describe('verses inside list paragraphs', () => {
       })
     ).toEqual(
       ok([
-        { chapterNumber: 1, verseNumber: 2, text: 'Before.' },
-        { chapterNumber: 1, verseNumber: 3, text: 'Listed.' },
+        { chapterNumber: 1, verseNumber: 2, text: 'Before. Continued.' },
+        { chapterNumber: 1, verseNumber: 3, text: 'Listed. Unnumbered continuation.' },
         { chapterNumber: 1, verseNumber: 4, text: 'After.' },
       ])
     );
+  });
+});
+
+describe('list verse continuation', () => {
+  it.each(['li', 'li1', 'li2', 'li3', 'li4', 'lim', 'lim1', 'lim2', 'lim3', 'lim4'])(
+    'keeps an unnumbered %s line with the open verse using the real grammar',
+    (marker) => {
+      expect(
+        versesOf(
+          [
+            '\\id NUM',
+            '\\c 1',
+            '\\li1 \\v 5 From Reuben,',
+            `\\${marker} Elizur son of Shedeur;`,
+            '\\li1 \\v 6 From Simeon,',
+            '\\li2 Shelumiel son of Zurishaddai.',
+          ].join('\n')
+        )
+      ).toEqual([
+        { chapterNumber: 1, verseNumber: 5, text: 'From Reuben, Elizur son of Shedeur;' },
+        { chapterNumber: 1, verseNumber: 6, text: 'From Simeon, Shelumiel son of Zurishaddai.' },
+      ]);
+    }
+  );
+
+  it('excludes list text before any verse and respects heading and chapter boundaries', () => {
+    expect(
+      versesOf(
+        [
+          '\\id NUM',
+          '\\c 1',
+          '\\li1 Introductory list label.',
+          '\\li1 \\v 5 From Reuben,',
+          '\\li2 \\nd Elizur\\nd* son of Shedeur;',
+          '\\s1 Next section',
+          '\\li1 Section label.',
+          '\\li1 \\v 6 From Simeon.',
+          '\\c 2',
+          '\\li1 Chapter label.',
+          '\\li1 \\v 1 New chapter.',
+        ].join('\n')
+      )
+    ).toEqual([
+      { chapterNumber: 1, verseNumber: 5, text: 'From Reuben, Elizur son of Shedeur;' },
+      {
+        chapterNumber: 1,
+        verseNumber: 6,
+        text: 'From Simeon.',
+        markers: { headings: [{ marker: 's1', text: 'Next section' }] },
+      },
+      { chapterNumber: 2, verseNumber: 1, text: 'New chapter.' },
+    ]);
   });
 });

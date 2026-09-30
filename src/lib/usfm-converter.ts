@@ -110,7 +110,7 @@ export interface UsjVerseText {
   markers?: NonNullable<VerseMarkers>;
 }
 
-/** Only prose and poetry contribute to editable verse text; other structure stays in the raw file. */
+/** Prose, poetry and list items contribute verse text; other structure stays in the raw file. */
 const BODY_TEXT_MARKERS = new Set([
   'p',
   'm',
@@ -146,6 +146,16 @@ const BODY_TEXT_MARKERS = new Set([
   'qm2',
   'qm3',
   'qd',
+  'li',
+  'li1',
+  'li2',
+  'li3',
+  'li4',
+  'lim',
+  'lim1',
+  'lim2',
+  'lim3',
+  'lim4',
 ]);
 
 /**
@@ -221,7 +231,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
             if (BODY_TEXT_MARKERS.has(node.marker)) {
               walk(node.content);
             } else {
-              // Lists and other unsupported paragraphs can still contain real verses.
+              // Unsupported paragraphs can still contain real verses.
               // Keep their verse text while excluding labels before the first milestone.
               const firstVerse = node.content.findIndex(
                 (child) => typeof child !== 'string' && child.type === 'verse'

@@ -167,15 +167,15 @@ describe('parseUsfmFiles (#419)', () => {
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
   });
 
-  it('preserves unsupported tags in the raw file without contaminating editable text', async () => {
-    const usfm = `${GEN}\n\\li1 List apparatus.\n\\p\n\\v 3 Third.\n\\zcustom custom data\n\\s1 Trailing heading`;
+  it('keeps list continuation editable while preserving unsupported tags only in the raw file', async () => {
+    const usfm = `${GEN}\n\\li1 Continued in a list.\n\\p\n\\v 3 Third.\n\\zcustom custom data\n\\s1 Trailing heading`;
     const result = await parseUsfmFiles([{ fileName: 'gen.usfm', bookCode: 'GEN', usfm }]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data[0].usfm).toBe(usfm);
     expect(result.data[0].verses.map((verse) => verse.text)).toEqual([
       'In the beginning.',
-      'The earth.',
+      'The earth. Continued in a list.',
       'Third.',
     ]);
   });
