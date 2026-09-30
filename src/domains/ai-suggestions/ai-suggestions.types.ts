@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { ai_pericope_suggestions } from '@/db/schema';
+
 import { verseHeadingTextSchema } from '@/db/schema';
 
 export const pericopeNumberSchema = z
@@ -174,4 +176,24 @@ export interface SuggestionContextResponse {
     bibleTextId: number;
     sourceTitle: string;
   } | null;
+}
+
+export interface PericopeVerse {
+  bibleTextId: number;
+  verseNumber: number;
+  content: string | null;
+  hasAuthoredHeading: boolean;
+  hasSuggestion: boolean;
+}
+export interface ResolvedPericope {
+  pericopeNumber: string;
+  sourceTitle: string | null;
+  startsPericope: boolean;
+  verses: PericopeVerse[];
+  suggestion: typeof ai_pericope_suggestions.$inferSelect | null;
+}
+export interface PericopeContext {
+  pericopeSetId: number;
+  isAiEnabled: boolean;
+  groups: ResolvedPericope[];
 }

@@ -21,11 +21,12 @@ import type {
   TrackUsageRequest,
 } from './ai-suggestions.types';
 
+import * as pericopeRepo from './ai-pericope.repository';
 import {
+  canSuggestPericopeTitle,
   logPericopeUsage,
-  resolvePericopes,
   savePericopeSuggestion,
-} from './ai-pericope.repository';
+} from './ai-pericope.service';
 import { MAX_CONTEXT_VERSES_TOTAL } from './ai-suggestions.constants';
 import {
   checkBibleTextsExist,
@@ -426,6 +427,10 @@ export async function handleThresholdCrossed(
 
 // ─── Internal (machine-facing) service functions ──────────────────────────────
 
+function inactiveHeadingContext(): Result<SuggestionContextResponse> {
+  return ok({ targetLanguageName: '', contextVerses: [], sourceVerses: [], sectionHeading: null });
+}
+
 export async function getSuggestionContext(
   params: SuggestionContextRequest
 ): Promise<Result<SuggestionContextResponse>> {
@@ -435,32 +440,36 @@ export async function getSuggestionContext(
   let sourceIds: Set<number> | undefined;
   if (params.pericopeNumber !== undefined) {
     if (params.pericopeSetId === undefined) return err(ErrorCode.INVALID_REFERENCE);
-    const resolved = await resolvePericopes({
+    const resolved = await pericopeRepo.resolvePericopes({
       projectUnitId,
       bibleId,
       bookCode,
       chapterNumber,
       pericopeNumbers: [params.pericopeNumber],
     });
-    if (!resolved.ok) return resolved;
+    if (!resolved.ok) {
+      return resolved.error.code === ErrorCode.INVALID_REFERENCE
+        ? inactiveHeadingContext()
+        : resolved;
+    }
     const group = resolved.data.groups[0];
     if (
       params.pericopeSetId !== resolved.data.pericopeSetId ||
       verseStart !== group.verses[0].verseNumber ||
       verseEnd !== group.verses[group.verses.length - 1].verseNumber
     ) {
-      return err(ErrorCode.INVALID_REFERENCE);
+      return inactiveHeadingContext();
     }
+    if (!canSuggestPericopeTitle(resolved.data, group)) return inactiveHeadingContext();
     sourceIds = new Set(group.verses.map((verse) => verse.bibleTextId));
-    heading =
-      group.sourceTitle && resolved.data.isAiEnabled && !group.verses[0].hasAuthoredHeading
-        ? {
-            pericopeNumber: group.pericopeNumber,
-            pericopeSetId: resolved.data.pericopeSetId,
-            bibleTextId: group.verses[0].bibleTextId,
-            sourceTitle: group.sourceTitle,
-          }
-        : null;
+    heading = group.sourceTitle
+      ? {
+          pericopeNumber: group.pericopeNumber,
+          pericopeSetId: resolved.data.pericopeSetId,
+          bibleTextId: group.verses[0].bibleTextId,
+          sourceTitle: group.sourceTitle,
+        }
+      : null;
   }
 
   const result = await getSuggestionContextData(
@@ -505,7 +514,7 @@ export async function queuePericopes(
   params: PericopeRequest
 ): Promise<Result<QueueNextVersesResponse>> {
   try {
-    const resolved = await resolvePericopes(params);
+    const resolved = await pericopeRepo.resolvePericopes(params);
     if (!resolved.ok) return resolved;
     const thresholdMet = await hasReachedAiActivationThreshold(
       params.projectUnitId,
@@ -525,7 +534,7 @@ export async function queuePericopes(
           jobs.push({ ...base, verseStart: verse.verseNumber, verseEnd: verse.verseNumber });
         }
       }
-      if (group.sourceTitle && !group.verses[0].hasAuthoredHeading && !group.suggestion) {
+      if (canSuggestPericopeTitle(resolved.data, group) && !group.suggestion) {
         jobs.push({
           ...base,
           verseStart: group.verses[0].verseNumber,
@@ -584,13 +593,10 @@ export async function getPericopeSuggestions(
   params: PericopeRequest
 ): Promise<Result<PericopeSuggestionsResponse>> {
   try {
-    const resolved = await resolvePericopes(params);
+    const resolved = await pericopeRepo.resolvePericopes(params);
     if (!resolved.ok) return resolved;
-    // The write side stops generating when the assignment turns AI off, so reading has to stop
-    // serving the titles cached before that too.
-    if (!resolved.data.isAiEnabled) return ok({ data: [] });
     const data = resolved.data.groups.flatMap((group) => {
-      if (!group.sourceTitle || group.verses[0].hasAuthoredHeading || !group.suggestion) return [];
+      if (!canSuggestPericopeTitle(resolved.data, group) || !group.suggestion) return [];
       return [
         {
           pericopeNumber: group.pericopeNumber,
@@ -608,7 +614,7 @@ export async function getPericopeSuggestions(
 }
 
 export async function trackPericopeUsage(
-  user: User,
+  user: Pick<User, 'id'>,
   data: PericopeUsageRequest
 ): Promise<Result<void>> {
   try {

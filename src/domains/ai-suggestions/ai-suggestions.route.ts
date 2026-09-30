@@ -211,11 +211,26 @@ server.openapi(trackUsageRoute, async (c) => {
 });
 
 const pericopeErrors = {
-  400: jsonContent(createMessageObjectSchema('Bad Request'), 'Invalid pericope or source context'),
-  401: jsonContent(createMessageObjectSchema('Unauthorized'), 'Authentication required'),
-  403: jsonContent(createMessageObjectSchema('Forbidden'), 'Permission denied'),
-  404: jsonContent(createMessageObjectSchema('Not Found'), 'Project unit not found'),
-  500: jsonContent(createMessageObjectSchema('Internal Server Error'), 'Internal server error'),
+  [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+    createMessageObjectSchema('Bad Request'),
+    'Invalid pericope or source context'
+  ),
+  [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+    createMessageObjectSchema('Unauthorized'),
+    'Authentication required'
+  ),
+  [HttpStatusCodes.FORBIDDEN]: jsonContent(
+    createMessageObjectSchema('Forbidden'),
+    'Permission denied'
+  ),
+  [HttpStatusCodes.NOT_FOUND]: jsonContent(
+    createMessageObjectSchema('Not Found'),
+    'Project unit not found'
+  ),
+  [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+    createMessageObjectSchema('Internal Server Error'),
+    'Internal server error'
+  ),
 };
 const pericopePostMiddleware = [
   authenticateUser,
@@ -229,68 +244,68 @@ const pericopePostMiddleware = [
   ),
 ] as const;
 
-server.openapi(
-  createRoute({
-    tags: ['AI Suggestions'],
-    method: 'post',
-    path: '/ai-suggestions/queue-pericopes',
-    middleware: [...pericopePostMiddleware],
-    request: { body: jsonContent(pericopeRequestSchema, 'Active and next pericope numbers') },
-    responses: {
-      200: jsonContent(queueNextVersesResponseSchema, 'Queue status'),
-      ...pericopeErrors,
-    },
-    summary: 'Queue missing verse and optional heading suggestions for pericopes',
-  }),
-  async (c) => {
-    const result = await aiSuggestionsService.queuePericopes(c.req.valid('json'));
-    if (result.ok) return c.json(result.data, 200);
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
-  }
-);
+const queuePericopesRoute = createRoute({
+  tags: ['AI Suggestions'],
+  method: 'post',
+  path: '/ai-suggestions/queue-pericopes',
+  middleware: [...pericopePostMiddleware],
+  request: { body: jsonContent(pericopeRequestSchema, 'Active and next pericope numbers') },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(queueNextVersesResponseSchema, 'Queue status'),
+    ...pericopeErrors,
+  },
+  summary: 'Queue missing verse and optional heading suggestions for pericopes',
+});
 
-server.openapi(
-  createRoute({
-    tags: ['AI Suggestions'],
-    method: 'get',
-    path: '/ai-suggestions/pericopes',
-    middleware: [
-      authenticateUser,
-      requirePermission(PERMISSIONS.PROJECT_VIEW),
-      requireProjectUnitAccess((c) => Number(c.req.query('projectUnitId'))),
-    ] as const,
-    request: { query: pericopeQuerySchema },
-    responses: {
-      200: jsonContent(pericopeSuggestionsResponseSchema, 'Separate heading suggestions'),
-      ...pericopeErrors,
-    },
-    summary: 'Get optional pericope heading suggestions',
-  }),
-  async (c) => {
-    const result = await aiSuggestionsService.getPericopeSuggestions(c.req.valid('query'));
-    if (result.ok) return c.json(result.data, 200);
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
-  }
-);
+server.openapi(queuePericopesRoute, async (c) => {
+  const result = await aiSuggestionsService.queuePericopes(c.req.valid('json'));
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
 
-server.openapi(
-  createRoute({
-    tags: ['AI Suggestions'],
-    method: 'post',
-    path: '/ai-suggestions/pericopes/usage',
-    middleware: [...pericopePostMiddleware],
-    request: { body: jsonContent(pericopeUsageRequestSchema, 'Heading exposure or acceptance') },
-    responses: {
-      200: jsonContent(createMessageObjectSchema('Logged'), 'Logged'),
-      ...pericopeErrors,
-    },
-    summary: 'Track pericope heading exposure and acceptance separately from verses',
-  }),
-  async (c) => {
-    const user = c.get('user');
-    if (!user?.id) return c.json({ message: 'User not found' }, 401);
-    const result = await aiSuggestionsService.trackPericopeUsage(user, c.req.valid('json'));
-    if (result.ok) return c.json({ message: 'Logged' }, 200);
-    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
-  }
-);
+const getPericopeSuggestionsRoute = createRoute({
+  tags: ['AI Suggestions'],
+  method: 'get',
+  path: '/ai-suggestions/pericopes',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectUnitAccess((c) => Number(c.req.query('projectUnitId'))),
+  ] as const,
+  request: { query: pericopeQuerySchema },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      pericopeSuggestionsResponseSchema,
+      'Separate heading suggestions'
+    ),
+    ...pericopeErrors,
+  },
+  summary: 'Get optional pericope heading suggestions',
+});
+
+server.openapi(getPericopeSuggestionsRoute, async (c) => {
+  const result = await aiSuggestionsService.getPericopeSuggestions(c.req.valid('query'));
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+const trackPericopeUsageRoute = createRoute({
+  tags: ['AI Suggestions'],
+  method: 'post',
+  path: '/ai-suggestions/pericopes/usage',
+  middleware: [...pericopePostMiddleware],
+  request: { body: jsonContent(pericopeUsageRequestSchema, 'Heading exposure or acceptance') },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(createMessageObjectSchema('Logged'), 'Logged'),
+    ...pericopeErrors,
+  },
+  summary: 'Track pericope heading exposure and acceptance separately from verses',
+});
+
+server.openapi(trackPericopeUsageRoute, async (c) => {
+  const user = c.get('user');
+  if (!user?.id) return c.json({ message: 'User not found' }, HttpStatusCodes.UNAUTHORIZED);
+  const result = await aiSuggestionsService.trackPericopeUsage(user, c.req.valid('json'));
+  if (result.ok) return c.json({ message: 'Logged' }, HttpStatusCodes.OK);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});

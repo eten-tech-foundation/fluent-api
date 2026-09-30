@@ -20,37 +20,15 @@ import { getPericopeGroupNumber } from '@/domains/pericopes/pericopes.types';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
+  PericopeContext,
   PericopeRequest,
   PericopeSuggestionItem,
   PericopeUsageRequest,
+  ResolvedPericope,
 } from './ai-suggestions.types';
 
-export interface PericopeVerse {
-  bibleTextId: number;
-  verseNumber: number;
-  content: string | null;
-  hasAuthoredHeading: boolean;
-  hasSuggestion: boolean;
-}
-export interface ResolvedPericope {
-  pericopeNumber: string;
-  sourceTitle: string | null;
-  verses: PericopeVerse[];
-  suggestion: typeof ai_pericope_suggestions.$inferSelect | null;
-}
-export interface PericopeContext {
-  pericopeSetId: number;
-  isAiEnabled: boolean;
-  groups: ResolvedPericope[];
-}
-
-/** Resolve exact source-backed verses from the project's current set, never a client range. */
-export async function resolvePericopes(params: PericopeRequest): Promise<Result<PericopeContext>> {
-  return resolvePericopesForSet(params);
-}
-
-/** Resolve against an explicit set when accepting a result from an already queued job. */
-async function resolvePericopesForSet(
+/** Resolve exact source-backed verses from the selected set, never a client range. */
+export async function resolvePericopes(
   params: PericopeRequest,
   requestedPericopeSetId?: number
 ): Promise<Result<PericopeContext>> {
@@ -93,6 +71,15 @@ async function resolvePericopesForSet(
       pericopeNumber: pericope_verses.pericopeNumber,
       section: pericope_verses.section,
       sourceTitle: pericope_verses.pericopeTitle,
+      isPericopeStart: sql<boolean>`NOT EXISTS (
+        SELECT 1 FROM pericope_verses earlier
+        WHERE earlier.pericope_set_id = ${pericope_verses.pericopeSetId}
+          AND earlier.book_id = ${pericope_verses.bookId}
+          AND earlier.pericope_number = ${pericope_verses.pericopeNumber}
+          AND earlier.section IS NOT DISTINCT FROM ${pericope_verses.section}
+          AND (earlier.chapter_number, earlier.verse_number) <
+              (${pericope_verses.chapterNumber}, ${pericope_verses.verseNumber})
+      )`,
       bibleTextId: bible_texts.id,
       verseNumber: bible_texts.verseNumber,
       content: translated_verses.content,
@@ -136,6 +123,7 @@ async function resolvePericopesForSet(
     const verses = rows.filter((row) => getPericopeGroupNumber(row) === pericopeNumber);
     return {
       pericopeNumber,
+      startsPericope: verses[0]?.isPericopeStart ?? false,
       sourceTitle: verses.find((row) => row.sourceTitle?.trim())?.sourceTitle?.trim() ?? null,
       verses: verses.map((row) => ({
         bibleTextId: row.bibleTextId,
@@ -170,7 +158,7 @@ async function resolvePericopesForSet(
   return ok({ pericopeSetId, isAiEnabled: context.isAiEnabled, groups });
 }
 
-export async function savePericopeSuggestion(item: PericopeSuggestionItem): Promise<Result<void>> {
+export async function findPericopeVerse(bibleTextId: number) {
   const [verse] = await db
     .select({
       bibleId: bible_texts.bibleId,
@@ -180,25 +168,15 @@ export async function savePericopeSuggestion(item: PericopeSuggestionItem): Prom
     })
     .from(bible_texts)
     .innerJoin(books, eq(books.id, bible_texts.bookId))
-    .where(eq(bible_texts.id, item.bibleTextId))
+    .where(eq(bible_texts.id, bibleTextId))
     .limit(1);
-  if (!verse) return err(ErrorCode.INVALID_REFERENCE);
-  const resolved = await resolvePericopesForSet(
-    {
-      ...verse,
-      projectUnitId: item.projectUnitId,
-      pericopeNumbers: [item.pericopeNumber],
-    },
-    item.pericopeSetId
-  );
-  if (!resolved.ok) return resolved;
-  const group = resolved.data.groups[0];
-  if (!group.verses.some((verse) => verse.bibleTextId === item.bibleTextId)) {
-    return err(ErrorCode.INVALID_REFERENCE);
-  }
-  // A drafter may have written a heading while the model was generating.
-  if (!resolved.data.isAiEnabled || !group.sourceTitle || group.verses[0].hasAuthoredHeading)
-    return ok(undefined);
+  return verse;
+}
+
+export async function insertPericopeSuggestion(
+  item: PericopeSuggestionItem,
+  verse: { bibleId: number; bookId: number; chapterNumber: number }
+): Promise<void> {
   await db
     .insert(ai_pericope_suggestions)
     .values({
@@ -208,19 +186,14 @@ export async function savePericopeSuggestion(item: PericopeSuggestionItem): Prom
       chapterNumber: verse.chapterNumber,
     })
     .onConflictDoNothing();
-  return ok(undefined);
 }
 
-/**
- * The set a cached title was stored under. A project's set can change while the editor still shows
- * a title cached against the old one, so accepting it has to follow the stored set rather than the
- * project's current one. The current set still wins whenever it holds a title of its own.
- */
-async function findSavedPericopeSetId(
+/** Cached set identities in newest-first order, together with the current project set. */
+export async function findSavedPericopeSets(
   data: PericopeUsageRequest,
   verse: { bibleId: number; bookId: number; chapterNumber: number }
-): Promise<number | undefined> {
-  const saved = await db
+) {
+  return db
     .select({
       pericopeSetId: ai_pericope_suggestions.pericopeSetId,
       currentPericopeSetId: projects.pericopeSetId,
@@ -238,46 +211,19 @@ async function findSavedPericopeSetId(
       )
     )
     .orderBy(desc(ai_pericope_suggestions.createdAt));
-  const current = saved.find((row) => row.pericopeSetId === row.currentPericopeSetId);
-  return (current ?? saved[0])?.pericopeSetId;
 }
 
-export async function logPericopeUsage(
+export async function upsertPericopeUsage(
   userId: number,
-  data: PericopeUsageRequest
-): Promise<Result<void>> {
-  const [verse] = await db
-    .select({
-      bibleId: bible_texts.bibleId,
-      bookId: bible_texts.bookId,
-      bookCode: books.code,
-      chapterNumber: bible_texts.chapterNumber,
-    })
-    .from(bible_texts)
-    .innerJoin(books, eq(books.id, bible_texts.bookId))
-    .where(eq(bible_texts.id, data.bibleTextId))
-    .limit(1);
-  if (!verse) return err(ErrorCode.INVALID_REFERENCE);
-  const resolved = await resolvePericopesForSet(
-    {
-      ...verse,
-      projectUnitId: data.projectUnitId,
-      pericopeNumbers: [data.pericopeNumber],
-    },
-    await findSavedPericopeSetId(data, verse)
-  );
-  if (!resolved.ok) return resolved;
-  const group = resolved.data.groups[0];
-  if (group.verses[0].bibleTextId !== data.bibleTextId || !group.suggestion) {
-    return err(ErrorCode.INVALID_REFERENCE);
-  }
+  suggestionId: number,
+  wasUsed: boolean
+): Promise<void> {
   await db
     .insert(ai_pericope_suggestion_usage)
-    .values({ suggestionId: group.suggestion.id, userId, wasUsed: data.wasUsed })
+    .values({ suggestionId, userId, wasUsed })
     .onConflictDoUpdate({
       target: [ai_pericope_suggestion_usage.suggestionId, ai_pericope_suggestion_usage.userId],
       // A late exposure request must never downgrade a previously accepted title.
       set: { wasUsed: sql`${ai_pericope_suggestion_usage.wasUsed} OR EXCLUDED.was_used` },
     });
-  return ok(undefined);
 }

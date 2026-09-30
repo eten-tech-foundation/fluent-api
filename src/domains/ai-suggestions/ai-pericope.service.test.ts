@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PericopeContext, PericopeVerse } from './ai-pericope.repository';
+import type { PericopeContext, PericopeVerse } from './ai-suggestions.types';
 
-import { resolvePericopes, savePericopeSuggestion } from './ai-pericope.repository';
+import {
+  findPericopeVerse,
+  findSavedPericopeSets,
+  insertPericopeSuggestion,
+  resolvePericopes,
+  upsertPericopeUsage,
+} from './ai-pericope.repository';
 import {
   findNextUntranslatedVerses,
   getChapterAssignmentAiStatus,
@@ -15,6 +21,7 @@ import {
   queueNextVerses,
   queuePericopes,
   saveAiSuggestions,
+  trackPericopeUsage,
 } from './ai-suggestions.service';
 
 const { send } = vi.hoisted(() => ({ send: vi.fn().mockResolvedValue('job') }));
@@ -33,8 +40,10 @@ vi.mock('./ai-suggestions.repository', () => ({
 }));
 vi.mock('./ai-pericope.repository', () => ({
   resolvePericopes: vi.fn(),
-  savePericopeSuggestion: vi.fn(),
-  logPericopeUsage: vi.fn(),
+  findPericopeVerse: vi.fn(),
+  findSavedPericopeSets: vi.fn(),
+  insertPericopeSuggestion: vi.fn(),
+  upsertPericopeUsage: vi.fn(),
 }));
 
 const request = {
@@ -68,6 +77,7 @@ describe('pericope AI suggestions', () => {
         {
           pericopeNumber: '4a',
           sourceTitle: 'Creation',
+          startsPericope: true,
           suggestion: null,
           verses: [
             verse(1),
@@ -77,10 +87,24 @@ describe('pericope AI suggestions', () => {
             verse(5, { content: '   ' }),
           ],
         },
-        { pericopeNumber: '4b', sourceTitle: null, suggestion: null, verses: [verse(7)] },
+        {
+          pericopeNumber: '4b',
+          startsPericope: true,
+          sourceTitle: null,
+          suggestion: null,
+          verses: [verse(7)],
+        },
       ],
     };
     vi.mocked(resolvePericopes).mockImplementation(async () => ({ ok: true, data: context }));
+    vi.mocked(findPericopeVerse).mockResolvedValue({
+      bibleId: 2,
+      bookId: 1,
+      bookCode: 'GEN',
+      chapterNumber: 1,
+    });
+    vi.mocked(insertPericopeSuggestion).mockResolvedValue(undefined);
+    vi.mocked(upsertPericopeUsage).mockResolvedValue(undefined);
     vi.mocked(hasReachedAiActivationThreshold).mockResolvedValue(true);
   });
 
@@ -258,11 +282,55 @@ describe('pericope AI suggestions', () => {
   it.each([
     { verseStart: 2, verseEnd: 5, pericopeSetId: 5 },
     { verseStart: 1, verseEnd: 5, pericopeSetId: 6 },
-    { verseStart: 1, verseEnd: 5, pericopeSetId: undefined },
-  ])('rejects mismatched ranges and old-set jobs', async (fields) => {
-    expect((await getSuggestionContext({ ...request, ...fields, pericopeNumber: '4a' })).ok).toBe(
-      false
-    );
+  ])('completes stale range/set jobs as a no-op', async (fields) => {
+    expect(await getSuggestionContext({ ...request, ...fields, pericopeNumber: '4a' })).toEqual({
+      ok: true,
+      data: { targetLanguageName: '', contextVerses: [], sourceVerses: [], sectionHeading: null },
+    });
+    expect(getSuggestionContextData).not.toHaveBeenCalled();
+  });
+
+  it('completes a job whose pericope no longer exists as a no-op', async () => {
+    vi.mocked(resolvePericopes).mockResolvedValue({
+      ok: false,
+      error: { code: 'INVALID_REFERENCE', message: 'Invalid reference' },
+    });
+    expect(
+      await getSuggestionContext({
+        ...request,
+        verseStart: 1,
+        verseEnd: 5,
+        pericopeNumber: '4a',
+        pericopeSetId: 5,
+      })
+    ).toMatchObject({ ok: true, data: { sourceVerses: [], sectionHeading: null } });
+    expect(getSuggestionContextData).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed heading jobs without the paired set', async () => {
+    expect(
+      (await getSuggestionContext({ ...request, verseStart: 1, verseEnd: 5, pericopeNumber: '4a' }))
+        .ok
+    ).toBe(false);
+  });
+
+  it('does not queue, serve, or generate a title in a continuing chapter', async () => {
+    context.groups[0].startsPericope = false;
+    await queuePericopes(request);
+    expect(send.mock.calls.every((call) => call[1].pericopeNumber === undefined)).toBe(true);
+    context.groups[0].suggestion = { suggestedText: 'Old duplicate' } as NonNullable<
+      PericopeContext['groups'][number]['suggestion']
+    >;
+    expect(await getPericopeSuggestions(request)).toEqual({ ok: true, data: { data: [] } });
+    expect(
+      await getSuggestionContext({
+        ...request,
+        verseStart: 1,
+        verseEnd: 5,
+        pericopeNumber: '4a',
+        pericopeSetId: 5,
+      })
+    ).toMatchObject({ ok: true, data: { sourceVerses: [], sectionHeading: null } });
     expect(getSuggestionContextData).not.toHaveBeenCalled();
   });
 
@@ -286,6 +354,50 @@ describe('pericope AI suggestions', () => {
     expect(result.ok && result.data.sectionHeading).toBeNull();
   });
 
+  it.each(['continuation', 'disabled', 'authored', 'untitled'])(
+    'does not cache a result when title eligibility is %s',
+    async (reason) => {
+      if (reason === 'continuation') context.groups[0].startsPericope = false;
+      if (reason === 'disabled') context.isAiEnabled = false;
+      if (reason === 'authored') context.groups[0].verses[0].hasAuthoredHeading = true;
+      if (reason === 'untitled') context.groups[0].sourceTitle = null;
+      expect(
+        await saveAiSuggestions([], {
+          projectUnitId: 1,
+          bibleTextId: 101,
+          pericopeNumber: '4a',
+          pericopeSetId: 5,
+          suggestedText: 'Title',
+        })
+      ).toEqual({ ok: true, data: undefined });
+      expect(insertPericopeSuggestion).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([true, false])(
+    'selects the current cached set when present (%s), otherwise the newest saved set',
+    async (hasCurrent) => {
+      context.groups[0].suggestion = { id: 7 } as NonNullable<
+        PericopeContext['groups'][number]['suggestion']
+      >;
+      vi.mocked(findSavedPericopeSets).mockResolvedValue([
+        { pericopeSetId: 6, currentPericopeSetId: 5 },
+        ...(hasCurrent ? [{ pericopeSetId: 5, currentPericopeSetId: 5 }] : []),
+      ]);
+      expect(
+        await trackPericopeUsage(
+          { id: 1 },
+          { projectUnitId: 1, bibleTextId: 101, pericopeNumber: '4a', wasUsed: true }
+        )
+      ).toEqual({ ok: true, data: undefined });
+      expect(resolvePericopes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ projectUnitId: 1 }),
+        hasCurrent ? 5 : 6
+      );
+      expect(upsertPericopeUsage).toHaveBeenCalledWith(1, 7, true);
+    }
+  );
+
   it('saves heading results only through the separate repository', async () => {
     const heading = {
       projectUnitId: 1,
@@ -294,9 +406,13 @@ describe('pericope AI suggestions', () => {
       pericopeSetId: 5,
       suggestedText: 'Title',
     };
-    vi.mocked(savePericopeSuggestion).mockResolvedValue({ ok: true, data: undefined });
     expect((await saveAiSuggestions([], heading)).ok).toBe(true);
-    expect(savePericopeSuggestion).toHaveBeenCalledWith(heading);
+    expect(insertPericopeSuggestion).toHaveBeenCalledWith(heading, {
+      bibleId: 2,
+      bookId: 1,
+      bookCode: 'GEN',
+      chapterNumber: 1,
+    });
     expect(
       (
         await saveAiSuggestions(
