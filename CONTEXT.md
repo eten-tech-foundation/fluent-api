@@ -9,11 +9,15 @@ A translation organization that owns projects and memberships. Users join an Org
 _Avoid_: tenant, team, account
 
 **Project**:
-A book-scoped translation effort (a single book or a small grouping like "the Gospels") with a source→target language pair inside one Organization. (Until Milestones ship there is no wrapping language-level container.)
-_Avoid_: milestone, unit of work
+A source→target language-pair translation effort inside one Organization, grouping its books into Milestones.
+_Avoid_: unit of work
+
+**Milestone**:
+A named group of books inside a Project (a `project_units` row) — e.g. "Gospel of Mark" under "Koli Kachi New Testament". Carries a `type` (`text` or `audio`), a `status`, and an optional `connectivityProfile`; owns the book links and Chapter Assignments beneath it.
+_Avoid_: unit, project unit (legacy table name)
 
 **Chapter Assignment**:
-The unit of work inside a Project: one (project unit, bible, book, chapter) row carrying a workflow `status`, an `assignedUserId`, and an optional `peerCheckerId`.
+The unit of work inside a Milestone: one (milestone, bible, book, chapter) row carrying a workflow `status`, an `assignedUserId`, and an optional `peerCheckerId`.
 _Avoid_: task, ticket
 
 **Phase**:
@@ -33,7 +37,7 @@ Environment-neutral seeded rows identical across local/dev/qa: roles, RBAC permi
 _Avoid_: fixtures, static data
 
 **Demo Spec**:
-The QA-only declarative seed (`src/db/seeds/qa-demo/spec.ts`) describing the demo world: organizations, Seed Users, projects, and chapter assignments for stakeholder demos and QA.
+The declarative per-environment seed (`src/db/seeds/demo/` — `qa-spec.ts` for QA, `dev-spec.ts` shared by dev/local) describing the demo world: organizations, Seed Users, projects, milestones, and chapter assignments for stakeholder demos and QA.
 _Avoid_: seed data (ambiguous — Reference Data is also seed data)
 
 **Reconcile**:
