@@ -155,6 +155,22 @@ export async function listMilestonesForProject(projectId: number): Promise<Resul
   }
 }
 
+export async function listMilestonesForProjects(
+  projectIds: number[]
+): Promise<Result<MilestoneRow[]>> {
+  try {
+    const milestones = await repo.listByProjectIds(projectIds);
+    return ok(milestones);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to list milestones for projects',
+      context: { projectIds },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 export async function getMilestone(
   projectId: number,
   milestoneId: number

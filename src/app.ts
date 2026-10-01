@@ -25,6 +25,7 @@ import '@/domains/chapter-assignments/editor-state/user-chapter-assignment-edito
 import '@/domains/projects/users/project-users.route';
 import '@/domains/organizations/users/org-users.route';
 import '@/domains/users/projects/user-projects.route';
+import '@/domains/users/milestones/user-milestones.route';
 import '@/domains/chapter-assignments/presence/chapter-assignments-presence.route';
 import '@/domains/ai-suggestions/ai-suggestions.route';
 import '@/domains/ai-suggestions/ai-suggestions.internal.route';

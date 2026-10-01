@@ -152,6 +152,12 @@ export async function listByProjectId(projectId: number): Promise<MilestoneRow[]
   return rows.map(mapRow);
 }
 
+export async function listByProjectIds(projectIds: number[]): Promise<MilestoneRow[]> {
+  if (projectIds.length === 0) return [];
+  const rows = await milestoneSelect().where(inArray(project_units.projectId, projectIds));
+  return rows.map(mapRow);
+}
+
 export async function getByIdForProject(
   projectId: number,
   milestoneId: number,

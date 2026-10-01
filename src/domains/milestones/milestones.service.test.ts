@@ -10,6 +10,7 @@ import {
   deleteMilestone,
   getMilestone,
   listMilestonesForProject,
+  listMilestonesForProjects,
   updateMilestone,
 } from './milestones.service';
 
@@ -34,6 +35,7 @@ vi.mock('./milestones.repository', () => ({
   insertMilestoneRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
   listByProjectId: vi.fn(),
+  listByProjectIds: vi.fn(),
   getMilestoneById: vi.fn(),
   getByIdForProject: vi.fn(),
   updateMilestoneRecord: vi.fn(),
@@ -203,6 +205,15 @@ describe('milestones service', () => {
 
       const result = await listMilestonesForProject(100);
       expect(repo.listByProjectId).toHaveBeenCalledWith(100);
+      expect(result).toEqual(ok(mockResult));
+    });
+
+    it('listMilestonesForProjects should call repo', async () => {
+      const mockResult = [{ id: 1 }, { id: 2 }] as any;
+      vi.mocked(repo.listByProjectIds).mockResolvedValue(mockResult);
+
+      const result = await listMilestonesForProjects([3, 7]);
+      expect(repo.listByProjectIds).toHaveBeenCalledWith([3, 7]);
       expect(result).toEqual(ok(mockResult));
     });
 
