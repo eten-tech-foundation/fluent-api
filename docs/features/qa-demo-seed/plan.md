@@ -53,25 +53,25 @@
 
 All accounts share one password → one shared `passwordHash` constant in the spec.
 
-| Key          | Email                                | Org memberships     | Role grants                                                                                                                               |
-| ------------ | ------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `qa-om`      | qa+FluentQA-om@fluent.local          | fluent-qa           | Org Manager (org-scoped, fluent-qa) — this is the account that creates projects in Fluent QA                                              |
-| `qa-pm`      | qa+FluentQA-pm@fluent.local          | fluent-qa           | anchor only — PM is project-scoped and Fluent QA seeds no projects; QA assigns it via the real UI flow                                    |
-| `qa-t1`      | qa+FluentQA-translator@fluent.local  | fluent-qa           | —                                                                                                                                         |
-| `qa-t2`      | qa+FluentQA-translator2@fluent.local | fluent-qa           | —                                                                                                                                         |
-| `qa-obs`     | qa+FluentQA-observer@fluent.local    | fluent-qa           | —                                                                                                                                         |
-| `superadmin` | cwhite@gloo.us                       | none                | **SuperAdmin (global) — only grant this user has**                                                                                        |
-| `hi-om`      | cwhite+highland-om@gloo.us           | highland            | Org Manager (highland)                                                                                                                    |
-| `hi-pm`      | cwhite+highland-pm@gloo.us           | highland, rivertown | Project Manager project-scoped on both highland projects **and** on rivertown's project — cross-org account for the org-switcher demo      |
-| `hi-t`       | cwhite+highland-translator@gloo.us   | highland            | Translator (project-scoped: `highland-nt`)                                                                                                |
-| `hi-obs`     | cwhite+highland-observer@gloo.us     | highland            | Observer (project-scoped: both highland projects)                                                                                         |
-| `hi-mt1`     | cwhite+highland-mob-t1@gloo.us       | highland            | Translator (project-scoped: both highland projects — text + OBT)                                                                          |
-| `hi-mt2`     | cwhite+highland-mob-t2@gloo.us       | highland            | Translator (project-scoped: both highland projects — text + OBT)                                                                          |
-| `hi-mobs`    | cwhite+highland-mob-obs@gloo.us      | highland            | Observer (project-scoped: both highland projects)                                                                                         |
-| `rt-om`      | cwhite+rivertown-om@gloo.us          | rivertown           | Org Manager (rivertown)                                                                                                                   |
-| `rt-t`       | cwhite+rivertown-translator@gloo.us  | rivertown           | Translator (project-scoped: `wolof-epistles`)                                                                                             |
-| `rt-obs`     | cwhite+rivertown-observer@gloo.us    | rivertown           | Observer (project-scoped: `wolof-epistles`)                                                                                               |
-| `nh-om`      | cwhite+newhorizons-om@gloo.us        | new-horizons        | Org Manager (new-horizons)                                                                                                                |
+| Key          | Email                                | Org memberships     | Role grants                                                                                                                           |
+| ------------ | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-om`      | qa+FluentQA-om@fluent.local          | fluent-qa           | Org Manager (org-scoped, fluent-qa) — this is the account that creates projects in Fluent QA                                          |
+| `qa-pm`      | qa+FluentQA-pm@fluent.local          | fluent-qa           | anchor only — PM is project-scoped and Fluent QA seeds no projects; QA assigns it via the real UI flow                                |
+| `qa-t1`      | qa+FluentQA-translator@fluent.local  | fluent-qa           | —                                                                                                                                     |
+| `qa-t2`      | qa+FluentQA-translator2@fluent.local | fluent-qa           | —                                                                                                                                     |
+| `qa-obs`     | qa+FluentQA-observer@fluent.local    | fluent-qa           | —                                                                                                                                     |
+| `superadmin` | cwhite@gloo.us                       | none                | **SuperAdmin (global) — only grant this user has**                                                                                    |
+| `hi-om`      | cwhite+highland-om@gloo.us           | highland            | Org Manager (highland)                                                                                                                |
+| `hi-pm`      | cwhite+highland-pm@gloo.us           | highland, rivertown | Project Manager project-scoped on both highland projects **and** on rivertown's project — cross-org account for the org-switcher demo |
+| `hi-t`       | cwhite+highland-translator@gloo.us   | highland            | Translator (project-scoped: `highland-nt`)                                                                                            |
+| `hi-obs`     | cwhite+highland-observer@gloo.us     | highland            | Observer (project-scoped: both highland projects)                                                                                     |
+| `hi-mt1`     | cwhite+highland-mob-t1@gloo.us       | highland            | Translator (project-scoped: both highland projects — text + OBT)                                                                      |
+| `hi-mt2`     | cwhite+highland-mob-t2@gloo.us       | highland            | Translator (project-scoped: both highland projects — text + OBT)                                                                      |
+| `hi-mobs`    | cwhite+highland-mob-obs@gloo.us      | highland            | Observer (project-scoped: both highland projects)                                                                                     |
+| `rt-om`      | cwhite+rivertown-om@gloo.us          | rivertown           | Org Manager (rivertown)                                                                                                               |
+| `rt-t`       | cwhite+rivertown-translator@gloo.us  | rivertown           | Translator (project-scoped: `wolof-epistles`)                                                                                         |
+| `rt-obs`     | cwhite+rivertown-observer@gloo.us    | rivertown           | Observer (project-scoped: `wolof-epistles`)                                                                                           |
+| `nh-om`      | cwhite+newhorizons-om@gloo.us        | new-horizons        | Org Manager (new-horizons)                                                                                                            |
 
 Every user except `superadmin` also gets the `Org Member` anchor grant per org membership (matches existing `dev-users.ts` convention). `users.status='verified'`, `authUser.emailVerified=true`, `createdBy` = the org's Org Manager where one exists (the realistic project-creating actor), else `superadmin`.
 
@@ -85,11 +85,11 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 
 ### Projects (3 — milestone model)
 
-| Org       | Key              | Project                    | Source→Target | Bible       | Milestones (type → books)                                     |
-| --------- | ---------------- | -------------------------- | ------------- | ----------- | ------------------------------------------------------------- |
-| highland  | `highland-nt`    | Koli Kachi New Testament   | eng→gjk       | BSB         | `Gospel of Mark` (text → MRK 16), `Gospel of John` (text → JHN 21) |
-| highland  | `chichewa-obt`   | Chichewa Oral Bible        | eng→nya       | WEB (audio) | `Old Testament Narratives` (audio → RUT 4, JON 4)             |
-| rivertown | `wolof-epistles` | Wolof General Epistles     | eng→wol       | BSB         | `Book of James` (text → JAS 5)                                |
+| Org       | Key              | Project                  | Source→Target | Bible       | Milestones (type → books)                                          |
+| --------- | ---------------- | ------------------------ | ------------- | ----------- | ------------------------------------------------------------------ |
+| highland  | `highland-nt`    | Koli Kachi New Testament | eng→gjk       | BSB         | `Gospel of Mark` (text → MRK 16), `Gospel of John` (text → JHN 21) |
+| highland  | `chichewa-obt`   | Chichewa Oral Bible      | eng→nya       | WEB (audio) | `Old Testament Narratives` (audio → RUT 4, JON 4)                  |
+| rivertown | `wolof-epistles` | Wolof General Epistles   | eng→wol       | BSB         | `Book of James` (text → JAS 5)                                     |
 
 - `projects.sourceBibleId` set to the spec's `sourceBible`; `projects.pericopeSetId` set via spec `pericopeSet: 'FIA'` on all three (`seedPericopeSets` auto-assigns FIA to any project with NULL — seeding it directly keeps the demo seed deterministic regardless of run order).
 - Milestones are `project_units` rows: `name`/`type` from the spec, `status='in_progress'` (all have active chapter work); `connectivityProfile` set on the audio milestone to demo the field (freeform varchar — use `'low-bandwidth'`).
