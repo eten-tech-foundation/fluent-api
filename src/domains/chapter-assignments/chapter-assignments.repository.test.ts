@@ -4,7 +4,7 @@ import { eq, ne } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import { chapter_assignments } from '@/db/schema';
+import { bibles, chapter_assignments } from '@/db/schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 
 import * as repo from './chapter-assignments.repository';
@@ -138,6 +138,23 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
       expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
     });
+  });
+
+  it('groups the Bible primary key when selecting licence fields alongside verse counts', async () => {
+    const chain = buildProgressSelectChain([]);
+    vi.mocked(db.select).mockReturnValue(chain as any);
+
+    expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
+    expect(db.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ttsLicenseStatus: expect.anything(),
+        textBibleKey: expect.anything(),
+        selectedRecordingKey: expect.anything(),
+      })
+    );
+    // PostgreSQL recognizes functional dependency on the primary key, not on
+    // the Bible's UNIQUE name. Without this the real query fails with 42803.
+    expect(chain.groupBy.mock.calls[0]).toContain(bibles.id);
   });
 
   describe('findAssignmentsProgress hasConflict rollup', () => {

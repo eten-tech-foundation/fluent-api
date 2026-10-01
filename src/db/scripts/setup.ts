@@ -105,6 +105,8 @@ async function setup() {
     { seedBibles },
     { seedBibleTexts },
     { seedPericopeSets },
+    { seedBsbBibleTexts },
+    { seedAudioDemo },
   ] = await Promise.all([
     import('@/db/seeds/organizations'),
     import('@/db/seeds/roles'),
@@ -115,6 +117,8 @@ async function setup() {
     import('@/db/seeds/bibles'),
     import('@/db/seeds/bible-texts'),
     import('@/db/seeds/pericope-sets'),
+    import('@/db/seeds/bible-texts-bsb'),
+    import('@/db/seeds/audio-demo'),
   ]);
 
   // ── Reference / system data (same for every environment) ──────────────────
@@ -150,7 +154,9 @@ async function setup() {
 
   console.log('[9/9] Seeding bible texts and pericope sets...');
   await seedBibleTexts();
+  await seedBsbBibleTexts();
   await seedPericopeSets();
+  await seedAudioDemo(envName, config.orgName, config.seedUsers[0]?.email);
   console.log('');
 
   // ── Summary ───────────────────────────────────────────────────────────────

@@ -17,6 +17,12 @@ export default defineConfig({
     // copies' suites too and reports another branch's failures as if they were
     // ours. CI is unaffected (a clean checkout has no .claude/), so this only
     // keeps local runs honest.
-    exclude: ['**/node_modules/**', '**/dist/**', '**/.claude/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.claude/**',
+      '**/*.live.test.ts',
+      '**/*.db.test.ts',
+    ],
   },
 });
