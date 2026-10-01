@@ -12,7 +12,7 @@ import {
   isBlobStorageConfigured,
 } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
-import { getQueue, QUEUE_NAMES } from '@/lib/queue';
+import { getQueue, isQueueReady, QUEUE_NAMES } from '@/lib/queue';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -176,6 +176,10 @@ const getJobStatusRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(jobStatusResponseSchema, 'Job status'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorSchema, 'Job not found'),
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
+      errorSchema,
+      'Export queue is still starting'
+    ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -376,6 +380,13 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
       );
     }
 
+    if (!isQueueReady()) {
+      return c.json(
+        { error: 'Async export is not available', details: 'Export queue is still starting' },
+        HttpStatusCodes.SERVICE_UNAVAILABLE
+      );
+    }
+
     const boss = await getQueue();
     const user = c.get('user')!;
 
@@ -436,6 +447,13 @@ server.openapi(exportProjectUSFMAsyncRoute, async (c) => {
 
 server.openapi(getJobStatusRoute, async (c) => {
   const { jobId } = c.req.valid('param');
+
+  if (!isQueueReady()) {
+    return c.json(
+      { error: 'Job status is not available', details: 'Export queue is still starting' },
+      HttpStatusCodes.SERVICE_UNAVAILABLE
+    );
+  }
 
   try {
     const boss = await getQueue();

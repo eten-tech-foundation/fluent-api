@@ -4,6 +4,10 @@ import { ensureWorkerQueue } from '@/lib/dead-letter-queues';
 import { logger } from '@/lib/logger';
 
 let boss: PgBoss | null = null;
+let initPromise: Promise<PgBoss> | null = null;
+
+/** Retry delay between queue init attempts when the database is unreachable. */
+const QUEUE_INIT_RETRY_DELAY_MS = 5_000;
 
 // Dead-letter destinations are not listed here: deadLetterQueueName() derives
 // them from the source name, so there is a single spelling of each.
@@ -40,40 +44,73 @@ export async function initializeQueue(): Promise<PgBoss> {
     return boss;
   }
 
-  const connectionString = process.env.DATABASE_URL;
+  // A failed start() must not leave a half-open instance for the next attempt
+  // or for getQueue() callers, so `boss` is only assigned after start succeeds.
+  initPromise ??= (async () => {
+    const connectionString = process.env.DATABASE_URL;
 
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is required for queue initialization');
-  }
+    if (!connectionString) {
+      throw new Error('DATABASE_URL is required for queue initialization');
+    }
 
-  boss = new PgBoss({
-    connectionString,
-    schema: 'pgboss',
-    // provision-db.ts (dev/qa) and bootstrap.ts (local) create the pgboss
-    // schema as a superuser before the API starts, so the runtime role
-    // (api_user) never needs CREATE ON DATABASE.
-    createSchema: false,
-    max: 10,
-    application_name: 'fluent-server-queue',
-    superviseIntervalSeconds: 60,
-    maintenanceIntervalSeconds: 86400,
-    monitorIntervalSeconds: 60,
-  });
-
-  boss.on('error', (error: Error) => {
-    logger.error('PgBoss error occurred', {
-      error: error.message,
-      stack: error.stack,
-      name: error.name,
-      code: (error as any).code,
-      cause: error.cause,
+    const instance = new PgBoss({
+      connectionString,
+      schema: 'pgboss',
+      // provision-db.ts (dev/qa) and bootstrap.ts (local) create the pgboss
+      // schema as a superuser before the API starts, so the runtime role
+      // (api_user) never needs CREATE ON DATABASE.
+      createSchema: false,
+      max: 10,
+      application_name: 'fluent-server-queue',
+      superviseIntervalSeconds: 60,
+      maintenanceIntervalSeconds: 86400,
+      monitorIntervalSeconds: 60,
     });
+
+    instance.on('error', (error: Error) => {
+      logger.error('PgBoss error occurred', {
+        error: error.message,
+        stack: error.stack,
+        name: error.name,
+        code: (error as any).code,
+        cause: error.cause,
+      });
+    });
+
+    await instance.start();
+    logger.info('PgBoss queue initialized');
+    boss = instance;
+    return instance;
+  })().finally(() => {
+    initPromise = null;
   });
 
-  await boss.start();
-  logger.info('PgBoss queue initialized');
+  return initPromise;
+}
 
-  return boss;
+/**
+ * Runs the API-side queue boot chain (connect, then converge queues) with
+ * retry-until-stopped semantics. A database flap during startup degrades
+ * queue-dependent features to 503s instead of blocking the HTTP listener —
+ * see ADR 0001. The standalone worker does NOT use this: a WebJob restart is
+ * already its retry loop, and a worker without a queue is useless anyway.
+ */
+export async function initializeQueueWithRetry(isStopped: () => boolean): Promise<PgBoss | null> {
+  while (!isStopped()) {
+    try {
+      const instance = await initializeQueue();
+      await ensureExportQueues(instance);
+      await ensureAiSuggestionQueue(instance);
+      logger.info('Queue ready');
+      return instance;
+    } catch (error) {
+      logger.error('Queue initialization failed; retrying', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await new Promise((resolve) => setTimeout(resolve, QUEUE_INIT_RETRY_DELAY_MS));
+    }
+  }
+  return null;
 }
 
 const EXPORT_QUEUE_OPTIONS = {
@@ -104,6 +141,14 @@ export async function ensureAiSuggestionQueue(boss: PgBoss): Promise<void> {
     retryBackoff: true,
     expireInSeconds: 3600,
   });
+}
+
+/**
+ * True once the queue has fully started. Route handlers check this to answer
+ * 503 during the post-listen init window instead of catching a throw.
+ */
+export function isQueueReady(): boolean {
+  return boss !== null;
 }
 
 export async function getQueue(): Promise<PgBoss> {
