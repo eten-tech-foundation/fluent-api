@@ -5,6 +5,10 @@ import { logger } from '@/lib/logger';
 
 let boss: PgBoss | null = null;
 let initPromise: Promise<PgBoss> | null = null;
+// Distinct from `boss !== null`: readiness is published only after the
+// instance has started AND its queues have converged — a started-but-
+// unconverged boss would accept sends that then fail on missing queues.
+let queueReady = false;
 
 /** Retry delay between queue init attempts when the database is unreachable. */
 const QUEUE_INIT_RETRY_DELAY_MS = 5_000;
@@ -39,6 +43,13 @@ export interface AiSuggestionTriggerJob {
   verseEnd: number;
 }
 
+/**
+ * Connects pg-boss and starts it. The returned instance's queues are NOT yet
+ * converged — that is the caller's job (API: initializeQueueWithRetry, which
+ * gates readiness on it; worker: its explicit ensure calls). Concurrent calls
+ * share one attempt, and a failed start leaves `boss` null so the next call
+ * retries cleanly.
+ */
 export async function initializeQueue(): Promise<PgBoss> {
   if (boss) {
     return boss;
@@ -101,6 +112,7 @@ export async function initializeQueueWithRetry(isStopped: () => boolean): Promis
       const instance = await initializeQueue();
       await ensureExportQueues(instance);
       await ensureAiSuggestionQueue(instance);
+      queueReady = true;
       logger.info('Queue ready');
       return instance;
     } catch (error) {
@@ -144,11 +156,14 @@ export async function ensureAiSuggestionQueue(boss: PgBoss): Promise<void> {
 }
 
 /**
- * True once the queue has fully started. Route handlers check this to answer
- * 503 during the post-listen init window instead of catching a throw.
+ * True once the API boot path has started pg-boss AND converged its queues.
+ * Route handlers check this to answer 503 during the post-listen init window
+ * instead of catching a throw. Only `initializeQueueWithRetry` sets it — the
+ * standalone worker boots through `initializeQueue` directly and gates
+ * nothing on this flag.
  */
 export function isQueueReady(): boolean {
-  return boss !== null;
+  return queueReady;
 }
 
 export async function getQueue(): Promise<PgBoss> {
@@ -159,6 +174,7 @@ export async function getQueue(): Promise<PgBoss> {
 }
 
 export async function stopQueue(): Promise<void> {
+  queueReady = false;
   if (boss) {
     await boss.stop({ graceful: true, timeout: 30000 });
     boss = null;
