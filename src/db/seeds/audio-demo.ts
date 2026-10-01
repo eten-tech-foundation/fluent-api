@@ -28,7 +28,7 @@ export async function seedAudioDemo(
   userEmail?: string
 ): Promise<void> {
   if (envName !== 'local') return;
-  if (!userEmail) throw new Error('Audio demo needs the first configured local seed user.');
+  if (!userEmail) throw new Error('Audio demo needs a configured local project manager.');
   await db
     .insert(bible_provider_resources)
     .values({

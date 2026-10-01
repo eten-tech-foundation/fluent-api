@@ -14,9 +14,9 @@ describe('local audio fixture', () => {
     expect(db.transaction).not.toHaveBeenCalled();
   });
 
-  it('fails clearly when local setup has no user', async () => {
+  it('fails clearly when local setup has no project manager', async () => {
     await expect(seedAudioDemo('local', 'Fluent Dev')).rejects.toThrow(
-      'first configured local seed user'
+      'configured local project manager'
     );
   });
 

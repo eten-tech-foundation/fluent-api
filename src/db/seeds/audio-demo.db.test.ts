@@ -26,7 +26,11 @@ import { AUDIO_DEMO_SEED, seedAudioDemo } from './audio-demo';
 import { seedBsbBibleTexts } from './bible-texts-bsb';
 import { seedBibles } from './bibles';
 
-const localUser = localConfig.seedUsers[0];
+const localUser = (() => {
+  const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
+  if (!user) throw new Error('Local test config needs a configured project manager.');
+  return user;
+})();
 
 async function fixture() {
   const [bible] = await db.select().from(bibles).where(eq(bibles.abbreviation, 'BSB'));
@@ -84,6 +88,8 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
 
   it('gives the seeded user a drafting assignment with 36 texts and pericope coverage', async () => {
     const { bible, user, project, unit, assignment } = await fixture();
+    expect(project.createdBy).toBe(user.id);
+    expect(assignment.assignedUserId).toBe(user.id);
     expect(project.sourceBibleId).toEqual(expect.any(Number));
     expect(unit.name.trim()).not.toBe('');
     const assigned = await getAssignedChaptersByUserId(user.id, project.organization);

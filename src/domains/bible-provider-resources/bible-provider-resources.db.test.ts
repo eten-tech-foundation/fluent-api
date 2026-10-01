@@ -14,7 +14,11 @@ import '@/domains/playback-audio/playback-audio.route';
 
 import { getById, getByProviderIdentity } from './bible-provider-resources.repository';
 
-const localUser = localConfig.seedUsers[0];
+const localUser = (() => {
+  const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
+  if (!user) throw new Error('Local test config needs a configured project manager.');
+  return user;
+})();
 let headers: Headers;
 let projectId: number;
 

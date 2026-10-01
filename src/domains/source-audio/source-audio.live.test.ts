@@ -31,7 +31,8 @@ describe('source-audio resolver against live Aquifer', () => {
       );
     }
     if (!aquifer.isAquiferConfigured()) throw new Error('Live Aquifer key is required.');
-    const user = localConfig.seedUsers[0];
+    const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
+    if (!user) throw new Error('Local test config needs a configured project manager.');
     const login = await auth.api.signInEmail({
       body: { email: user.email, password: user.password },
     });
