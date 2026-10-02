@@ -12,7 +12,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { PlaybackAudioResponse } from './playback-audio.types';
 
-import { getSourceChapterVerseCount } from './playback-audio.repository';
+import { getSourceChapterVerseNumbers } from './playback-audio.repository';
 
 interface ChapterInput {
   languageCode: string;
@@ -63,20 +63,22 @@ export async function getSourcePlayback(
   if (!selected.ok) return selected;
   // A missing selected FK is corruption, not permission to change providers.
   if (source.data.audioResourceId !== null && !selected.data) return err(ErrorCode.INTERNAL_ERROR);
-  const result = await resolve(input, text, selected.data, selected.data !== null, source.data.id);
+  const result = await resolve(input, text, selected.data, source.data.id);
   if (result.ok) result.data.bible.fluentBibleId = source.data.id;
   return result;
 }
 
 export function getReferencePlayback(input: ChapterInput & { identity: ProviderIdentity }) {
-  return resolve(input, input.identity, null, false);
+  // DBL is intentionally best effort here. The current reference picker does
+  // not expose DBL choices, and the measured live catalogue had no timecodes,
+  // so this path is contract-tested without claiming live reference coverage.
+  return resolve(input, input.identity, null);
 }
 
 async function resolve(
   input: ChapterInput,
   text: ProviderIdentity | null,
   selected: ProviderIdentity | null,
-  directAudio: boolean,
   sourceBibleId?: number
 ): Promise<Result<PlaybackAudioResponse>> {
   // Read text policy independently; media never confers permission.
@@ -84,9 +86,8 @@ async function resolve(
   if (!facts.ok) return facts;
   const recording = selected ?? text;
   let result: Result<PlaybackAudioResponse> = ok(empty(input, recording));
-  if (recording?.provider === 'aquifer') result = await aquifer(input, recording);
-  if (recording?.provider === 'dbl')
-    result = await dbl(input, recording, directAudio, sourceBibleId);
+  if (recording?.provider === 'aquifer') result = await aquifer(input, recording, sourceBibleId);
+  if (recording?.provider === 'dbl') result = await dbl(input, recording, selected, sourceBibleId);
   if (!result.ok) return result;
   return ok({
     ...result.data,
@@ -96,19 +97,19 @@ async function resolve(
   });
 }
 
-function seconds(value: unknown): number | undefined {
+function parseNonNegativeSeconds(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-function timestamp(value: unknown): { startSeconds?: number; endSeconds?: number } {
-  if (typeof value === 'number') return { startSeconds: seconds(value) };
+function parseAquiferTimestamp(value: unknown): { startSeconds?: number; endSeconds?: number } {
+  if (typeof value === 'number') return { startSeconds: parseNonNegativeSeconds(value) };
   if (!value || typeof value !== 'object') return {};
   const row = value as Record<string, unknown>;
   const startSeconds = ['startSeconds', 'start', 'seconds', 'time']
-    .map((key) => seconds(row[key]))
+    .map((key) => parseNonNegativeSeconds(row[key]))
     .find((n) => n !== undefined);
   const endSeconds = ['endSeconds', 'end', 'stop']
-    .map((key) => seconds(row[key]))
+    .map((key) => parseNonNegativeSeconds(row[key]))
     .find((n) => n !== undefined);
   return {
     startSeconds,
@@ -121,7 +122,8 @@ function timestamp(value: unknown): { startSeconds?: number; endSeconds?: number
 
 async function aquifer(
   input: ChapterInput,
-  identity: ProviderIdentity
+  identity: ProviderIdentity,
+  sourceBibleId?: number
 ): Promise<Result<PlaybackAudioResponse>> {
   const catalogue = await getBibles(input.languageCode);
   if (!catalogue.ok) return catalogue;
@@ -155,7 +157,7 @@ async function aquifer(
       });
   }
   base.verseTimestamps = chapter.verses.flatMap((verse) => {
-    const window = timestamp(verse.audioTimestamp);
+    const window = parseAquiferTimestamp(verse.audioTimestamp);
     return window.startSeconds === undefined
       ? []
       : [
@@ -166,14 +168,21 @@ async function aquifer(
           },
         ];
   });
-  base.verseAddressable =
-    base.items.length > 0 &&
-    chapter.verses.length > 0 &&
-    base.verseTimestamps.length === chapter.verses.length;
+  if (base.items.length > 0 && base.verseTimestamps.length > 0) {
+    const expected =
+      sourceBibleId === undefined
+        ? ok(chapter.verses.map((verse) => verse.number))
+        : await getSourceChapterVerseNumbers(sourceBibleId, input.bookCode, input.chapter);
+    if (!expected.ok) return expected;
+    base.verseAddressable = hasExactVerseCoverage(
+      new Set(base.verseTimestamps.map((entry) => entry.verse)),
+      expected.data
+    );
+  }
   return ok(base);
 }
 
-export function dblSeconds(value: string): number | undefined {
+export function parseDblTimestampSeconds(value: string): number | undefined {
   if (!/^\d+(?:\.\d+)?$/.test(value) && !/^\d+(?::\d{1,2}){1,2}(?:\.\d+)?$/.test(value))
     return undefined;
   const parts = value.split(':').map(Number);
@@ -182,26 +191,35 @@ export function dblSeconds(value: string): number | undefined {
   return Number.isFinite(total) ? total : undefined;
 }
 
+function parseDblVerseNumber(verseId: string, chapterPrefix: string): number | undefined {
+  if (!verseId.startsWith(chapterPrefix)) return undefined;
+  const suffix = verseId.slice(chapterPrefix.length);
+  if (!/^[1-9]\d*$/.test(suffix)) return undefined;
+  const verse = Number(suffix);
+  return Number.isSafeInteger(verse) ? verse : undefined;
+}
+
 async function dbl(
   input: ChapterInput,
   identity: ProviderIdentity,
-  directAudio: boolean,
+  selectedRecording: ProviderIdentity | null,
   sourceBibleId?: number
 ): Promise<Result<PlaybackAudioResponse>> {
   const base = empty(input, identity);
   let audioIds: { id: string; name?: string }[] = [{ id: identity.externalId }];
-  if (!directAudio) {
+  if (selectedRecording === null) {
     const textBible = await dblClient.getBible(identity.externalId);
     if (!textBible.ok) return textBible;
     audioIds = textBible.data.audioBibles ?? [];
     base.bible = { name: textBible.data.name, abbreviation: textBible.data.abbreviation };
   }
   const timestamps: NonNullable<PlaybackAudioResponse['verseTimestamps']> = [];
-  const trackWindows: { starts: Set<number>; maximum: number }[] = [];
+  const trackWindows: { starts: Set<number> }[] = [];
+  const chapterPrefix = `${input.bookCode}.${input.chapter}.`;
   for (const audio of audioIds) {
     const chapter = await dblClient.getAudioChapter(audio.id, `${input.bookCode}.${input.chapter}`);
     if (!chapter.ok) {
-      if (chapter.error.message.includes('404')) continue;
+      if (chapter.error.code === ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND) continue;
       return chapter;
     }
     const recording = { provider: 'dbl' as const, externalId: audio.id };
@@ -226,17 +244,11 @@ async function dbl(
       ...(track.expiresAt == null ? {} : { expiresAt: track.expiresAt }),
     });
     const starts = new Set<number>();
-    let maximum = 0;
     for (const code of track.timecodes ?? []) {
-      const prefix = `${input.bookCode}.${input.chapter}.`;
-      if (!code.verseId.startsWith(prefix)) continue;
-      const suffix = code.verseId.slice(prefix.length);
-      if (!/^[1-9]\d*$/.test(suffix)) continue;
-      const verse = Number(suffix);
-      if (!Number.isSafeInteger(verse)) continue;
-      maximum = Math.max(maximum, verse);
-      const start = dblSeconds(code.start);
-      const end = dblSeconds(code.end);
+      const verse = parseDblVerseNumber(code.verseId, chapterPrefix);
+      if (verse === undefined) continue;
+      const start = parseDblTimestampSeconds(code.start);
+      const end = parseDblTimestampSeconds(code.end);
       if (start === undefined) continue;
       starts.add(verse);
       timestamps.push({
@@ -246,28 +258,49 @@ async function dbl(
         dblAudioBibleId: audio.id,
       });
     }
-    trackWindows.push({ starts, maximum });
+    trackWindows.push({ starts });
   }
   if (timestamps.length) base.verseTimestamps = timestamps;
   if (timestamps.length) {
     // Source chapters use the local text being drafted; references use the DBL
     // text Bible's verse list. Never infer chapter length from audio timecodes.
-    const expected =
-      sourceBibleId === undefined
-        ? await dblClient.getVerses(identity.externalId, `${input.bookCode}.${input.chapter}`)
-        : await getSourceChapterVerseCount(sourceBibleId, input.bookCode, input.chapter);
-    // A failed lookup is not evidence that the text has zero verses. Propagate
-    // local database and DBL provider failures rather than inviting TTS fallback.
-    if (!expected.ok) return expected;
-    const expectedVerses = Array.isArray(expected.data) ? expected.data.length : expected.data;
+    let expectedVerses: number[];
+    if (sourceBibleId === undefined) {
+      const expected = await dblClient.getVerses(
+        identity.externalId,
+        `${input.bookCode}.${input.chapter}`
+      );
+      // A failed lookup is not evidence that the text has zero verses.
+      if (!expected.ok) return expected;
+      expectedVerses = expected.data.map(
+        (verse) => parseDblVerseNumber(verse.id, chapterPrefix) ?? 0
+      );
+    } else {
+      const expected = await getSourceChapterVerseNumbers(
+        sourceBibleId,
+        input.bookCode,
+        input.chapter
+      );
+      // Local database failures must not invite an unsafe TTS fallback either.
+      if (!expected.ok) return expected;
+      expectedVerses = expected.data;
+    }
     // The browser chooses the sole timecoded track when there is one, or the
     // first track otherwise. Judge that same track, never the merged timestamps.
     const timecoded = trackWindows.filter((window) => window.starts.size > 0);
     const chosen = timecoded.length === 1 ? timecoded[0] : trackWindows[0];
     base.verseAddressable =
-      expectedVerses > 0 &&
-      chosen?.starts.size === expectedVerses &&
-      chosen.maximum === expectedVerses;
+      chosen !== undefined && hasExactVerseCoverage(chosen.starts, expectedVerses);
   }
   return ok(base);
+}
+
+function hasExactVerseCoverage(actual: Set<number>, expectedVerseNumbers: number[]): boolean {
+  if (expectedVerseNumbers.length === 0) return false;
+  const expected = new Set(expectedVerseNumbers);
+  return (
+    expected.size === expectedVerseNumbers.length &&
+    actual.size === expected.size &&
+    expectedVerseNumbers.every((verse) => actual.has(verse))
+  );
 }

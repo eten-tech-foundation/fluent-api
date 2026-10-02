@@ -6,12 +6,12 @@ import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import { getSourceChapterVerseCount } from './playback-audio.repository';
+import { getSourceChapterVerseNumbers } from './playback-audio.repository';
 import {
-  dblSeconds,
   getReferencePlayback,
   getResourceFacts,
   getSourcePlayback,
+  parseDblTimestampSeconds,
 } from './playback-audio.service';
 
 vi.mock('@/domains/bible-provider-resources/bible-provider-resources.service', () => ({
@@ -26,7 +26,7 @@ vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
 vi.mock('@/lib/services/dbl/dbl.client', () => ({
   dblClient: { getBible: vi.fn(), getAudioChapter: vi.fn(), getVerses: vi.fn() },
 }));
-vi.mock('./playback-audio.repository', () => ({ getSourceChapterVerseCount: vi.fn() }));
+vi.mock('./playback-audio.repository', () => ({ getSourceChapterVerseNumbers: vi.fn() }));
 const input = { languageCode: 'eng', bookCode: 'JHN' as const, chapter: 3 };
 const text = { provider: 'dbl' as const, externalId: 'text-id' };
 const recording = {
@@ -78,7 +78,7 @@ beforeEach(() => {
   );
   vi.mocked(getBibles).mockResolvedValue(ok(catalogue));
   vi.mocked(getBibleText).mockResolvedValue(ok(aquiferText));
-  vi.mocked(getSourceChapterVerseCount).mockResolvedValue(ok(2));
+  vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(ok([1, 2]));
   vi.mocked(dblClient.getVerses).mockResolvedValue(
     ok([{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }] as never)
   );
@@ -166,6 +166,35 @@ describe('explicit playback identities and policy', () => {
     });
     expect(dblClient.getBible).not.toHaveBeenCalled();
   });
+  it('judges Aquifer source timings against the drafted chapter verse numbers', async () => {
+    vi.mocked(getBibleText).mockResolvedValue(
+      ok({
+        ...aquiferText,
+        chapters: [
+          {
+            ...chapter,
+            verses: [
+              chapter.verses[0],
+              chapter.verses[1],
+              { number: 4, text: 'Fourth', audioTimestamp: { start: 8, end: 12 } },
+            ],
+          },
+        ],
+      })
+    );
+    vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(ok([1, 3, 4]));
+
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: true,
+      data: { verseAddressable: false },
+    });
+    expect(
+      await getReferencePlayback({
+        ...input,
+        identity: { provider: 'aquifer', externalId: '1' },
+      })
+    ).toMatchObject({ ok: true, data: { verseAddressable: true } });
+  });
   it('defers YouVersion recording but returns independent clearance', async () => {
     expect(
       await getReferencePlayback({
@@ -245,7 +274,7 @@ describe('dBL actual audio identity and timing', () => {
       },
     });
     expect(dblClient.getBible).toHaveBeenCalledWith('text-id');
-    expect(getSourceChapterVerseCount).toHaveBeenCalledWith(1, 'JHN', 3);
+    expect(getSourceChapterVerseNumbers).toHaveBeenCalledWith(1, 'JHN', 3);
     expect(dblClient.getVerses).not.toHaveBeenCalled();
     expect(getBibles).not.toHaveBeenCalled();
   });
@@ -261,9 +290,65 @@ describe('dBL actual audio identity and timing', () => {
     expect(dblClient.getBible).not.toHaveBeenCalled();
     expect(dblClient.getAudioChapter).toHaveBeenCalledWith('audio-b', 'JHN.3');
   });
+  it('skips only typed missing DBL audio chapters', async () => {
+    vi.mocked(dblClient.getAudioChapter).mockResolvedValue({
+      ok: false,
+      error: {
+        code: ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND,
+        message: 'DBL audio chapter not found',
+      },
+    });
+
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: true,
+      data: { items: [], verseAddressable: false },
+    });
+  });
+  it('keeps an available DBL track when another linked track is missing', async () => {
+    vi.mocked(dblClient.getAudioChapter).mockImplementation(async (id) =>
+      id === 'audio-a'
+        ? {
+            ok: false,
+            error: {
+              code: ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND,
+              message: 'DBL audio chapter not found',
+            },
+          }
+        : ok({
+            id: 'JHN.3',
+            resourceUrl: 'https://example.com/audio-b.mp3',
+            timecodes: [
+              { verseId: 'JHN.3.1', start: '0', end: '4' },
+              { verseId: 'JHN.3.2', start: '4', end: '8' },
+            ],
+          })
+    );
+
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: true,
+      data: {
+        verseAddressable: true,
+        items: [{ recordingKey: 'dbl-audio-b' }],
+      },
+    });
+  });
+  it('propagates DBL provider failures even when their message mentions 404', async () => {
+    vi.mocked(dblClient.getAudioChapter).mockResolvedValue({
+      ok: false,
+      error: {
+        code: ErrorCode.DBL_SERVICE_UNAVAILABLE,
+        message: 'malformed response mentioning 404',
+      },
+    });
+
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: false,
+      error: { code: ErrorCode.DBL_SERVICE_UNAVAILABLE },
+    });
+  });
   it.each(['', '1wrong', '1:99', '-1', 'Infinity', '1::2'])(
     'rejects malformed timecode %s',
-    (value) => expect(dblSeconds(value)).toBeUndefined()
+    (value) => expect(parseDblTimestampSeconds(value)).toBeUndefined()
   );
   it('ignores wrong-chapter timing and keeps windowless tracks labelled', async () => {
     vi.mocked(dblClient.getAudioChapter).mockResolvedValue(
@@ -277,11 +362,11 @@ describe('dBL actual audio identity and timing', () => {
       ok: true,
       data: { verseAddressable: false },
     });
-    expect(getSourceChapterVerseCount).not.toHaveBeenCalled();
+    expect(getSourceChapterVerseNumbers).not.toHaveBeenCalled();
   });
 
   it('does not call a timecoded prefix a complete source chapter', async () => {
-    vi.mocked(getSourceChapterVerseCount).mockResolvedValue(ok(3));
+    vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(ok([1, 2, 3]));
 
     const result = await getSourcePlayback({ ...input, fluentBibleId: 1 });
     expect(result).toMatchObject({ ok: true, data: { verseAddressable: false } });
@@ -319,11 +404,11 @@ describe('dBL actual audio identity and timing', () => {
       data: { verseAddressable: false },
     });
     expect(dblClient.getVerses).toHaveBeenCalledWith('text-id', 'JHN.3');
-    expect(getSourceChapterVerseCount).not.toHaveBeenCalled();
+    expect(getSourceChapterVerseNumbers).not.toHaveBeenCalled();
   });
 
   it('propagates a failed local source chapter count instead of claiming absent windows', async () => {
-    vi.mocked(getSourceChapterVerseCount).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+    vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
     expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toEqual(
       err(ErrorCode.INTERNAL_ERROR)
@@ -331,7 +416,7 @@ describe('dBL actual audio identity and timing', () => {
   });
 
   it('treats a confirmed empty source chapter as windowless', async () => {
-    vi.mocked(getSourceChapterVerseCount).mockResolvedValue(ok(0));
+    vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(ok([]));
 
     expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
       ok: true,

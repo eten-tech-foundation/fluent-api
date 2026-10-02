@@ -155,7 +155,7 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     }
   });
 
-  it('executes the aggregated progress query with Bible licence columns and unchanged assignment grain', async () => {
+  it('executes the aggregated progress query with Bible license columns and unchanged assignment grain', async () => {
     const { bible, project, assignment } = await fixture();
     const progress = await findAssignmentsProgress({ projectId: project.id });
     expect(progress.ok).toBe(true);

@@ -47,7 +47,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   projectUnitId: z.number().int(),
   bibleId: z.number().int(),
   bibleName: z.string(),
-  // The drafting page reads the source Bible's audio licence from the
+  // The drafting page reads the source Bible's audio license from the
   // assignment it already loads, so the answer is in hand before any audio
   // provider is called — and stays in hand when one is unreachable.
   ttsLicenseStatus: ttsLicenseStatusSchema,

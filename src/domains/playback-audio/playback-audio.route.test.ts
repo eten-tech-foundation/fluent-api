@@ -142,12 +142,24 @@ describe('playback project boundary', () => {
     vi.mocked(isBibleBookLinkedToProject).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
     expect((await server.request(paths[1])).status).toBe(500);
   });
-  it.each([
-    '/projects/10/bible-resources/aq-01',
-    '/projects/10/reference-audio/aq-1/JHN/3',
-    '/projects/10/reference-audio/dbl-id/JHN/3?languageCode=eng',
-  ])('rejects invalid identity/scope or missing reference language: %s', async (path) => {
-    expect((await server.request(path)).status).toBe(400);
+  it.each(['/projects/10/bible-resources/aq-01', '/projects/10/reference-audio/aq-1/JHN/3'])(
+    'rejects invalid identity/scope or missing reference language: %s',
+    async (path) => {
+      expect((await server.request(path)).status).toBe(400);
+    }
+  );
+  it('passes an exact DBL reference identity through to the shared playback adapter', async () => {
+    const response = await server.request(
+      '/projects/10/reference-audio/dbl-id/JHN/3?languageCode=eng'
+    );
+
+    expect(response.status).toBe(200);
+    expect(playback.getReferencePlayback).toHaveBeenCalledWith({
+      identity: { provider: 'dbl', externalId: 'id' },
+      bookCode: 'JHN',
+      chapter: 3,
+      languageCode: 'eng',
+    });
   });
   it('returns successful unknown for missing resource facts and 500 on read failure', async () => {
     const response = await server.request(paths[0]);

@@ -141,7 +141,7 @@ describe('chapter-assignments.repository claim helpers', () => {
     });
   });
 
-  it('groups the Bible primary key when selecting licence fields alongside verse counts', async () => {
+  it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
     const chain = buildProgressSelectChain([]);
     vi.mocked(db.select).mockReturnValue(chain as any);
 

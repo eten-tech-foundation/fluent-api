@@ -77,7 +77,7 @@ export const aquiferLicenseInfoSchema = z
 
 // Attribution must not make an otherwise usable resource disappear on provider drift.
 // Keep the known model available to renderers, but preserve the raw notice on an unexpected
-// shape rather than rejecting the resource or silently discarding its licence information.
+// shape rather than rejecting the resource or silently discarding its license information.
 export const aquiferLicenseInfoWireSchema = z.union([aquiferLicenseInfoSchema, z.unknown()]);
 
 /**

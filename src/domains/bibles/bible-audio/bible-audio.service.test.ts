@@ -55,10 +55,12 @@ describe('bibleAudioService', () => {
         } as any)
       );
 
-      // Mock 404 from DBL
       vi.mocked(dblClient.getAudioChapter).mockResolvedValue({
         ok: false,
-        error: { code: ErrorCode.DBL_SERVICE_UNAVAILABLE, message: 'HTTP 404 Not Found' },
+        error: {
+          code: ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND,
+          message: 'DBL audio chapter not found',
+        },
       } as any);
 
       const result = await bibleAudioService.getSourceAudio(1, 1, 1);
@@ -88,6 +90,51 @@ describe('bibleAudioService', () => {
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.DBL_SERVICE_UNAVAILABLE);
       }
+    });
+
+    it('does not mistake an upstream failure message mentioning 404 for chapter absence', async () => {
+      vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ externalId: 'ext-bible' } as any));
+      vi.mocked(booksRepo.getById).mockResolvedValue(ok({ code: 'GEN' } as any));
+      vi.mocked(dblClient.getBible).mockResolvedValue(
+        ok({ audioBibles: [{ id: 'audio-1', name: 'Audio Bible' }] } as any)
+      );
+      vi.mocked(dblClient.getAudioChapter).mockResolvedValue({
+        ok: false,
+        error: {
+          code: ErrorCode.DBL_SERVICE_UNAVAILABLE,
+          message: 'proxy returned malformed 404-shaped payload',
+        },
+      });
+
+      const result = await bibleAudioService.getSourceAudio(1, 1, 1);
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: ErrorCode.DBL_SERVICE_UNAVAILABLE,
+          message: 'proxy returned malformed 404-shaped payload',
+        },
+      });
+    });
+
+    it('propagates missing DBL configuration without treating it as absent audio', async () => {
+      vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ externalId: 'ext-bible' } as any));
+      vi.mocked(booksRepo.getById).mockResolvedValue(ok({ code: 'GEN' } as any));
+      vi.mocked(dblClient.getBible).mockResolvedValue(
+        ok({ audioBibles: [{ id: 'audio-1', name: 'Audio Bible' }] } as any)
+      );
+      vi.mocked(dblClient.getAudioChapter).mockResolvedValue({
+        ok: false,
+        error: {
+          code: ErrorCode.DBL_NOT_CONFIGURED,
+          message: 'DBL API key is not configured',
+        },
+      });
+
+      expect(await bibleAudioService.getSourceAudio(1, 1, 1)).toMatchObject({
+        ok: false,
+        error: { code: ErrorCode.DBL_NOT_CONFIGURED },
+      });
     });
 
     it('returns audio tracks on success', async () => {

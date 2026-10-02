@@ -54,7 +54,7 @@ const detail = {
   grouping: { type: 'Guide', name: 'Translation Notes', mediaType: 'Text', licenseInfo },
 };
 
-describe('resource licence attribution', () => {
+describe('resource license attribution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(searchAllResources).mockResolvedValue(ok([hit]));
@@ -99,7 +99,7 @@ describe('resource licence attribution', () => {
     { licenses: ['CC BY-SA 4.0'] },
     'Provider legacy notice',
   ])(
-    'keeps the resource and its raw notice when known licence fields drift: %j',
+    'keeps the resource and its raw notice when known license fields drift: %j',
     async (notice) => {
       vi.mocked(getResource).mockResolvedValue(
         ok(
@@ -115,7 +115,7 @@ describe('resource licence attribution', () => {
         verse: 1,
         languageCode: 'eng',
       });
-      if (!notes.ok) throw new Error('Licence drift rejected the resource');
+      if (!notes.ok) throw new Error('License drift rejected the resource');
       expect(translationNotesResponseSchema.parse(notes.data).items[0]?.licenseInfo).toEqual(
         notice
       );
@@ -126,14 +126,14 @@ describe('resource licence attribution', () => {
         startChapter: 3,
         endChapter: 3,
       });
-      if (!manifest.ok) throw new Error('Licence drift rejected the manifest');
+      if (!manifest.ok) throw new Error('License drift rejected the manifest');
       expect(
         prepareOfflineManifestResponseSchema.parse(manifest.data).items[0]?.licenseInfo
       ).toEqual(notice);
     }
   );
 
-  it('preserves future metadata, partial notices, and missing/null licence semantics', async () => {
+  it('preserves future metadata, partial notices, and missing/null license semantics', async () => {
     const futureNotice = {
       ...licenseInfo,
       extra: 'retain',

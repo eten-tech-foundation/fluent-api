@@ -23,7 +23,7 @@ import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
 export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
-// Publication licence, global to the Bible (not a tenant/user grant). TTS_USE is the RBAC axis.
+// Publication license, global to the Bible (not a tenant/user grant). TTS_USE is the RBAC axis.
 export const ttsLicenseStatusEnum = pgEnum('tts_license_status', [
   'allowed',
   'forbidden',

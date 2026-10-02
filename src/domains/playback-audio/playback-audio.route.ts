@@ -1,4 +1,5 @@
 import { createRoute } from '@hono/zod-openapi';
+import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
@@ -36,12 +37,34 @@ const middleware = [
   requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
 ] as const;
 const errors = {
-  400: jsonContent(createMessageObjectSchema('Bad Request'), 'Invalid identity or parameters'),
-  401: jsonContent(createMessageObjectSchema('Unauthorized'), 'Authentication required'),
-  403: jsonContent(createMessageObjectSchema('Forbidden'), 'Project access required'),
-  404: jsonContent(createMessageObjectSchema('Not Found'), 'Bible or project not found'),
-  500: jsonContent(createMessageObjectSchema('Internal Server Error'), 'Database failure'),
-  502: jsonContent(createMessageObjectSchema('Bad Gateway'), 'Provider failure'),
+  [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+    createMessageObjectSchema('Bad Request'),
+    'Invalid identity or parameters'
+  ),
+  [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+    createMessageObjectSchema('Unauthorized'),
+    'Authentication required'
+  ),
+  [HttpStatusCodes.FORBIDDEN]: jsonContent(
+    createMessageObjectSchema('Forbidden'),
+    'Project access required'
+  ),
+  [HttpStatusCodes.NOT_FOUND]: jsonContent(
+    createMessageObjectSchema('Not Found'),
+    'Bible or project not found'
+  ),
+  [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+    createMessageObjectSchema('Internal Server Error'),
+    'Database failure'
+  ),
+  [HttpStatusCodes.BAD_GATEWAY]: jsonContent(
+    createMessageObjectSchema('Bad Gateway'),
+    'Provider failure'
+  ),
+  [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
+    createMessageObjectSchema('Service Unavailable'),
+    'Provider is not configured'
+  ),
 };
 
 server.openapi(
@@ -52,14 +75,17 @@ server.openapi(
     middleware: [...middleware],
     request: { params: projectIdParamSchema.extend({ bibleKey: bibleKeySchema }) },
     responses: {
-      200: jsonContent(resourceFactsSchema, 'Exact provider facts; missing records are unknown'),
+      [HttpStatusCodes.OK]: jsonContent(
+        resourceFactsSchema,
+        'Exact provider facts; missing records are unknown'
+      ),
       ...errors,
     },
   }),
   async (c) => {
     const result = await getResourceFacts(parseBibleKey(c.req.valid('param').bibleKey)!);
     return result.ok
-      ? c.json(result.data, 200)
+      ? c.json(result.data, HttpStatusCodes.OK)
       : c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 );
@@ -72,7 +98,7 @@ server.openapi(
     middleware: [...middleware],
     request: { params: chapterSourceAudioParamSchema, query: sourceAudioQuerySchema },
     responses: {
-      200: jsonContent(playbackAudioResponseSchema, 'Explicit source recording'),
+      [HttpStatusCodes.OK]: jsonContent(playbackAudioResponseSchema, 'Explicit source recording'),
       ...errors,
     },
   }),
@@ -82,7 +108,7 @@ server.openapi(
     const linked = await isBibleBookLinkedToProject(projectId, bibleId, bookCode);
     if (!linked.ok)
       return c.json({ message: linked.error.message }, getHttpStatus(linked.error) as never);
-    if (!linked.data) return c.json({ message: 'Not Found' }, 404);
+    if (!linked.data) return c.json({ message: 'Not Found' }, HttpStatusCodes.NOT_FOUND);
     const result = await getSourcePlayback({
       fluentBibleId: bibleId,
       languageCode,
@@ -91,7 +117,7 @@ server.openapi(
       verse,
     });
     return result.ok
-      ? c.json(result.data, 200)
+      ? c.json(result.data, HttpStatusCodes.OK)
       : c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 );
@@ -107,15 +133,16 @@ server.openapi(
       query: languageCodeQuerySchema,
     },
     responses: {
-      200: jsonContent(playbackAudioResponseSchema, 'Exact reference recording'),
+      [HttpStatusCodes.OK]: jsonContent(
+        playbackAudioResponseSchema,
+        'Exact reference recording. DBL is supported on a best-effort basis: the current picker exposes no DBL reference choices, and live DBL timecodes were absent in the measured catalogue, so this path is contract-tested rather than live-proven.'
+      ),
       ...errors,
     },
   }),
   async (c) => {
     const { bibleKey, bookCode, chapter } = c.req.valid('param');
     const identity = parseBibleKey(bibleKey)!;
-    // DBL references are outside the picker contract.
-    if (identity.provider === 'dbl') return c.json({ message: 'Bad Request' }, 400);
     const result = await getReferencePlayback({
       identity,
       bookCode,
@@ -123,7 +150,7 @@ server.openapi(
       languageCode: c.req.valid('query').languageCode,
     });
     return result.ok
-      ? c.json(result.data, 200)
+      ? c.json(result.data, HttpStatusCodes.OK)
       : c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
 );

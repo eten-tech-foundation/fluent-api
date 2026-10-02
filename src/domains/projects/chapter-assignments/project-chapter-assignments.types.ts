@@ -18,8 +18,8 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   assignmentId: z.number(),
   projectUnitId: z.number(),
   bibleId: z.number(),
-  // The source Bible's audio licence. The PM "open chapter" path builds its
-  // ProjectItem from this response, so the drafting page needs the licence
+  // The source Bible's audio license. The PM "open chapter" path builds its
+  // ProjectItem from this response, so the drafting page needs the license
   // here too — not only on the user-assignments endpoint.
   ttsLicenseStatus: ttsLicenseStatusSchema,
   textBibleKey: z.string().nullable(),
