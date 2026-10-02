@@ -5,6 +5,7 @@ import type { Result } from '@/lib/types';
 
 import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
+import { serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
 
 import type { BookFields, ExportResult, VerseData } from './usfm.types';
 
@@ -65,14 +66,6 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
     let currentChapter: number | null = null;
 
     for (const verse of verses) {
-      const content = verse.translatedContent ?? '';
-      // Stored paragraph starts for this verse, defensively bounded: offsets past the
-      // content are dropped rather than corrupting the output. Offset 0 (the verse
-      // opens a paragraph) is valid even while the verse is still empty.
-      const paragraphs = (verse.markers?.paragraphs ?? []).filter(
-        (p) => p.offset === 0 || p.offset < content.length
-      );
-      const opening = paragraphs.find((p) => p.offset === 0);
       const isChapterStart = currentChapter !== verse.chapterNumber;
 
       if (isChapterStart) {
@@ -80,32 +73,7 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
         yield `\\c ${verse.chapterNumber}\n`;
       }
 
-      // Heading blocks sit before the verse, and before its paragraph marker: a heading is a
-      // block of its own, so the verse that follows still needs a paragraph to live in.
-      for (const heading of verse.markers?.headings ?? []) {
-        yield `\\${heading.marker} ${heading.text}\n`;
-      }
-
-      if (opening) {
-        yield `\\${opening.marker}\n`;
-      } else if (isChapterStart) {
-        // Rows predating the markers column carry none, so every chapter still opens with the
-        // single default \\p those exports always had.
-        yield '\\p\n';
-      }
-
-      // A mid-text offset splits the verse across paragraphs: the text continues
-      // after the marker without a new \\v, which is exactly how USFM writes it.
-      let text = '';
-      let cursor = 0;
-      for (const paragraph of paragraphs) {
-        if (paragraph.offset === 0) continue;
-        text += `${content.slice(cursor, paragraph.offset)}\n\\${paragraph.marker}\n`;
-        cursor = paragraph.offset;
-      }
-      text += content.slice(cursor);
-
-      yield `\\v ${verse.verseNumber} ${text}\n`;
+      yield serializeUSFMVerseBody(verse, isChapterStart);
     }
 
     yield '\n';
