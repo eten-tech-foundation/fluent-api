@@ -9,9 +9,11 @@ import { getBookByCode } from '@/domains/books/books.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import * as sourceAudioRepo from './source-audio.repository';
 import {
   getChapterSourceAudio,
   getSourceAudioManifest,
+  isBibleBookLinkedToProject,
   matchAquiferBible,
 } from './source-audio.service';
 
@@ -32,6 +34,10 @@ vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
   getBibleText: vi.fn(),
 }));
 
+vi.mock('./source-audio.repository', () => ({
+  isBibleBookLinkedToProject: vi.fn(),
+}));
+
 const fluentBible: Bible = {
   id: 1,
   name: 'Berean Standard Bible',
@@ -44,6 +50,19 @@ const fluentBible: Bible = {
   createdAt: new Date(),
   updatedAt: new Date(),
 };
+
+describe('project Bible/book membership', () => {
+  it.each([
+    ['allows a linked Bible/book', ok(true)],
+    ['denies an unrelated Bible/book', ok(false)],
+    ['propagates a membership lookup failure', err(ErrorCode.INTERNAL_ERROR)],
+  ])('%s', async (_label, expected) => {
+    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(expected);
+
+    await expect(isBibleBookLinkedToProject(10, 20, 'JHN')).resolves.toEqual(expected);
+    expect(sourceAudioRepo.isBibleBookLinkedToProject).toHaveBeenCalledWith(10, 20, 'JHN');
+  });
+});
 
 describe('matchAquiferBible', () => {
   it('prefers abbreviation match', () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
-import * as sourceAudioRepo from '@/domains/source-audio/source-audio.repository';
+import { isBibleBookLinkedToProject } from '@/domains/source-audio/source-audio.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
@@ -57,7 +57,7 @@ vi.mock('./playback-audio.service', () => ({
   getReferencePlayback: vi.fn(),
 }));
 
-vi.mock('@/domains/source-audio/source-audio.repository', () => ({
+vi.mock('@/domains/source-audio/source-audio.service', () => ({
   isBibleBookLinkedToProject: vi.fn(),
 }));
 
@@ -89,7 +89,7 @@ function authenticated(permission = true, member = true) {
 beforeEach(() => {
   vi.clearAllMocks();
   authenticated();
-  vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(true));
+  vi.mocked(isBibleBookLinkedToProject).mockResolvedValue(ok(true));
   vi.mocked(playback.getResourceFacts).mockResolvedValue(
     ok({
       id: null,
@@ -131,17 +131,15 @@ describe('playback project boundary', () => {
     expect((await server.request(path)).status).toBe(200);
   });
   it('only source requires imported Bible/book membership', async () => {
-    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
+    vi.mocked(isBibleBookLinkedToProject).mockResolvedValue(ok(false));
     expect((await server.request(paths[1])).status).toBe(404);
     expect(playback.getSourcePlayback).not.toHaveBeenCalled();
-    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockClear();
+    vi.mocked(isBibleBookLinkedToProject).mockClear();
     expect((await server.request(paths[2])).status).toBe(200);
-    expect(sourceAudioRepo.isBibleBookLinkedToProject).not.toHaveBeenCalled();
+    expect(isBibleBookLinkedToProject).not.toHaveBeenCalled();
   });
   it('does not swallow membership database failures', async () => {
-    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(
-      err(ErrorCode.INTERNAL_ERROR)
-    );
+    vi.mocked(isBibleBookLinkedToProject).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
     expect((await server.request(paths[1])).status).toBe(500);
   });
   it.each([

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -7,7 +7,7 @@ import { bible_provider_resources } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { Provider } from './identity';
+import type { Provider, ProviderIdentity } from './identity';
 
 async function find(
   where: ReturnType<typeof eq>
@@ -32,4 +32,43 @@ export function getByProviderIdentity(provider: Provider, externalId: string) {
       eq(bible_provider_resources.externalId, externalId)
     )!
   );
+}
+
+export async function getByIds(ids: number[]) {
+  if (ids.length === 0) return ok<(typeof bible_provider_resources.$inferSelect)[]>([]);
+  try {
+    return ok(
+      await db
+        .select()
+        .from(bible_provider_resources)
+        .where(inArray(bible_provider_resources.id, ids))
+    );
+  } catch (cause) {
+    logger.error({ cause, message: 'Failed to read Bible provider resources by IDs' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function getByProviderIdentities(identities: ProviderIdentity[]) {
+  if (identities.length === 0) return ok<(typeof bible_provider_resources.$inferSelect)[]>([]);
+  try {
+    return ok(
+      await db
+        .select()
+        .from(bible_provider_resources)
+        .where(
+          or(
+            ...identities.map(({ provider, externalId }) =>
+              and(
+                eq(bible_provider_resources.provider, provider),
+                eq(bible_provider_resources.externalId, externalId)
+              )
+            )
+          )
+        )
+    );
+  } catch (cause) {
+    logger.error({ cause, message: 'Failed to read Bible provider resources by identities' });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

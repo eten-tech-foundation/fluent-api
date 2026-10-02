@@ -5,7 +5,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import { parseBibleKey } from '@/domains/bible-provider-resources/identity';
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
-import { isBibleBookLinkedToProject } from '@/domains/source-audio/source-audio.repository';
+import { isBibleBookLinkedToProject } from '@/domains/source-audio/source-audio.service';
 import {
   chapterSourceAudioParamSchema,
   sourceAudioQuerySchema,

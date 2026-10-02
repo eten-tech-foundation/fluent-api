@@ -3,9 +3,9 @@ import type { BibleAudioResponse } from '@/domains/bibles/bible-audio/bible-audi
 import type { UsfmBookCode } from '@/domains/translation-resources/translation-resources.types';
 import type { Result } from '@/lib/types';
 
-import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.repository';
+import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
 import { bibleKey } from '@/domains/bible-provider-resources/identity';
-import * as bibles from '@/domains/bibles/bibles.repository';
+import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -51,7 +51,7 @@ function empty(input: ChapterInput, identity: ProviderIdentity | null): Playback
 export async function getSourcePlayback(
   input: ChapterInput & { fluentBibleId: number }
 ): Promise<Result<PlaybackAudioResponse>> {
-  const source = await bibles.getById(input.fluentBibleId);
+  const source = await getBibleRecordById(input.fluentBibleId);
   if (!source.ok) return source;
   const text = source.data.externalId
     ? { provider: source.data.provider, externalId: source.data.externalId }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.repository';
-import * as bibles from '@/domains/bibles/bibles.repository';
+import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
+import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -14,11 +14,11 @@ import {
   getSourcePlayback,
 } from './playback-audio.service';
 
-vi.mock('@/domains/bible-provider-resources/bible-provider-resources.repository', () => ({
+vi.mock('@/domains/bible-provider-resources/bible-provider-resources.service', () => ({
   getById: vi.fn(),
   getByProviderIdentity: vi.fn(),
 }));
-vi.mock('@/domains/bibles/bibles.repository', () => ({ getById: vi.fn() }));
+vi.mock('@/domains/bibles/bibles.service', () => ({ getBibleRecordById: vi.fn() }));
 vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
   getBibles: vi.fn(),
   getBibleText: vi.fn(),
@@ -71,7 +71,7 @@ const aquiferText = {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(bibles.getById).mockResolvedValue(ok(source));
+  vi.mocked(getBibleRecordById).mockResolvedValue(ok(source));
   vi.mocked(resources.getById).mockResolvedValue(ok(recording));
   vi.mocked(resources.getByProviderIdentity).mockImplementation(async (provider, externalId) =>
     ok(provider === 'aquifer' && externalId === '1' ? recording : null)
@@ -117,7 +117,7 @@ describe('explicit playback identities and policy', () => {
         items: [{ licenseNotice: null }, { licenseNotice: null }],
       },
     });
-    expect(bibles.getById).not.toHaveBeenCalled();
+    expect(getBibleRecordById).not.toHaveBeenCalled();
   });
   it('missing facts are successful unknown; database failure is an error', async () => {
     expect(await getResourceFacts(text)).toMatchObject({
@@ -184,7 +184,7 @@ describe('explicit playback identities and policy', () => {
     expect(getBibles).not.toHaveBeenCalled();
   });
   it('allows a selected recording when source text has no external identity', async () => {
-    vi.mocked(bibles.getById).mockResolvedValue(ok({ ...source, externalId: null }));
+    vi.mocked(getBibleRecordById).mockResolvedValue(ok({ ...source, externalId: null }));
     expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
       ok: true,
       data: { textBibleKey: null, ttsLicenseStatus: 'unknown', selectedRecordingKey: 'aq-1' },
@@ -194,7 +194,7 @@ describe('explicit playback identities and policy', () => {
 
 describe('dBL actual audio identity and timing', () => {
   beforeEach(() => {
-    vi.mocked(bibles.getById).mockResolvedValue(ok({ ...source, audioResourceId: null }));
+    vi.mocked(getBibleRecordById).mockResolvedValue(ok({ ...source, audioResourceId: null }));
     vi.mocked(dblClient.getBible).mockResolvedValue(
       ok({
         id: 'text-id',
@@ -250,7 +250,7 @@ describe('dBL actual audio identity and timing', () => {
     expect(getBibles).not.toHaveBeenCalled();
   });
   it('selected DBL resource dispatches directly to audio chapter, never as text', async () => {
-    vi.mocked(bibles.getById).mockResolvedValue(ok(source));
+    vi.mocked(getBibleRecordById).mockResolvedValue(ok(source));
     vi.mocked(resources.getById).mockResolvedValue(
       ok({ ...recording, provider: 'dbl', externalId: 'audio-b' })
     );
