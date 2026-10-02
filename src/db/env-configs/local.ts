@@ -7,7 +7,7 @@
  * `environment:` block in compose.yaml, so the container already has it.
  *
  * Credentials are intentionally plain / local-only defaults.
- * Three seed users are created so a developer can exercise all role flows
+ * Five seed users are created so a developer can exercise all role flows
  * immediately without manual setup.
  */
 import type { EnvConfig } from './types';
@@ -19,6 +19,18 @@ export const config: EnvConfig = {
   // No databaseUrl here — compose.yaml injects DATABASE_URL into the container.
 
   seedUsers: [
+    {
+      email: 'sa@fluent.local',
+      password: 'sa@123456',
+      username: 'superadmin',
+      role: 'super_admin',
+    },
+    {
+      email: 'om@fluent.local',
+      password: 'om@123456',
+      username: 'orgmanager',
+      role: 'org_manager',
+    },
     {
       email: 'pm@fluent.local',
       password: 'pm@123456',
