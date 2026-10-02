@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import type { ProviderIdentity } from './identity';
+import type { ProviderIdentity } from './bible-provider-resources.types';
 
-import { bibleKey, parseBibleKey } from './identity';
+import { bibleKey, parseBibleKey } from './bible-provider-resources.identity';
 
 // Neutral fixture cases are independent of either repository's codec implementation.
 const cases = JSON.parse(

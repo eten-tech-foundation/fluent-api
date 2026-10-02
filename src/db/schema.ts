@@ -205,6 +205,7 @@ export const bible_provider_resources = pgTable(
     externalId: varchar('external_id', { length: 255 }).notNull(),
     ttsLicenseStatus: ttsLicenseStatusEnum('tts_license_status').notNull().default('unknown'),
     licenseNotice: text('license_notice'),
+    // Optional label for human diagnostics and curation; never identity or policy.
     displayName: text('display_name'),
   },
   (table) => [

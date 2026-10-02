@@ -1,10 +1,10 @@
-export type Provider = 'aquifer' | 'youversion' | 'dbl';
-export interface ProviderIdentity {
-  provider: Provider;
-  externalId: string;
-}
+import type { Provider, ProviderIdentity } from './bible-provider-resources.types';
 
-const prefixes = { aquifer: 'aq', youversion: 'yv', dbl: 'dbl' } as const;
+export const BIBLE_PROVIDER_PREFIXES = {
+  aquifer: 'aq',
+  youversion: 'yv',
+  dbl: 'dbl',
+} as const satisfies Record<Provider, string>;
 
 export function parseBibleKey(key: string): ProviderIdentity | null {
   const match = /^(aq|yv|dbl)-(.+)$/.exec(key);
@@ -26,12 +26,12 @@ export function parseBibleKey(key: string): ProviderIdentity | null {
     return null;
   // IDs are opaque, never a URL to fetch.
   if (externalId.includes('://')) return null;
-  return {
-    provider: prefix === 'aq' ? 'aquifer' : prefix === 'yv' ? 'youversion' : 'dbl',
-    externalId,
-  };
+  const provider = Object.entries(BIBLE_PROVIDER_PREFIXES).find(
+    ([, candidatePrefix]) => candidatePrefix === prefix
+  )?.[0] as Provider | undefined;
+  return provider ? { provider, externalId } : null;
 }
 
 export function bibleKey(identity: ProviderIdentity): string {
-  return `${prefixes[identity.provider]}-${identity.externalId}`;
+  return `${BIBLE_PROVIDER_PREFIXES[identity.provider]}-${identity.externalId}`;
 }

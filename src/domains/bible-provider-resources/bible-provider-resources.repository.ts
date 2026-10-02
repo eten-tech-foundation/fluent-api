@@ -7,7 +7,7 @@ import { bible_provider_resources } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { Provider, ProviderIdentity } from './identity';
+import type { Provider, ProviderIdentity } from './bible-provider-resources.types';
 
 async function find(
   where: ReturnType<typeof eq>

@@ -2,7 +2,7 @@ import { createRoute } from '@hono/zod-openapi';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { parseBibleKey } from '@/domains/bible-provider-resources/identity';
+import { parseBibleKey } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { isBibleBookLinkedToProject } from '@/domains/source-audio/source-audio.service';

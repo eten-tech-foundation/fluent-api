@@ -1,4 +1,4 @@
-import type { Provider, ProviderIdentity } from './identity';
+import type { Provider, ProviderIdentity } from './bible-provider-resources.types';
 
 import * as repo from './bible-provider-resources.repository';
 

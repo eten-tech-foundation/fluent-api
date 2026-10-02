@@ -1,10 +1,10 @@
-import type { ProviderIdentity } from '@/domains/bible-provider-resources/identity';
+import type { ProviderIdentity } from '@/domains/bible-provider-resources/bible-provider-resources.types';
 import type { BibleAudioResponse } from '@/domains/bibles/bible-audio/bible-audio.types';
 import type { UsfmBookCode } from '@/domains/translation-resources/translation-resources.types';
 import type { Result } from '@/lib/types';
 
+import { bibleKey } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
-import { bibleKey } from '@/domains/bible-provider-resources/identity';
 import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';

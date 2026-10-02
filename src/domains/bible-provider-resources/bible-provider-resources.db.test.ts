@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -7,6 +7,7 @@ import { config as localConfig } from '@/db/env-configs/local';
 import { bible_provider_resources, bibles, projects } from '@/db/schema';
 import { AUDIO_DEMO_SEED, seedAudioDemo } from '@/db/seeds/audio-demo';
 import { seedBibles } from '@/db/seeds/bibles';
+import { BIBLE_PROVIDER_PREFIXES } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import { findAssignmentsProgress } from '@/domains/chapter-assignments/chapter-assignments.repository';
 import { auth } from '@/lib/auth';
 import { server } from '@/server/server';
@@ -170,6 +171,11 @@ describe('independent provider rows, schema and read-only authenticated lookup',
           selectedRecordingKey: `dbl-${alternate.externalId}`,
           totalVerses: 36,
         });
+        expect(row).not.toHaveProperty('textBibleProvider');
+        expect(row).not.toHaveProperty('textBibleExternalId');
+        expect(row).not.toHaveProperty('selectedRecordingId');
+        expect(row).not.toHaveProperty('selectedRecordingProvider');
+        expect(row).not.toHaveProperty('selectedRecordingExternalId');
       }
     } finally {
       await db
@@ -187,6 +193,61 @@ describe('independent provider rows, schema and read-only authenticated lookup',
       await db
         .delete(bible_provider_resources)
         .where(eq(bible_provider_resources.id, alternate.id));
+    }
+  });
+  it('formats every selected-recording provider and preserves missing identities', async () => {
+    const [bible] = await db.select().from(bibles).where(eq(bibles.abbreviation, 'BSB'));
+    const numericId = String(Date.now());
+    const recordings = await db
+      .insert(bible_provider_resources)
+      .values([
+        { provider: 'dbl', externalId: `test-audio-${randomUUID()}` },
+        { provider: 'aquifer', externalId: numericId },
+        { provider: 'youversion', externalId: numericId },
+      ])
+      .returning();
+    try {
+      for (const recording of recordings) {
+        await db
+          .update(bibles)
+          .set({ audioResourceId: recording.id })
+          .where(eq(bibles.id, bible.id));
+        const progress = await findAssignmentsProgress({ projectId });
+        expect(progress.ok).toBe(true);
+        if (!progress.ok) throw new Error(progress.error.message);
+        expect(progress.data[0]?.selectedRecordingKey).toBe(
+          `${BIBLE_PROVIDER_PREFIXES[recording.provider]}-${recording.externalId}`
+        );
+      }
+
+      await db
+        .update(bibles)
+        .set({ audioResourceId: null, externalId: null })
+        .where(eq(bibles.id, bible.id));
+      const progress = await findAssignmentsProgress({ projectId });
+      expect(progress.ok).toBe(true);
+      if (!progress.ok) throw new Error(progress.error.message);
+      expect(progress.data[0]).toMatchObject({
+        textBibleKey: null,
+        selectedRecordingKey: null,
+        ttsLicenseStatus: 'unknown',
+        totalVerses: 36,
+      });
+    } finally {
+      await db
+        .update(bibles)
+        .set({
+          audioResourceId: bible.audioResourceId,
+          externalId: bible.externalId,
+          updatedAt: bible.updatedAt,
+        })
+        .where(eq(bibles.id, bible.id));
+      await db.delete(bible_provider_resources).where(
+        inArray(
+          bible_provider_resources.id,
+          recordings.map(({ id }) => id)
+        )
+      );
     }
   });
 });

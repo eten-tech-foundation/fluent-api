@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
-import { parseBibleKey } from '@/domains/bible-provider-resources/identity';
+import { parseBibleKey } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
+import { BIBLE_RESOURCE_PROVIDERS } from '@/domains/bible-provider-resources/bible-provider-resources.types';
 import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
 import {
   sourceAudioItemSchema,
@@ -10,16 +11,17 @@ import {
 export const bibleKeySchema = z
   .string()
   .refine((value) => parseBibleKey(value) !== null, 'Invalid Bible identity');
+export const playbackProviderSchema = z.enum(BIBLE_RESOURCE_PROVIDERS);
 export const resourceFactsSchema = z.object({
   bibleKey: bibleKeySchema,
   id: z.number().int().nullable(),
-  provider: z.enum(['aquifer', 'youversion', 'dbl']),
+  provider: playbackProviderSchema,
   externalId: z.string(),
   ttsLicenseStatus: ttsLicenseStatusSchema,
   licenseNotice: z.string().nullable(),
 });
 export const playbackAudioResponseSchema = sourceAudioResponseSchema.extend({
-  provider: z.enum(['aquifer', 'youversion', 'dbl']),
+  provider: playbackProviderSchema,
   textBibleKey: bibleKeySchema.nullable(),
   selectedRecordingKey: bibleKeySchema.nullable(),
   ttsLicenseStatus: ttsLicenseStatusSchema,

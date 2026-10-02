@@ -1,5 +1,5 @@
+import { bibleKey } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
-import { bibleKey } from '@/domains/bible-provider-resources/identity';
 import { ok } from '@/lib/types';
 
 import type { Bible, BibleResponse, CreateBible, UpdateBible } from './bibles.types';
