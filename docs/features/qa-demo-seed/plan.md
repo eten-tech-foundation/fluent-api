@@ -10,6 +10,8 @@
 
 > **Revision note (post-milestones):** This plan was written before the Milestones model landed on `main` (migration `0029_add_milestones`). `project_units` are now first-class **Milestones** — named, typed (`'text' | 'audio'`), with `connectivityProfile` and their own `status`; `projects` gained `sourceBibleId` and `pericopeSetId`; `project_unit_bible_books` is soft-deletable (`deletedAt`) with PK `(project_unit_id, book_id)`. The spec and engine below are already expressed in the milestone model — the demo world is seeded directly in the grouped shape the old Follow-On 5 anticipated, so no regroup is ever needed.
 
+> **Branching:** all ticket work for this feature stacks onto `task/seeder-updates-demo-seeds` — cut working branches from it (never from `main`) and open PRs targeting it as the base. Blocking tickets land there before dependent tickets start.
+
 ## Global Constraints
 
 - **No plaintext passwords in the repo** — not in seed files, comments, docs, or `.env.example`. Only hash strings produced by better-auth's `hashPassword` are committed.
