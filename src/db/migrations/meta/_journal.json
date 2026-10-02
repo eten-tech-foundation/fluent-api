@@ -225,6 +225,13 @@
       "when": 1790572178346,
       "tag": "0031_add_bible_book_text_ingestion_completion",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790572178347,
+      "tag": "0032_add_pericope_ai_suggestions",
+      "breakpoints": true
     }
   ]
 }
