@@ -106,6 +106,41 @@ describe('authorize', () => {
     );
   });
 
+  it('global SuperAdmin grant authorizes ORG_CREATE at global scope', () => {
+    const user = { id: 1, grants: [grant(null, null, Object.values(PERMISSIONS))] };
+    expect(authorize(user, PERMISSIONS.ORG_CREATE, {})).toBe(true);
+  });
+
+  it('org-scoped Org Manager grant does not authorize ORG_CREATE', () => {
+    // Every permission granted to Org Manager in seeds/rbac.ts — org:create is
+    // deliberately not among them.
+    const orgManagerPerms = [
+      PERMISSIONS.PROJECT_VIEW,
+      PERMISSIONS.PROJECT_CREATE,
+      PERMISSIONS.PROJECT_UPDATE,
+      PERMISSIONS.PROJECT_DELETE,
+      PERMISSIONS.CONTENT_VIEW,
+      PERMISSIONS.CONTENT_ASSIGN,
+      PERMISSIONS.CONTENT_UPDATE,
+      PERMISSIONS.MEMBERSHIP_REVOKE,
+      PERMISSIONS.ROLE_ASSIGN_PROJECT,
+      PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER,
+      PERMISSIONS.USER_VIEW,
+      PERMISSIONS.USER_CREATE,
+      PERMISSIONS.USER_UPDATE,
+    ];
+    const user = { id: 2, grants: [grant(ORG, null, orgManagerPerms)] };
+    expect(authorize(user, PERMISSIONS.ORG_CREATE, {})).toBe(false);
+    expect(authorize(user, PERMISSIONS.ORG_CREATE, { orgId: ORG })).toBe(false);
+  });
+
+  it('project-pinned USER_VIEW grant is not applicable at org scope', () => {
+    // A Project Manager pinned to a project holds user:view, but that grant must
+    // not satisfy the org-scoped member list (GET /organizations/{orgId}/users).
+    const user = { id: 3, grants: [grant(ORG, PROJ, [PERMISSIONS.USER_VIEW])] };
+    expect(authorize(user, PERMISSIONS.USER_VIEW, { orgId: ORG })).toBe(false);
+  });
+
   it('org Member grant contributes no permissions — all authorize checks denied', () => {
     // Regression test per 2026-07-02 spec: Org Member carries zero role_permissions;
     // it exists only as an anchor row and must never satisfy any permission check.
@@ -147,6 +182,28 @@ describe('canAssignRole', () => {
 
   it('superAdmin can assign Org Manager', () => {
     expect(canAssignRole(superAdmin, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+  });
+
+  it('org-scoped Org Manager can assign Org Manager in their org (#337)', () => {
+    // Org Manager now holds role:assign:org_manager org-scoped (seeds/rbac.ts),
+    // which authorizes them to promote/demote Org Managers in their own org.
+    const orgManager = {
+      id: 5,
+      grants: [grant(ORG, null, [PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER])],
+    };
+    expect(canAssignRole(orgManager, ROLES.ORG_MANAGER, ORG, null)).toBe(true);
+    // ...but the permission still cannot mint a SuperAdmin
+    expect(canAssignRole(orgManager, ROLES.SUPER_ADMIN, ORG, null)).toBe(false);
+    // ...or grant Org Manager in a different org
+    expect(canAssignRole(orgManager, ROLES.ORG_MANAGER, 2, null)).toBe(false);
+  });
+
+  it('project-pinned role:assign:org_manager grant cannot assign Org Manager at org scope', () => {
+    const pinned = {
+      id: 6,
+      grants: [grant(ORG, PROJ, [PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER])],
+    };
+    expect(canAssignRole(pinned, ROLES.ORG_MANAGER, ORG, null)).toBe(false);
   });
 
   it('org Manager with USER_CREATE can invite Org Member (create anchor row)', () => {

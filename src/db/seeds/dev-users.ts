@@ -15,21 +15,33 @@ export type { SeedUser };
 /** Default users used when the seed is run standalone (CLI) without arguments. */
 const DEFAULT_SEED_USERS: SeedUser[] = [
   {
+    email: process.env.SEED_SUPERADMIN_EMAIL ?? 'sa@fluent.local',
+    password: process.env.SEED_SUPERADMIN_PASSWORD ?? 'sa@123456',
+    username: 'Super Admin',
+    role: 'super_admin',
+  },
+  {
+    email: process.env.SEED_ORG_MANAGER_EMAIL ?? 'om@fluent.local',
+    password: process.env.SEED_ORG_MANAGER_PASSWORD ?? 'om@123456',
+    username: 'Org Manager Dev',
+    role: 'org_manager',
+  },
+  {
     email: process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local',
     password: process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456',
-    username: 'devpm',
+    username: 'Project Manager Dev',
     role: 'project_manager',
   },
   {
     email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
     password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
-    username: 'translator',
+    username: 'Translator Dev',
     role: 'project_translator',
   },
   {
     email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
     password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
-    username: 'translator2',
+    username: 'Translator 2 Dev',
     role: 'project_translator',
   },
 ];
@@ -74,6 +86,16 @@ export async function seedDevUsers(
   const pmRoleId = roleMap.get(ROLES.PROJECT_MANAGER);
   if (!pmRoleId && seedUsers.some((u) => u.role === 'project_manager')) {
     throw new Error(`Role "${ROLES.PROJECT_MANAGER}" not found. Run seedRoles first.`);
+  }
+
+  const superAdminRoleId = roleMap.get(ROLES.SUPER_ADMIN);
+  if (!superAdminRoleId && seedUsers.some((u) => u.role === 'super_admin')) {
+    throw new Error(`Role "${ROLES.SUPER_ADMIN}" not found. Run seedRoles first.`);
+  }
+
+  const orgManagerRoleId = roleMap.get(ROLES.ORG_MANAGER);
+  if (!orgManagerRoleId && seedUsers.some((u) => u.role === 'org_manager')) {
+    throw new Error(`Role "${ROLES.ORG_MANAGER}" not found. Run seedRoles first.`);
   }
 
   // Seed PM first so we have a real actor id to use as createdBy for translators.
@@ -219,6 +241,36 @@ export async function seedDevUsers(
 
       const grantedRoleIds = new Set(existingGrants.map((g) => g.roleId));
 
+      // SuperAdmin holds a single global grant (orgId NULL, projectId NULL) and
+      // is not a member of any org — skip the Org Member anchor entirely.
+      if (seedUser.role === 'super_admin' && superAdminRoleId) {
+        const [existingGlobalGrant] = await tx
+          .select({ roleId: user_roles.roleId })
+          .from(user_roles)
+          .where(
+            and(
+              eq(user_roles.userId, appUserId),
+              isNull(user_roles.orgId),
+              isNull(user_roles.projectId),
+              eq(user_roles.roleId, superAdminRoleId)
+            )
+          )
+          .limit(1);
+
+        if (!existingGlobalGrant) {
+          await tx.insert(user_roles).values({
+            userId: appUserId,
+            orgId: null,
+            projectId: null,
+            roleId: superAdminRoleId,
+            createdBy: grantedBy,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+        return;
+      }
+
       // Insert Org Member anchor role if missing.
       if (!grantedRoleIds.has(orgMemberRoleId)) {
         await tx.insert(user_roles).values({
@@ -238,6 +290,20 @@ export async function seedDevUsers(
             userId: appUserId,
             orgId: defaultOrg.id,
             roleId: pmRoleId,
+            createdBy: grantedBy,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+      }
+
+      // Insert Org Manager role (org-scoped, projectId NULL) if designated and missing.
+      if (seedUser.role === 'org_manager' && orgManagerRoleId) {
+        if (!grantedRoleIds.has(orgManagerRoleId)) {
+          await tx.insert(user_roles).values({
+            userId: appUserId,
+            orgId: defaultOrg.id,
+            roleId: orgManagerRoleId,
             createdBy: grantedBy,
             createdAt: new Date(),
             updatedAt: new Date(),
