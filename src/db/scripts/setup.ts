@@ -28,6 +28,8 @@ import { execSync } from 'node:child_process';
 
 import type { EnvConfig } from '@/db/env-configs/types';
 
+import { applyDatabaseUrl } from '@/db/env-configs/database-url';
+
 // ─── 1. Resolve the target environment ───────────────────────────────────────
 
 type EnvName = 'local' | 'dev' | 'qa';
@@ -62,32 +64,24 @@ async function setup() {
 
   // ── Resolve DATABASE_URL ──────────────────────────────────────────────────
   // The env-config owns URL resolution — DEV_DATABASE_URL / QA_DATABASE_URL
-  // are already baked into config.databaseUrl by the env-config file, so we
-  // just apply whatever the config provides. This ensures the env-specific URL
-  // always wins and can never be silently overridden by a generic DATABASE_URL
-  // that happens to be exported in the shell.
-  if (config.databaseUrl) {
-    process.env.DATABASE_URL = config.databaseUrl;
-    const masked = config.databaseUrl.replace(/:([^@]+)@/, ':****@');
-    console.log(`ℹ  DATABASE_URL → ${masked}\n`);
-  } else if (!process.env.DATABASE_URL) {
+  // are already baked into config.databaseUrl by the env-config file; for
+  // local, docker-compose injects DATABASE_URL into the environment.
+  const maskedUrl = applyDatabaseUrl(config);
+  if (!maskedUrl) {
     console.error(
       `❌  No database URL available for environment "${envName}".\n` +
         `   Set DEV_DATABASE_URL (for dev) or QA_DATABASE_URL (for qa) in your environment or .env file.`
     );
     process.exit(1);
-  } else {
-    // local: DATABASE_URL is injected by docker-compose; nothing to do.
-    const masked = process.env.DATABASE_URL.replace(/:([^@]+)@/, ':****@');
-    console.log(`ℹ  DATABASE_URL (from environment) → ${masked}\n`);
   }
+  console.log(`ℹ  DATABASE_URL → ${maskedUrl}\n`);
 
   // ── Migrations ────────────────────────────────────────────────────────────
   // MIGRATIONS_DATABASE_URL, if set, is read directly by drizzle.config.ts
   // (`MIGRATIONS_DATABASE_URL ?? DATABASE_URL`) — same pattern as
   // BOOTSTRAP_DATABASE_URL. There's no per-environment DEV_/QA_ variant: set
   // MIGRATIONS_DATABASE_URL itself in whichever environment needs it.
-  console.log('[1/9] Running migrations...');
+  console.log('[1/10] Running migrations...');
   execSync('npx drizzle-kit migrate', {
     stdio: 'inherit',
     env: process.env,
@@ -118,52 +112,85 @@ async function setup() {
   ]);
 
   // ── Reference / system data (same for every environment) ──────────────────
-  console.log('[2/9] Seeding organizations...');
+  console.log('[2/10] Seeding organizations...');
   await seedOrganizations(config.orgName);
   console.log('');
 
-  console.log('[3/9] Seeding roles...');
+  console.log('[3/10] Seeding roles...');
   await seedRoles();
   console.log('');
 
-  console.log('[4/9] Seeding RBAC...');
+  console.log('[4/10] Seeding RBAC...');
   await seedRbac();
   console.log('');
 
   // ── Seed users (env-specific) ─────────────────────────────────────────────
-  console.log(`[5/9] Seeding users (${config.seedUsers.length} configured)...`);
-  await seedDevUsers(config.seedUsers, config.orgName);
+  // When the env-config provides a demoSpec, users are seeded by the demo
+  // engine at step 10 — after books/bibles/pericope sets exist to resolve.
+  const seedUsers = config.demoSpec ? [] : (config.seedUsers ?? []);
+  console.log(`[5/10] Seeding users (${seedUsers.length} configured)...`);
+  if (!config.demoSpec) {
+    await seedDevUsers(seedUsers, config.orgName);
+  } else {
+    console.log('   (handled by demo spec stage below)');
+  }
   console.log('');
 
   // ── Bible reference data ───────────────────────────────────────────────────
-  console.log('[6/9] Seeding languages...');
+  console.log('[6/10] Seeding languages...');
   await seedLanguages();
   console.log('');
 
-  console.log('[7/9] Seeding books...');
+  console.log('[7/10] Seeding books...');
   await seedBooks();
   console.log('');
 
-  console.log('[8/9] Seeding bibles...');
+  console.log('[8/10] Seeding bibles...');
   await seedBibles();
   console.log('');
 
-  console.log('[9/9] Seeding bible texts and pericope sets...');
+  console.log('[9/10] Seeding bible texts and pericope sets...');
   await seedBibleTexts();
   await seedPericopeSets();
   console.log('');
+
+  // ── Demo spec (env-specific) ──────────────────────────────────────────────
+  if (config.demoSpec) {
+    console.log('[10/10] Seeding demo spec...');
+    const { seedDemoSpec } = await import('@/db/seeds/demo/engine');
+    await seedDemoSpec(config.demoSpec);
+    console.log('');
+  } else {
+    console.log('[10/10] Demo spec — none configured, skipping.');
+    console.log('');
+  }
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log('╔═══════════════════════════════════════╗');
   console.log('║           Setup complete ✓             ║');
   console.log('╚═══════════════════════════════════════╝\n');
 
-  if (config.printCredentials && config.seedUsers.length > 0) {
-    console.log('Seeded credentials:');
-    for (const u of config.seedUsers) {
-      console.log(`  [${u.role.padEnd(18)}]  ${u.email}  /  ${u.password}`);
+  if (config.printCredentials) {
+    const creds = config.demoSpec
+      ? config.demoSpec.users
+          .filter((u) => u.password)
+          .map((u) => ({
+            email: u.email,
+            password: u.password!,
+            role:
+              u.projectRoles?.[0]?.role ??
+              u.globalRoles?.[0] ??
+              u.orgs?.[0]?.roles[0] ??
+              'Org Member',
+          }))
+      : (config.seedUsers ?? []);
+    if (creds.length > 0) {
+      console.log('Seeded credentials:');
+      for (const u of creds) {
+        console.log(`  [${u.role.padEnd(18)}]  ${u.email}  /  ${u.password}`);
+      }
+      console.log('');
     }
-    console.log('');
   }
 
   process.exit(0);

@@ -1,3 +1,5 @@
+import type { DemoSpec } from '@/db/seeds/demo/types';
+
 /**
  * A seed user to be created during DB setup.
  * Credentials live here intentionally — these are controlled dev/qa accounts,
@@ -7,7 +9,13 @@ export interface SeedUser {
   email: string;
   password: string;
   username: string;
-  role: 'project_manager' | 'project_translator' | 'org_member' | 'super_admin' | 'org_manager';
+  role:
+    | 'project_manager'
+    | 'project_translator'
+    | 'project_observer'
+    | 'org_member'
+    | 'org_manager'
+    | 'super_admin';
 }
 
 /**
@@ -52,11 +60,18 @@ export interface EnvConfig {
   databaseUrl?: string;
 
   /**
-   * Users to seed.
+   * Users to seed (legacy path — superseded by `demoSpec`).
    * Empty array → no application users are seeded (useful for a QA env that
    * wants a fully blank slate beyond the PM account, or if you want none at all).
    */
-  seedUsers: SeedUser[];
+  seedUsers?: SeedUser[];
+
+  /**
+   * Declarative demo spec seeded by the `seedDemoSpec` engine.
+   * When present, `setup.ts` runs the demo stage after all reference seeds;
+   * `seedUsers` is unused.
+   */
+  demoSpec?: DemoSpec;
 
   /**
    * When true, a credential summary is printed at the end of setup.

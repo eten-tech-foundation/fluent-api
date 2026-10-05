@@ -15,36 +15,152 @@ export type { SeedUser };
 /** Default users used when the seed is run standalone (CLI) without arguments. */
 const DEFAULT_SEED_USERS: SeedUser[] = [
   {
-    email: process.env.SEED_SUPERADMIN_EMAIL ?? 'sa@fluent.local',
-    password: process.env.SEED_SUPERADMIN_PASSWORD ?? 'sa@123456',
-    username: 'Super Admin',
-    role: 'super_admin',
-  },
-  {
-    email: process.env.SEED_ORG_MANAGER_EMAIL ?? 'om@fluent.local',
-    password: process.env.SEED_ORG_MANAGER_PASSWORD ?? 'om@123456',
-    username: 'Org Manager Dev',
-    role: 'org_manager',
-  },
-  {
     email: process.env.SEED_MANAGER_EMAIL ?? 'pm@fluent.local',
     password: process.env.SEED_MANAGER_PASSWORD ?? 'pm@123456',
-    username: 'Project Manager Dev',
+    username: 'devpm',
     role: 'project_manager',
   },
   {
     email: process.env.SEED_TRANSLATOR_EMAIL ?? 't@fluent.local',
     password: process.env.SEED_TRANSLATOR_PASSWORD ?? 't@123456',
-    username: 'Translator Dev',
+    username: 'translator',
     role: 'project_translator',
   },
   {
     email: process.env.SEED_TRANSLATOR2_EMAIL ?? 't2@fluent.local',
     password: process.env.SEED_TRANSLATOR2_PASSWORD ?? 't@123456',
-    username: 'Translator 2 Dev',
+    username: 'translator2',
     role: 'project_translator',
   },
 ];
+
+export interface ReconcileSeedUserInput {
+  email: string;
+  username: string;
+  /** Plaintext — hashed at seed time. */
+  password?: string;
+  /** Committed better-auth hash — written directly, no hashing. */
+  passwordHash?: string;
+  firstName?: string;
+  lastName?: string;
+  /** users.createdBy — the actor creating this account (null for self/first). */
+  createdBy: number | null;
+}
+
+/**
+ * Shared user writer: create or reconcile the auth_user + auth_account +
+ * users triple for one seed account. Accepts a plaintext password (hashed at
+ * seed time) or a committed better-auth hash (written verbatim).
+ *
+ * Returns the application `users.id`, or null when the row was skipped
+ * (username taken by a different account, or auth_user exists without a
+ * matching users row).
+ */
+export async function reconcileSeedUser(
+  input: ReconcileSeedUserInput
+): Promise<number | null> {
+  if (!input.password && !input.passwordHash) {
+    throw new Error(`Seed user ${input.email} has neither password nor passwordHash.`);
+  }
+  const hashedPassword = input.passwordHash ?? (await hashPassword(input.password!));
+  const authUserId = crypto.randomUUID();
+
+  let appUserId: number | null = null;
+
+  await db.transaction(async (tx) => {
+    // ── Resolve existing account or create a new one ─────────────────────
+    const [existingAuthUser] = await tx
+      .select({ id: authUser.id })
+      .from(authUser)
+      .where(eq(authUser.email, input.email))
+      .limit(1);
+
+    const [existingUserByEmail] = await tx
+      .select({ id: users.id, authUserId: users.authUserId })
+      .from(users)
+      .where(eq(users.email, input.email))
+      .limit(1);
+
+    const [existingUserByUsername] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, input.username))
+      .limit(1);
+
+    if (existingAuthUser || existingUserByEmail) {
+      // Account already exists — the email-keyed users row is the one to reconcile.
+      const resolvedAppUser = existingUserByEmail;
+
+      if (!resolvedAppUser) {
+        console.log(`Skipping ${input.email} — auth_user exists but no matching users row.`);
+        return;
+      }
+
+      appUserId = resolvedAppUser.id;
+      const targetAuthUserId = existingAuthUser?.id ?? resolvedAppUser.authUserId;
+
+      // Password rotation: update stored password hash on reconcile
+      if (targetAuthUserId) {
+        await tx
+          .update(authAccount)
+          .set({
+            password: hashedPassword,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(authAccount.userId, targetAuthUserId),
+              eq(authAccount.providerId, 'credential')
+            )
+          );
+      }
+
+      console.log(`User ${input.email} reconciled (roles & password updated).`);
+    } else if (existingUserByUsername) {
+      console.log(`Skipping ${input.username} — username already taken by a different user.`);
+    } else {
+      // Create new account.
+      await tx.insert(authUser).values({
+        id: authUserId,
+        email: input.email,
+        name: input.username,
+        emailVerified: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await tx.insert(authAccount).values({
+        id: crypto.randomUUID(),
+        userId: authUserId,
+        accountId: input.email,
+        providerId: 'credential',
+        password: hashedPassword,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          username: input.username,
+          email: input.email,
+          firstName: input.firstName ?? input.username,
+          lastName: input.lastName ?? null,
+          status: 'verified',
+          authUserId,
+          createdBy: input.createdBy,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .returning({ id: users.id });
+
+      appUserId = newUser.id;
+      console.log(`Created user: ${input.email}`);
+    }
+  });
+
+  return appUserId;
+}
 
 /**
  * Universal user seeding module for all environments (local, dev, qa).
@@ -88,16 +204,6 @@ export async function seedDevUsers(
     throw new Error(`Role "${ROLES.PROJECT_MANAGER}" not found. Run seedRoles first.`);
   }
 
-  const superAdminRoleId = roleMap.get(ROLES.SUPER_ADMIN);
-  if (!superAdminRoleId && seedUsers.some((u) => u.role === 'super_admin')) {
-    throw new Error(`Role "${ROLES.SUPER_ADMIN}" not found. Run seedRoles first.`);
-  }
-
-  const orgManagerRoleId = roleMap.get(ROLES.ORG_MANAGER);
-  if (!orgManagerRoleId && seedUsers.some((u) => u.role === 'org_manager')) {
-    throw new Error(`Role "${ROLES.ORG_MANAGER}" not found. Run seedRoles first.`);
-  }
-
   // Seed PM first so we have a real actor id to use as createdBy for translators.
   const pmUsers = seedUsers.filter((u) => u.role === 'project_manager');
   const otherUsers = seedUsers.filter((u) => u.role !== 'project_manager');
@@ -108,215 +214,75 @@ export async function seedDevUsers(
   let pmUserId: number | null = null;
 
   for (const seedUser of ordered) {
-    const authUserId = crypto.randomUUID();
-    const hashedPassword = await hashPassword(seedUser.password);
+    const appUserId = await reconcileSeedUser({
+      email: seedUser.email,
+      username: seedUser.username,
+      password: seedUser.password,
+      lastName: '(Dev)',
+      createdBy: pmUserId,
+    });
 
-    await db.transaction(async (tx) => {
-      // ── Resolve existing account or create a new one ─────────────────────
-      const [existingAuthUser] = await tx
-        .select({ id: authUser.id })
-        .from(authUser)
-        .where(eq(authUser.email, seedUser.email))
-        .limit(1);
+    if (appUserId === null) {
+      continue;
+    }
 
-      const [existingUserByEmail] = await tx
-        .select({ id: users.id, authUserId: users.authUserId })
-        .from(users)
-        .where(eq(users.email, seedUser.email))
-        .limit(1);
+    // Capture the first PM id so translators show as invited by the PM.
+    if (seedUser.role === 'project_manager' && pmUserId === null) {
+      pmUserId = appUserId;
+    }
 
-      const [existingUserByUsername] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.username, seedUser.username))
-        .limit(1);
+    // Role grants use the PM as the actor for non-PM users (mirrors real usage),
+    // falling back to self when no PM has been seeded yet (standalone CLI).
+    const grantedBy = pmUserId ?? appUserId;
 
-      let appUserId: number;
+    // ── Reconcile required role grants ────────────────────────────────────
+    // Scope the check to (orgId = defaultOrg.id, projectId IS NULL) —
+    // matching the uniqueness constraint (userId, COALESCE(orgId,-1),
+    // COALESCE(projectId,-1), roleId). Without this, a project-scoped grant
+    // for the same roleId would shadow the check and the org-level grant
+    // would be silently skipped.
+    const existingGrants = await db
+      .select({ roleId: user_roles.roleId })
+      .from(user_roles)
+      .where(
+        and(
+          eq(user_roles.userId, appUserId),
+          eq(user_roles.orgId, defaultOrg.id),
+          isNull(user_roles.projectId)
+        )
+      );
 
-      if (existingAuthUser || existingUserByEmail) {
-        // Account already exists — resolve the application user for role/password reconciliation.
-        const resolvedAppUser =
-          existingUserByEmail ??
-          (
-            await tx
-              .select({ id: users.id, authUserId: users.authUserId })
-              .from(users)
-              .where(eq(users.email, seedUser.email))
-              .limit(1)
-          )[0];
+    const grantedRoleIds = new Set(existingGrants.map((g) => g.roleId));
 
-        if (!resolvedAppUser) {
-          console.log(`Skipping ${seedUser.email} — auth_user exists but no matching users row.`);
-          return;
-        }
+    // Insert Org Member anchor role if missing.
+    if (!grantedRoleIds.has(orgMemberRoleId)) {
+      await db.insert(user_roles).values({
+        userId: appUserId,
+        orgId: defaultOrg.id,
+        roleId: orgMemberRoleId,
+        createdBy: grantedBy,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
 
-        appUserId = resolvedAppUser.id;
-        const targetAuthUserId = existingAuthUser?.id ?? resolvedAppUser.authUserId;
-
-        // Password rotation: update stored password hash on reconcile
-        if (targetAuthUserId) {
-          await tx
-            .update(authAccount)
-            .set({
-              password: hashedPassword,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(authAccount.userId, targetAuthUserId),
-                eq(authAccount.providerId, 'credential')
-              )
-            );
-        }
-
-        console.log(`User ${seedUser.email} reconciled (roles & password updated).`);
-      } else if (existingUserByUsername) {
-        console.log(`Skipping ${seedUser.username} — username already taken by a different user.`);
-        return;
-      } else {
-        // Create new account.
-        await tx.insert(authUser).values({
-          id: authUserId,
-          email: seedUser.email,
-          name: seedUser.username,
-          emailVerified: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-
-        await tx.insert(authAccount).values({
-          id: crypto.randomUUID(),
-          userId: authUserId,
-          accountId: seedUser.email,
-          providerId: 'credential',
-          password: hashedPassword,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-
-        const [newUser] = await tx
-          .insert(users)
-          .values({
-            username: seedUser.username,
-            email: seedUser.email,
-            firstName: seedUser.username,
-            lastName: '(Dev)',
-            status: 'verified',
-            authUserId,
-            createdBy: pmUserId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .returning({ id: users.id });
-
-        appUserId = newUser.id;
-        console.log(`Created user: ${seedUser.email} (${seedUser.role})`);
-      }
-
-      // Capture the first PM id so translators show as invited by the PM.
-      if (seedUser.role === 'project_manager' && pmUserId === null) {
-        pmUserId = appUserId;
-      }
-
-      // Role grants use the PM as the actor for non-PM users (mirrors real usage),
-      // falling back to self when no PM has been seeded yet (standalone CLI).
-      const grantedBy = pmUserId ?? appUserId;
-
-      // ── Reconcile required role grants ────────────────────────────────────
-      // Scope the check to (orgId = defaultOrg.id, projectId IS NULL) —
-      // matching the uniqueness constraint (userId, COALESCE(orgId,-1),
-      // COALESCE(projectId,-1), roleId). Without this, a project-scoped grant
-      // for the same roleId would shadow the check and the org-level grant
-      // would be silently skipped.
-      const existingGrants = await tx
-        .select({ roleId: user_roles.roleId })
-        .from(user_roles)
-        .where(
-          and(
-            eq(user_roles.userId, appUserId),
-            eq(user_roles.orgId, defaultOrg.id),
-            isNull(user_roles.projectId)
-          )
-        );
-
-      const grantedRoleIds = new Set(existingGrants.map((g) => g.roleId));
-
-      // SuperAdmin holds a single global grant (orgId NULL, projectId NULL) and
-      // is not a member of any org — skip the Org Member anchor entirely.
-      if (seedUser.role === 'super_admin' && superAdminRoleId) {
-        const [existingGlobalGrant] = await tx
-          .select({ roleId: user_roles.roleId })
-          .from(user_roles)
-          .where(
-            and(
-              eq(user_roles.userId, appUserId),
-              isNull(user_roles.orgId),
-              isNull(user_roles.projectId),
-              eq(user_roles.roleId, superAdminRoleId)
-            )
-          )
-          .limit(1);
-
-        if (!existingGlobalGrant) {
-          await tx.insert(user_roles).values({
-            userId: appUserId,
-            orgId: null,
-            projectId: null,
-            roleId: superAdminRoleId,
-            createdBy: grantedBy,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
-        return;
-      }
-
-      // Insert Org Member anchor role if missing.
-      if (!grantedRoleIds.has(orgMemberRoleId)) {
-        await tx.insert(user_roles).values({
+    // Insert Project Manager role if this user is designated as one and it is missing.
+    if (seedUser.role === 'project_manager' && pmRoleId) {
+      if (!grantedRoleIds.has(pmRoleId)) {
+        await db.insert(user_roles).values({
           userId: appUserId,
           orgId: defaultOrg.id,
-          roleId: orgMemberRoleId,
+          roleId: pmRoleId,
           createdBy: grantedBy,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
       }
-
-      // Insert Project Manager role if this user is designated as one and it is missing.
-      if (seedUser.role === 'project_manager' && pmRoleId) {
-        if (!grantedRoleIds.has(pmRoleId)) {
-          await tx.insert(user_roles).values({
-            userId: appUserId,
-            orgId: defaultOrg.id,
-            roleId: pmRoleId,
-            createdBy: grantedBy,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
-      }
-
-      // Insert Org Manager role (org-scoped, projectId NULL) if designated and missing.
-      if (seedUser.role === 'org_manager' && orgManagerRoleId) {
-        if (!grantedRoleIds.has(orgManagerRoleId)) {
-          await tx.insert(user_roles).values({
-            userId: appUserId,
-            orgId: defaultOrg.id,
-            roleId: orgManagerRoleId,
-            createdBy: grantedBy,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
-      }
-    });
+    }
   }
 
   console.log('Dev users seeded.');
 }
-
-export { seedDevUsers as seedUsers };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   seedDevUsers()
