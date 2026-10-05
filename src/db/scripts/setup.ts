@@ -14,7 +14,8 @@
  *   3. Runs Drizzle migrations.
  *   4. Seeds all reference data (org, roles, RBAC, languages, books, bibles,
  *      bible texts, pericope sets) — identical across every environment.
- *   5. Seeds the configured seed users.
+ *   5. Seeds the environment's demoSpec (users, grants, projects, milestones)
+ *      via the shared demo seed engine.
  *   6. Optionally prints credentials.
  *
  * All seed functions are dynamically imported AFTER the DATABASE_URL is set so
@@ -81,7 +82,7 @@ async function setup() {
   // (`MIGRATIONS_DATABASE_URL ?? DATABASE_URL`) — same pattern as
   // BOOTSTRAP_DATABASE_URL. There's no per-environment DEV_/QA_ variant: set
   // MIGRATIONS_DATABASE_URL itself in whichever environment needs it.
-  console.log('[1/10] Running migrations...');
+  console.log('[1/9] Running migrations...');
   execSync('npx drizzle-kit migrate', {
     stdio: 'inherit',
     env: process.env,
@@ -93,7 +94,6 @@ async function setup() {
     { seedOrganizations },
     { seedRoles },
     { seedRbac },
-    { seedDevUsers },
     { seedLanguages },
     { seedBooks },
     { seedBibles },
@@ -103,7 +103,6 @@ async function setup() {
     import('@/db/seeds/organizations'),
     import('@/db/seeds/roles'),
     import('@/db/seeds/rbac'),
-    import('@/db/seeds/dev-users'),
     import('@/db/seeds/languages'),
     import('@/db/seeds/books'),
     import('@/db/seeds/bibles'),
@@ -112,56 +111,44 @@ async function setup() {
   ]);
 
   // ── Reference / system data (same for every environment) ──────────────────
-  console.log('[2/10] Seeding organizations...');
+  console.log('[2/9] Seeding organizations...');
   await seedOrganizations(config.orgName);
   console.log('');
 
-  console.log('[3/10] Seeding roles...');
+  console.log('[3/9] Seeding roles...');
   await seedRoles();
   console.log('');
 
-  console.log('[4/10] Seeding RBAC...');
+  console.log('[4/9] Seeding RBAC...');
   await seedRbac();
   console.log('');
 
-  // ── Seed users (env-specific) ─────────────────────────────────────────────
-  // When the env-config provides a demoSpec, users are seeded by the demo
-  // engine at step 10 — after books/bibles/pericope sets exist to resolve.
-  const seedUsers = config.demoSpec ? [] : (config.seedUsers ?? []);
-  console.log(`[5/10] Seeding users (${seedUsers.length} configured)...`);
-  if (!config.demoSpec) {
-    await seedDevUsers(seedUsers, config.orgName);
-  } else {
-    console.log('   (handled by demo spec stage below)');
-  }
-  console.log('');
-
   // ── Bible reference data ───────────────────────────────────────────────────
-  console.log('[6/10] Seeding languages...');
+  console.log('[5/9] Seeding languages...');
   await seedLanguages();
   console.log('');
 
-  console.log('[7/10] Seeding books...');
+  console.log('[6/9] Seeding books...');
   await seedBooks();
   console.log('');
 
-  console.log('[8/10] Seeding bibles...');
+  console.log('[7/9] Seeding bibles...');
   await seedBibles();
   console.log('');
 
-  console.log('[9/10] Seeding bible texts and pericope sets...');
+  console.log('[8/9] Seeding bible texts and pericope sets...');
   await seedBibleTexts();
   await seedPericopeSets();
   console.log('');
 
-  // ── Demo spec (env-specific) ──────────────────────────────────────────────
+  // ── Demo spec (env-specific) — users, grants, projects, milestones, etc. ──
   if (config.demoSpec) {
-    console.log('[10/10] Seeding demo spec...');
+    console.log('[9/9] Seeding demo spec...');
     const { seedDemoSpec } = await import('@/db/seeds/demo/engine');
     await seedDemoSpec(config.demoSpec);
     console.log('');
   } else {
-    console.log('[10/10] Demo spec — none configured, skipping.');
+    console.log('[9/9] Demo spec — none configured, skipping.');
     console.log('');
   }
 
@@ -171,19 +158,14 @@ async function setup() {
   console.log('╚═══════════════════════════════════════╝\n');
 
   if (config.printCredentials) {
-    const creds = config.demoSpec
-      ? config.demoSpec.users
-          .filter((u) => u.password)
-          .map((u) => ({
-            email: u.email,
-            password: u.password!,
-            role:
-              u.projectRoles?.[0]?.role ??
-              u.globalRoles?.[0] ??
-              u.orgs?.[0]?.roles[0] ??
-              'Org Member',
-          }))
-      : (config.seedUsers ?? []);
+    const creds = (config.demoSpec?.users ?? [])
+      .filter((u) => u.password)
+      .map((u) => ({
+        email: u.email,
+        password: u.password!,
+        role:
+          u.projectRoles?.[0]?.role ?? u.globalRoles?.[0] ?? u.orgs?.[0]?.roles[0] ?? 'Org Member',
+      }));
     if (creds.length > 0) {
       console.log('Seeded credentials:');
       for (const u of creds) {

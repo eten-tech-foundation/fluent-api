@@ -562,8 +562,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_api npm run db:seed:roles
     echo_running "Seeding RBAC data..."
     exec_api npm run db:seed:rbac
-    echo_running "Seeding dev users..."
-    exec_api npm run db:seed:dev-users
     echo_running "Seeding languages..."
     exec_api npm run db:seed:languages
     echo_running "Seeding books..."
@@ -572,6 +570,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     exec_api npm run db:seed:bibles
     echo_running "Seeding bible texts..."
     exec_api npm run db:seed:bible-texts
+    echo_running "Seeding pericope sets..."
+    exec_api npm run db:seed:pericope-sets
+    echo_running "Seeding demo spec (dev users, project, grants)..."
+    exec_api npm run db:seed:demo:local
     echo_success "All seeds complete."
     ;;
 

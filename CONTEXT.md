@@ -33,7 +33,7 @@ An account created by the seed pipeline from an environment's spec — a `users`
 _Avoid_: test user, fixture user
 
 **Reference Data**:
-Environment-neutral seeded rows identical across local/dev/qa: roles, RBAC permissions, languages, books, the IRV bible and its texts, pericope sets. Seeded by `setup.ts` steps 2–9.
+Environment-neutral seeded rows identical across local/dev/qa: roles, RBAC permissions, languages, books, the IRV bible and its texts, pericope sets. Seeded by `setup.ts` steps 2–8.
 _Avoid_: fixtures, static data
 
 **Demo Spec**:

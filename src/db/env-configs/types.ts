@@ -1,24 +1,6 @@
 import type { DemoSpec } from '@/db/seeds/demo/types';
 
 /**
- * A seed user to be created during DB setup.
- * Credentials live here intentionally — these are controlled dev/qa accounts,
- * not application runtime secrets.
- */
-export interface SeedUser {
-  email: string;
-  password: string;
-  username: string;
-  role:
-    | 'project_manager'
-    | 'project_translator'
-    | 'project_observer'
-    | 'org_member'
-    | 'org_manager'
-    | 'super_admin';
-}
-
-/**
  * DB-level role provisioning config used by `provision-db.ts`.
  * Only relevant for dev / qa environments (not local docker, which uses
  * `bootstrap.ts` instead).
@@ -60,16 +42,9 @@ export interface EnvConfig {
   databaseUrl?: string;
 
   /**
-   * Users to seed (legacy path — superseded by `demoSpec`).
-   * Empty array → no application users are seeded (useful for a QA env that
-   * wants a fully blank slate beyond the PM account, or if you want none at all).
-   */
-  seedUsers?: SeedUser[];
-
-  /**
-   * Declarative demo spec seeded by the `seedDemoSpec` engine.
-   * When present, `setup.ts` runs the demo stage after all reference seeds;
-   * `seedUsers` is unused.
+   * Declarative demo spec seeded by the `seedDemoSpec` engine — the only
+   * user/content seeding path; `setup.ts` runs it after all reference seeds.
+   * Absent → no application users or demo content are seeded.
    */
   demoSpec?: DemoSpec;
 
