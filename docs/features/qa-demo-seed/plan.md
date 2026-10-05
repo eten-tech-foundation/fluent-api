@@ -77,6 +77,8 @@ All accounts share one password → one shared `passwordHash` constant in the sp
 
 Every user except `superadmin` also gets the `Org Member` anchor grant per org membership (matches existing `dev-users.ts` convention). `users.status='verified'`, `authUser.emailVerified=true`, `createdBy` = the org's Org Manager where one exists (the realistic project-creating actor), else `superadmin`.
 
+`users.username`/`auth_user.name` matches the spec key for every account except `superadmin`, whose display username is `Chad White`.
+
 ### Dev/Local spec (same engine, smaller world)
 
 `dev.ts` and `local.ts` each get a `demoSpec` built by a shared `devSpec(credentials)` factory — dev passes env-var credentials (`DEV_PM_EMAIL`/`DEV_PM_PASSWORD`/`DEV_SEED_PASSWORD`, hashed at seed time), local passes its hardcoded plaintext defaults. Content:
