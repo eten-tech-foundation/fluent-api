@@ -35,6 +35,7 @@
     "db:seed:bible-texts": "npx tsx src/db/seeds/bible-texts.ts",
     "db:migrate-users": "npx tsx src/db/scripts/migrate-users-to-betterauth.ts",
     "db:set-password": "npx tsx src/db/scripts/set-password.ts",
+    "db:hash-password": "npx tsx src/db/scripts/hash-password.ts",
     "db:create-user": "npx tsx src/db/scripts/create-user.ts",
     "db:setup": "npx tsx src/db/scripts/setup.ts",
     "db:setup:dev": "SETUP_ENV=dev npx tsx src/db/scripts/setup.ts",
