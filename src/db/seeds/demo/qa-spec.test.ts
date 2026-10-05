@@ -168,6 +168,12 @@ describe('qaSpec', () => {
     }
   });
 
+  it('uses lowercase emails — better-auth lowercases sign-in lookups', () => {
+    for (const user of qaSpec.users) {
+      expect(user.email).toBe(user.email.toLowerCase());
+    }
+  });
+
   it('numbers every book\'s chapters 1..N contiguously', () => {
     for (const project of qaSpec.projects) {
       for (const milestone of project.milestones) {

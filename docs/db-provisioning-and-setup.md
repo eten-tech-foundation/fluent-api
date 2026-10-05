@@ -185,11 +185,11 @@ invite/password-reset email flows can be demoed.
 
 | Username     | Email                               | Org                       | Role Grants                                                            |
 | ------------ | ----------------------------------- | ------------------------- | ---------------------------------------------------------------------- |
-| `qa-om`      | qa+FluentQA-om@fluent.local         | Fluent QA                 | Org Manager                                                            |
-| `qa-pm`      | qa+FluentQA-pm@fluent.local         | Fluent QA                 | Org Member only — PM is project-scoped and granted via the UI in QA    |
-| `qa-t1`      | qa+FluentQA-translator@fluent.local | Fluent QA                 | Org Member only                                                        |
-| `qa-t2`      | qa+FluentQA-translator2@fluent.local| Fluent QA                 | Org Member only                                                        |
-| `qa-obs`     | qa+FluentQA-observer@fluent.local   | Fluent QA                 | Org Member only                                                        |
+| `qa-om`      | qa+fluentqa-om@fluent.local         | Fluent QA                 | Org Manager                                                            |
+| `qa-pm`      | qa+fluentqa-pm@fluent.local         | Fluent QA                 | Org Member only — PM is project-scoped and granted via the UI in QA    |
+| `qa-t1`      | qa+fluentqa-translator@fluent.local | Fluent QA                 | Org Member only                                                        |
+| `qa-t2`      | qa+fluentqa-translator2@fluent.local| Fluent QA                 | Org Member only                                                        |
+| `qa-obs`     | qa+fluentqa-observer@fluent.local   | Fluent QA                 | Org Member only                                                        |
 | `Chad White` | cwhite@gloo.us                      | —                         | **SuperAdmin (global)** — the only grant this user has                 |
 | `hi-om`      | cwhite+highland-om@gloo.us          | Highland                  | Org Manager                                                            |
 | `hi-pm`      | cwhite+highland-pm@gloo.us          | Highland + Rivertown      | Project Manager on **all 3 projects** — cross-org switcher demo        |

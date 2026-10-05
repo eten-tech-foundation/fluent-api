@@ -81,31 +81,31 @@ export const qaSpec: DemoSpec = {
     // ── Fluent QA — scratch org, no seeded projects ─────────────────────
     {
       key: 'qa-om',
-      email: 'qa+FluentQA-om@fluent.local',
+      email: 'qa+fluentqa-om@fluent.local',
       username: 'qa-om',
       orgs: [{ org: 'fluent-qa', roles: ['Org Manager'] }],
     },
     {
       key: 'qa-pm',
-      email: 'qa+FluentQA-pm@fluent.local',
+      email: 'qa+fluentqa-pm@fluent.local',
       username: 'qa-pm',
       orgs: [{ org: 'fluent-qa', roles: [] }],
     },
     {
       key: 'qa-t1',
-      email: 'qa+FluentQA-translator@fluent.local',
+      email: 'qa+fluentqa-translator@fluent.local',
       username: 'qa-t1',
       orgs: [{ org: 'fluent-qa', roles: [] }],
     },
     {
       key: 'qa-t2',
-      email: 'qa+FluentQA-translator2@fluent.local',
+      email: 'qa+fluentqa-translator2@fluent.local',
       username: 'qa-t2',
       orgs: [{ org: 'fluent-qa', roles: [] }],
     },
     {
       key: 'qa-obs',
-      email: 'qa+FluentQA-observer@fluent.local',
+      email: 'qa+fluentqa-observer@fluent.local',
       username: 'qa-obs',
       orgs: [{ org: 'fluent-qa', roles: [] }],
     },

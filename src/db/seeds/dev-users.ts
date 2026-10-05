@@ -1,5 +1,5 @@
 import { hashPassword } from 'better-auth/crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import crypto from 'node:crypto';
 
 import { db } from '@/db';
@@ -37,20 +37,25 @@ export async function reconcileSeedUser(
   const hashedPassword = input.passwordHash ?? (await hashPassword(input.password!));
   const authUserId = crypto.randomUUID();
 
+  // better-auth normalizes emails to lowercase on sign-up and sign-in
+  // (findUserByEmail compares against email.toLowerCase()) — seed lowercase
+  // and reconcile case-insensitively so stored rows always match the lookup.
+  const email = input.email.toLowerCase();
+
   let appUserId: number | null = null;
 
   await db.transaction(async (tx) => {
     // ── Resolve existing account or create a new one ─────────────────────
     const [existingAuthUser] = await tx
-      .select({ id: authUser.id })
+      .select({ id: authUser.id, email: authUser.email })
       .from(authUser)
-      .where(eq(authUser.email, input.email))
+      .where(sql`lower(${authUser.email}) = ${email}`)
       .limit(1);
 
     const [existingUserByEmail] = await tx
-      .select({ id: users.id, authUserId: users.authUserId })
+      .select({ id: users.id, authUserId: users.authUserId, email: users.email })
       .from(users)
-      .where(eq(users.email, input.email))
+      .where(sql`lower(${users.email}) = ${email}`)
       .limit(1);
 
     const [existingUserByUsername] = await tx
@@ -71,6 +76,21 @@ export async function reconcileSeedUser(
       appUserId = resolvedAppUser.id;
       const targetAuthUserId = existingAuthUser?.id ?? resolvedAppUser.authUserId;
 
+      // Email drift: converge stored casing to lowercase (sign-in would
+      // otherwise miss a mixed-case row forever).
+      if (existingAuthUser && existingAuthUser.email !== email) {
+        await tx
+          .update(authUser)
+          .set({ email, updatedAt: new Date() })
+          .where(eq(authUser.id, existingAuthUser.id));
+      }
+      if (resolvedAppUser.email !== email) {
+        await tx
+          .update(users)
+          .set({ email, updatedAt: new Date() })
+          .where(eq(users.id, resolvedAppUser.id));
+      }
+
       // Password rotation: update stored password hash on reconcile
       if (targetAuthUserId) {
         await tx
@@ -87,14 +107,14 @@ export async function reconcileSeedUser(
           );
       }
 
-      console.log(`User ${input.email} reconciled (roles & password updated).`);
+      console.log(`User ${email} reconciled (roles & password updated).`);
     } else if (existingUserByUsername) {
       console.log(`Skipping ${input.username} — username already taken by a different user.`);
     } else {
       // Create new account.
       await tx.insert(authUser).values({
         id: authUserId,
-        email: input.email,
+        email,
         name: input.username,
         emailVerified: true,
         createdAt: new Date(),
@@ -104,7 +124,7 @@ export async function reconcileSeedUser(
       await tx.insert(authAccount).values({
         id: crypto.randomUUID(),
         userId: authUserId,
-        accountId: input.email,
+        accountId: email,
         providerId: 'credential',
         password: hashedPassword,
         createdAt: new Date(),
@@ -115,7 +135,7 @@ export async function reconcileSeedUser(
         .insert(users)
         .values({
           username: input.username,
-          email: input.email,
+          email,
           firstName: input.firstName ?? input.username,
           lastName: input.lastName ?? null,
           status: 'verified',
@@ -127,7 +147,7 @@ export async function reconcileSeedUser(
         .returning({ id: users.id });
 
       appUserId = newUser.id;
-      console.log(`Created user: ${input.email}`);
+      console.log(`Created user: ${email}`);
     }
   });
 

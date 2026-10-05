@@ -23,6 +23,7 @@
     "prepare": "husky",
     "precheck": "npm run lint && npm run format:check && npm run typecheck && npm run test",
     "smoke:repeated-words": "tsx scripts/smoke-repeated-words.ts",
+    "db:seed": "npm run db:seed:org && npm run db:seed:roles && npm run db:seed:rbac && npm run db:seed:languages && npm run db:seed:books && npm run db:seed:bibles && npm run db:seed:bible-texts && npm run db:seed:pericope-sets && npm run db:seed:demo:local",
     "db:seed:rbac": "npx tsx src/db/seeds/rbac.ts",
     "db:seed:roles": "npx tsx src/db/seeds/roles.ts",
     "db:seed:org": "npx tsx src/db/seeds/organizations.ts",

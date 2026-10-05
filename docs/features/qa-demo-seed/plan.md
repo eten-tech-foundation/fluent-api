@@ -57,11 +57,11 @@ All accounts share one password → one shared `passwordHash` constant in the sp
 
 | Key          | Email                                | Org memberships     | Role grants                                                                                                                           |
 | ------------ | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `qa-om`      | qa+FluentQA-om@fluent.local          | fluent-qa           | Org Manager (org-scoped, fluent-qa) — this is the account that creates projects in Fluent QA                                          |
-| `qa-pm`      | qa+FluentQA-pm@fluent.local          | fluent-qa           | anchor only — PM is project-scoped and Fluent QA seeds no projects; QA assigns it via the real UI flow                                |
-| `qa-t1`      | qa+FluentQA-translator@fluent.local  | fluent-qa           | —                                                                                                                                     |
-| `qa-t2`      | qa+FluentQA-translator2@fluent.local | fluent-qa           | —                                                                                                                                     |
-| `qa-obs`     | qa+FluentQA-observer@fluent.local    | fluent-qa           | —                                                                                                                                     |
+| `qa-om`      | qa+fluentqa-om@fluent.local          | fluent-qa           | Org Manager (org-scoped, fluent-qa) — this is the account that creates projects in Fluent QA                                          |
+| `qa-pm`      | qa+fluentqa-pm@fluent.local          | fluent-qa           | anchor only — PM is project-scoped and Fluent QA seeds no projects; QA assigns it via the real UI flow                                |
+| `qa-t1`      | qa+fluentqa-translator@fluent.local  | fluent-qa           | —                                                                                                                                     |
+| `qa-t2`      | qa+fluentqa-translator2@fluent.local | fluent-qa           | —                                                                                                                                     |
+| `qa-obs`     | qa+fluentqa-observer@fluent.local    | fluent-qa           | —                                                                                                                                     |
 | `superadmin` | cwhite@gloo.us                       | none                | **SuperAdmin (global) — only grant this user has**                                                                                    |
 | `hi-om`      | cwhite+highland-om@gloo.us           | highland            | Org Manager (highland)                                                                                                                |
 | `hi-pm`      | cwhite+highland-pm@gloo.us           | highland, rivertown | Project Manager project-scoped on both highland projects **and** on rivertown's project — cross-org account for the org-switcher demo |
