@@ -20,12 +20,18 @@ export const QUEUE_NAMES = {
   AI_SUGGESTIONS: 'ai-suggestions',
   DBL_INGEST_TEXT: 'dbl-ingest-text',
   DBL_INGEST_TEXT_PRIORITY: 'dbl-ingest-text-priority',
+  USFM_IMPORT_MATERIALIZE: 'usfm-import-materialize',
 } as const;
 
 export type DblIngestTextJob = {
   bibleId: number;
   bookCodes: string[];
 } & ({ projectId: number; projectUnitId?: number } | { projectUnitId: number; projectId?: number });
+
+export interface UsfmImportMaterializeJob {
+  bibleId: number;
+  bookId: number;
+}
 
 export interface USFMExportJob {
   projectUnitId: number;
@@ -41,6 +47,9 @@ export interface AiSuggestionTriggerJob {
   chapterNumber: number;
   verseStart: number;
   verseEnd: number;
+  /** Presence selects a heading-only job; scripture jobs omit these fields. */
+  pericopeNumber?: string;
+  pericopeSetId?: number;
 }
 
 /**

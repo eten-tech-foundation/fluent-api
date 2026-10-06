@@ -68,4 +68,10 @@ describe('chapter assignment USFM conversion', () => {
       expect.objectContaining({ marker: 'mt', content: [expect.stringMatching(/^Gênesis\s*$/)] })
     );
   });
+  it.each([
+    '\\id GEN\n\\c nope\n\\p\n\\v 1 Text.',
+    '\\id GEN\n\\c 1\n\\p\n\\v 1 Text.\\f + \\ft Unclosed note.',
+  ])('rejects malformed input when the grammar reports an error', (usfm) => {
+    expect(convertUSFMToUSJ(usfm)).toMatchObject({ ok: false, error: { code: 'USFM_INVALID' } });
+  });
 });

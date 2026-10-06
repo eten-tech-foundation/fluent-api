@@ -1,10 +1,12 @@
 import type { PericopeGroup, PericopeVerseRow } from './pericopes.types';
 
+import { getPericopeGroupNumber } from './pericopes.types';
+
 // Rows must belong to one book and be ordered by chapter and verse.
 export function groupPericopeVerses(rows: PericopeVerseRow[]): PericopeGroup[] {
   const groups = new Map<string, PericopeGroup>();
   for (const row of rows) {
-    const key = row.section !== null ? `${row.section}_${row.pericopeNumber}` : row.pericopeNumber;
+    const key = getPericopeGroupNumber(row);
     if (!groups.has(key)) {
       groups.set(key, {
         pericopeNumber: key,
