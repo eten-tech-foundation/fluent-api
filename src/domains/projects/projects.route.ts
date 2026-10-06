@@ -240,7 +240,9 @@ server.openapi(createProjectRoute, async (c) => {
       createdBy: currentUser.id,
     });
     if (!grantResult.ok) {
-      const deleteResult = await projectService.deleteProject(result.data.id);
+      const deleteResult = await projectService.deleteProject(result.data.id, {
+        cascadeUnits: true,
+      });
       const message = deleteResult.ok
         ? 'Project created but failed to assign creator role. Rolled back.'
         : `Project created but failed to assign creator role, and rollback failed: ${deleteResult.error.message}`;

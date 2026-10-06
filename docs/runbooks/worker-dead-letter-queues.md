@@ -36,10 +36,29 @@ jobs in that queue remain visible to the monitor. Sources without a destination
 use `<name>-dlq`. The destination is created or updated before enabling routing.
 Export and AI retry settings stay at three retries with 60-second exponential
 backoff. DBL queues keep their current retry settings (pg-boss defaults for new
-queues).
+queues). `usfm-import-materialize` retries reconciliation ten times with
+60-second exponential backoff, then retains the job in its dead-letter queue
+for inspection and replay. Replaying it does not fetch source Bible text again.
+
+The USFM import recovery sweep runs at worker startup and every 60 seconds. It
+recovers pending imports whose initial enqueue failed, but skips each Bible/book
+pair with a queued/running materialization job or a retained entry in the source
+queue's configured DLQ. This also applies after worker restarts. Other Bible/book
+pairs continue normally. A failed queue inspection skips that sweep and retries
+on the next interval; it never assumes an unreadable DLQ is empty.
+
+After fixing the cause, an operator can replay the selected source job or enqueue
+the reviewed payload, verify that the import completed, and then resolve the
+retained failure as described below. The recovery sweep does not consume or remove
+DLQ entries. If the import is still pending when an operator removes its retained
+entry, or when pg-boss maintenance removes it after its retention expires, the
+next sweep can start one more normal retry cycle. New DLQ entries retain the
+existing minimum of 30 days; this is a cooldown based on retained evidence, not a
+permanent attempt counter.
 
 This applies to `usfm-export`, `ai-suggestions` (formerly
-`ai-suggestion-trigger`), both `dbl-ingest-text` queues, and `dbl-sync` when its
+`ai-suggestion-trigger`), `usfm-import-materialize`, both `dbl-ingest-text`
+queues, and `dbl-sync` when its
 optional worker is registered. This change does not enable the DBL sync worker or
 add a schedule. The monitor discovers all configured dead-letter targets plus
 all existing `*-dlq` queues, including orphaned legacy queues. Future queues using

@@ -12,6 +12,7 @@ import {
   chapter_assignments,
   chapterStatusEnum,
   project_unit_bible_books,
+  project_unit_usfm_imports,
   project_units,
   projects,
   translated_verses,
@@ -295,6 +296,18 @@ export async function moveBookToMilestone(
       and(
         eq(ai_suggestion_usage_log.projectUnitId, currentMilestoneId),
         inArray(ai_suggestion_usage_log.bibleTextId, bibleTextIdsForBook)
+      )
+    );
+
+  // 7. Keep pending materialization and the original USFM file with the book.
+  // A destination conflict must roll back the whole move rather than discard either import.
+  await tx
+    .update(project_unit_usfm_imports)
+    .set({ projectUnitId: targetMilestoneId })
+    .where(
+      and(
+        eq(project_unit_usfm_imports.projectUnitId, currentMilestoneId),
+        eq(project_unit_usfm_imports.bookId, bookId)
       )
     );
 }

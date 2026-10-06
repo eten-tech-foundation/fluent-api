@@ -1,11 +1,14 @@
-import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
+  bible_books,
   chapter_assignments,
   chapterStatusEnum,
+  project_unit_bible_books,
+  project_unit_usfm_imports,
   project_units,
   projects,
   roles,
@@ -273,4 +276,133 @@ export async function lockProjectById(id: number, tx: DbTransaction): Promise<bo
   const res = await tx.execute(sql`SELECT id FROM ${projects} WHERE id = ${id} FOR UPDATE`);
   if (Array.isArray(res)) return res.length > 0;
   return ((res as any).rows?.length ?? 0) > 0;
+}
+
+export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
+  const rows = await db
+    .select({ bookId: bible_books.bookId })
+    .from(bible_books)
+    .where(eq(bible_books.bibleId, bibleId));
+  return rows.map((r) => r.bookId);
+}
+
+export async function insertProjectUnitRecord(
+  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
+  tx: DbTransaction
+) {
+  const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
+  return projectUnit;
+}
+
+export async function insertBibleBookLinks(
+  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
+  tx: DbTransaction
+) {
+  if (bibleBookEntries.length > 0) {
+    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
+  }
+}
+
+// ─── Imported USFM (#419) ─────────────────────────────────────────────────────
+
+export async function insertUsfmImports(
+  rows: { projectUnitId: number; bookId: number; fileName: string; usfm: string }[],
+  tx: DbTransaction
+) {
+  if (rows.length > 0) {
+    await tx.insert(project_unit_usfm_imports).values(rows);
+  }
+}
+
+/** Imports whose verses have not been attached to source text yet, for the given books. */
+export async function getPendingUsfmImports(projectUnitId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .where(
+      and(
+        eq(project_unit_usfm_imports.projectUnitId, projectUnitId),
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+/**
+ * The same pending imports, for every project unit waiting on these books of this Bible rather
+ * than for one project. A completed book finishes all of them at once, so a project whose own
+ * ingestion job never ran is not left waiting on it forever. The join keeps a project unit that
+ * imported the same book against a different Bible out: its verses belong to that Bible's text.
+ */
+export async function getPendingUsfmImportsForBible(bibleId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId),
+        eq(project_unit_bible_books.bibleId, bibleId)
+      )
+    )
+    .where(
+      and(
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+export async function markUsfmImportMaterialized(
+  id: number,
+  executor: DbTransaction | typeof db = db
+) {
+  await executor
+    .update(project_unit_usfm_imports)
+    .set({ materializedAt: new Date() })
+    .where(eq(project_unit_usfm_imports.id, id));
+}
+
+/** Pending rows are durable retry intents, even when their original queue send failed. */
+export async function getUsfmImportsReadyForMaterialization() {
+  return db
+    .selectDistinct({
+      bibleId: project_unit_bible_books.bibleId,
+      bookId: project_unit_usfm_imports.bookId,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .innerJoin(
+      bible_books,
+      and(
+        eq(bible_books.bibleId, project_unit_bible_books.bibleId),
+        eq(bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .where(
+      and(
+        isNull(project_unit_usfm_imports.materializedAt),
+        isNull(project_unit_bible_books.deletedAt),
+        isNotNull(bible_books.textIngestedAt)
+      )
+    );
 }
