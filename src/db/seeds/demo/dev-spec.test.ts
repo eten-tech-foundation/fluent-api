@@ -19,13 +19,9 @@ describe('devSpec', () => {
 
   it('gives the PM a project-scoped Project Manager grant and translators project-scoped Translator grants', () => {
     const [pm, t1, t2] = spec.users;
-    expect(pm.projectRoles).toEqual([
-      { project: 'guj-gen-exo', role: 'Project Manager' },
-    ]);
+    expect(pm.projectRoles).toEqual([{ project: 'guj-gen-exo', role: 'Project Manager' }]);
     for (const t of [t1, t2]) {
-      expect(t.projectRoles).toEqual([
-        { project: 'guj-gen-exo', role: 'Project Translator' },
-      ]);
+      expect(t.projectRoles).toEqual([{ project: 'guj-gen-exo', role: 'Project Translator' }]);
     }
     // Every spec user is a member of the Fluent Dev org (anchor added by the engine).
     for (const u of spec.users) {
@@ -62,9 +58,7 @@ describe('devSpec', () => {
     expect(gen.chapters).toHaveLength(50);
     expect(exo.chapters).toHaveLength(40);
     const all = [...gen.chapters, ...exo.chapters];
-    expect(new Set(all.map((c) => c.status))).toEqual(
-      new Set(['complete', 'peer_check', 'draft'])
-    );
+    expect(new Set(all.map((c) => c.status))).toEqual(new Set(['complete', 'peer_check', 'draft']));
     expect(all.every((c) => c.assignedTo === 'translator' || c.assignedTo === 'translator2')).toBe(
       true
     );

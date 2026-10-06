@@ -174,7 +174,7 @@ describe('qaSpec', () => {
     }
   });
 
-  it('numbers every book\'s chapters 1..N contiguously', () => {
+  it("numbers every book's chapters 1..N contiguously", () => {
     for (const project of qaSpec.projects) {
       for (const milestone of project.milestones) {
         for (const book of milestone.books) {

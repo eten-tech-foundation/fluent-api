@@ -127,7 +127,9 @@ async function seedSpecLanguages(ctx: Ctx) {
   }
   const missing = [...codes].filter((c) => !ctx.languages.has(c));
   if (missing.length) {
-    throw new Error(`Unknown language codes: ${missing.join(', ')} — not in spec or reference data`);
+    throw new Error(
+      `Unknown language codes: ${missing.join(', ')} — not in spec or reference data`
+    );
   }
 }
 
@@ -246,9 +248,7 @@ async function seedSpecUsers(ctx: Ctx) {
 
     // Org-scoped + global grants now; project-scoped grants wait for stage 8.
     const grantedBy = (actorKey ? ctx.users.get(actorKey) : undefined) ?? appUserId;
-    const userGrants = ctx.grantPlan.filter(
-      (g) => g.userKey === user.key && g.projectKey === null
-    );
+    const userGrants = ctx.grantPlan.filter((g) => g.userKey === user.key && g.projectKey === null);
     await applyGrants(ctx, appUserId, userGrants, grantedBy);
   }
 }
@@ -313,16 +313,21 @@ async function seedSpecProjects(ctx: Ctx) {
     let pericopeSetId: number | null = null;
     if (project.pericopeSet) {
       if (!ctx.pericopeSets.size) {
-        const rows = await db.select({ id: pericope_sets.id, name: pericope_sets.name }).from(pericope_sets);
+        const rows = await db
+          .select({ id: pericope_sets.id, name: pericope_sets.name })
+          .from(pericope_sets);
         for (const r of rows) ctx.pericopeSets.set(r.name, r.id);
       }
       pericopeSetId = ctx.pericopeSets.get(project.pericopeSet) ?? null;
       if (!pericopeSetId) {
-        throw new Error(`Project "${project.key}" references unknown pericope set "${project.pericopeSet}" — run db:seed:pericope-sets first`);
+        throw new Error(
+          `Project "${project.key}" references unknown pericope set "${project.pericopeSet}" — run db:seed:pericope-sets first`
+        );
       }
     }
 
-    const creatorKey = pmKeyFor(project) ?? orgManagerKey(ctx.spec, project.org) ?? globalActorKey(ctx.spec);
+    const creatorKey =
+      pmKeyFor(project) ?? orgManagerKey(ctx.spec, project.org) ?? globalActorKey(ctx.spec);
     const createdBy = creatorKey ? (ctx.users.get(creatorKey) ?? null) : null;
 
     const [existing] = await db
@@ -427,7 +432,9 @@ async function seedSpecBookLinks(ctx: Ctx) {
           .limit(1);
 
         if (!link) {
-          await db.insert(project_unit_bible_books).values({ projectUnitId: unitId, bibleId, bookId });
+          await db
+            .insert(project_unit_bible_books)
+            .values({ projectUnitId: unitId, bibleId, bookId });
         } else if (link.deletedAt || link.bibleId !== bibleId) {
           // Restore soft-deleted links rather than inserting a duplicate —
           // mirrors createMilestone's move-back semantics — and reconcile a
@@ -475,11 +482,15 @@ async function seedSpecChapterAssignments(ctx: Ctx) {
         for (const ch of book.chapters) {
           const assignedUserId = ch.assignedTo ? ctx.users.get(ch.assignedTo) : null;
           if (ch.assignedTo && !assignedUserId) {
-            throw new Error(`Chapter ${book.code} ${ch.number} assigned to unknown user "${ch.assignedTo}"`);
+            throw new Error(
+              `Chapter ${book.code} ${ch.number} assigned to unknown user "${ch.assignedTo}"`
+            );
           }
           const peerCheckerId = ch.peerChecker ? ctx.users.get(ch.peerChecker) : null;
           if (ch.peerChecker && !peerCheckerId) {
-            throw new Error(`Chapter ${book.code} ${ch.number} peer-checked by unknown user "${ch.peerChecker}"`);
+            throw new Error(
+              `Chapter ${book.code} ${ch.number} peer-checked by unknown user "${ch.peerChecker}"`
+            );
           }
 
           const row = byChapter.get(ch.number);
@@ -506,7 +517,9 @@ async function seedSpecChapterAssignments(ctx: Ctx) {
             const assignmentHistory = [
               { userId: assignedUserId, role: 'drafter' as const },
               { userId: peerCheckerId, role: 'peer_checker' as const },
-            ].filter((h): h is { userId: number; role: 'drafter' | 'peer_checker' } => h.userId != null);
+            ].filter(
+              (h): h is { userId: number; role: 'drafter' | 'peer_checker' } => h.userId != null
+            );
             if (assignmentHistory.length) {
               await db.insert(chapter_assignment_assigned_user_history).values(
                 assignmentHistory.map((h) => ({
@@ -530,7 +543,10 @@ async function seedSpecChapterAssignments(ctx: Ctx) {
               drifted.isAiEnabled = ch.isAiEnabled ?? false;
             }
             if (Object.keys(drifted).length) {
-              await db.update(chapter_assignments).set(drifted).where(eq(chapter_assignments.id, row.id));
+              await db
+                .update(chapter_assignments)
+                .set(drifted)
+                .where(eq(chapter_assignments.id, row.id));
               const effectiveStatus = drifted.status ?? row.status;
               if (drifted.status) {
                 await db.insert(chapter_assignment_status_history).values({
@@ -541,7 +557,9 @@ async function seedSpecChapterAssignments(ctx: Ctx) {
               const reassigned = [
                 { userId: drifted.assignedUserId, role: 'drafter' as const },
                 { userId: drifted.peerCheckerId, role: 'peer_checker' as const },
-              ].filter((h): h is { userId: number; role: 'drafter' | 'peer_checker' } => h.userId != null);
+              ].filter(
+                (h): h is { userId: number; role: 'drafter' | 'peer_checker' } => h.userId != null
+              );
               if (reassigned.length) {
                 await db.insert(chapter_assignment_assigned_user_history).values(
                   reassigned.map((h) => ({
