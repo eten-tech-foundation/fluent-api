@@ -61,9 +61,19 @@ describe('buildGrantPlan', () => {
 
   it('gives every org member the Org Member anchor automatically', () => {
     const pm = grantsFor('pm');
-    expect(pm).toContainEqual({ userKey: 'pm', roleName: 'Org Member', orgKey: 'org-a', projectKey: null });
+    expect(pm).toContainEqual({
+      userKey: 'pm',
+      roleName: 'Org Member',
+      orgKey: 'org-a',
+      projectKey: null,
+    });
     const om = grantsFor('om');
-    expect(om).toContainEqual({ userKey: 'om', roleName: 'Org Member', orgKey: 'org-a', projectKey: null });
+    expect(om).toContainEqual({
+      userKey: 'om',
+      roleName: 'Org Member',
+      orgKey: 'org-a',
+      projectKey: null,
+    });
     // anchor is not duplicated when declared explicitly
     expect(om.filter((g) => g.roleName === 'Org Member')).toHaveLength(1);
   });
@@ -77,7 +87,7 @@ describe('buildGrantPlan', () => {
     });
   });
 
-  it('scopes project roles to the project AND the project\'s org — never the user\'s membership org', () => {
+  it("scopes project roles to the project AND the project's org — never the user's membership org", () => {
     const pm = grantsFor('pm');
     expect(pm).toContainEqual({
       userKey: 'pm',
@@ -109,7 +119,9 @@ describe('buildGrantPlan', () => {
 describe('isStaleProjectRoleGrant', () => {
   it('flags project-level roles sitting at org scope (projectId null)', () => {
     expect(isStaleProjectRoleGrant({ roleName: 'Project Manager', projectKey: null })).toBe(true);
-    expect(isStaleProjectRoleGrant({ roleName: 'Project Translator', projectKey: null })).toBe(true);
+    expect(isStaleProjectRoleGrant({ roleName: 'Project Translator', projectKey: null })).toBe(
+      true
+    );
     expect(isStaleProjectRoleGrant({ roleName: 'Project Observer', projectKey: null })).toBe(true);
   });
 

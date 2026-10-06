@@ -28,9 +28,7 @@ export interface ReconcileSeedUserInput {
  * (username taken by a different account, or auth_user exists without a
  * matching users row).
  */
-export async function reconcileSeedUser(
-  input: ReconcileSeedUserInput
-): Promise<number | null> {
+export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<number | null> {
   if (!input.password && !input.passwordHash) {
     throw new Error(`Seed user ${input.email} has neither password nor passwordHash.`);
   }
@@ -100,10 +98,7 @@ export async function reconcileSeedUser(
             updatedAt: new Date(),
           })
           .where(
-            and(
-              eq(authAccount.userId, targetAuthUserId),
-              eq(authAccount.providerId, 'credential')
-            )
+            and(eq(authAccount.userId, targetAuthUserId), eq(authAccount.providerId, 'credential'))
           );
       }
 

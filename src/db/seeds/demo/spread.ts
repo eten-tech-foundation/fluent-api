@@ -24,17 +24,13 @@ export function spread(
 ): DemoChapter[] {
   const total = statuses.reduce((sum, s) => sum + s.count, 0);
   if (total !== chapterCount) {
-    throw new Error(
-      `spread(): status counts sum to ${total}, but chapterCount is ${chapterCount}`
-    );
+    throw new Error(`spread(): status counts sum to ${total}, but chapterCount is ${chapterCount}`);
   }
   if (users.length === 0) {
     throw new Error('spread(): at least one assignee is required');
   }
 
-  const expanded = statuses.flatMap((s) =>
-    Array.from({ length: s.count }, () => s.status)
-  );
+  const expanded = statuses.flatMap((s) => Array.from({ length: s.count }, () => s.status));
 
   return expanded.map((status, i) => {
     const assignedTo = users[i % users.length];
