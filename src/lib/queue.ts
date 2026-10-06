@@ -13,6 +13,9 @@ let queueReady = false;
 /** Retry delay between queue init attempts when the database is unreachable. */
 const QUEUE_INIT_RETRY_DELAY_MS = 5_000;
 
+/** How long shutdown waits for an in-flight queue start to settle before giving up. */
+const QUEUE_INIT_SHUTDOWN_GRACE_MS = 10_000;
+
 // Dead-letter destinations are not listed here: deadLetterQueueName() derives
 // them from the source name, so there is a single spelling of each.
 export const QUEUE_NAMES = {
@@ -121,6 +124,11 @@ export async function initializeQueueWithRetry(isStopped: () => boolean): Promis
       const instance = await initializeQueue();
       await ensureExportQueues(instance);
       await ensureAiSuggestionQueue(instance);
+      // Shutdown may have begun while the ensures were in flight — stopQueue()
+      // already cleared readiness, so don't resurrect it on a stopping queue.
+      if (isStopped()) {
+        return null;
+      }
       queueReady = true;
       logger.info('Queue ready');
       return instance;
@@ -184,6 +192,19 @@ export async function getQueue(): Promise<PgBoss> {
 
 export async function stopQueue(): Promise<void> {
   queueReady = false;
+
+  // If shutdown lands while initializeQueue() is still inside start(), `boss`
+  // is not yet assigned — wait briefly so the instance it is about to publish
+  // is stopped rather than orphaned. Past the grace period the exiting process
+  // reaps it anyway.
+  if (!boss && initPromise) {
+    const pending = initPromise;
+    await Promise.race([
+      pending.catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, QUEUE_INIT_SHUTDOWN_GRACE_MS)),
+    ]);
+  }
+
   if (boss) {
     await boss.stop({ graceful: true, timeout: 30000 });
     boss = null;
