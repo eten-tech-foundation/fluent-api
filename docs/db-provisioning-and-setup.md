@@ -91,7 +91,7 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 | File Path                        | Status       | Purpose & Usage                                                                                                                           |
 | -------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/db/env-configs/types.ts`    | `[NEW]`      | TypeScript interfaces defining `EnvConfig` (including its `demoSpec` slot) and `DbProvisionConfig`.                                       |
-| `src/db/scripts/provision-db.ts` | `[NEW]`      | One-time superuser DDL script for database role creation, user upserts, schema creation, and default privileges.                          |
+| `src/db/scripts/provision-db.ts` | `[NEW]`      | One-time superuser DDL script for database role creation, user reconciles, schema creation, and default privileges.                          |
 | `src/db/scripts/setup.ts`        | `[MODIFIED]` | Environment-aware setup orchestrator (`SETUP_ENV=local/dev/qa`), dynamic `DATABASE_URL` resolution, and Drizzle migration runner.         |
 | `src/db/seeds/demo/`           | `[NEW]`      | Declarative demo-seed engine (`seedDemoSpec`) plus per-env specs (`qa-spec.ts`, `dev-spec.ts`) — reconciles orgs, users, grants, projects, milestones, and chapter assignments idempotently. |
 | `src/db/seeds/dev-users.ts`    | `[MODIFIED]` | Shared `reconcileSeedUser` writer used by the demo seed engine (plaintext or committed-hash credentials).                                  |

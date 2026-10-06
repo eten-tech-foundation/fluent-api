@@ -59,27 +59,18 @@ import postgres from 'postgres';
 
 import type { DbProvisionConfig, EnvConfig } from '@/db/env-configs/types';
 
+import { databaseNameFromUrl, maskDatabaseUrl } from '@/db/env-configs/database-url';
+import { ident, literal } from '@/db/scripts/sql-helpers';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 type Sql = postgres.Sql;
-
-/** Returns a server-side-quoted identifier (safe against injection). */
-async function ident(sql: Sql, name: string): Promise<string> {
-  const [row] = await sql`SELECT quote_ident(${name}) AS q`;
-  return row.q as string;
-}
-
-/** Returns a server-side-quoted string literal (safe against injection). */
-async function literal(sql: Sql, value: string): Promise<string> {
-  const [row] = await sql`SELECT quote_literal(${value}) AS q`;
-  return row.q as string;
-}
 
 /** CREATE or ALTER a role with LOGIN, a specific password, and only the requested extra options.
  *  On ALTER, elevated attributes manageable by a CREATEROLE admin (CREATEDB, CREATEROLE) are
  *  explicitly cleared unless requested in extraOptions. Superuser attributes (SUPERUSER, REPLICATION,
  *  BYPASSRLS) are omitted so non-superuser admins (like Azure's azure_pg_admin) can re-run safely. Idempotent. */
-async function upsertLoginRole(sql: Sql, roleName: string, password: string, extraOptions = '') {
+async function reconcileLoginRole(sql: Sql, roleName: string, password: string, extraOptions = '') {
   const roleIdent = await ident(sql, roleName);
   const pwLiteral = await literal(sql, password);
   const [row] =
@@ -120,10 +111,10 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
 
     // ── 1. Login users ──────────────────────────────────────────────────────
     console.log('\n[1/5] Creating login users...');
-    await upsertLoginRole(sql, 'api_migrator', cfg.apiMigratorPassword);
-    await upsertLoginRole(sql, 'api_user', cfg.apiUserPassword);
-    await upsertLoginRole(sql, 'ai_migrator', cfg.aiMigratorPassword);
-    await upsertLoginRole(sql, 'ai_user', cfg.aiUserPassword);
+    await reconcileLoginRole(sql, 'api_migrator', cfg.apiMigratorPassword);
+    await reconcileLoginRole(sql, 'api_user', cfg.apiUserPassword);
+    await reconcileLoginRole(sql, 'ai_migrator', cfg.aiMigratorPassword);
+    await reconcileLoginRole(sql, 'ai_user', cfg.aiUserPassword);
 
     // Grant migrators to the connecting bootstrap user (e.g. azure_pg_admin)
     // so ALTER DEFAULT PRIVILEGES FOR ROLE <role> succeeds on non-superuser hosts (like Azure Flexible Server).
@@ -131,6 +122,9 @@ async function provision(cfg: DbProvisionConfig, dbName: string) {
     const bootstrapUser = currUserRow.u as string;
     await grantRole(sql, 'api_migrator', bootstrapUser);
     await grantRole(sql, 'ai_migrator', bootstrapUser);
+    // api_migrator needs membership in api_user so db:reset can DROP and
+    // recreate the api_user-owned pgboss schema (and re-authorize it back).
+    await grantRole(sql, 'api_user', 'api_migrator');
     console.log('  Done.');
 
     // ── 2. Schemas ─────────────────────────────────────────────────────────
@@ -352,14 +346,13 @@ async function main() {
   };
 
   // Derive the database name from the bootstrapDatabaseUrl
-  const url = new URL(provisionConfig.bootstrapDatabaseUrl);
-  const dbName = decodeURIComponent(url.pathname.slice(1));
+  const dbName = databaseNameFromUrl(provisionConfig.bootstrapDatabaseUrl);
 
   console.log('╔═══════════════════════════════════════╗');
   console.log(`║  Fluent DB Provision — ${config.label.padEnd(15)}║`);
   console.log('╚═══════════════════════════════════════╝');
   console.log(`\nTarget database : ${dbName}`);
-  const masked = provisionConfig.bootstrapDatabaseUrl.replace(/:([^@]+)@/, ':****@');
+  const masked = maskDatabaseUrl(provisionConfig.bootstrapDatabaseUrl);
   console.log(`Bootstrap URL   : ${masked}\n`);
 
   await provision(provisionConfig, dbName);
