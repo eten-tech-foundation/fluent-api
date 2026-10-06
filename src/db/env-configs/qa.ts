@@ -2,7 +2,7 @@
  * env-configs/qa.ts
  * ─────────────────────────────────────────────────────────────────────────────
  * Configuration for the QA / Staging environment (Azure Flexible Server).
- * Seeds the full deterministic demo world — 4 orgs, 17 users, 3 projects —
+ * Seeds the full deterministic demo world — 4 orgs, 18 users, 3 projects —
  * where every account shares one committed password hash (`qaSpec`).
  *
  * HOW TO USE:

@@ -31,8 +31,8 @@ describe('qaSpec', () => {
     ]);
   });
 
-  it('seeds 17 users, all sharing the committed hash — no plaintext anywhere', () => {
-    expect(qaSpec.users).toHaveLength(17);
+  it('seeds 18 users, all sharing the committed hash — no plaintext anywhere', () => {
+    expect(qaSpec.users).toHaveLength(18);
     expect(qaSpec.passwordHash).toBe(QA_DEMO_PASSWORD_HASH);
     // better-auth scrypt format: <hex salt>:<hex hash>
     expect(QA_DEMO_PASSWORD_HASH).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
@@ -42,17 +42,20 @@ describe('qaSpec', () => {
     }
   });
 
-  it('gives superadmin exactly one global grant and nothing else', () => {
-    const plan = buildGrantPlan(qaSpec);
-    expect(plan.filter((g) => g.userKey === 'superadmin')).toEqual([
-      { userKey: 'superadmin', roleName: 'SuperAdmin', orgKey: null, projectKey: null },
-    ]);
-    expect(qaSpec.users.find((u) => u.key === 'superadmin')?.orgs ?? []).toHaveLength(0);
-  });
+  it.each(['superadmin', 'qa-sa'])(
+    'gives %s exactly one global grant and nothing else',
+    (key) => {
+      const plan = buildGrantPlan(qaSpec);
+      expect(plan.filter((g) => g.userKey === key)).toEqual([
+        { userKey: key, roleName: 'SuperAdmin', orgKey: null, projectKey: null },
+      ]);
+      expect(qaSpec.users.find((u) => u.key === key)?.orgs ?? []).toHaveLength(0);
+    }
+  );
 
   it('anchors every non-superadmin user with Org Member per declared org', () => {
     const plan = buildGrantPlan(qaSpec);
-    for (const user of qaSpec.users.filter((u) => u.key !== 'superadmin')) {
+    for (const user of qaSpec.users.filter((u) => !u.globalRoles?.includes('SuperAdmin'))) {
       for (const entry of user.orgs ?? []) {
         expect(plan).toContainEqual({
           userKey: user.key,
@@ -204,7 +207,7 @@ describe('qaSpec', () => {
     }
   });
 
-  it('upserts the demo languages and bibles with book links', () => {
+  it('reconciles the demo languages and bibles with book links', () => {
     const languageCodes = (qaSpec.languages?.map((l) => l.code) ?? []).sort();
     expect(languageCodes).toEqual(['gjk', 'nya', 'wol']);
     const bibles = Object.fromEntries((qaSpec.bibles ?? []).map((b) => [b.abbreviation, b]));

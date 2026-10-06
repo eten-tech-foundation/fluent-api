@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give the QA (staging) environment a one-command, deterministic reset: drop all application data, re-run migrations, and reseed a fixed demo world — 4 organizations, 17 user accounts, 3 projects holding 4 milestones with chapter assignments spread across every workflow phase — where every account logs in with a known password that requires **zero manual setup**. The same reset script also serves `dev`, and the same seed engine brings **dev and local** onto the correct grant model (project-level roles pinned to projects, not the org).
+**Goal:** Give the QA (staging) environment a one-command, deterministic reset: drop all application data, re-run migrations, and reseed a fixed demo world — 4 organizations, 18 user accounts, 3 projects holding 4 milestones with chapter assignments spread across every workflow phase — where every account logs in with a known password that requires **zero manual setup**. The same reset script also serves `dev`, and the same seed engine brings **dev and local** onto the correct grant model (project-level roles pinned to projects, not the org).
 
 **Architecture:** A new `reset-db.ts` script drops/recreates the `public`, `drizzle`, and `pgboss` schemas (as `api_migrator` via `MIGRATIONS_DATABASE_URL`) behind an interactive confirmation, then shells out to the existing `setup.ts` so the entire seed pipeline is reused unchanged. Demo/demo-adjacent content lives in a declarative spec format (`DemoSpec`) interpreted by a shared engine (`src/db/seeds/demo/`): `qa.ts` gets the full QA spec; `dev.ts` and `local.ts` get a small spec (a single project on the already-seeded IRV Gujarati bible, so dev/local get real source text with zero new data files). `setup.ts` calls the engine when the env-config provides a `demoSpec`. Passwords: QA uses a committed better-auth hash string (generated offline via a new `db:hash-password` utility — no plaintext in repo, no env vars, no post-seed `db:set-password`); dev keeps its env-var plaintext model (`DEV_PM_*`/`DEV_SEED_PASSWORD`); local keeps committed plaintext.
 
@@ -19,9 +19,9 @@
 - **Reset is destructive and manual-only** — `db:reset:*` must print the target host + database name and require the operator to type the database name to proceed. No `--yes`/`--force` flag (CI does not use this command).
 - **`SETUP_ENV` guard** — `reset-db.ts` accepts only `dev` and `qa`. Local Docker resets happen via `docker compose down -v`, not this script.
 - **The `ai` schema is never dropped** — it belongs to the AI service (`ai_migrator`/`ai_user`), is outside the API's seed concern, and `setup.ts` does not populate it.
-- **All demo seed writes are idempotent upserts** — the demo seed must be safe to run standalone (`db:seed:demo:<env>`) against a populated DB without duplicating rows, even though the primary path is post-reset.
+- **All demo seed writes reconcile idempotently** — the demo seed must be safe to run standalone (`db:seed:demo:<env>`) against a populated DB without duplicating rows, even though the primary path is post-reset.
 - **Specs mirror the post-milestone hierarchy** — Project → Milestones (`project_units` rows, with `name`/`type`/`status`) → book links (`project_unit_bible_books`, `deletedAt`-aware) → Chapter Assignments (`projectUnitId` + `bibleId` + `bookId` + `chapterNumber`). Book membership is project-wide unique: one book can be actively linked to only one milestone per project.
-- **Reference data stays env-neutral** — `languages.json`, `books.json`, `bible-texts.json`, and the IRV bible seed are unchanged. Demo-specific reference rows (`nya`, `wol`, BSB, WEB) are upserted by the demo seed, not added to the shared seed data files.
+- **Reference data stays env-neutral** — `languages.json`, `books.json`, `bible-texts.json`, and the IRV bible seed are unchanged. Demo-specific reference rows (`nya`, `wol`, BSB, WEB) are reconciled by the demo seed, not added to the shared seed data files.
 - **Grants mirror the real RBAC model** — `user_roles` scoping matches app behavior exactly, for every environment:
   - `Org Member` — org-scoped anchor (`orgId` set, `projectId` NULL); every org member has exactly one per org.
   - `Org Manager` — org-scoped (`orgId` set, `projectId` NULL). This is the only non-global grant that satisfies org-scoped permission checks like `project:create` (see `authorize.ts`'s `isGrantApplicable` — project-pinned grants never satisfy org-scoped checks).
@@ -34,7 +34,7 @@
 - Reset semantics: **full clean slate** — nothing created outside the seeds survives.
 - Credentials: one shared password for **all** QA accounts (`qa+*@fluent.local` and `cwhite+*@gloo.us`); committed hash; user generates the hash locally. Dev keeps env-var passwords; local keeps committed plaintext.
 - Grant pattern (applies to **all** environments' seeds): org membership = `Org Member` anchor; org-level roles = `Org Manager` org-scoped; project-level roles (PM/Translator/Observer) = project-scoped only.
-- SuperAdmin (`cwhite@gloo.us`) holds _only_ the global grant — no org/project roles anywhere.
+- Both SuperAdmins (`cwhite@gloo.us`, `qa+fluentqa-sa@fluent.local`) hold _only_ the global grant — no org/project roles anywhere.
 - Phase mapping (spec "five phases" → `chapter_status` enum): Drafting→`draft`, Peer Check→`peer_check`, Community Review→`community_review`, Advanced Checking→spread across `linguist_check`/`theological_check`/`consultant_check` (the web UI collapses these into one "Advanced Checks" segment with sub-segments), Complete→`complete`. `not_started` is used only where a chapter should visibly show as untouched.
 - Demo accounts (`cwhite+*@gloo.us`) are real deliverable plus-aliases — intentional, so invite/password-reset email flows can be demoed.
 - **Demo projects are seeded in the milestone-grouped shape** — project = language-level effort, books grouped into named milestones (the shape `db:consolidate:projects` would converge to anyway). The OBT milestone is `type='audio'`; all others `type='text'`.
@@ -51,7 +51,7 @@
 | `rivertown`    | Rivertown Translation Team       | Small/established; 1 project, 1 language pair, text-only           |
 | `new-horizons` | New Horizons Translation Project | Brand-new/blank; OM only, no projects — demos first-run/onboarding |
 
-### Users (17 rows)
+### Users (18 rows)
 
 All accounts share one password → one shared `passwordHash` constant in the spec.
 
@@ -63,6 +63,7 @@ All accounts share one password → one shared `passwordHash` constant in the sp
 | `qa-t2`      | qa+fluentqa-translator2@fluent.local | fluent-qa           | —                                                                                                                                     |
 | `qa-obs`     | qa+fluentqa-observer@fluent.local    | fluent-qa           | —                                                                                                                                     |
 | `superadmin` | cwhite@gloo.us                       | none                | **SuperAdmin (global) — only grant this user has**                                                                                    |
+| `qa-sa`      | qa+fluentqa-sa@fluent.local          | none                | **SuperAdmin (global) — only grant this user has**                                                                                    |
 | `hi-om`      | cwhite+highland-om@gloo.us           | highland            | Org Manager (highland)                                                                                                                |
 | `hi-pm`      | cwhite+highland-pm@gloo.us           | highland, rivertown | Project Manager project-scoped on both highland projects **and** on rivertown's project — cross-org account for the org-switcher demo |
 | `hi-t`       | cwhite+highland-translator@gloo.us   | highland            | Translator (project-scoped: `highland-nt`)                                                                                            |
@@ -75,7 +76,7 @@ All accounts share one password → one shared `passwordHash` constant in the sp
 | `rt-obs`     | cwhite+rivertown-observer@gloo.us    | rivertown           | Observer (project-scoped: `wolof-epistles`)                                                                                           |
 | `nh-om`      | cwhite+newhorizons-om@gloo.us        | new-horizons        | Org Manager (new-horizons)                                                                                                            |
 
-Every user except `superadmin` also gets the `Org Member` anchor grant per org membership (matches existing `dev-users.ts` convention). `users.status='verified'`, `authUser.emailVerified=true`, `createdBy` = the org's Org Manager where one exists (the realistic project-creating actor), else `superadmin`.
+Every user except the SuperAdmins also gets the `Org Member` anchor grant per org membership (matches existing `dev-users.ts` convention). `users.status='verified'`, `authUser.emailVerified=true`, `createdBy` = the org's Org Manager where one exists (the realistic project-creating actor), else `superadmin`.
 
 `users.username`/`auth_user.name` matches the spec key for every account except `superadmin`, whose display username is `Chad White`.
 
@@ -109,7 +110,7 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 - **James (5):** one chapter each of draft, peer_check, community_review, consultant_check, complete — all to `rt-t`.
 - Exact chapter→user/status lists are produced by a small deterministic `spread()` helper in `qa-spec.ts` (round-robin over statuses then users), not hand-enumerated — the counts above are the acceptance criteria.
 
-### Reference rows the demo seed upserts
+### Reference rows the demo seed reconciles
 
 - Languages: `nya` (Chichewa), `wol` (Wolof) — `onConflictDoNothing` on `langCodeIso6393`.
 - Bibles: `BSB` (Berean Standard Bible, eng) linked to MRK/JHN/JAS via `bible_books`; `WEB` (World English Bible, eng, `bibles.hasAudio=true`) linked to RUT/JON. `externalId` left NULL until the DBL ids are supplied (follow-on) — audio UI renders, playback degrades gracefully without it. **The `bible_books` links are required before milestone creation** — the app validates milestone bookIds against them (`getValidBookIdsForBible`).
@@ -141,9 +142,9 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 
 **Files:** Create `src/db/scripts/hash-password.ts`; Modify `package.json`
 
-- [ ] **Step 1:** Script reads `process.argv[2]`, calls `hashPassword` from `better-auth/crypto`, prints the hash. Usage line on missing arg. Mirror `set-password.ts` structure.
+- [ ] **Step 1:** Script reads the password from a hidden prompt (TTY) or stdin (piped) — never `process.argv`, which lands in shell history/process list — calls `hashPassword` from `better-auth/crypto`, prints the hash. Usage line on empty input.
 - [ ] **Step 2:** Add `"db:hash-password": "npx tsx src/db/scripts/hash-password.ts"` to package.json scripts.
-- [ ] **Step 3:** Verify: `npm run db:hash-password test123` prints a hash; paste output through `verifyPassword` in a `tsx -e` one-liner to confirm it verifies.
+- [ ] **Step 3:** Verify: `printf '%s' 'test123' | npm run db:hash-password` prints a hash (never pass the password via argv — shell history/process list); paste output through `verifyPassword` in a `tsx -e` one-liner to confirm it verifies.
 - [ ] **Step 4:** Hand to user — they run it on the real shared password and return only the hash string for Task 3's `QA_DEMO_PASSWORD_HASH` constant.
 
 ### Task 2: `db:reset:dev` / `db:reset:qa`
@@ -156,7 +157,7 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 - [ ] **Step 4:** As one postgres.js connection: `DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS pgboss CASCADE; CREATE SCHEMA public; CREATE SCHEMA pgboss AUTHORIZATION api_user;` — identifiers quoted server-side via `quote_ident` (same pattern as `provision-db.ts`). Do NOT touch `ai`.
 - [ ] **Step 5:** `execSync('npx tsx src/db/scripts/setup.ts', { env: { ...process.env, SETUP_ENV } })` — the existing setup pipeline (migrations + all seeds incl. demoSpec) runs against the fresh schemas.
 - [ ] **Step 6:** Add `db:reset:dev` / `db:reset:qa` scripts.
-- [ ] **Step 7:** Verify against **dev first**: `npm run db:reset:dev`, confirm prompt appears, abort works, full run leaves dev migrated + reseeded.
+- [ ] **Step 7:** Verify against **dev first**: `npm run db:reset:dev`, confirm prompt appears, abort works, full run leaves dev migrated + re-seeded.
 
 ### Task 3: Spec types, spec files, env-config rewiring
 
@@ -180,8 +181,8 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 
 **Files:** Create `src/db/seeds/demo/index.ts`
 
-- [ ] **Step 1:** Upsert spec languages by `langCodeIso6393`; upsert spec orgs by name (the env's `orgName` org already exists from `seedOrganizations` — the spec lists it too so orgs are self-contained; upsert makes that harmless).
-- [ ] **Step 2:** Upsert spec bibles by `abbreviation`; link books via `bible_books` (dedupe-check existing links like `bibles.ts` does; resolve book codes → ids; `hasAudio` per spec).
+- [ ] **Step 1:** Reconcile spec languages by `langCodeIso6393`; reconcile spec orgs by name (the env's `orgName` org already exists from `seedOrganizations` — the spec lists it too so orgs are self-contained; reconcile makes that harmless).
+- [ ] **Step 2:** Reconcile spec bibles by `abbreviation`; link books via `bible_books` (dedupe-check existing links like `bibles.ts` does; resolve book codes → ids; `hasAudio` per spec).
 - [ ] **Step 3:** Return a resolution context (`orgKey→id`, `userKey→id`, `projectKey→id`, `milestoneKey→id`, `bibleAbbrev→id`, `bookCode→id`) that Tasks 5–6's stages thread through — the engine should not re-query what it already resolved.
 - [ ] **Step 4:** Standalone entry point (`process.argv[1]` guard) + `db:seed:demo:<env>` scripts for iteration (resolves env-config like `setup.ts`, runs only the demo stage).
 
@@ -189,7 +190,7 @@ Every user except `superadmin` also gets the `Org Member` anchor grant per org m
 
 **Files:** `src/db/seeds/demo/index.ts`; Modify `src/db/seeds/dev-users.ts`
 
-- [ ] **Step 1:** Extend the `dev-users.ts` user writer (or extract a shared `upsertSeedUser` from it): accept `password` **or** `passwordHash` (hash written directly, no `hashPassword` call); keep authUser+authAccount+users creation and reconcile semantics unchanged.
+- [ ] **Step 1:** Extend the `dev-users.ts` user writer (extract a shared `reconcileSeedUser` from it): accept `password` **or** `passwordHash` (hash written directly, no `hashPassword` call); keep authUser+authAccount+users creation and reconcile semantics unchanged.
 - [ ] **Step 2:** Replace the old grant logic (org-scoped `PROJECT_MANAGER` for PM users) with the spec-driven grant writer:
   - `Org Member` + `Org Manager` → org-scoped rows (`orgId`, `projectId=NULL`).
   - Project roles → project-scoped rows (`orgId` = project's org, `projectId` set) — resolved **after** projects are created in Task 6's stage, so ordering is: orgs → users (anchors + org roles) → projects → milestones → book links → chapter assignments → project-scoped grants.

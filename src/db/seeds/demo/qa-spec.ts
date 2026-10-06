@@ -4,7 +4,7 @@ import { spread } from './spread';
 
 /**
  * The shared QA demo password — generated once via `npm run db:hash-password`
- * and committed as a hash. Every one of the 17 spec accounts authenticates
+ * and committed as a hash. Every one of the 18 spec accounts authenticates
  * with it; no plaintext credential exists anywhere for this environment.
  */
 export const QA_DEMO_PASSWORD_HASH =
@@ -110,11 +110,17 @@ export const qaSpec: DemoSpec = {
       orgs: [{ org: 'fluent-qa', roles: [] }],
     },
 
-    // ── SuperAdmin — global grant only, no org membership ────────────────
+    // ── SuperAdmins — global grant only, no org memberships ──────────────
     {
       key: 'superadmin',
       email: 'cwhite@gloo.us',
       username: 'Chad White',
+      globalRoles: ['SuperAdmin'],
+    },
+    {
+      key: 'qa-sa',
+      email: 'qa+fluentqa-sa@fluent.local',
+      username: 'qa-sa',
       globalRoles: ['SuperAdmin'],
     },
 

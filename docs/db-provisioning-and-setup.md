@@ -84,7 +84,7 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 | ----------------------------- | ------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/db/env-configs/local.ts` | `[NEW]` | Local Docker      | `demoSpec` with 3 committed-credential users (`devpm`, `translator`, `translator2`).                                                                                               |
 | `src/db/env-configs/dev.ts`   | `[NEW]` | Shared Dev Server | `demoSpec` — `Fluent Dev` org. PM via `DEV_PM_EMAIL`/`DEV_PM_PASSWORD`. Translators (`alice.smith`, `bob.johnson`, `carol.davis`) via `DEV_SEED_PASSWORD`. No hardcoded passwords. |
-| `src/db/env-configs/qa.ts`    | `[NEW]` | QA / Staging      | `demoSpec: qaSpec` — the full QA demo world (4 orgs, 17 users, 3 projects). All accounts share one committed-hash password.                                                        |
+| `src/db/env-configs/qa.ts`    | `[NEW]` | QA / Staging      | `demoSpec: qaSpec` — the full QA demo world (4 orgs, 18 users, 3 projects). All accounts share one committed-hash password.                                                        |
 
 ### 2. Core Scripts & Shared Types
 
@@ -143,7 +143,7 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 | ----------- | ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local`     | `src/db/env-configs/local.ts` | Local Docker      | `devSpec` with committed plaintext defaults — 3 users (`devpm`, `translator`, `translator2`) on one GEN+EXO project                                                       |
 | `dev`       | `src/db/env-configs/dev.ts`   | Shared Dev Server | `devSpec` with env-var credentials — PM (`DEV_PM_EMAIL`) + 3 translators (`alice.smith`, `bob.johnson`, `carol.davis`) via `DEV_SEED_PASSWORD`. No hardcoded credentials. |
-| `qa`        | `src/db/env-configs/qa.ts`    | Staging / QA      | `qaSpec` — full demo world: 4 orgs, 17 users, 3 projects / 4 milestones. One shared committed-hash password for every account.                                            |
+| `qa`        | `src/db/env-configs/qa.ts`    | Staging / QA      | `qaSpec` — full demo world: 4 orgs, 18 users, 3 projects / 4 milestones. One shared committed-hash password for every account.                                            |
 
 ### 👥 Seeded User Accounts
 
@@ -177,7 +177,7 @@ credentials come from env vars (`DEV_PM_EMAIL`, `DEV_PM_PASSWORD`,
 
 #### QA (`SETUP_ENV=qa`)
 
-All 17 accounts share **one password** — committed as a hash
+All 18 accounts share **one password** — committed as a hash
 (`QA_DEMO_PASSWORD_HASH` in `qa-spec.ts`, generated via
 `npm run db:hash-password`); the plaintext is held by the QA maintainers and
 never enters the repo. `cwhite+*@gloo.us` are real plus-aliases so
@@ -191,6 +191,7 @@ invite/password-reset email flows can be demoed.
 | `qa-t2`      | qa+fluentqa-translator2@fluent.local | Fluent QA            | Org Member only                                                       |
 | `qa-obs`     | qa+fluentqa-observer@fluent.local    | Fluent QA            | Org Member only                                                       |
 | `Chad White` | cwhite@gloo.us                       | —                    | **SuperAdmin (global)** — the only grant this user has                |
+| `qa-sa`      | qa+fluentqa-sa@fluent.local          | —                    | **SuperAdmin (global)** — the only grant this user has                |
 | `hi-om`      | cwhite+highland-om@gloo.us           | Highland             | Org Manager                                                           |
 | `hi-pm`      | cwhite+highland-pm@gloo.us           | Highland + Rivertown | Project Manager on **all 3 projects** — cross-org switcher demo       |
 | `hi-t`       | cwhite+highland-translator@gloo.us   | Highland             | Project Translator (Koli Kachi NT)                                    |
@@ -221,7 +222,8 @@ npm run db:seed:demo:dev
 npm run db:seed:demo:qa
 
 # Password hashing (generate a committed-hash seed credential)
-npm run db:hash-password "<password>"
+npm run db:hash-password                     # hidden prompt — never via argv
+printf '%s' "$PASSWORD" | npm run db:hash-password   # …or piped stdin
 
 # DB Infrastructure & Role Setup (One-Time Superuser Step)
 npm run db:provision:dev # Dev Provisioning (SETUP_ENV=dev)

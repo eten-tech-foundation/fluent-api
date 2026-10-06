@@ -1,6 +1,6 @@
 # QA demo seeding: committed password hashes and clean-slate resets
 
-For the QA/dev environments we seed demo accounts with better-auth password **hashes committed to the repo** (`src/db/seeds/qa-demo/spec.ts`) rather than plaintext supplied via env vars, and `db:reset:*` performs a **full clean slate** (drop `public`/`drizzle`/`pgboss` schemas, re-migrate, re-seed) rather than reconciling into existing data.
+For the QA environment we seed demo accounts with a better-auth password **hash committed to the repo** (`QA_DEMO_PASSWORD_HASH` in `src/db/seeds/demo/qa-spec.ts`) rather than plaintext supplied via env vars (dev keeps env-var credentials via `DEV_PM_PASSWORD`/`DEV_SEED_PASSWORD`), and `db:reset:*` performs a **full clean slate** (drop `public`/`drizzle`/`pgboss` schemas, re-migrate, re-seed) rather than reconciling into existing data.
 
 **Why:** env-var passwords pushed plaintext into `.env` files, shell history, and Azure config — and still required manual `db:set-password` runs after any wipe. A committed hash satisfies "no plaintext in git" while making every seeded account work immediately after `db:setup`. Clean-slate resets keep QA deterministic: "reset" can never mean different things depending on what happens to be in the DB.
 
