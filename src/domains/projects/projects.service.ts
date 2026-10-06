@@ -131,7 +131,7 @@ export async function createProject(
   let input = { ...requested, bibleId, sourceBibleId: bibleId, bookId: requested.bookId ?? [] };
   // Current clients create milestones separately. Only imports and explicit legacy book
   // requests keep the initial-unit creation used before milestones were introduced.
-  const createInitialUnit = requested.usfmFiles?.length || requested.bookId !== undefined;
+  const createInitialUnit = requested.usfmFiles?.length || requested.bookId?.length;
   try {
     if (requested.usfmFiles?.length) {
       const parsed = await usfmImportService.parseUsfmFiles(requested.usfmFiles);
