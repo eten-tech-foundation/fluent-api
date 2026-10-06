@@ -42,16 +42,13 @@ describe('qaSpec', () => {
     }
   });
 
-  it.each(['superadmin', 'qa-sa'])(
-    'gives %s exactly one global grant and nothing else',
-    (key) => {
-      const plan = buildGrantPlan(qaSpec);
-      expect(plan.filter((g) => g.userKey === key)).toEqual([
-        { userKey: key, roleName: 'SuperAdmin', orgKey: null, projectKey: null },
-      ]);
-      expect(qaSpec.users.find((u) => u.key === key)?.orgs ?? []).toHaveLength(0);
-    }
-  );
+  it.each(['superadmin', 'qa-sa'])('gives %s exactly one global grant and nothing else', (key) => {
+    const plan = buildGrantPlan(qaSpec);
+    expect(plan.filter((g) => g.userKey === key)).toEqual([
+      { userKey: key, roleName: 'SuperAdmin', orgKey: null, projectKey: null },
+    ]);
+    expect(qaSpec.users.find((u) => u.key === key)?.orgs ?? []).toHaveLength(0);
+  });
 
   it('anchors every non-superadmin user with Org Member per declared org', () => {
     const plan = buildGrantPlan(qaSpec);
