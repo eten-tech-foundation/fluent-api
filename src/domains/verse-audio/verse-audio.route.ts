@@ -331,7 +331,7 @@ const resolveVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}/resolve',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.RESOLVE, VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,

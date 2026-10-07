@@ -47,6 +47,7 @@ export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_ch
 export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status', [
   'clean',
   'conflict',
+  'resolved',
 ]);
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),

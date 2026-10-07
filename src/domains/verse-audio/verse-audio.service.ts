@@ -518,7 +518,7 @@ export async function resolveConflict(
       sizeBytes: take.data.sizeBytes,
       durationSeconds: take.data.durationSeconds,
       activeTakeId: take.data.id,
-      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
       versionToken: recording.data.versionToken + 1,
     }
   );

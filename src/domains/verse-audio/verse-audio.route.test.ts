@@ -289,7 +289,7 @@ describe('verse-audio routes', () => {
       asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
     });
 
-    it('returns the resolved recording', async () => {
+    it('returns the resolved recording (assigned translator)', async () => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
         ok: true,
         data: { id: 1, activeTakeId: 11, conflictStatus: 'clean' } as any,
@@ -303,6 +303,27 @@ describe('verse-audio routes', () => {
         bibleTextId: 10,
         takeId: 11,
       });
+    });
+
+    it('returns 200 for PM (CONTENT_ASSIGN) resolving a draft-stage conflict', async () => {
+      // Bug regression test: PMs were blocked (404) when chapter was in 'draft'
+      // status because the old EDIT middleware required post-peer-check for PMs.
+      asAuthenticatedUser([PERMISSIONS.CONTENT_ASSIGN]);
+      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
+        ok: true,
+        data: { id: 1, activeTakeId: 11, conflictStatus: 'clean' } as any,
+      });
+
+      const res = await resolve();
+
+      expect(res.status).toBe(200);
+    });
+
+    it('returns 404 for an unauthenticated outsider', async () => {
+      asAuthenticatedUser([]); // no permissions at all
+      const res = await resolve();
+      expect(res.status).toBe(404);
+      expect(verseAudioService.resolveConflict).not.toHaveBeenCalled();
     });
 
     it.each([[ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404]])(
