@@ -1,4 +1,7 @@
-import { ok } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
+
+import { logger } from '@/lib/logger';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   BibleBook,
@@ -59,4 +62,21 @@ export async function createBibleBook(input: CreateBibleBookInput) {
 
 export function deleteBibleBook(bibleId: number, bookId: number) {
   return repo.remove(bibleId, bookId);
+}
+
+export async function isBibleBookTextIngested(
+  bibleId: number,
+  bookId: number,
+  tx?: DbTransaction
+): Promise<Result<boolean>> {
+  try {
+    return ok(await repo.isTextIngested(bibleId, bookId, tx));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to check source book ingestion',
+      context: { bibleId, bookId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

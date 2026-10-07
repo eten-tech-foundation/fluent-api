@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
-import { bible_texts, bibles, books, translated_verses } from '@/db/schema';
+import { bible_books, bible_texts, bibles, books, translated_verses } from '@/db/schema';
 
 const IRV_ABBREVIATION = 'IRV';
 const CHUNK_SIZE = 1000;
@@ -55,11 +55,6 @@ export async function seedBibleTexts() {
     .from(bible_texts)
     .where(eq(bible_texts.bibleId, bible.id));
 
-  if (Number(existingCount) === records.length) {
-    console.log('Bible texts already seeded for IRV — skipping.');
-    return;
-  }
-
   // 4. Build PROD book_id -> local book id.
   // books.code is not unique at the schema level, so a naive Map would silently
   // keep the last id for any duplicated code and misattribute verses. Fail fast
@@ -100,6 +95,24 @@ export async function seedBibleTexts() {
     };
   });
 
+  const completedBooks = [...new Set(rows.map((row) => row.bookId))].map((bookId) => ({
+    bibleId: bible.id,
+    bookId,
+    textIngestedAt: new Date(),
+  }));
+  const completionConflict = {
+    target: [bible_books.bibleId, bible_books.bookId],
+    set: { textIngestedAt: sql`now()` },
+  };
+
+  if (Number(existingCount) === records.length) {
+    // The known seed corpus is complete; also record completion on databases seeded before
+    // text_ingested_at existed. Arbitrary existing Bible text is never backfilled this way.
+    await db.insert(bible_books).values(completedBooks).onConflictDoUpdate(completionConflict);
+    console.log('Bible texts already seeded for IRV — skipping.');
+    return;
+  }
+
   // 6. Atomically reset and bulk insert in chunks (stays well under Postgres
   // parameter limits). Clearing any partial rows inside the transaction keeps
   // reruns self-healing: each run lands the complete corpus or rolls back.
@@ -128,6 +141,7 @@ export async function seedBibleTexts() {
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       await tx.insert(bible_texts).values(rows.slice(i, i + CHUNK_SIZE));
     }
+    await tx.insert(bible_books).values(completedBooks).onConflictDoUpdate(completionConflict);
   });
 
   console.log(`Bible texts seeded. (${rows.length} verses for IRV id=${bible.id})`);

@@ -18,7 +18,9 @@ import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerAiTriggerWorker } from './ai-trigger.worker';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
+import { countPendingQueueJobs } from './queue-heartbeat';
 import { registerUSFMExportWorker } from './usfm-export.worker';
+import { startUsfmImportRecovery } from './usfm-import-recovery';
 
 interface WorkerMetrics {
   startTime: number;
@@ -76,6 +78,7 @@ async function startWorker() {
     await registerUSFMExportWorker(boss, metricsHooks);
     await registerAiTriggerWorker(boss, metricsHooks);
     await registerDblIngestTextWorker(boss, metricsHooks);
+    const stopUsfmImportRecovery = startUsfmImportRecovery(boss);
 
     logger.info('Worker started and listening for jobs');
 
@@ -100,6 +103,10 @@ async function startWorker() {
           const ingestPriorityStats = await boss.getQueueStats(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY
           );
+          const importMaterializeCount = await countPendingQueueJobs(
+            boss,
+            QUEUE_NAMES.USFM_IMPORT_MATERIALIZE
+          );
 
           const totalQueued =
             (exportStats?.queuedCount || 0) +
@@ -119,7 +126,7 @@ async function startWorker() {
             (ingestStats?.deferredCount || 0) +
             (ingestPriorityStats?.deferredCount || 0);
 
-          const queueSize = totalQueued + totalActive + totalDeferred;
+          const queueSize = totalQueued + totalActive + totalDeferred + importMaterializeCount;
 
           logger.info('Worker heartbeat', {
             scope: 'aggregate_all_queues',
@@ -147,6 +154,7 @@ async function startWorker() {
       clearInterval(cleanupInterval);
 
       try {
+        await stopUsfmImportRecovery();
         const maxWait = 30000;
         const checkInterval = 1000;
         let waited = 0;
