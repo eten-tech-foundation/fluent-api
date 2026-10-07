@@ -66,14 +66,6 @@ export const ChapterAssignmentPolicy = {
     }
   },
 
-  /**
-   * Can this user resolve an audio conflict for this assignment?
-   *
-   * PMs (content:assign) may resolve audio conflicts at **any** chapter status —
-   * unlike edit(), which blocks PMs until the chapter reaches community_review.
-   * Translators fall back to the normal edit() check; they can resolve if they
-   * could otherwise edit the verse (e.g. they are the assigned drafter).
-   */
   resolveAudioConflict(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
     const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
     return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);

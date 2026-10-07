@@ -18,15 +18,6 @@ import { VERSE_AUDIO_ACTIONS, VERSE_AUDIO_ID_SOURCES } from './verse-audio.types
 // translated-verse-auth.middleware.ts.
 const NOT_FOUND_MESSAGE = ErrorMessages.VERSE_AUDIO_NOT_FOUND;
 
-/**
- * Resolves the parent project (READ) or chapter assignment (EDIT / RESOLVE)
- * for a verse audio route and evaluates the matching policy. IDs always come
- * from path params or the query string — never the multipart body.
- *
- * RESOLVE differs from EDIT: PMs (CONTENT_ASSIGN) are allowed to adjudicate
- * audio conflicts at *any* chapter status, not just post-peer-check. This lets
- * a PM resolve a conflict on a chapter that is still in the draft stage.
- */
 export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseAudioIdSource) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get('user')!;
@@ -61,9 +52,6 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
       c.set('project', projectResult.data);
       c.set('projectAuthContext', { isProjectMember });
     } else if (action === VERSE_AUDIO_ACTIONS.RESOLVE) {
-      // Conflict resolution: verify the verse belongs to this unit, then allow
-      // if the caller has CONTENT_ASSIGN (PM) — at any chapter status — or if
-      // they already satisfy the full EDIT policy (e.g. assigned translator).
       const bibleTextId = Number(c.req.param('bibleTextId'));
       if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
         return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
