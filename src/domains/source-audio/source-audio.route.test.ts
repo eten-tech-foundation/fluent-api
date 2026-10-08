@@ -9,7 +9,6 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
-import * as sourceAudioRepo from './source-audio.repository';
 import * as sourceAudioService from './source-audio.service';
 import './source-audio.route';
 
@@ -54,9 +53,6 @@ vi.mock('@/domains/projects/users/project-users.service', () => ({
 vi.mock('./source-audio.service', () => ({
   getChapterSourceAudio: vi.fn(),
   getSourceAudioManifest: vi.fn(),
-}));
-
-vi.mock('./source-audio.repository', () => ({
   isBibleBookLinkedToProject: vi.fn(),
 }));
 
@@ -81,6 +77,7 @@ const MANIFEST_PATH =
 
 const SAMPLE_RESPONSE = {
   provider: 'aquifer' as const,
+  verseAddressable: false,
   bible: {
     aquiferBibleId: 42,
     name: 'Berean Standard Bible',
@@ -123,7 +120,7 @@ function asProjectMember() {
 describe('source-audio routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(true));
+    vi.mocked(sourceAudioService.isBibleBookLinkedToProject).mockResolvedValue(ok(true));
   });
 
   describe('get /projects/{projectId}/source-audio/{bookCode}/{chapter}', () => {
@@ -166,6 +163,7 @@ describe('source-audio routes', () => {
       expect(body.items).toHaveLength(1);
       expect(body.items[0].url).toBe('https://cdn.example/audio.mp3');
       expect(body.provider).toBe('aquifer');
+      expect(body.verseAddressable).toBe(false);
     });
 
     it('returns 502 on Aquifer upstream failure', async () => {
@@ -193,7 +191,7 @@ describe('source-audio routes', () => {
     it('returns 404 without calling the service when the Bible is not linked to the project', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
+      vi.mocked(sourceAudioService.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
 
       const res = await server.request(CHAPTER_PATH, { method: 'GET' });
 
@@ -264,7 +262,7 @@ describe('source-audio routes', () => {
     it('returns 404 without calling the service when the Bible is not linked to the project', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
+      vi.mocked(sourceAudioService.isBibleBookLinkedToProject).mockResolvedValue(ok(false));
 
       const res = await server.request(MANIFEST_PATH, { method: 'GET' });
 

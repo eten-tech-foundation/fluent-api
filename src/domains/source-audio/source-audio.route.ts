@@ -12,7 +12,6 @@ import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import * as sourceAudioRepo from './source-audio.repository';
 import * as sourceAudioService from './source-audio.service';
 import {
   chapterSourceAudioParamSchema,
@@ -67,7 +66,7 @@ async function requireProjectBibleBook(
   bibleId: number,
   bookCode: string
 ) {
-  const linked = await sourceAudioRepo.isBibleBookLinkedToProject(projectId, bibleId, bookCode);
+  const linked = await sourceAudioService.isBibleBookLinkedToProject(projectId, bibleId, bookCode);
   if (!linked.ok) return sourceAudioErrorResponse(c, linked.error);
   if (!linked.data) {
     return c.json({ message: HttpStatusPhrases.NOT_FOUND }, HttpStatusCodes.NOT_FOUND);
@@ -87,7 +86,7 @@ const getChapterSourceAudioRoute = createRoute({
   ] as const,
   summary: 'Get source/reference audio for a chapter',
   description:
-    'Returns playable chapter-level source audio URLs (DBL when the Fluent bible is linked, otherwise Aquifer). Empty `items` when no audio exists (HTTP 200). `bibleId` must be linked to the project for the given book. Distinct from translator `/verse-audio` draft recordings.',
+    'Prefers linked DBL recordings, then Aquifer name matching, or empty `items` (HTTP 200). `bibleId` must be linked to the project for the given book. Distinct from translator `/verse-audio` draft recordings.',
   request: {
     params: chapterSourceAudioParamSchema,
     query: sourceAudioQuerySchema,

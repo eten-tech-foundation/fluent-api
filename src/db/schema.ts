@@ -23,6 +23,12 @@ import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
 export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
+// Publication license, global to the Bible (not a tenant/user grant). TTS_USE is the RBAC axis.
+export const ttsLicenseStatusEnum = pgEnum('tts_license_status', [
+  'allowed',
+  'forbidden',
+  'unknown',
+]);
 export const projectStatusEnum = pgEnum('project_status', [
   'not_started',
   'in_progress',
@@ -190,6 +196,23 @@ export const pericope_sets = pgTable('pericope_sets', {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const resourceProviderEnum = pgEnum('resource_provider', ['dbl', 'aquifer', 'youversion']);
+export const bible_provider_resources = pgTable(
+  'bible_provider_resources',
+  {
+    id: serial('id').primaryKey(),
+    provider: resourceProviderEnum('provider').notNull(),
+    externalId: varchar('external_id', { length: 255 }).notNull(),
+    ttsLicenseStatus: ttsLicenseStatusEnum('tts_license_status').notNull().default('unknown'),
+    licenseNotice: text('license_notice'),
+    // Optional label for human diagnostics and curation; never identity or policy.
+    displayName: text('display_name'),
+  },
+  (table) => [
+    uniqueIndex('idx_bible_provider_resources_identity').on(table.provider, table.externalId),
+  ]
+);
+
 export const bibles = pgTable(
   'bibles',
   {
@@ -202,6 +225,9 @@ export const bibles = pgTable(
     provider: bibleProviderEnum('provider').notNull().default('dbl'),
     externalId: varchar('external_id', { length: 255 }),
     hasAudio: boolean('has_audio').notNull().default(false),
+    audioResourceId: integer('audio_resource_id').references(() => bible_provider_resources.id, {
+      onDelete: 'restrict',
+    }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()

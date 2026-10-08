@@ -232,6 +232,13 @@
       "when": 1790572178347,
       "tag": "0032_add_pericope_ai_suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791286548661,
+      "tag": "0033_add_bible_provider_resources",
+      "breakpoints": true
     }
   ]
 }
