@@ -41,6 +41,8 @@
     "db:setup": "npx tsx src/db/scripts/setup.ts",
     "db:setup:dev": "SETUP_ENV=dev npx tsx src/db/scripts/setup.ts",
     "db:setup:qa": "SETUP_ENV=qa npx tsx src/db/scripts/setup.ts",
+    "db:reset:dev": "SETUP_ENV=dev npx tsx src/db/scripts/reset-db.ts",
+    "db:reset:qa": "SETUP_ENV=qa npx tsx src/db/scripts/reset-db.ts",
     "db:provision:dev": "SETUP_ENV=dev npx tsx src/db/scripts/provision-db.ts",
     "db:provision:qa": "SETUP_ENV=qa npx tsx src/db/scripts/provision-db.ts",
     "db:import:languages": "npx tsx src/db/scripts/import-ethnologue-languages.ts",
