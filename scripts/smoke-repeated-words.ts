@@ -21,17 +21,16 @@
  *   organization or the dev login users (those are deliberately kept out of
  *   automatic boot so production images never auto-provision accounts). This
  *   script signs in as a seeded dev user, so on a brand-new stack you must
- *   seed the org + dev users once (order matters — org before users). Run them
- *   against the already-running `api` container with `docker compose exec` (the
- *   platform's own db:seed helper uses the same `exec` form):
+ *   seed the demo world once — `npm run db:seed` covers org, reference data,
+ *   and the local demo spec in one shot. Run it against the already-running
+ *   `api` container with `docker compose exec` (the platform's own db:seed
+ *   helper uses the same `exec` form):
  *
  *     Ecosystem mode (from fluent-platform/):
- *       docker compose exec api npx tsx src/db/seeds/organizations.ts
- *       docker compose exec api npx tsx src/db/seeds/dev-users.ts
+ *       docker compose exec api npm run db:seed
  *
  *     Standalone / inside the api container (from fluent-api/):
- *       npm run db:seed:org
- *       npm run db:seed:dev-users
+ *       npm run db:seed
  *
  *   That creates "Fluent Dev" plus pm@fluent.local and t@fluent.local. If you
  *   skip this step, sign-in returns 401 and the script prints the same hint.
@@ -102,7 +101,7 @@ const SAMPLE_REQUEST: SampleRequest = {
   ],
 };
 
-// Seeded dev translator (see fluent-api/src/db/seeds/dev-users.ts and rbac.ts).
+// Seeded dev translator (see fluent-api/src/db/env-configs/local.ts demo spec).
 // The Translator role carries content:update, which AI_TOOLS_USE aliases, so
 // this user can invoke the endpoint. Override with --signin-email/-password.
 const DEFAULT_SIGNIN_EMAIL = 't@fluent.local';
@@ -235,24 +234,22 @@ function printMissingDevUserHint(email: string): void {
     console.error('');
     console.error('A fresh `./fluent.sh up` seeds roles + RBAC but NOT the organization');
     console.error('or the dev users, so the default smoke-test account does not exist');
-    console.error('yet. Seed them once (order matters — org before users):');
+    console.error('yet. Seed them once (db:seed covers everything in order):');
     console.error('');
     console.error('  Ecosystem mode (from fluent-platform/):');
-    console.error('    docker compose exec api npx tsx src/db/seeds/organizations.ts');
-    console.error('    docker compose exec api npx tsx src/db/seeds/dev-users.ts');
+    console.error('    docker compose exec api npm run db:seed');
     console.error('');
     console.error('  Standalone / inside the api container (from fluent-api/):');
-    console.error('    npm run db:seed:org');
-    console.error('    npm run db:seed:dev-users');
+    console.error('    npm run db:seed');
     console.error('');
     console.error('That creates "Fluent Dev" plus pm@fluent.local / t@fluent.local.');
     console.error('Then re-run this smoke test.');
   } else {
     console.error('');
     console.error('Verify the credentials, or seed dev users with (from fluent-api/):');
-    console.error('    npm run db:seed:org && npm run db:seed:dev-users');
-    console.error('Override the SEED_* env vars if you use custom dev credentials');
-    console.error('(see src/db/seeds/dev-users.ts).');
+    console.error('    npm run db:seed');
+    console.error('Local dev users come from the committed demo spec');
+    console.error('(src/db/env-configs/local.ts).');
   }
   console.error('────────────────────────────────────────────────────────────────────');
 }
@@ -296,12 +293,12 @@ async function signIn(
       // Two very different failures land here:
       //   * MISSING_OR_NULL_ORIGIN → the Origin header didn't match
       //     fluent-api's trustedOrigins (FRONTEND_URL). Tell the operator to
-      //     fix --origin rather than reseed.
+      //     fix --origin rather than re-seed.
       //   * Otherwise a 401/403 almost always means the dev user simply hasn't
       //     been seeded yet: a fresh `./fluent.sh up` seeds roles + RBAC but
       //     intentionally NOT the org or the dev users (see
-      //     src/db/seeds/organizations.ts + dev-users.ts), so the account this
-      //     script signs in as does not exist. Point at the exact seeds.
+      //     src/db/env-configs/local.ts demo spec), so the account this
+      //     script signs in as does not exist. Point at db:seed.
       if (body.includes('MISSING_OR_NULL_ORIGIN') || body.includes('ORIGIN')) {
         printOriginMismatchHint(origin);
       } else if (response.status === 401 || response.status === 403) {

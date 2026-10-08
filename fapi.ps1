@@ -316,14 +316,8 @@ switch ($Command) {
 
   "db:migrate" { Write-Running "Running fluent-api migrations..."; Invoke-ExecApi @("npx", "drizzle-kit", "migrate") }
   "db:seed" {
-    Write-Running "Seeding organizations..."
-    Invoke-ExecApi @("npm", "run", "db:seed:org")
-    Write-Running "Seeding roles..."
-    Invoke-ExecApi @("npm", "run", "db:seed:roles")
-    Write-Running "Seeding RBAC data..."
-    Invoke-ExecApi @("npm", "run", "db:seed:rbac")
-    Write-Running "Seeding dev users..."
-    Invoke-ExecApi @("npm", "run", "db:seed:dev-users")
+    Write-Running "Running all seeds..."
+    Invoke-ExecApi @("npm", "run", "db:seed")
     Write-Success "All seeds complete."
   }
 

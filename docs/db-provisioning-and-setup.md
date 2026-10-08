@@ -21,7 +21,7 @@ To keep our database secure and maintainable across environments, database tasks
    └── Run whenever resetting data or deploying
        ├── Run Drizzle Table Migrations
        ├── Seed System Data: Org, Roles, RBAC
-       └── Seed Demo Spec: Users, Projects & Bible Texts
+       └── Seed Demo Spec: Orgs, Users, Projects & Grants
 ```
 
 - **Database Provisioning (`provision-db.ts`)** = **Setting up DB Server Rules & Security.**
@@ -72,11 +72,21 @@ You can configure database URLs and credentials in three places — listed in **
 > rather than `api_user` — this is the same variable in every environment,
 > per `drizzle.config.ts`'s `MIGRATIONS_DATABASE_URL ?? DATABASE_URL`.
 
+> **QA needs no credential variables.** Every QA account authenticates with
+> one shared demo password committed as a better-auth hash —
+> `QA_DEMO_PASSWORD_HASH` in `src/db/seeds/demo/qa-spec.ts`. The hash is
+> generated once, locally, via `npm run db:hash-password "<password>"` and
+> committed to the spec; the plaintext never lives in the repo, in `.env`
+> files, or in CI variables. To rotate: regenerate the hash and commit the
+> new value (the engine reconciles stored hashes on the next seed). Dev
+> takes the middle path — no committed hash, but passwords via
+> `DEV_PM_PASSWORD`/`DEV_SEED_PASSWORD` env vars rather than hardcoding.
+
 ---
 
-## 📂 Component & File Inventory (13 Files)
+## 📂 Component & File Inventory (20 Files)
 
-The database provisioning and environment-aware seeding system consists of 13 key files across `fluent-api`, organized by role:
+The database provisioning and environment-aware seeding system consists of 20 key files across `fluent-api`, organized by role:
 
 ### 1. Environment Configurations (`src/db/env-configs/`)
 
@@ -88,14 +98,20 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 ### 2. Core Scripts & Shared Types
 
-| File Path                        | Status       | Purpose & Usage                                                                                                                                                                              |
-| -------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/db/env-configs/types.ts`    | `[NEW]`      | TypeScript interfaces defining `EnvConfig` (including its `demoSpec` slot) and `DbProvisionConfig`.                                                                                          |
-| `src/db/scripts/provision-db.ts` | `[NEW]`      | One-time superuser DDL script for database role creation, user reconciles, schema creation, and default privileges.                                                                          |
-| `src/db/scripts/setup.ts`        | `[MODIFIED]` | Environment-aware setup orchestrator (`SETUP_ENV=local/dev/qa`), dynamic `DATABASE_URL` resolution, and Drizzle migration runner.                                                            |
-| `src/db/seeds/demo/`             | `[NEW]`      | Declarative demo-seed engine (`seedDemoSpec`) plus per-env specs (`qa-spec.ts`, `dev-spec.ts`) — reconciles orgs, users, grants, projects, milestones, and chapter assignments idempotently. |
-| `src/db/seeds/dev-users.ts`      | `[MODIFIED]` | Shared `reconcileSeedUser` writer used by the demo seed engine (plaintext or committed-hash credentials).                                                                                    |
-| `src/db/seeds/organizations.ts`  | `[MODIFIED]` | Parameterized organization seeding accepting custom org names per environment.                                                                                                               |
+| File Path                                       | Status       | Purpose & Usage                                                                                                                                                                              |
+| ----------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/db/env-configs/types.ts`                   | `[NEW]`      | TypeScript interfaces defining `EnvConfig` (including its `demoSpec` slot) and `DbProvisionConfig`.                                                                                          |
+| `src/db/env-configs/database-url.ts`            | `[NEW]`      | Shared URL helpers: `applyDatabaseUrl`, `maskDatabaseUrl`, `databaseNameFromUrl`.                                                                                                            |
+| `src/db/scripts/provision-db.ts`                | `[NEW]`      | One-time superuser DDL script for database role creation, user reconciles, schema creation, and default privileges.                                                                          |
+| `src/db/scripts/reset-db.ts`                    | `[NEW]`      | Confirm-gated clean-slate reset for dev/qa — drops `public`/`drizzle`/`pgboss`, recreates, delegates to `setup.ts`.                                                                          |
+| `src/db/scripts/hash-password.ts`               | `[NEW]`      | Prints a better-auth password hash for committed seed credentials.                                                                                                                           |
+| `src/db/scripts/bootstrap.ts`                   | `[NEW]`      | Creates the four roles/schemas on the local Docker path (the container entrypoint's equivalent of `provision-db.ts`).                                                                        |
+| `src/db/scripts/cleanup-legacy-provisioning.ts` | `[NEW]`      | One-time, one-way drop of the legacy pre-separation roles after `provision-db.ts` reassigns ownership — see `docs/runbooks/db-provisioning.md`.                                              |
+| `src/db/scripts/sql-helpers.ts`                 | `[NEW]`      | Shared `quote_ident`/`quote_literal` helpers used by the DDL scripts.                                                                                                                        |
+| `src/db/scripts/setup.ts`                       | `[MODIFIED]` | Environment-aware setup orchestrator (`SETUP_ENV=local/dev/qa`), dynamic `DATABASE_URL` resolution, and Drizzle migration runner.                                                            |
+| `src/db/seeds/demo/`                            | `[NEW]`      | Declarative demo-seed engine (`seedDemoSpec`) plus per-env specs (`qa-spec.ts`, `dev-spec.ts`) — reconciles orgs, users, grants, projects, milestones, and chapter assignments idempotently. |
+| `src/db/seeds/dev-users.ts`                     | `[MODIFIED]` | Shared `reconcileSeedUser` writer used by the demo seed engine (plaintext or committed-hash credentials).                                                                                    |
+| `src/db/seeds/organizations.ts`                 | `[MODIFIED]` | Parameterized organization seeding accepting custom org names per environment.                                                                                                               |
 
 ### 3. Documentation
 
@@ -108,7 +124,7 @@ The database provisioning and environment-aware seeding system consists of 13 ke
 
 | File Path              | Status       | Purpose & Usage                                                                                                                                                  |
 | ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package.json`         | `[MODIFIED]` | Added CLI scripts (`db:setup:dev`, `db:setup:qa`, `db:provision:dev`, `db:provision:qa`).                                                                        |
+| `package.json`         | `[MODIFIED]` | Added CLI scripts (`db:setup:*`, `db:reset:*`, `db:provision:*`, `db:seed*`, `db:hash-password`).                                                                |
 | `docker-entrypoint.sh` | `[MODIFIED]` | Configured local Docker container startup to set `SETUP_ENV=local`.                                                                                              |
 | `src/lib/queue.ts`     | `[MODIFIED]` | `createSchema: false` — pgboss schema is pre-created by `provision-db.ts` / `bootstrap.ts` as a superuser, so the runtime role never needs `CREATE ON DATABASE`. |
 
@@ -216,7 +232,14 @@ npm run db:setup         # Local Docker (SETUP_ENV=local)
 npm run db:setup:dev     # Dev Environment (SETUP_ENV=dev)
 npm run db:setup:qa      # QA Environment (SETUP_ENV=qa)
 
-# Demo Spec only (re-run just the users/projects/grants stage)
+# Destructive clean-slate reset (dev/qa only — confirm-gated, see below)
+npm run db:reset:dev     # Drops public/drizzle/pgboss, re-runs full setup
+npm run db:reset:qa      # Same for QA (never touches the ai schema)
+
+# Seeds only — all reference data + the local demo spec in one shot
+npm run db:seed          # org, roles, RBAC, languages, books, bibles, texts, pericope sets, demo spec
+
+# Demo Spec only (re-run just the demo-spec stage: orgs, users, projects, grants)
 npm run db:seed:demo:local
 npm run db:seed:demo:dev
 npm run db:seed:demo:qa
@@ -332,6 +355,66 @@ QA_DATABASE_URL="..." MIGRATIONS_DATABASE_URL="..." npm run db:setup:qa
 
 ---
 
+### Resetting a Dev/QA environment (`db:reset:*`)
+
+`db:reset:dev` / `db:reset:qa` perform a **destructive, manual-only**
+clean-slate reset: drop all application data, re-run migrations, and
+re-seed the environment's demo spec — a single deterministic path from a
+dirty DB back to a known-good state.
+
+```bash
+npm run db:reset:qa
+#   ⚠️  DESTRUCTIVE DATABASE RESET — QA / Staging
+#
+#   Target URL     : postgres://api_migrator:****@<qa-host>:5432/fluent_qa
+#   Database       : fluent_qa
+#
+#   This will DROP the public, drizzle, and pgboss schemas (CASCADE),
+#   recreate public + pgboss, and re-run migrations + all seeds.
+#   The ai schema is not touched.
+#
+#   Type the database name "fluent_qa" to confirm:
+```
+
+#### Guarantees & gates
+
+- `SETUP_ENV` must be `dev` or `qa` — the script refuses anything else
+  (including `local`) and points at `docker compose down -v` instead.
+- Requires `MIGRATIONS_DATABASE_URL` (the DDL-capable `api_migrator` role,
+  never the runtime `api_user`) for the drop/recreate + migrations, **and**
+  the usual runtime URL (`<ENV>_DATABASE_URL` → `DATABASE_URL`) for the
+  delegated seed stage — the env contract is `setup.ts`'s, plus the reset
+  gate on top.
+- Prints the masked target URL + database name and aborts unless the
+  operator types the exact database name. There is **no** `--yes`/`--force`
+  flag — this command is for humans, not CI.
+
+#### What gets dropped / recreated
+
+| Schema    | Fate                                                                |
+| --------- | ------------------------------------------------------------------- |
+| `public`  | Dropped `CASCADE` → recreated, owner `api_migrator`                 |
+| `drizzle` | Dropped `CASCADE` → recreated by `drizzle-kit migrate` during setup |
+| `pgboss`  | Dropped `CASCADE` → recreated, owner `api_user`                     |
+| `ai`      | **Never touched** — it belongs to the AI service                    |
+
+The drop also destroys the schema-scoped default-privilege rules, so the
+reset re-establishes the `api_migrator → api_user` default privileges on
+`public` _before_ delegating — otherwise the runtime role couldn't read the
+tables migrations are about to create. It then runs `setup.ts` unchanged:
+migrations + all reference seeds + the environment's demo spec.
+
+> **One-time prerequisite:** databases provisioned before this change need
+> `npm run db:provision:<env>` re-run once — it now grants `api_user` to
+> `api_migrator`, which the DDL role needs in order to drop and re-own the
+> `api_user`-owned `pgboss` schema.
+
+**Local Docker:** don't use `db:reset` — wipe the volume instead with
+`docker compose down -v` (or `./fapi.sh clean`). The script exits non-zero
+for `SETUP_ENV=local`.
+
+---
+
 ## 🔍 4. Verification SQL Snippet
 
 To verify proper role seeding in PostgreSQL:
@@ -364,4 +447,5 @@ ORDER BY ur.id ASC;
 Note the scoping: `Org Member` carries `org_id`, while project roles
 (`Project Manager` / `Project Translator` / `Project Observer`) carry
 `project_id`. A project-level role with `project_id IS NULL` is stale and
-the demo seed engine deletes it on the next run.
+the demo seed engine deletes it on the next run (for the users the spec
+manages).
