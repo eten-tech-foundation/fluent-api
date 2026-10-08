@@ -4,13 +4,13 @@ import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import * as milestonesService from '@/domains/milestones/milestones.service';
-import { milestoneResponseSchema } from '@/domains/milestones/milestones.types';
-import * as userProjectsService from '@/domains/users/projects/user-projects.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission, requireSelf } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
+
+import * as userMilestonesService from './user-milestones.service';
+import { userMilestoneResponseSchema } from './user-milestones.types';
 
 const getUserMilestonesRoute = createRoute({
   tags: ['Milestones'],
@@ -35,7 +35,7 @@ const getUserMilestonesRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
-      milestoneResponseSchema.array().openapi('UserMilestones'),
+      userMilestoneResponseSchema.array().openapi('UserMilestones'),
       'Milestones across projects the user can access'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
@@ -43,9 +43,7 @@ const getUserMilestonesRoute = createRoute({
       'Authentication required'
     ),
     [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      z.object({
-        message: z.enum(['Insufficient permissions', 'You can only access your own resources']),
-      }),
+      createMessageObjectSchema('Forbidden'),
       'Caller lacks project:view, or path userId is not the authenticated user'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
@@ -62,21 +60,10 @@ server.openapi(getUserMilestonesRoute, async (c) => {
   const { userId } = c.req.valid('param');
   const activeOrgId = c.get('activeOrgId');
 
-  const projectsResult = await userProjectsService.getProjectsByUserId(
+  const result = await userMilestonesService.getMilestonesByUserId(
     userId,
     activeOrgId ?? undefined
   );
-  if (!projectsResult.ok) {
-    return c.json(
-      { message: projectsResult.error.message },
-      getHttpStatus(projectsResult.error) as never
-    );
-  }
-
-  const projectIds = projectsResult.data.map((project) => project.id);
-  if (projectIds.length === 0) return c.json([], HttpStatusCodes.OK);
-
-  const result = await milestonesService.listMilestonesForProjects(projectIds);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

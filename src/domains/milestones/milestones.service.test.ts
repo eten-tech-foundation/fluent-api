@@ -35,7 +35,7 @@ vi.mock('./milestones.repository', () => ({
   insertMilestoneRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
   listByProjectId: vi.fn(),
-  listByProjectIds: vi.fn(),
+  listSummariesByProjectIds: vi.fn(),
   getMilestoneById: vi.fn(),
   getByIdForProject: vi.fn(),
   updateMilestoneRecord: vi.fn(),
@@ -210,10 +210,10 @@ describe('milestones service', () => {
 
     it('listMilestonesForProjects should call repo', async () => {
       const mockResult = [{ id: 1 }, { id: 2 }] as any;
-      vi.mocked(repo.listByProjectIds).mockResolvedValue(mockResult);
+      vi.mocked(repo.listSummariesByProjectIds).mockResolvedValue(mockResult);
 
       const result = await listMilestonesForProjects([3, 7]);
-      expect(repo.listByProjectIds).toHaveBeenCalledWith([3, 7]);
+      expect(repo.listSummariesByProjectIds).toHaveBeenCalledWith([3, 7]);
       expect(result).toEqual(ok(mockResult));
     });
 

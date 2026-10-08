@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { MilestoneSummaryRow } from '@/domains/milestones/milestones.types';
+import type { UserProjectResponse } from '@/domains/users/projects/user-projects.types';
+import type { UserResponse } from '@/domains/users/users.types';
+import type { Permission } from '@/lib/permissions';
+
+import { chapterStatusEnum } from '@/db/schema';
 import * as milestonesService from '@/domains/milestones/milestones.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getProjectsByUserId } from '@/domains/users/projects/user-projects.service';
@@ -49,47 +55,80 @@ vi.mock('@/domains/milestones/milestones.service', () => ({
   listMilestonesForProjects: vi.fn(),
 }));
 
-const APP_USER = {
+const APP_USER: UserResponse = {
   id: 1,
   email: 'pm@example.com',
-  role: 2,
-  roleName: 'Project Manager',
-  organization: 1,
-  status: 'verified' as const,
+  username: 'pm',
+  firstName: null,
+  lastName: null,
+  createdBy: null,
+  status: 'verified',
+  createdAt: null,
+  updatedAt: null,
+  lastActiveOrgId: null,
 };
 
-const SAMPLE_MILESTONE = {
+const zeroCounts = Object.fromEntries(
+  chapterStatusEnum.enumValues.map((status) => [status, 0])
+) as UserProjectResponse['chapterStatusCounts'];
+
+function project(id: number): UserProjectResponse {
+  return {
+    id,
+    name: 'Baka NT',
+    organization: 1,
+    isActive: true,
+    status: 'not_assigned',
+    createdBy: 1,
+    createdAt: null,
+    updatedAt: null,
+    metadata: {},
+    sourceBibleId: null,
+    pericopeSetId: null,
+    lastActivityAt: null,
+    sourceLanguageId: 1,
+    targetLanguageId: 2,
+    sourceLanguageName: 'English',
+    targetLanguageName: 'Baka',
+    sourceName: null,
+    lastChapterActivity: null,
+    chapterStatusCounts: zeroCounts,
+    milestoneCount: 1,
+    workflowConfig: [],
+  };
+}
+
+const SAMPLE_MILESTONE: MilestoneSummaryRow = {
   id: 12,
   name: 'Mark',
-  status: 'not_started' as const,
-  type: 'text' as const,
-  connectivityProfile: null,
   projectId: 3,
   projectName: 'Baka NT',
-  milestoneCount: 1,
-  bookCount: 1,
-  bookIds: [41],
-  chapterStatusCounts: {
-    not_started: 16,
-    draft: 0,
-    peer_check: 0,
-    community_review: 0,
-    linguist_check: 0,
-    theological_check: 0,
-    consultant_check: 0,
-    complete: 0,
-  },
-  createdAt: '2026-09-18T12:00:00.000Z',
-  updatedAt: '2026-09-18T12:00:00.000Z',
 };
 
-function asAuthenticatedUser(permissions: string[] = [PERMISSIONS.PROJECT_VIEW]) {
-  (auth.api.getSession as any).mockResolvedValue({
-    session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-    user: { email: APP_USER.email },
+function asAuthenticatedUser(permissions: Permission[] = [PERMISSIONS.PROJECT_VIEW]) {
+  const now = new Date();
+  vi.mocked(auth.api.getSession).mockResolvedValue({
+    session: {
+      id: 's1',
+      userId: 'auth-user-1',
+      token: 'test-session-token',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + 1e9),
+    },
+    user: {
+      id: 'auth-user-1',
+      name: APP_USER.username,
+      email: APP_USER.email,
+      emailVerified: true,
+      banned: false,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
   });
-  (getUserByEmail as any).mockResolvedValue(ok(APP_USER));
-  (findGrantsByUserId as any).mockResolvedValue(
+  vi.mocked(getUserByEmail).mockResolvedValue(ok(APP_USER));
+  vi.mocked(findGrantsByUserId).mockResolvedValue(
     ok([{ orgId: 1, projectId: 3, permissions: new Set(permissions) }])
   );
 }
@@ -100,7 +139,7 @@ describe('get /users/{userId}/milestones', () => {
   });
 
   it('returns 401 when unauthenticated', async () => {
-    (auth.api.getSession as any).mockResolvedValue(null);
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
     const res = await server.request('/users/1/milestones', { method: 'GET' });
     expect(res.status).toBe(401);
   });
@@ -127,7 +166,7 @@ describe('get /users/{userId}/milestones', () => {
 
   it('returns a flat list of milestones for projects the caller can access', async () => {
     asAuthenticatedUser();
-    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([{ id: 3 }, { id: 7 }] as any));
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([project(3), project(7)]));
     vi.mocked(milestonesService.listMilestonesForProjects).mockResolvedValue(
       ok([SAMPLE_MILESTONE])
     );

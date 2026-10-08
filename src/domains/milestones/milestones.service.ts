@@ -7,7 +7,12 @@ import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateMilestoneInput, MilestoneRow, UpdateMilestoneInput } from './milestones.types';
+import type {
+  CreateMilestoneInput,
+  MilestoneRow,
+  MilestoneSummaryRow,
+  UpdateMilestoneInput,
+} from './milestones.types';
 
 import * as repo from './milestones.repository';
 
@@ -157,9 +162,9 @@ export async function listMilestonesForProject(projectId: number): Promise<Resul
 
 export async function listMilestonesForProjects(
   projectIds: number[]
-): Promise<Result<MilestoneRow[]>> {
+): Promise<Result<MilestoneSummaryRow[]>> {
   try {
-    const milestones = await repo.listByProjectIds(projectIds);
+    const milestones = await repo.listSummariesByProjectIds(projectIds);
     return ok(milestones);
   } catch (error) {
     logger.error({
