@@ -14,8 +14,8 @@ export function toLanguageResponse(language: Language): LanguageResponse {
   };
 }
 
-export async function getAllLanguages() {
-  const result = await languagesRepo.getAll();
+export async function getAllLanguages(updatedAfter?: Date) {
+  const result = await languagesRepo.getAll(updatedAfter);
   if (!result.ok) return result;
 
   return ok(result.data.map(toLanguageResponse));

@@ -88,8 +88,8 @@ export async function searchSourceBibles(query: string) {
   return repo.searchSourceBibles(query);
 }
 
-export async function getAllBibles() {
-  const result = await repo.getAll();
+export async function getAllBibles(updatedAfter?: Date) {
+  const result = await repo.getAll(updatedAfter);
   if (!result.ok) return result;
   return toBibleResponses(result.data);
 }

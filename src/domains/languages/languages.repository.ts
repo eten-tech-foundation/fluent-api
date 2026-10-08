@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, gte, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -9,9 +9,12 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Language } from './languages.types';
 
-export async function getAll(): Promise<Result<Language[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Language[]>> {
   try {
-    return ok(await db.select().from(languages));
+    const rows = updatedAfter
+      ? await db.select().from(languages).where(gte(languages.updatedAt, updatedAfter))
+      : await db.select().from(languages);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to find all languages' });
     return err(ErrorCode.INTERNAL_ERROR);
