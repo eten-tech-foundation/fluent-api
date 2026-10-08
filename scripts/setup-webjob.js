@@ -42,7 +42,10 @@ if (!existsSync(nodeModulesDir)) {
 }
 
 cpSync(distDir, join(webjobDir, 'dist'), { recursive: true });
-cpSync(nodeModulesDir, join(webjobDir, 'node_modules'), { recursive: true });
+// No node_modules copy: Node resolves bare imports by walking up the tree,
+// so the worker reaches deployRoot/node_modules through the parent chain
+// (worker/ → continuous/ → jobs/ → App_Data/ → wwwroot/). Duplicating it here
+// would ship the same tree twice in the deployment package.
 
 const packageJsonPath = join(deployRoot, 'package.json');
 if (existsSync(packageJsonPath)) {
