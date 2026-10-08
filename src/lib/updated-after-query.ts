@@ -9,7 +9,7 @@ function isValidCalendarDateTime(value: string): boolean {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
 
-  if (!/[Zz]$/.test(value)) return true;
+  if (!/Z$/i.test(value)) return true;
 
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(value);
   if (!match) return false;
