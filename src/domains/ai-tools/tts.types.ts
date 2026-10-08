@@ -16,7 +16,7 @@ import { z } from '@hono/zod-openapi';
  *
  * Note the seam this does NOT cross: fluent-web's `features/tts/tts.types.ts`
  * stays camelCase, because those types hold DERIVED values (its `audioUrl` is
- * the absolutized URL, not the relative reference sent here) and serve a future
+ * the absolutized URL, not the raw reference sent here) and serve a future
  * browser-local engine that has no wire at all.
  *
  * ── The backend knows nothing about scripture (T6) ───────────────────────────
@@ -40,8 +40,8 @@ export const TtsGenerateRequestSchema = z
   .object({
     // Non-empty is enforced here so a trivially-invalid request never costs a
     // round-trip to fluent-ai. There is no `.max()`, and no maximum anywhere in
-    // this service: length is fluent-ai's business, not this proxy's (T27,
-    // 2026-08-11). It owns the tripwire, the configured number and the
+    // this service: proposal §7.1 makes length fluent-ai's business, not this
+    // proxy's. It owns the tripwire, the configured number and the
     // `TTS_TEXT_TOO_LONG` rejection, so there is exactly one value and it cannot
     // drift. Do not re-add a cap here "just to be safe" — a second number that
     // must agree with the first is the bug this arrangement removes.
@@ -82,13 +82,11 @@ export type TtsGenerateRequest = z.infer<typeof TtsGenerateRequestSchema>;
 /**
  * `generate` success body (§7.1).
  *
- * ⚠️ `audio_url` is a SIBLING-RELATIVE reference (e.g. `audio/9f2ac1d4….wav`)
- * that the browser resolves against the URL it actually called. fluent-api must
- * pass it through BYTE-IDENTICALLY — never absolutize, rewrite, or prefix it.
- * That is the whole reason `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav`
- * must remain siblings under one prefix, mirroring fluent-ai's own tails
- * (`/tts/generate`, `/tts/audio/{hash}.wav`). Break the mirror and resolution
- * silently lands on a 404.
+ * `audio_url` has two intentional forms. A cold artifact is sibling-relative
+ * (e.g. `audio/9f2ac1d4….wav`) so playback enters the authenticated recovery
+ * route; a warm compressed artifact may be an absolute R2 URL to skip a proxy
+ * hop. fluent-api passes either through byte-identically. The cold form requires
+ * `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav` to remain siblings.
  *
  * There is deliberately NO duration field: a streaming first listen has no
  * knowable duration, and once compressed the container header carries the exact
@@ -98,7 +96,7 @@ export const TtsGenerateResponseSchema = z
   .object({
     audio_url: z.string().min(1).openapi({
       description:
-        'URL reference to the audio, resolved against the request URL. Sibling-relative when fluent-ai references itself.',
+        'Cold sibling-relative or warm absolute URL reference to the audio; resolve it against the response URL.',
       example: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav',
     }),
   })

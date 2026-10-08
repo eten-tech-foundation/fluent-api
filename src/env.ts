@@ -140,7 +140,7 @@ const EnvBaseSchema = z.object({
   AI_INBOUND_SERVICE_KEY: z.string().min(1),
 
   // ── Source TTS ─────────────────────────────────────────────────────
-  // There is deliberately NO TTS_MAX_TEXT_LENGTH here (T27). fluent-ai owns the
+  // There is deliberately NO TTS_MAX_TEXT_LENGTH here. fluent-ai owns the
   // text-length tripwire and holds the only copy of the number, so this proxy
   // cannot drift out of step with it; POST /ai/tts/generate validates shape
   // only (required, non-empty) and forwards the rest. See tts.types.ts for why

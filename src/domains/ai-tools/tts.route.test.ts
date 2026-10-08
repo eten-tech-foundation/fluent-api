@@ -15,9 +15,9 @@ import '@/domains/ai-tools/tts.route';
  * Route-level tests for the Source-TTS proxy (proposal §12.2).
  *
  * SCOPE NOTE: the upstream service is mocked here, so these tests prove what
- * fluent-api does with what fluent-ai says — authorization, the length tripwire,
- * verbatim passthrough, and status/header relay. They deliberately do NOT prove
- * `redirect: 'manual'`, which is a property of the fetch call inside
+ * fluent-api does with what fluent-ai says — authorization, the length-authority
+ * boundary, verbatim passthrough, and status/header relay. They deliberately do
+ * not prove `redirect: 'manual'`, which is a property of the fetch call inside
  * tts.service.ts; that is asserted against a mocked `fetch` in tts.service.test.ts.
  * Splitting it that way keeps each guarantee tested where it actually lives.
  */
@@ -205,17 +205,19 @@ describe('pOST /ai/tts/generate', () => {
     await expect(res.json()).resolves.toEqual(upstream);
   });
 
-  it('never rewrites the sibling-relative audio_url into an absolute URL', async () => {
+  it.each([
+    ['cold sibling-relative', 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav'],
+    ['warm absolute R2', 'https://tts.example.test/tts/audio/9f2ac1d47b.ogg'],
+  ])('passes through the %s audio_url byte-identically', async (_case, upstreamUrl) => {
     asAuthenticatedUser(true);
-    const relative = 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav';
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: relative } });
+    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: upstreamUrl } });
 
     const res = await postGenerate(VALID_BODY);
     const json = (await res.json()) as { audio_url: string };
 
-    // Byte-identical: the browser resolves this against the URL it called, so any
-    // "helpful" absolutizing here breaks resolution (§7.1).
-    expect(json.audio_url).toBe(relative);
+    // The browser resolves either form against the response URL. Rewriting here
+    // would break the cold route or defeat the warm direct-R2 optimization.
+    expect(json.audio_url).toBe(upstreamUrl);
   });
 
   it('forwards the validated request to the service without enrichment (T6)', async () => {
@@ -241,11 +243,11 @@ describe('pOST /ai/tts/generate', () => {
     expect('format' in forwarded).toBe(false);
   });
 
-  it('does not judge text length — a long body is forwarded, not rejected (T27)', async () => {
+  it('does not judge text length — a long body is forwarded, not rejected (§7.1)', async () => {
     asAuthenticatedUser(true);
     (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
-    // Far beyond fluent-ai's default 20k tripwire. This proxy must still forward
+    // Far beyond fluent-ai's default 4k tripwire. This proxy must still forward
     // it: fluent-ai owns the limit and holds the only copy of the number, so a
     // cap here would be a second value that has to agree with the first.
     const text = 'a'.repeat(50_000);

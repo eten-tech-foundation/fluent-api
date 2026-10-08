@@ -20,12 +20,14 @@ import { TtsGenerateRequestSchema, TtsGenerateResponseSchema } from './tts.types
  *
  * fluent-api is the authenticated FRONT DOOR and nothing more: it holds no
  * Google key, no audio bytes, and no database rows for this feature. It
- * authorizes, enforces the length tripwire, and relays.
+ * authenticates, validates request shape, and relays. fluent-ai owns the text-
+ * length policy and its only configured limit.
  *
  * ⚠️ The two paths below MUST remain siblings under one prefix, mirroring
  * fluent-ai's own tails (`tts/generate`, `tts/audio/{hash}.wav`), because
- * `audio_url` is sibling-relative and the browser resolves it against the URL it
- * called. This is a stated contract requirement (§7.1), not a naming style.
+ * a cold `audio_url` is sibling-relative and the browser resolves it against
+ * the URL it called. This is a stated contract requirement (§7.1), not a naming
+ * style. A warm absolute R2 URL resolves to itself under the same rule.
  */
 
 // Same error body shape the sibling AI proxy uses (D9 / §10.3).
@@ -42,7 +44,7 @@ const errorResponseSchema = z.object({
 // call site; adding it there would imply a domain-wide meaning it does not have.
 //
 // `TTS_TEXT_TOO_LONG` used to live here too. It moved to fluent-ai with the
-// limit itself (T27, 2026-08-11): this proxy validates SHAPE, not size.
+// limit itself (proposal §7.1): this proxy validates SHAPE, not size.
 const TTS_INVALID_REQUEST = 'TTS_INVALID_REQUEST';
 
 /**
@@ -103,11 +105,11 @@ const ttsGenerateRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       TtsGenerateResponseSchema,
-      'Synthesis authorized. `audio_url` is a sibling-relative reference — resolve it against the request URL, do not concatenate a base.'
+      'Synthesis authorized. A cold `audio_url` is sibling-relative; a warm compressed artifact may be an absolute R2 URL. Resolve either against the response URL; do not concatenate a base.'
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       errorResponseSchema,
-      'TTS_INVALID_REQUEST — the body was malformed or `text` was empty. Length is fluent-ai’s to judge (T27).'
+      'TTS_INVALID_REQUEST — the body was malformed or `text` was empty. Text-length policy belongs to fluent-ai (proposal §7.1).'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -136,7 +138,7 @@ server.openapi(
   async (c) => {
     const body = c.req.valid('json');
 
-    // No length check here on purpose (T27, operator decision 2026-08-11): the
+    // No length check here on purpose (proposal §7.1): the
     // tripwire lives in fluent-ai, which holds the only copy of the number. Two
     // services with a same-named limit that must agree is a drift bug waiting to
     // happen — set them differently and the effective limit silently becomes
@@ -153,8 +155,8 @@ server.openapi(
       );
     }
 
-    // Passed through verbatim (§7.1/§12.2): the sibling-relative `audio_url` only
-    // resolves correctly if fluent-api leaves it exactly as fluent-ai wrote it.
+    // Passed through verbatim (§7.1/§12.2): both the cold sibling-relative and
+    // warm absolute `audio_url` forms must remain exactly as fluent-ai wrote them.
     // Cast because the schema is `.passthrough()` — the extra keys it is built to
     // preserve are by definition not statically known.
     return c.json(result.data as never, HttpStatusCodes.OK);

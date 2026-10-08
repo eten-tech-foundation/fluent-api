@@ -24,10 +24,10 @@ import { TtsGenerateResponseSchema } from './tts.types';
  *
  * ── The mirrored route tail is load-bearing (§7.1) ───────────────────────────
  * fluent-ai's tails are `tts/generate` and `tts/audio/{hash}.wav`; fluent-api
- * exposes them as `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav`. Because
- * `audio_url` is sibling-relative, the browser resolves it against the fluent-api
- * URL it actually called. If these two paths ever stop being siblings under one
- * prefix, resolution breaks — on BOTH services.
+ * exposes them as `/ai/tts/generate` and `/ai/tts/audio/{hash}.wav`. A cold
+ * sibling-relative `audio_url` resolves against the fluent-api URL the browser
+ * called, so those paths must stay siblings. A warm absolute R2 URL resolves to
+ * itself under the same rule.
  */
 
 /** Timeout for the (cheap, no-synthesis) generate call. */
@@ -94,8 +94,8 @@ export async function generateTtsAudio(
 
   // KNOWN FLATTENING, accepted rather than overlooked. Every non-2xx becomes
   // AI_SERVICE_UNAVAILABLE, so fluent-ai's own 4xx codes do not reach the
-  // browser -- notably `TTS_TEXT_TOO_LONG`, which since T27 (2026-08-11) is
-  // raised there rather than here. Two reasons this is acceptable today: the
+  // browser -- notably `TTS_TEXT_TOO_LONG`, which is raised there under
+  // proposal §7.1 rather than here. Two reasons this is acceptable today: the
   // only text this feature can submit is already-published source scripture
   // chosen by the app, so an oversized request is very nearly unreachable; and
   // fluent-web presents any generate failure as one toast regardless of code.
