@@ -5,6 +5,7 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { getHttpStatus } from '@/lib/types';
+import { updatedAfterQuerySchema, validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -16,10 +17,19 @@ const listLanguagesRoute = createRoute({
   method: 'get',
   path: '/languages',
   middleware: [authenticateUser] as const,
+  request: {
+    query: z.object({
+      updatedAfter: updatedAfterQuerySchema,
+    }),
+  },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       languageResponseSchema.array().openapi('Languages'),
       'The list of languages'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      validationErrorSchema,
+      'Invalid updatedAfter query parameter'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -35,11 +45,13 @@ const listLanguagesRoute = createRoute({
     ),
   },
   summary: 'Get all languages',
-  description: 'Returns a list of all languages',
+  description:
+    'Returns a list of all languages. When updatedAfter is provided, returns only languages updated after that ISO timestamp.',
 });
 
 server.openapi(listLanguagesRoute, async (c) => {
-  const result = await languageService.getAllLanguages();
+  const { updatedAfter } = c.req.valid('query');
+  const result = await languageService.getAllLanguages(updatedAfter);
 
   if (result.ok) {
     return c.json(result.data, HttpStatusCodes.OK);

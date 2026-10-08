@@ -12,8 +12,8 @@ function toResponse(book: Book): BookResponse {
   };
 }
 
-export async function getAllBooks() {
-  const result = await repo.getAll();
+export async function getAllBooks(updatedAfter?: Date) {
+  const result = await repo.getAll(updatedAfter);
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }

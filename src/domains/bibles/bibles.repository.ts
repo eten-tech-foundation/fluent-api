@@ -1,4 +1,4 @@
-import { eq, ilike, or, sql } from 'drizzle-orm';
+import { eq, gt, ilike, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -10,9 +10,12 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Bible, CreateBible, SourceSearchResponse, UpdateBible } from './bibles.types';
 
-export async function getAll(): Promise<Result<Bible[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Bible[]>> {
   try {
-    return ok(await db.select().from(bibles));
+    const rows = updatedAfter
+      ? await db.select().from(bibles).where(gt(bibles.updatedAt, updatedAfter))
+      : await db.select().from(bibles);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all bibles' });
     return err(ErrorCode.INTERNAL_ERROR);

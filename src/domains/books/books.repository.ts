@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, notInArray } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -83,9 +83,12 @@ const NEW_TESTAMENT_CODES = [
   'REV',
 ];
 
-export async function getAll(): Promise<Result<Book[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Book[]>> {
   try {
-    return ok(await db.select().from(books));
+    const rows = updatedAfter
+      ? await db.select().from(books).where(gt(books.updatedAt, updatedAfter))
+      : await db.select().from(books);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all books' });
     return err(ErrorCode.INTERNAL_ERROR);
