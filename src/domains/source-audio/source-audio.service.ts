@@ -132,6 +132,43 @@ function formatFromUrl(url: string): 'mp3' | 'webm' {
   return ext === 'webm' ? 'webm' : 'mp3';
 }
 
+/**
+ * Convert a DBL / API.Bible timecode `start` string to seconds from chapter start.
+ * Production values are `HH:MM:SS.mmm` (e.g. `"00:00:05.120"`). Decimal-second
+ * strings (`"9.0"`) are accepted for compatibility with fixtures / older shapes.
+ * `Number.parseFloat` alone is wrong for clock strings — it stops at the first `:`
+ * and collapses every verse to `0`.
+ */
+export function parseDblTimecodeStartSeconds(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  if (trimmed.includes(':')) {
+    const parts = trimmed.split(':');
+    if (parts.length !== 3) return undefined;
+    const [hoursRaw, minutesRaw, secondsRaw] = parts;
+    if (
+      hoursRaw === undefined ||
+      minutesRaw === undefined ||
+      secondsRaw === undefined ||
+      !/^\d+$/.test(hoursRaw) ||
+      !/^\d+$/.test(minutesRaw) ||
+      !/^\d+(?:\.\d+)?$/.test(secondsRaw)
+    ) {
+      return undefined;
+    }
+    const hours = Number.parseInt(hoursRaw, 10);
+    const minutes = Number.parseInt(minutesRaw, 10);
+    const seconds = Number.parseFloat(secondsRaw);
+    if (minutes >= 60 || seconds >= 60) return undefined;
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return undefined;
+  const decimal = Number.parseFloat(trimmed);
+  return Number.isFinite(decimal) ? decimal : undefined;
+}
+
 function dblTracksToResponse(params: {
   tracks: BibleAudioResponse[];
   fluentBible: Bible;
@@ -144,9 +181,10 @@ function dblTracksToResponse(params: {
   for (const track of params.tracks) {
     for (const timecode of track.timecodes ?? []) {
       const versePart = timecode.verseId.split('.').pop();
-      const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
-      const startSeconds = Number.parseFloat(timecode.start);
-      if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
+      // Number (not parseInt) so trailing junk like "1x" is rejected, not truncated.
+      const verse = versePart ? Number(versePart) : Number.NaN;
+      const startSeconds = parseDblTimecodeStartSeconds(timecode.start);
+      if (!Number.isInteger(verse) || verse < 1 || startSeconds === undefined) continue;
       verseTimestamps.push({
         verse,
         startSeconds,

@@ -15,6 +15,7 @@ import {
   getSourceAudioManifest,
   isBibleBookLinkedToProject,
   matchAquiferBible,
+  parseDblTimecodeStartSeconds,
 } from './source-audio.service';
 
 vi.mock('@/domains/bibles/bibles.repository', () => ({
@@ -61,6 +62,31 @@ describe('project Bible/book membership', () => {
 
     await expect(isBibleBookLinkedToProject(10, 20, 'JHN')).resolves.toEqual(expected);
     expect(sourceAudioRepo.isBibleBookLinkedToProject).toHaveBeenCalledWith(10, 20, 'JHN');
+  });
+});
+
+describe('parseDblTimecodeStartSeconds', () => {
+  it('parses API.Bible HH:MM:SS.mmm clock strings', () => {
+    expect(parseDblTimecodeStartSeconds('00:00:00.000')).toBe(0);
+    expect(parseDblTimecodeStartSeconds('00:00:05.120')).toBeCloseTo(5.12);
+    expect(parseDblTimecodeStartSeconds('00:01:30.500')).toBeCloseTo(90.5);
+    expect(parseDblTimecodeStartSeconds('01:00:00.000')).toBe(3600);
+  });
+
+  it('parses decimal-second strings', () => {
+    expect(parseDblTimecodeStartSeconds('0.0')).toBe(0);
+    expect(parseDblTimecodeStartSeconds('9.0')).toBe(9);
+    expect(parseDblTimecodeStartSeconds('12.5')).toBe(12.5);
+  });
+
+  it('rejects malformed values', () => {
+    expect(parseDblTimecodeStartSeconds('')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('00:05.120')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('00:60:00.000')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('00:00:60.000')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('00:00:05.120junk')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('1.5x')).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds('not-a-time')).toBeUndefined();
   });
 });
 
@@ -111,7 +137,10 @@ describe('getChapterSourceAudio', () => {
           chapterId: 'MRK.14',
           resourceUrl: 'https://example.com/audio.mp3',
           expiresAt: 123,
-          timecodes: [{ start: '0.0', end: '1.5', verseId: 'MRK.14.1' }],
+          timecodes: [
+            { start: '00:00:00.000', end: '00:00:01.500', verseId: 'MRK.14.1' },
+            { start: '00:00:05.120', end: '00:00:09.000', verseId: 'MRK.14.2' },
+          ],
         },
         {
           audioBibleId: 'audio-2',
@@ -119,6 +148,7 @@ describe('getChapterSourceAudio', () => {
           chapterId: 'MRK.14',
           resourceUrl: 'https://example.com/alternate.mp3',
           expiresAt: null,
+          // Decimal-second fixture shape still accepted.
           timecodes: [{ start: '9.0', end: '12.0', verseId: 'MRK.14.1' }],
         },
       ])
@@ -141,12 +171,46 @@ describe('getChapterSourceAudio', () => {
       expect(result.data.items[0]).not.toHaveProperty('sizeBytes');
       expect(result.data.verseTimestamps).toEqual([
         { verse: 1, startSeconds: 0, dblAudioBibleId: 'audio-1' },
+        { verse: 2, startSeconds: 5.12, dblAudioBibleId: 'audio-1' },
         { verse: 1, startSeconds: 9, dblAudioBibleId: 'audio-2' },
       ]);
       expect(result.data.bible.dblAudioBibleId).toBe('audio-1');
       expect(result.data.bible.abbreviation).toBe('BSB');
     }
     expect(getBibles).not.toHaveBeenCalled();
+  });
+
+  it('omits verseTimestamps when DBL timecodes are missing or unparseable', async () => {
+    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
+      ok([
+        {
+          audioBibleId: 'audio-1',
+          name: 'BSB Audio',
+          chapterId: 'MRK.14',
+          resourceUrl: 'https://example.com/audio.mp3',
+          expiresAt: null,
+          timecodes: [
+            { start: 'not-a-time', end: '00:00:01.000', verseId: 'MRK.14.1' },
+            { start: '00:00:05.000', end: '00:00:06.000', verseId: 'MRK.14.x' },
+            // parseInt would accept "1x" as 1; Number + isInteger must reject it.
+            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.1x' },
+          ],
+        },
+      ])
+    );
+
+    const result = await getChapterSourceAudio({
+      languageCode: 'eng',
+      fluentBibleId: 1,
+      bookCode: 'MRK',
+      chapter: 14,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.items).toHaveLength(1);
+      expect(result.data.verseTimestamps).toBeUndefined();
+    }
   });
 
   it('falls back to Aquifer when DBL has no tracks', async () => {
