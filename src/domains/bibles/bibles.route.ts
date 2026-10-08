@@ -92,7 +92,7 @@ const listBiblesRoute = createRoute({
   },
   summary: 'Get all bibles',
   description:
-    'Returns a list of all bibles. When updatedAfter is provided, returns only bibles updated after that ISO timestamp.',
+    'Returns a list of all bibles. When updatedAfter is provided, returns only bibles updated at or after that ISO timestamp.',
 });
 
 server.openapi(listBiblesRoute, async (c) => {

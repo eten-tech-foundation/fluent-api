@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, notInArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -86,7 +86,7 @@ const NEW_TESTAMENT_CODES = [
 export async function getAll(updatedAfter?: Date): Promise<Result<Book[]>> {
   try {
     const rows = updatedAfter
-      ? await db.select().from(books).where(gt(books.updatedAt, updatedAfter))
+      ? await db.select().from(books).where(gte(books.updatedAt, updatedAfter))
       : await db.select().from(books);
     return ok(rows);
   } catch (error) {
@@ -147,9 +147,10 @@ export interface DblBookUpsertInput {
 }
 
 /**
- * Upserts books using `onConflictDoNothing` to preserve the first-seen English
- * display name, preventing localized names from non-English Bibles from overwriting
- * the canonical name (e.g. "Génesis" replacing "Genesis").
+ * Upserts books while preserving the first-seen English display name (conflict
+ * path does not overwrite `eng_display_name`), preventing localized names from
+ * non-English Bibles from replacing the canonical name (e.g. "Génesis" → "Genesis").
+ * Conflict rows still bump `updatedAt` so incremental catalogue sync can see them.
  *
  * Also links the inserted/existing books to the specified `bibleId` in the
  * `bible_books` junction table.
@@ -162,8 +163,14 @@ export async function upsertFromDbl(
 
   try {
     await db.transaction(async (tx) => {
-      // 1. Bulk insert books, ignoring conflicts to preserve existing names
-      await tx.insert(books).values(rows).onConflictDoNothing();
+      // 1. Bulk insert books; on conflict preserve name but refresh updatedAt
+      await tx
+        .insert(books)
+        .values(rows)
+        .onConflictDoUpdate({
+          target: books.code,
+          set: { updatedAt: sql`now()` },
+        });
 
       // 2. Fetch all book IDs for the codes we just processed
       const codes = rows.map((r) => r.code);

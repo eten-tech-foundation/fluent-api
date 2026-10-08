@@ -11,7 +11,7 @@ export const updatedAfterQuerySchema = z
   .pipe(z.date().optional())
   .openapi({
     param: { name: 'updatedAfter', in: 'query', required: false },
-    description: 'Return only rows updated after this ISO timestamp',
+    description: 'Return only rows updated at or after this ISO timestamp',
     example: '2025-01-01T00:00:00.000Z',
   });
 

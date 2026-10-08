@@ -1,4 +1,4 @@
-import { eq, gt, sql } from 'drizzle-orm';
+import { eq, gte, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -12,7 +12,7 @@ import type { Language } from './languages.types';
 export async function getAll(updatedAfter?: Date): Promise<Result<Language[]>> {
   try {
     const rows = updatedAfter
-      ? await db.select().from(languages).where(gt(languages.updatedAt, updatedAfter))
+      ? await db.select().from(languages).where(gte(languages.updatedAt, updatedAfter))
       : await db.select().from(languages);
     return ok(rows);
   } catch (error) {

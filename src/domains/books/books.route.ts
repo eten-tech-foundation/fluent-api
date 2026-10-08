@@ -69,7 +69,7 @@ const listBooksRoute = createRoute({
   },
   summary: 'Get all books',
   description:
-    'Returns a list of all books. When updatedAfter is provided, returns only books updated after that ISO timestamp.',
+    'Returns a list of all books. When updatedAfter is provided, returns only books updated at or after that ISO timestamp.',
 });
 
 server.openapi(listBooksRoute, async (c) => {

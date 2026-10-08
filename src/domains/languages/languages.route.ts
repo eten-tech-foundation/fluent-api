@@ -46,7 +46,7 @@ const listLanguagesRoute = createRoute({
   },
   summary: 'Get all languages',
   description:
-    'Returns a list of all languages. When updatedAfter is provided, returns only languages updated after that ISO timestamp.',
+    'Returns a list of all languages. When updatedAfter is provided, returns only languages updated at or after that ISO timestamp.',
 });
 
 server.openapi(listLanguagesRoute, async (c) => {
