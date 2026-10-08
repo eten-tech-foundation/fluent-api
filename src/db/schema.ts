@@ -33,16 +33,7 @@ export const projectAssignmentStatusEnum = pgEnum('project_assignment_status', [
   'not_assigned',
 ]);
 export const milestoneTypeEnum = pgEnum('milestone_type', ['text', 'audio']);
-export const chapterStatusEnum = pgEnum('chapter_status', [
-  'not_started',
-  'draft',
-  'peer_check',
-  'community_review',
-  'linguist_check',
-  'theological_check',
-  'consultant_check',
-  'complete',
-]);
+
 export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_checker']);
 export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status', [
   'clean',
@@ -241,6 +232,28 @@ export const projects = pgTable('projects', {
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
   lastActivityAt: timestamp('last_activity_at'),
 });
+
+export const project_workflow_stages = pgTable(
+  'project_workflow_stages',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    defaultName: varchar('default_name', { length: 50 }).notNull(),
+    displayName: varchar('display_name', { length: 30 }).notNull(),
+    position: integer('position').notNull(),
+    isFixed: boolean('is_fixed').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex('uq_workflow_default_name').on(table.projectId, table.defaultName),
+    uniqueIndex('uq_workflow_position').on(table.projectId, table.position),
+  ]
+);
 
 export const books = pgTable('books', {
   id: serial('id').primaryKey(),
@@ -662,7 +675,7 @@ export const chapter_assignments = pgTable(
     chapterNumber: integer('chapter_number').notNull(),
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
-    status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
+    status: varchar('chapter_status', { length: 50 }).notNull().default('not_started'),
     hasClaimConflict: boolean('has_claim_conflict').default(false).notNull(),
     claimConflictUserId: integer('claim_conflict_user_id').references(() => users.id),
     isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
@@ -718,7 +731,7 @@ export const chapter_assignment_snapshots = pgTable(
     chapterAssignmentId: integer('chapter_assignment_id')
       .notNull()
       .references(() => chapter_assignments.id, { onDelete: 'cascade' }),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     content: json('content').$type<Json>().notNull(),
     createdAt: timestamp('created_at').defaultNow(),
@@ -740,7 +753,7 @@ export const chapter_assignment_assigned_user_history = pgTable(
       .notNull()
       .references(() => users.id),
     role: assignmentRoleEnum('role').notNull(),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [
@@ -756,7 +769,7 @@ export const chapter_assignment_status_history = pgTable(
     chapterAssignmentId: integer('chapter_assignment_id')
       .notNull()
       .references(() => chapter_assignments.id, { onDelete: 'cascade' }),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [index('idx_ca_status_history_assignment').on(table.chapterAssignmentId)]
@@ -1047,6 +1060,7 @@ export const selectBiblesSchema = createSelectSchema(bibles);
 export const selectBooksSchema = createSelectSchema(books);
 export const selectBibleBooksSchema = createSelectSchema(bible_books);
 export const selectProjectUnitsSchema = createSelectSchema(project_units);
+export const selectProjectWorkflowStagesSchema = createSelectSchema(project_workflow_stages);
 export const selectProjectUnitBibleBooksSchema = createSelectSchema(project_unit_bible_books);
 export const selectBibleTextsSchema = createSelectSchema(bible_texts);
 export const selectTranslatedVersesSchema = createSelectSchema(translated_verses);
@@ -1144,6 +1158,25 @@ export const insertProjectUnitsSchema = createInsertSchema(project_units, {
     projectId: true,
     name: true,
     status: true,
+  })
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+export const insertProjectWorkflowStagesSchema = createInsertSchema(project_workflow_stages, {
+  projectId: (schema) => schema.int(),
+  defaultName: (schema) => schema.min(1).max(50),
+  displayName: (schema) => schema.min(1).max(30),
+  position: (schema) => schema.int(),
+  isFixed: (schema) => schema.default(false),
+})
+  .required({
+    projectId: true,
+    defaultName: true,
+    displayName: true,
+    position: true,
   })
   .omit({
     id: true,
@@ -1409,6 +1442,7 @@ export const patchProjectsSchema = insertProjectsSchema.partial();
 export const patchBiblesSchema = insertBiblesSchema.partial();
 export const patchBibleBooksSchema = insertBibleBooksSchema.partial();
 export const patchProjectUnitsSchema = insertProjectUnitsSchema.partial();
+export const patchProjectWorkflowStagesSchema = insertProjectWorkflowStagesSchema.partial();
 export const patchProjectUnitBibleBooksSchema = insertProjectUnitBibleBooksSchema.partial();
 export const patchBibleTextsSchema = insertBibleTextsSchema.partial();
 export const patchTranslatedVersesSchema = insertTranslatedVersesBaseSchema.partial();
@@ -1434,3 +1468,6 @@ export const patchProjectsClientSchema = patchProjectsSchema.omit({
 });
 
 export const patchUsersClientSchema = patchUsersSchema;
+
+export type ProjectWorkflowStage = z.infer<typeof selectProjectWorkflowStagesSchema>;
+export type InsertProjectWorkflowStage = z.infer<typeof insertProjectWorkflowStagesSchema>;

@@ -78,7 +78,6 @@ describe('pericope repository with real PostgreSQL queries', () => {
         authUser: schema.authUser,
         authSession: schema.authSession,
         bibleProviderEnum: schema.bibleProviderEnum,
-        chapterStatusEnum: schema.chapterStatusEnum,
         milestoneTypeEnum: schema.milestoneTypeEnum,
         projectStatusEnum: schema.projectStatusEnum,
         projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,

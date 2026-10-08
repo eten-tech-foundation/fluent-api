@@ -16,7 +16,26 @@ import {
 } from './chapter-assignments.service';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
-const mockTx = { _isMockTx: true } as any;
+const mockTx = {
+  _isMockTx: true,
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        orderBy: vi.fn(() => ({
+          then: (resolve: any) =>
+            resolve([
+              { defaultName: 'not_started', position: 0 },
+              { defaultName: 'draft', position: 1 },
+              { defaultName: 'peer_check', position: 2 },
+              { defaultName: 'community_review', position: 3 },
+              { defaultName: 'complete', position: 4 },
+            ]),
+        })),
+        then: (resolve: any) => resolve([{ projectId: 1 }]),
+      })),
+    })),
+  })),
+} as any;
 
 vi.mock('@/db', () => ({
   db: {
@@ -297,7 +316,13 @@ describe('submitChapterAssignment open Peer Check', () => {
       expect(result.data.peerCheckerId).toBe(7);
       expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW);
     }
-    expect(repo.submitPeerCheckIfEligible).toHaveBeenCalledWith(1, 7, expect.any(Date), mockTx);
+    expect(repo.submitPeerCheckIfEligible).toHaveBeenCalledWith(
+      1,
+      7,
+      'community_review',
+      expect.any(Date),
+      mockTx
+    );
     expect(repo.insertUserAssignmentHistory).toHaveBeenCalledWith(
       mockTx,
       1,
