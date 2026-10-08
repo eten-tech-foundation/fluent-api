@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserResponse } from '@/domains/users/users.types';
+
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
@@ -61,13 +63,17 @@ vi.mock('./tts.service', () => ({
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-const APP_USER = {
+const APP_USER: UserResponse = {
   id: 1,
   email: 'translator@example.com',
-  role: 5,
-  roleName: 'translator',
-  organization: 1,
-  status: 'verified' as const,
+  username: 'translator',
+  firstName: null,
+  lastName: null,
+  createdBy: null,
+  status: 'verified',
+  createdAt: null,
+  updatedAt: null,
+  lastActiveOrgId: null,
 };
 
 const HASH = '9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91';
@@ -83,12 +89,29 @@ const VALID_BODY = { text: 'In the beginning God created the heavens and the ear
  * because the row shape requires them.
  */
 function asAuthenticatedUser(granted: boolean) {
-  (auth.api.getSession as any).mockResolvedValue({
-    session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-    user: { email: APP_USER.email },
+  const now = new Date();
+  vi.mocked(auth.api.getSession).mockResolvedValue({
+    session: {
+      id: 's1',
+      userId: 'auth-user-1',
+      token: 'test-session-token',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + 1e9),
+    },
+    user: {
+      id: 'auth-user-1',
+      name: APP_USER.username,
+      email: APP_USER.email,
+      emailVerified: true,
+      banned: false,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
   });
-  (getUserByEmail as any).mockResolvedValue(ok(APP_USER));
-  (findGrantsByUserId as any).mockResolvedValue(
+  vi.mocked(getUserByEmail).mockResolvedValue(ok(APP_USER));
+  vi.mocked(findGrantsByUserId).mockResolvedValue(
     ok(granted ? [{ orgId: 1, projectId: 1, permissions: new Set([PERMISSIONS.TTS_USE]) }] : [])
   );
 }
@@ -111,7 +134,7 @@ function upstreamOk(
   headers: Record<string, string> = {},
   body: BodyInit | null = null
 ) {
-  (fetchTtsAudio as any).mockResolvedValue({
+  vi.mocked(fetchTtsAudio).mockResolvedValue({
     ok: true,
     data: new Response(body, { status, headers }),
   });
@@ -125,7 +148,7 @@ beforeEach(() => {
 
 describe('tTS proxy authorization', () => {
   it('returns 401 on generate when unauthenticated', async () => {
-    (auth.api.getSession as any).mockResolvedValue(null);
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
     const res = await postGenerate(VALID_BODY);
 
@@ -134,7 +157,7 @@ describe('tTS proxy authorization', () => {
   });
 
   it('returns 401 on get-audio when unauthenticated', async () => {
-    (auth.api.getSession as any).mockResolvedValue(null);
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
     const res = await requestAudio(AUDIO_FILE);
 
@@ -168,15 +191,8 @@ describe('tTS proxy authorization', () => {
 
     // Post-RBAC the check is a set membership test on the user's grants, so the
     // alias is pinned by admitting a grant that holds TTS_USE and nothing else.
-    (auth.api.getSession as any).mockResolvedValue({
-      session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-      user: { email: APP_USER.email },
-    });
-    (getUserByEmail as any).mockResolvedValue(ok(APP_USER));
-    (findGrantsByUserId as any).mockResolvedValue(
-      ok([{ orgId: 1, projectId: 1, permissions: new Set([PERMISSIONS.TTS_USE]) }])
-    );
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'x' } });
+    asAuthenticatedUser(true);
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: { audio_url: 'x' } });
 
     const res = await postGenerate(VALID_BODY);
 
@@ -197,7 +213,7 @@ describe('pOST /ai/tts/generate', () => {
       audio_url: 'audio/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.wav',
       someFutureField: { nested: true },
     };
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: upstream });
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: upstream });
 
     const res = await postGenerate(VALID_BODY);
 
@@ -210,7 +226,7 @@ describe('pOST /ai/tts/generate', () => {
     ['warm absolute R2', 'https://tts.example.test/tts/audio/9f2ac1d47b.ogg'],
   ])('passes through the %s audio_url byte-identically', async (_case, upstreamUrl) => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: upstreamUrl } });
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: { audio_url: upstreamUrl } });
 
     const res = await postGenerate(VALID_BODY);
     const json = (await res.json()) as { audio_url: string };
@@ -222,7 +238,7 @@ describe('pOST /ai/tts/generate', () => {
 
   it('forwards the validated request to the service without enrichment (T6)', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
     const body = { text: 'hello', voice: 'en-US-Standard-A', lang_code: 'eng' };
 
     await postGenerate(body);
@@ -233,19 +249,19 @@ describe('pOST /ai/tts/generate', () => {
 
   it('leaves an omitted format omitted so fluent-ai resolves its own default', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
     await postGenerate({ text: 'hello' });
 
     // Injecting a default here would change the upstream content hash and split
     // the cache between clients that send a format and clients that do not.
-    const [forwarded] = (generateTtsAudio as any).mock.calls[0];
+    const [forwarded] = vi.mocked(generateTtsAudio).mock.calls[0];
     expect('format' in forwarded).toBe(false);
   });
 
   it('does not judge text length — a long body is forwarded, not rejected (§7.1)', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
+    vi.mocked(generateTtsAudio).mockResolvedValue({ ok: true, data: { audio_url: 'a.wav' } });
 
     // Far beyond fluent-ai's default 4k tripwire. This proxy must still forward
     // it: fluent-ai owns the limit and holds the only copy of the number, so a
@@ -254,7 +270,7 @@ describe('pOST /ai/tts/generate', () => {
     const res = await postGenerate({ text });
 
     expect(res.status).toBe(200);
-    const [forwarded] = (generateTtsAudio as any).mock.calls[0];
+    const [forwarded] = vi.mocked(generateTtsAudio).mock.calls[0];
     expect(forwarded.text).toHaveLength(50_000);
   });
 
@@ -264,8 +280,7 @@ describe('pOST /ai/tts/generate', () => {
     const res = await postGenerate({ text: '' });
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as any;
-    expect(json.code).toBe('TTS_INVALID_REQUEST');
+    await expect(res.json()).resolves.toMatchObject({ code: 'TTS_INVALID_REQUEST' });
     expect(generateTtsAudio).not.toHaveBeenCalled();
   });
 
@@ -283,7 +298,7 @@ describe('pOST /ai/tts/generate', () => {
 
   it('returns 502 when fluent-ai is unreachable', async () => {
     asAuthenticatedUser(true);
-    (generateTtsAudio as any).mockResolvedValue({
+    vi.mocked(generateTtsAudio).mockResolvedValue({
       ok: false,
       error: { code: ErrorCode.AI_SERVICE_UNAVAILABLE, message: 'fluent-ai unreachable' },
     });
@@ -351,7 +366,7 @@ describe('gET /ai/tts/audio/{file}', () => {
 
   it('returns 502 when fluent-ai is unreachable', async () => {
     asAuthenticatedUser(true);
-    (fetchTtsAudio as any).mockResolvedValue({
+    vi.mocked(fetchTtsAudio).mockResolvedValue({
       ok: false,
       error: { code: ErrorCode.AI_SERVICE_UNAVAILABLE, message: 'fluent-ai unreachable' },
     });
@@ -427,7 +442,7 @@ describe('audio streaming', () => {
         controller.close();
       },
     });
-    (fetchTtsAudio as any).mockResolvedValue({
+    vi.mocked(fetchTtsAudio).mockResolvedValue({
       ok: true,
       data: new Response(body, { status: 200, headers: { 'content-type': 'audio/wav' } }),
     });

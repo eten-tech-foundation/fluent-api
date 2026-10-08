@@ -54,7 +54,8 @@ function buildProgressSelectChain(rows: unknown[]) {
   };
 }
 
-const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+const { mockDbSelect, mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+  const dbSelect = vi.fn<(selection?: unknown) => unknown>();
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
@@ -66,11 +67,11 @@ const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
     where: vi.fn().mockReturnThis(),
     limit: vi.fn(),
   };
-  return { mockSelectChain: selectChain, mockUpdateChain: updateChain };
+  return { mockDbSelect: dbSelect, mockSelectChain: selectChain, mockUpdateChain: updateChain };
 });
 
 vi.mock('@/db', () => ({
-  db: { select: vi.fn() },
+  db: { select: mockDbSelect },
 }));
 
 vi.mock('drizzle-orm', async (importOriginal) => {
@@ -143,7 +144,7 @@ describe('chapter-assignments.repository claim helpers', () => {
 
   it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
     const chain = buildProgressSelectChain([]);
-    vi.mocked(db.select).mockReturnValue(chain as any);
+    mockDbSelect.mockReturnValue(chain);
 
     expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
     expect(db.select).toHaveBeenCalledWith(
@@ -165,7 +166,7 @@ describe('chapter-assignments.repository claim helpers', () => {
     chain.groupBy.mockReturnValue({
       orderBy: vi.fn().mockRejectedValue(new Error('database unavailable')),
     });
-    vi.mocked(db.select).mockReturnValue(chain as any);
+    mockDbSelect.mockReturnValue(chain);
 
     const result = await repo.findAssignmentsProgress({ projectId: 3 });
 

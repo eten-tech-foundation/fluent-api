@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProjectWithLanguageNames } from '@/domains/projects/projects.types';
+import type { UserResponse } from '@/domains/users/users.types';
+import type { DblAudioChapter, DblBible, DblVerseListItem } from '@/lib/services/dbl/dbl.types';
+
 import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
@@ -54,20 +58,96 @@ const audioChapter = {
     { verseId: 'JHN.3.1', start: '0', end: '4' },
     { verseId: 'JHN.3.2', start: '4', end: '8' },
   ],
+} satisfies DblAudioChapter;
+const dblBible = {
+  id: 'text-id',
+  abbreviation: 'REF',
+  abbreviationLocal: 'REF',
+  language: {
+    id: 'eng',
+    name: 'English',
+    nameLocal: 'English',
+    script: 'Latin',
+    scriptDirection: 'LTR',
+  },
+  countries: [],
+  name: 'Reference Bible',
+  nameLocal: 'Reference Bible',
+  description: null,
+  descriptionLocal: null,
+  relatedDbl: null,
+  type: 'text',
+  updatedAt: null,
+  audioBibles: [{ id: 'audio-id', name: 'Reference Audio', nameLocal: 'Reference Audio' }],
+  copyright: null,
+  info: null,
+} satisfies DblBible;
+const dblVerses = [{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }] satisfies DblVerseListItem[];
+
+const APP_USER: UserResponse = {
+  id: 1,
+  email: 'test@example.com',
+  username: 'test',
+  firstName: null,
+  lastName: null,
+  createdBy: null,
+  status: 'verified',
+  createdAt: null,
+  updatedAt: null,
+  lastActiveOrgId: null,
+};
+
+const PROJECT: ProjectWithLanguageNames = {
+  id: 10,
+  name: 'Test Project',
+  organization: 1,
+  sourceLanguageId: 1,
+  targetLanguageId: 1,
+  sourceLanguageName: 'English',
+  targetLanguageName: 'English',
+  sourceName: null,
+  isActive: true,
+  status: 'active',
+  createdBy: null,
+  createdAt: null,
+  updatedAt: null,
+  metadata: {},
+  sourceBibleId: null,
+  pericopeSetId: null,
+  lastActivityAt: null,
+  lastChapterActivity: null,
+  chapterStatusCounts: {},
+  milestoneCount: 0,
+  workflowConfig: [],
 };
 
 function authenticate() {
+  const now = new Date();
   vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: { id: 'test', updatedAt: new Date(), expiresAt: new Date(Date.now() + 60_000) },
-    user: { email: 'test@example.com' },
-  } as never);
-  vi.mocked(getUserByEmail).mockResolvedValue(
-    ok({ id: 1, email: 'test@example.com', status: 'verified' } as never)
-  );
+    session: {
+      id: 'test',
+      userId: 'auth-user-1',
+      token: 'test-session-token',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + 60_000),
+    },
+    user: {
+      id: 'auth-user-1',
+      name: APP_USER.username,
+      email: APP_USER.email,
+      emailVerified: true,
+      banned: false,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  vi.mocked(getUserByEmail).mockResolvedValue(ok(APP_USER));
   vi.mocked(findGrantsByUserId).mockResolvedValue(
-    ok([{ orgId: 1, projectId: 10, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }] as never)
+    ok([{ orgId: 1, projectId: 10, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }])
   );
-  vi.mocked(getProjectById).mockResolvedValue(ok({ id: 10, organization: 1 } as never));
+  vi.mocked(getProjectById).mockResolvedValue(ok(PROJECT));
   vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
 }
 
@@ -75,18 +155,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   authenticate();
   vi.mocked(resources.getByProviderIdentity).mockResolvedValue(ok(null));
-  vi.mocked(dblClient.getBible).mockResolvedValue(
-    ok({
-      id: 'text-id',
-      name: 'Reference Bible',
-      abbreviation: 'REF',
-      audioBibles: [{ id: 'audio-id', name: 'Reference Audio' }],
-    } as never)
-  );
-  vi.mocked(dblClient.getAudioChapter).mockResolvedValue(ok(audioChapter as never));
-  vi.mocked(dblClient.getVerses).mockResolvedValue(
-    ok([{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }] as never)
-  );
+  vi.mocked(dblClient.getBible).mockResolvedValue(ok(dblBible));
+  vi.mocked(dblClient.getAudioChapter).mockResolvedValue(ok(audioChapter));
+  vi.mocked(dblClient.getVerses).mockResolvedValue(ok(dblVerses));
 });
 
 describe('authenticated DBL reference playback fixtures', () => {
@@ -106,7 +177,7 @@ describe('authenticated DBL reference playback fixtures', () => {
 
   it('keeps a DBL reference track playable but windowless when timecodes are absent', async () => {
     vi.mocked(dblClient.getAudioChapter).mockResolvedValue(
-      ok({ ...audioChapter, timecodes: null } as never)
+      ok({ ...audioChapter, timecodes: null } satisfies DblAudioChapter)
     );
 
     const response = await server.request(path);

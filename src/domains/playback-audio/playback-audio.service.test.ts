@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DblBible, DblVerseListItem } from '@/lib/services/dbl/dbl.types';
+
 import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
 import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
@@ -68,6 +70,33 @@ const aquiferText = {
   bookName: 'John',
   chapters: [chapter],
 };
+const dblVerses = [{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }] satisfies DblVerseListItem[];
+const dblBible = {
+  id: 'text-id',
+  abbreviation: 'BSB',
+  abbreviationLocal: 'BSB',
+  language: {
+    id: 'eng',
+    name: 'English',
+    nameLocal: 'English',
+    script: 'Latin',
+    scriptDirection: 'LTR',
+  },
+  countries: [],
+  name: 'BSB',
+  nameLocal: 'BSB',
+  description: null,
+  descriptionLocal: null,
+  relatedDbl: null,
+  type: 'text',
+  updatedAt: null,
+  audioBibles: [
+    { id: 'audio-a', name: 'A', nameLocal: 'A' },
+    { id: 'audio-b', name: 'B', nameLocal: 'B' },
+  ],
+  copyright: null,
+  info: null,
+} satisfies DblBible;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -79,9 +108,7 @@ beforeEach(() => {
   vi.mocked(getBibles).mockResolvedValue(ok(catalogue));
   vi.mocked(getBibleText).mockResolvedValue(ok(aquiferText));
   vi.mocked(getSourceChapterVerseNumbers).mockResolvedValue(ok([1, 2]));
-  vi.mocked(dblClient.getVerses).mockResolvedValue(
-    ok([{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }] as never)
-  );
+  vi.mocked(dblClient.getVerses).mockResolvedValue(ok(dblVerses));
 });
 
 describe('explicit playback identities and policy', () => {
@@ -224,17 +251,7 @@ describe('explicit playback identities and policy', () => {
 describe('dBL actual audio identity and timing', () => {
   beforeEach(() => {
     vi.mocked(getBibleRecordById).mockResolvedValue(ok({ ...source, audioResourceId: null }));
-    vi.mocked(dblClient.getBible).mockResolvedValue(
-      ok({
-        id: 'text-id',
-        name: 'BSB',
-        abbreviation: 'BSB',
-        audioBibles: [
-          { id: 'audio-a', name: 'A' },
-          { id: 'audio-b', name: 'B' },
-        ],
-      } as never)
-    );
+    vi.mocked(dblClient.getBible).mockResolvedValue(ok(dblBible));
     vi.mocked(dblClient.getAudioChapter).mockImplementation(async (id) =>
       ok({
         id: 'JHN.3',
@@ -396,7 +413,7 @@ describe('dBL actual audio identity and timing', () => {
 
   it('uses the DBL text chapter verse list for references', async () => {
     vi.mocked(dblClient.getVerses).mockResolvedValue(
-      ok([{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }, { id: 'JHN.3.3' }] as never)
+      ok([{ id: 'JHN.3.1' }, { id: 'JHN.3.2' }, { id: 'JHN.3.3' }] satisfies DblVerseListItem[])
     );
 
     expect(await getReferencePlayback({ ...input, identity: text })).toMatchObject({

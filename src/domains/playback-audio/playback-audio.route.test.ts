@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProjectWithLanguageNames } from '@/domains/projects/projects.types';
+import type { UserResponse } from '@/domains/users/users.types';
+
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { isBibleBookLinkedToProject } from '@/domains/source-audio/source-audio.service';
@@ -66,24 +69,72 @@ const paths = [
   '/projects/10/playback-audio/JHN/3?languageCode=eng&bibleId=2',
   '/projects/10/reference-audio/aq-1/JHN/3?languageCode=eng',
 ];
+const APP_USER: UserResponse = {
+  id: 1,
+  email: 'test@example.com',
+  username: 'test',
+  firstName: null,
+  lastName: null,
+  createdBy: null,
+  status: 'verified',
+  createdAt: null,
+  updatedAt: null,
+  lastActiveOrgId: null,
+};
+const PROJECT: ProjectWithLanguageNames = {
+  id: 10,
+  name: 'Test Project',
+  organization: 1,
+  sourceLanguageId: 1,
+  targetLanguageId: 1,
+  sourceLanguageName: 'English',
+  targetLanguageName: 'English',
+  sourceName: null,
+  isActive: true,
+  status: 'active',
+  createdBy: null,
+  createdAt: null,
+  updatedAt: null,
+  metadata: {},
+  sourceBibleId: null,
+  pericopeSetId: null,
+  lastActivityAt: null,
+  lastChapterActivity: null,
+  chapterStatusCounts: {},
+  milestoneCount: 0,
+  workflowConfig: [],
+};
 function authenticated(permission = true, member = true) {
+  const now = new Date();
   vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: { id: 'test', updatedAt: new Date(), expiresAt: new Date(Date.now() + 100000) },
-    user: { email: 'test@example.com' },
-  } as never);
-  vi.mocked(getUserByEmail).mockResolvedValue(
-    ok({ id: 1, email: 'test@example.com', status: 'verified' } as never)
-  );
+    session: {
+      id: 'test',
+      userId: 'auth-user-1',
+      token: 'test-session-token',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: new Date(now.getTime() + 100000),
+    },
+    user: {
+      id: 'auth-user-1',
+      name: APP_USER.username,
+      email: APP_USER.email,
+      emailVerified: true,
+      banned: false,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  vi.mocked(getUserByEmail).mockResolvedValue(ok(APP_USER));
   vi.mocked(findGrantsByUserId).mockResolvedValue(
     ok(
       permission
-        ? ([
-            { orgId: 999, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) },
-          ] as never)
+        ? [{ orgId: 999, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }]
         : []
     )
   );
-  vi.mocked(getProjectById).mockResolvedValue(ok({ id: 10, organization: 1 } as never));
+  vi.mocked(getProjectById).mockResolvedValue(ok(PROJECT));
   vi.mocked(resolveIsProjectMember).mockResolvedValue(member);
 }
 beforeEach(() => {
