@@ -46,9 +46,17 @@ function validateMiddlewareInputs(
   return { user, policyUser, projectUnitId };
 }
 
+function parseBibleTextId(c: Context<AppEnv>): number | undefined {
+  const bibleTextId = Number(c.req.param('bibleTextId'));
+  return Number.isInteger(bibleTextId) && bibleTextId > 0 ? bibleTextId : undefined;
+}
+
 // The assignment lookup also proves the verse belongs to this unit
 // (INVALID_REFERENCE → 400). It and the unit→project lookup are independent,
 // so they run in parallel; membership still waits on the resolved projectId.
+// Membership is skipped when the assignment failed — resolveIsProjectMember
+// can reject on a DB error, and the caller must still surface the
+// assignment error rather than an unhandled 500.
 async function loadAssignmentAuthContext(
   projectUnitId: number,
   bibleTextId: number,
@@ -59,9 +67,10 @@ async function loadAssignmentAuthContext(
     projectService.getProjectIdByUnitId(projectUnitId),
   ]);
 
-  const isProjectMember = unitResult.ok
-    ? await resolveIsProjectMember(unitResult.data.projectId, userId)
-    : false;
+  const isProjectMember =
+    assignmentResult.ok && unitResult.ok
+      ? await resolveIsProjectMember(unitResult.data.projectId, userId)
+      : false;
 
   return { assignmentResult, isProjectMember };
 }
@@ -108,8 +117,8 @@ export function requireResolveVerseAudioConflictAccess(source: VerseAudioIdSourc
 
     const { user, policyUser, projectUnitId } = validInputs;
 
-    const bibleTextId = Number(c.req.param('bibleTextId'));
-    if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
+    const bibleTextId = parseBibleTextId(c);
+    if (bibleTextId === undefined) {
       return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
@@ -146,8 +155,8 @@ export function requireEditVerseAudioAccess(source: VerseAudioIdSource) {
 
     const { user, policyUser, projectUnitId } = validInputs;
 
-    const bibleTextId = Number(c.req.param('bibleTextId'));
-    if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
+    const bibleTextId = parseBibleTextId(c);
+    if (bibleTextId === undefined) {
       return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
