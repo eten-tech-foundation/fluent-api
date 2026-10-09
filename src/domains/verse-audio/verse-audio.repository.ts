@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
@@ -581,7 +582,7 @@ export async function listTakesForRecording(
 }
 
 /**
- * Drops superseded takes: non-active takes on a clean unit that has been settled
+ * Drops superseded takes: non-active takes on a clean or resolved unit that has been settled
  * on its active take for the whole retention window.
  *
  * Only take rows go; the objects they referenced are left to the orphan pass,
@@ -593,7 +594,7 @@ export async function listTakesForRecording(
  * `active_take_id` is `ON DELETE set null`, so nothing at the schema level stops
  * a take promoted mid-sweep from being deleted out from under its recording.
  * Two guards close that window: the parent recordings are locked before the
- * delete, and the delete re-evaluates the "not active, still clean" predicate
+ * delete, and the delete re-evaluates the "not active, still clean or resolved" predicate
  * under that lock rather than trusting the candidate snapshot.
  */
 export async function pruneSupersededTakes(
@@ -613,7 +614,10 @@ export async function pruneSupersededTakes(
         )
         .where(
           and(
-            eq(verse_audio_recordings.conflictStatus, VERSE_AUDIO_CONFLICT_STATUS.CLEAN),
+            inArray(verse_audio_recordings.conflictStatus, [
+              VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+              VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
+            ]),
             isNotNull(verse_audio_recordings.activeTakeId),
             ne(verse_audio_takes.id, verse_audio_recordings.activeTakeId),
             lt(verse_audio_takes.createdAt, cutoff),
@@ -650,7 +654,7 @@ export async function pruneSupersededTakes(
             sql`EXISTS (
               SELECT 1 FROM ${verse_audio_recordings} r
               WHERE r.id = ${verse_audio_takes.recordingId}
-                AND r.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CLEAN}
+                AND r.conflict_status IN (${VERSE_AUDIO_CONFLICT_STATUS.CLEAN}, ${VERSE_AUDIO_CONFLICT_STATUS.RESOLVED})
                 AND r.active_take_id IS NOT NULL
                 AND r.active_take_id <> ${verse_audio_takes.id}
                 AND r.updated_at < ${cutoff}
