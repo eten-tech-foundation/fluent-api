@@ -9,10 +9,11 @@ CREATE TABLE "project_workflow_stages" (
 	"updated_at" timestamp DEFAULT now()
 );
 --> statement-breakpoint
-ALTER TABLE "chapter_assignment_assigned_user_history" ALTER COLUMN "status" SET DATA TYPE varchar(50);--> statement-breakpoint
-ALTER TABLE "chapter_assignment_snapshots" ALTER COLUMN "status" SET DATA TYPE varchar(50);--> statement-breakpoint
-ALTER TABLE "chapter_assignment_status_history" ALTER COLUMN "status" SET DATA TYPE varchar(50);--> statement-breakpoint
-ALTER TABLE "chapter_assignments" ALTER COLUMN "chapter_status" SET DATA TYPE varchar(50);--> statement-breakpoint
+ALTER TABLE "chapter_assignment_assigned_user_history" ALTER COLUMN "status" SET DATA TYPE varchar(50) USING "status"::text;--> statement-breakpoint
+ALTER TABLE "chapter_assignment_snapshots" ALTER COLUMN "status" SET DATA TYPE varchar(50) USING "status"::text;--> statement-breakpoint
+ALTER TABLE "chapter_assignment_status_history" ALTER COLUMN "status" SET DATA TYPE varchar(50) USING "status"::text;--> statement-breakpoint
+ALTER TABLE "chapter_assignments" ALTER COLUMN "chapter_status" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "chapter_assignments" ALTER COLUMN "chapter_status" SET DATA TYPE varchar(50) USING "chapter_status"::text;--> statement-breakpoint
 ALTER TABLE "chapter_assignments" ALTER COLUMN "chapter_status" SET DEFAULT 'not_started';--> statement-breakpoint
 ALTER TABLE "project_workflow_stages" ADD CONSTRAINT "project_workflow_stages_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_workflow_default_name" ON "project_workflow_stages" USING btree ("project_id","default_name");--> statement-breakpoint
