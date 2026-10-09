@@ -15,12 +15,15 @@ import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import { requireVerseAudioAccess } from './verse-audio-auth.middleware';
+import {
+  requireEditVerseAudioAccess,
+  requireReadVerseAudioAccess,
+  requireResolveVerseAudioConflictAccess,
+} from './verse-audio-auth.middleware';
 import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
   resolveConflictBodySchema,
-  VERSE_AUDIO_ACTIONS,
   VERSE_AUDIO_ID_SOURCES,
   verseAudioListResponseSchema,
   verseAudioResponseSchema,
@@ -103,7 +106,7 @@ const uploadVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
     bodyLimit({
       maxSize: MAX_AUDIO_BYTES,
       onError: (c) => c.json({ message: 'Audio file exceeds the 30 MB limit' }, 413),
@@ -233,7 +236,7 @@ const getVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireReadVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,
@@ -277,7 +280,7 @@ const listVerseAudioRoute = createRoute({
   path: '/verse-audio',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.QUERY),
+    requireReadVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.QUERY),
   ] as const,
   request: {
     query: z.object({
@@ -331,7 +334,7 @@ const resolveVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}/resolve',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.RESOLVE, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireResolveVerseAudioConflictAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,
@@ -392,7 +395,7 @@ const deleteVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,
