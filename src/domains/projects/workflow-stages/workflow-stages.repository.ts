@@ -1,72 +1,72 @@
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 import type { InsertProjectWorkflowStage, ProjectWorkflowStage } from '../../../db/schema';
 
 import { db } from '../../../db';
-import { chapter_assignments, project_workflow_stages } from '../../../db/schema';
+import { chapter_assignments, project_units, project_workflow_stages } from '../../../db/schema';
+
+// Either the global db or a transaction handle; both expose select/insert/update/delete.
+export type Tx = any;
+export type Executor = any;
 
 export async function getWorkflowStagesByProjectId(
-  projectId: number
+  projectId: number,
+  executor: Executor = db
 ): Promise<ProjectWorkflowStage[]> {
-  return await db
+  return executor
     .select()
     .from(project_workflow_stages)
     .where(eq(project_workflow_stages.projectId, projectId))
-    .orderBy(project_workflow_stages.position);
+    .orderBy(asc(project_workflow_stages.position));
 }
 
 export async function addWorkflowStage(
-  tx: any,
+  executor: Executor,
   data: InsertProjectWorkflowStage
 ): Promise<ProjectWorkflowStage> {
-  const [newStage] = await tx.insert(project_workflow_stages).values(data).returning();
+  const [newStage] = await executor.insert(project_workflow_stages).values(data).returning();
   return newStage;
 }
 
-export async function getLockedDefaultNames(projectId: number): Promise<string[]> {
-  // Find highest position of any reached stage
-  // chapter_assignments -> project_units -> projects is implied since chapter_assignments is isolated by projectUnitId,
-  // but chapter_assignments has no projectId. However, projectUnit has projectId.
-  const activeStatusesQuery = db
+/**
+ * A stage is "locked" once any chapter in the project has reached it.
+ * The lock cascades to every earlier stage.
+ */
+export async function getLockedDefaultNames(
+  projectId: number,
+  executor: Executor = db
+): Promise<string[]> {
+  // chapter_assignments has no projectId, so join through project_units.
+  const rows = await executor
     .select({ status: chapter_assignments.status })
     .from(chapter_assignments)
-    .innerJoin(
-      sql`project_units`,
-      sql`project_units.id = chapter_assignments.project_unit_id AND project_units.project_id = ${projectId}`
-    )
+    .innerJoin(project_units, eq(project_units.id, chapter_assignments.projectUnitId))
+    .where(eq(project_units.projectId, projectId))
     .groupBy(chapter_assignments.status);
 
-  const statuses = await activeStatusesQuery;
-  const statusStrings = statuses.map((s) => s.status);
+  if (rows.length === 0) return [];
 
-  if (statusStrings.length === 0) {
-    return [];
-  }
+  const usedStatuses = new Set(rows.map((r: any) => r.status));
+  const stages = await getWorkflowStagesByProjectId(projectId, executor);
 
-  // Find max position
-  const stages = await getWorkflowStagesByProjectId(projectId);
+  // Highest position among stages that at least one chapter currently sits in.
   let maxPosition = -1;
   for (const stage of stages) {
-    if (statusStrings.includes(stage.defaultName as any)) {
-      if (stage.position > maxPosition) {
-        maxPosition = stage.position;
-      }
+    if (usedStatuses.has(stage.defaultName) && stage.position > maxPosition) {
+      maxPosition = stage.position;
     }
   }
+  if (maxPosition === -1) return [];
 
-  if (maxPosition === -1) {
-    return [];
-  }
-
-  // Cascade lock
   return stages.filter((s) => s.position <= maxPosition).map((s) => s.defaultName);
 }
 
 export async function renameWorkflowStage(
   stageId: number,
-  displayName: string
+  displayName: string,
+  executor: Executor = db
 ): Promise<ProjectWorkflowStage> {
-  const [updated] = await db
+  const [updated] = await executor
     .update(project_workflow_stages)
     .set({ displayName })
     .where(eq(project_workflow_stages.id, stageId))

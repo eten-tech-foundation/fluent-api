@@ -3,6 +3,7 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import { logger } from '../../../lib/logger';
 import { PERMISSIONS } from '../../../lib/permissions';
 import { authenticateUser, requirePermission } from '../../../middlewares/role-auth';
 import { server } from '../../../server/server';
@@ -15,6 +16,18 @@ import {
   reorderWorkflowStagesSchema,
   workflowStepResponseSchema,
 } from './workflow-stages.types';
+
+function workflowStageErrorResponse(c: any, error: unknown, operation: string) {
+  if (error instanceof service.WorkflowStageValidationError) {
+    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
+  }
+
+  logger.error({ cause: error, operation }, 'Workflow stage operation failed');
+  return c.json(
+    { message: 'Internal Server Error' },
+    HttpStatusCodes.INTERNAL_SERVER_ERROR as never
+  );
+}
 
 const projectIdParam = z.object({
   projectId: z.coerce
@@ -58,8 +71,8 @@ server.openapi(getWorkflowStagesRoute, async (c) => {
   try {
     const stages = await service.getWorkflowStages(projectId);
     return c.json(stages, HttpStatusCodes.OK);
-  } catch (error: any) {
-    return c.json({ message: error.message }, HttpStatusCodes.INTERNAL_SERVER_ERROR as never);
+  } catch (error) {
+    return workflowStageErrorResponse(c, error, 'get');
   }
 });
 
@@ -92,8 +105,8 @@ server.openapi(addWorkflowStageRoute, async (c) => {
   try {
     const newStage = await service.addStage(projectId, body.displayName);
     return c.json(newStage, HttpStatusCodes.CREATED);
-  } catch (error: any) {
-    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
+  } catch (error) {
+    return workflowStageErrorResponse(c, error, 'add');
   }
 });
 
@@ -126,8 +139,8 @@ server.openapi(renameWorkflowStageRoute, async (c) => {
   try {
     const updatedStage = await service.renameStage(projectId, stageId, body.displayName);
     return c.json(updatedStage, HttpStatusCodes.OK);
-  } catch (error: any) {
-    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
+  } catch (error) {
+    return workflowStageErrorResponse(c, error, 'rename');
   }
 });
 
@@ -159,8 +172,8 @@ server.openapi(deleteWorkflowStageRoute, async (c) => {
   try {
     const stages = await service.deleteStage(projectId, stageId);
     return c.json(stages, HttpStatusCodes.OK);
-  } catch (error: any) {
-    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
+  } catch (error) {
+    return workflowStageErrorResponse(c, error, 'delete');
   }
 });
 
@@ -196,7 +209,7 @@ server.openapi(reorderWorkflowStagesRoute, async (c) => {
   try {
     const stages = await service.reorderStages(projectId, body.stageIds);
     return c.json(stages, HttpStatusCodes.OK);
-  } catch (error: any) {
-    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
+  } catch (error) {
+    return workflowStageErrorResponse(c, error, 'reorder');
   }
 });

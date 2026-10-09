@@ -3,9 +3,13 @@ import { eq } from 'drizzle-orm';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { project_units, project_workflow_stages } from '@/db/schema';
+import { project_units } from '@/db/schema';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
+import {
+  lockProject,
+  readStagesSeeded,
+} from '@/domains/projects/workflow-stages/workflow-stages.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -298,11 +302,8 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
       .where(eq(project_units.id, current.projectUnitId));
     if (!projectUnit) return err(ErrorCode.INTERNAL_ERROR);
 
-    const stages = await tx
-      .select()
-      .from(project_workflow_stages)
-      .where(eq(project_workflow_stages.projectId, projectUnit.projectId))
-      .orderBy(project_workflow_stages.position);
+    await lockProject(tx, projectUnit.projectId);
+    const stages = await readStagesSeeded(tx, projectUnit.projectId);
 
     const currentIndex = stages.findIndex((s) => s.defaultName === current.status);
     if (currentIndex === -1 || currentIndex >= stages.length - 1) {

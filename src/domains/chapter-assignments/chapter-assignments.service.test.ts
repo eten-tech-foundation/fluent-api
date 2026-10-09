@@ -31,6 +31,9 @@ const mockTx = {
               { defaultName: 'complete', position: 4 },
             ]),
         })),
+        for: vi.fn(() => ({
+          then: (resolve: any) => resolve([{ id: 1, projectId: 1 }]),
+        })),
         then: (resolve: any) => resolve([{ projectId: 1 }]),
       })),
     })),
