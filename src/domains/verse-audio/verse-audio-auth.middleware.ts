@@ -18,11 +18,6 @@ import { VERSE_AUDIO_ACTIONS, VERSE_AUDIO_ID_SOURCES } from './verse-audio.types
 // translated-verse-auth.middleware.ts.
 const NOT_FOUND_MESSAGE = ErrorMessages.VERSE_AUDIO_NOT_FOUND;
 
-/**
- * Resolves the parent project (READ) or chapter assignment (EDIT) for a verse
- * audio route and evaluates the matching policy. IDs always come from path
- * params or the query string — never the multipart body.
- */
 export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseAudioIdSource) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const user = c.get('user')!;
@@ -56,7 +51,37 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
 
       c.set('project', projectResult.data);
       c.set('projectAuthContext', { isProjectMember });
+    } else if (action === VERSE_AUDIO_ACTIONS.RESOLVE) {
+      const bibleTextId = Number(c.req.param('bibleTextId'));
+      if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
+        return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
+      }
+
+      const assignmentResult = await chapterAssignmentService.getAssignmentForVerse(
+        projectUnitId,
+        bibleTextId
+      );
+      if (!assignmentResult.ok) {
+        return c.json(
+          { message: assignmentResult.error.message },
+          getHttpStatus(assignmentResult.error) as never
+        );
+      }
+
+      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+      const isProjectMember = unitResult.ok
+        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
+        : false;
+
+      const allowed =
+        ChapterAssignmentPolicy.resolveAudioConflict(policyUser, assignmentResult.data) ||
+        ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember);
+
+      if (!allowed) {
+        return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
+      }
     } else {
+      // EDIT
       const bibleTextId = Number(c.req.param('bibleTextId'));
       if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
         return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);

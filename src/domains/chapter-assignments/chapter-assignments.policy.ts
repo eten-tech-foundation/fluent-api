@@ -66,6 +66,11 @@ export const ChapterAssignmentPolicy = {
     }
   },
 
+  resolveAudioConflict(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {
+    const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
+  },
+
   create(user: AppPolicyUser, targetOrganizationId: number, targetProjectId: number): boolean {
     const scope = { orgId: targetOrganizationId, projectId: targetProjectId };
     return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);

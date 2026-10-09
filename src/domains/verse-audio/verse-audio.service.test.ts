@@ -879,7 +879,7 @@ describe('verse-audio service', () => {
           ok({
             ...record,
             versionToken: 2,
-            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
             activeTakeId: 11,
           })
         );
@@ -890,7 +890,7 @@ describe('verse-audio service', () => {
           record: {
             ...record,
             versionToken: 2,
-            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
             activeTakeId: 11,
           },
         })
@@ -908,14 +908,14 @@ describe('verse-audio service', () => {
         1,
         expect.objectContaining({
           activeTakeId: 11,
-          conflictStatus: 'clean',
+          conflictStatus: 'resolved',
           versionToken: 2,
           storageObjectId: other.storageObjectId,
         })
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data.conflictStatus).toBe('clean');
+        expect(result.data.conflictStatus).toBe('resolved');
         expect(result.data.activeTakeId).toBe(11);
       }
     });
