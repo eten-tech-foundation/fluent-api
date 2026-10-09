@@ -48,34 +48,30 @@ export async function getSourceAudio(
 
   // 4. Fetch all available audio chapters in parallel
   const results = await Promise.allSettled(
-    audioBibles.map(async (audioSummary) => {
-      const res = await dblClient.getAudioChapter(audioSummary.id, dblChapterId);
-      if (!res.ok) {
-        if (res.error.message.includes('404')) {
-          return null;
-        }
-        throw new Error(res.error.message);
-      }
-      return {
-        audioBibleId: audioSummary.id,
-        name: audioSummary.name || audioSummary.nameLocal || dblBible.name,
-        chapterId: res.data.id,
-        resourceUrl: res.data.resourceUrl,
-        expiresAt: res.data.expiresAt ?? null,
-        timecodes: res.data.timecodes,
-      };
-    })
+    audioBibles.map((audioSummary) => dblClient.getAudioChapter(audioSummary.id, dblChapterId))
   );
 
   const audioTracks: BibleAudioResponse[] = [];
-  for (const r of results) {
-    if (r.status === 'rejected') {
-      logger.error('Upstream DBL failure while fetching audio chapters', { error: r.reason });
+  for (const [index, settled] of results.entries()) {
+    if (settled.status === 'rejected') {
+      logger.error('Upstream DBL failure while fetching audio chapters', { error: settled.reason });
       return err(ErrorCode.DBL_SERVICE_UNAVAILABLE);
     }
-    if (r.status === 'fulfilled' && r.value !== null) {
-      audioTracks.push(r.value);
+    const result = settled.value;
+    if (!result.ok) {
+      if (result.error.code === ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND) continue;
+      logger.error('Upstream DBL failure while fetching audio chapters', { error: result.error });
+      return result;
     }
+    const audioSummary = audioBibles[index]!;
+    audioTracks.push({
+      audioBibleId: audioSummary.id,
+      name: audioSummary.name || audioSummary.nameLocal || dblBible.name,
+      chapterId: result.data.id,
+      resourceUrl: result.data.resourceUrl,
+      expiresAt: result.data.expiresAt ?? null,
+      timecodes: result.data.timecodes,
+    });
   }
 
   return ok(audioTracks);

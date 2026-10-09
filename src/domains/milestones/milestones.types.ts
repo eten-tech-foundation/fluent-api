@@ -4,6 +4,13 @@ import { projectStatusEnum } from '@/db/schema';
 
 import { chapterStatusCountsSchema } from '../projects/projects.types';
 
+export interface MilestoneSummaryRow {
+  id: number;
+  name: string;
+  projectId: number;
+  projectName: string;
+}
+
 export interface MilestoneRow {
   id: number;
   name: string;

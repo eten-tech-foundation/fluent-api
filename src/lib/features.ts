@@ -23,8 +23,9 @@ import type env from '@/env';
  * sets are equal in BOTH directions). This `FLAGS` registry is the single place
  * that ties an env var to its wire key and its unset-default; `buildFeatures()`
  * iterates it (no string-prefix sweep, no casts) and the wire type is derived
- * from it, so the OpenAPI schema and the registry cannot drift (a compile-time
- * `satisfies` in config.route.ts enforces that half).
+ * from it, so the OpenAPI schema and the registry cannot drift (the compile-time
+ * `satisfies z.ZodType<Features>` on `featuresSchema` at the bottom of THIS file
+ * enforces that half; config.route.ts merely wraps the schema in a response).
  *
  * Adding a feature = declare `EN_FEATURE_<NAME>` in env.ts + a line in
  * `.env.example` + one entry here + one property in the OpenAPI schema. The
@@ -62,6 +63,9 @@ interface FlagDefinition {
  */
 const aiIsWired: DefaultResolver = (e) => Boolean(e.FLUENT_AI_URL && e.FLUENT_AI_KEY);
 
+/** Keeps a feature unpublished until an operator explicitly enables it. */
+const offByDefault: DefaultResolver = () => false;
+
 /**
  * The flag registry. Keys are the camelCase WIRE keys (what the API publishes
  * and fluent-web reads); each value ties that wire key to its backing env var
@@ -72,7 +76,8 @@ const aiIsWired: DefaultResolver = (e) => Boolean(e.FLUENT_AI_URL && e.FLUENT_AI
  *    both directions, if they diverge):
  *      1. the env-schema line          (src/env.ts — operator's catalog + validation)
  *      2. this FLAGS registry          (env↔wire mapping + default)
- *      3. the OpenAPI response schema  (src/routes/config.route.ts — programmer's catalog)
+ *      3. the OpenAPI response schema  (`featuresSchema` at the bottom of this file —
+ *                                      programmer's catalog)
  *    …plus a line in .env.example.
  */
 export const FLAGS = {
@@ -82,6 +87,12 @@ export const FLAGS = {
   // AI Suggestions — same contract: defaults to whether AI is wired when
   // EN_FEATURE_AI_SUGGESTIONS is unset.
   aiSuggestions: { env: 'EN_FEATURE_AI_SUGGESTIONS', default: aiIsWired },
+  // Source Audio (hear the source text — recorded where it exists, synthesized
+  // where it does not). One gate covers both provenances. It ships dark:
+  // fluent-ai wiring alone never publishes the controls. An operator must set
+  // EN_FEATURE_SOURCE_AUDIO=true (or a browser may use the local /debug
+  // override) to expose them.
+  sourceAudio: { env: 'EN_FEATURE_SOURCE_AUDIO', default: offByDefault },
 } as const satisfies Record<string, FlagDefinition>;
 
 /** The set of known wire keys, e.g. `'repeatedWordCheck'`. */
@@ -126,6 +137,7 @@ export const featuresSchema = z
   .object({
     repeatedWordCheck: z.boolean().openapi({ example: false }),
     aiSuggestions: z.boolean().openapi({ example: false }),
+    sourceAudio: z.boolean().openapi({ example: false }),
   })
   .openapi('Features') satisfies z.ZodType<Features>;
 
