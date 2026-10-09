@@ -10,7 +10,6 @@ import {
   bible_texts,
   books,
   chapter_assignments,
-  chapterStatusEnum,
   project_unit_bible_books,
   project_unit_usfm_imports,
   project_units,
@@ -18,6 +17,7 @@ import {
   translated_verses,
   verse_audio_recordings,
 } from '@/db/schema';
+import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.service';
 
 import type {
   CreateMilestoneInput,
@@ -132,9 +132,9 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
 type MilestoneSelectRow = Awaited<ReturnType<typeof milestoneSelect>>[number];
 
 function mapRow(row: MilestoneSelectRow): MilestoneRow {
-  const defaultCounts = chapterStatusEnum.enumValues.reduce(
-    (acc, status) => {
-      acc[status] = 0;
+  const defaultCounts = DEFAULT_WORKFLOW.reduce(
+    (acc, stage) => {
+      acc[stage.defaultName] = 0;
       return acc;
     },
     {} as Record<string, number>

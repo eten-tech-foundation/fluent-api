@@ -63,6 +63,10 @@ vi.mock('./projects.repository', () => ({
   remove: vi.fn(),
 }));
 
+vi.mock('./workflow-stages/workflow-stages.service', () => ({
+  seedDefaultStages: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
   createChapterAssignmentForProjectUnit: vi.fn(),
 }));

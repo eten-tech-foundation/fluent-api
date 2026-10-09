@@ -407,6 +407,7 @@ export async function claimIfUnassigned(
 export async function submitPeerCheckIfEligible(
   id: number,
   userId: number,
+  nextStatus: string,
   submittedTime: Date,
   tx: DbTransaction
 ): Promise<ChapterAssignmentRecord | null> {
@@ -414,7 +415,7 @@ export async function submitPeerCheckIfEligible(
     .update(chapter_assignments)
     .set({
       peerCheckerId: userId,
-      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+      status: nextStatus,
       submittedTime,
     })
     .where(
