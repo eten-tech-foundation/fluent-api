@@ -7,7 +7,12 @@ import { logger } from '@/lib/logger';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateMilestoneInput, MilestoneRow, UpdateMilestoneInput } from './milestones.types';
+import type {
+  CreateMilestoneInput,
+  MilestoneRow,
+  MilestoneSummaryRow,
+  UpdateMilestoneInput,
+} from './milestones.types';
 
 import * as repo from './milestones.repository';
 
@@ -151,6 +156,22 @@ export async function listMilestonesForProject(projectId: number): Promise<Resul
     return ok(milestones);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to list milestones', context: { projectId } });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+export async function listMilestonesForProjects(
+  projectIds: number[]
+): Promise<Result<MilestoneSummaryRow[]>> {
+  try {
+    const milestones = await repo.listSummariesByProjectIds(projectIds);
+    return ok(milestones);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to list milestones for projects',
+      context: { projectIds },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

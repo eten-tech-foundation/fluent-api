@@ -19,7 +19,12 @@ import {
   verse_audio_recordings,
 } from '@/db/schema';
 
-import type { CreateMilestoneInput, MilestoneRow, UpdateMilestoneInput } from './milestones.types';
+import type {
+  CreateMilestoneInput,
+  MilestoneRow,
+  MilestoneSummaryRow,
+  UpdateMilestoneInput,
+} from './milestones.types';
 
 export async function insertMilestoneRecord(
   projectId: number,
@@ -151,6 +156,22 @@ function mapRow(row: MilestoneSelectRow): MilestoneRow {
 export async function listByProjectId(projectId: number): Promise<MilestoneRow[]> {
   const rows = await milestoneSelect().where(eq(project_units.projectId, projectId));
   return rows.map(mapRow);
+}
+
+export async function listSummariesByProjectIds(
+  projectIds: number[]
+): Promise<MilestoneSummaryRow[]> {
+  if (projectIds.length === 0) return [];
+  return db
+    .select({
+      id: project_units.id,
+      name: project_units.name,
+      projectId: project_units.projectId,
+      projectName: projects.name,
+    })
+    .from(project_units)
+    .innerJoin(projects, eq(projects.id, project_units.projectId))
+    .where(inArray(project_units.projectId, projectIds));
 }
 
 export async function getByIdForProject(

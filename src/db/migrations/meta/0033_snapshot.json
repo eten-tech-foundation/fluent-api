@@ -1,5 +1,5 @@
 {
-  "id": "040ce473-eab3-405f-9ab0-28fec114ffd4",
+  "id": "b77547ba-9590-4651-949a-0cd72657d8b7",
   "prevId": "29478a6e-131b-46bb-9fa6-7cda059066f3",
   "version": "7",
   "dialect": "postgresql",
@@ -1116,6 +1116,80 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.bible_provider_resources": {
+      "name": "bible_provider_resources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "resource_provider",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tts_license_status": {
+          "name": "tts_license_status",
+          "type": "tts_license_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unknown'"
+        },
+        "license_notice": {
+          "name": "license_notice",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_bible_provider_resources_identity": {
+          "name": "idx_bible_provider_resources_identity",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.bible_texts": {
       "name": "bible_texts",
       "schema": "",
@@ -1308,6 +1382,12 @@
           "notNull": true,
           "default": false
         },
+        "audio_resource_id": {
+          "name": "audio_resource_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -1355,6 +1435,15 @@
           "columnsFrom": ["language_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "bibles_audio_resource_id_bible_provider_resources_id_fk": {
+          "name": "bibles_audio_resource_id_bible_provider_resources_id_fk",
+          "tableFrom": "bibles",
+          "tableTo": "bible_provider_resources",
+          "columnsFrom": ["audio_resource_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -3820,10 +3909,20 @@
       "schema": "public",
       "values": ["not_started", "in_progress", "completed"]
     },
+    "public.resource_provider": {
+      "name": "resource_provider",
+      "schema": "public",
+      "values": ["dbl", "aquifer", "youversion"]
+    },
     "public.script_direction": {
       "name": "script_direction",
       "schema": "public",
       "values": ["ltr", "rtl"]
+    },
+    "public.tts_license_status": {
+      "name": "tts_license_status",
+      "schema": "public",
+      "values": ["allowed", "forbidden", "unknown"]
     },
     "public.user_status": {
       "name": "user_status",
@@ -3833,7 +3932,7 @@
     "public.verse_audio_conflict_status": {
       "name": "verse_audio_conflict_status",
       "schema": "public",
-      "values": ["clean", "conflict", "resolved"]
+      "values": ["clean", "conflict"]
     }
   },
   "schemas": {},

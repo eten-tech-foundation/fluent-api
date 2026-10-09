@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import { aquiferLicenseInfoWireSchema } from '@/lib/services/aquifer/aquifer.types';
+
 /** Canonical USFM book codes (same set as `src/db/seeds/data/books.json`). */
 export const USFM_BOOK_CODES = [
   'GEN',
@@ -175,6 +177,7 @@ export const translationNoteItemSchema = z
     name: z.string(),
     localizedName: z.string(),
     content: tipTapContentSchema,
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('TranslationNoteItem');
 
@@ -190,6 +193,7 @@ export const translationQuestionItemSchema = z
     name: z.string(),
     localizedName: z.string(),
     content: tipTapContentSchema,
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('TranslationQuestionItem');
 
@@ -242,6 +246,7 @@ export const prepareOfflineManifestItemSchema = z
     collectionCode: z.string().optional(),
     resourceType: z.string().optional(),
     serializedContent: z.string().optional(),
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('PrepareOfflineResourceManifestItem');
 

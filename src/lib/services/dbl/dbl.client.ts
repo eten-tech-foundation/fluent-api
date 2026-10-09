@@ -132,8 +132,9 @@ async function dblRequest<T>(
   config: DblClientConfig,
   path: string,
   query: Record<string, QueryValue>,
-  dataSchema: z.ZodType<T>,
-  options?: DblRequestOptions
+  dataSchema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  options?: DblRequestOptions,
+  notFoundCode?: ErrorCode
 ): Promise<Result<T>> {
   if (!config.apiKey) {
     return dblError(
@@ -176,15 +177,12 @@ async function dblRequest<T>(
   const rawBody = await response.text();
 
   if (!response.ok) {
-    // All non-2xx responses collapse into one ErrorCode (DBL_SERVICE_UNAVAILABLE),
-    // so status + body are logged here — otherwise a 401 (expired key) and a
-    // 404 (bad chapter id) are indistinguishable from the caller's Result alone.
-    // Splitting these into distinct ErrorCodes is a possible follow-up.
     logger.error(`DBL API returned HTTP ${response.status} for path [${path}]`, {
       path,
       status: response.status,
       body: rawBody,
     });
+    if (response.status === 404 && notFoundCode) return dblError(notFoundCode);
     return dblError(ErrorCode.DBL_SERVICE_UNAVAILABLE, `DBL API returned HTTP ${response.status}`);
   }
 
@@ -420,7 +418,8 @@ export function createDblClient(config: DblClientConfig): DblClient {
         `audio-bibles/${encodeURIComponent(audioBibleId)}/chapters/${encodeURIComponent(chapterId)}`,
         {},
         dblAudioChapterSchema,
-        options
+        options,
+        ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND
       );
     },
 
