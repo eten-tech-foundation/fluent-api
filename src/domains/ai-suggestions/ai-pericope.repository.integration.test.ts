@@ -81,7 +81,6 @@ describe('pericope repository with real PostgreSQL queries', () => {
         bibleProviderEnum: schema.bibleProviderEnum,
         resourceProviderEnum: schema.resourceProviderEnum,
         ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        chapterStatusEnum: schema.chapterStatusEnum,
         milestoneTypeEnum: schema.milestoneTypeEnum,
         projectStatusEnum: schema.projectStatusEnum,
         projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
