@@ -79,6 +79,11 @@ describe('parseDblTimecodeStartSeconds', () => {
     expect(parseDblTimecodeStartSeconds('12.5')).toBe(12.5);
   });
 
+  it('rejects clock values whose calculated offset is non-finite', () => {
+    expect(parseDblTimecodeStartSeconds(`${'9'.repeat(309)}:00:00`)).toBeUndefined();
+    expect(parseDblTimecodeStartSeconds(`${'9'.repeat(305)}:00:00`)).toBeUndefined();
+  });
+
   it('rejects malformed values', () => {
     expect(parseDblTimecodeStartSeconds('')).toBeUndefined();
     expect(parseDblTimecodeStartSeconds('00:05.120')).toBeUndefined();
@@ -194,6 +199,9 @@ describe('getChapterSourceAudio', () => {
             { start: '00:00:05.000', end: '00:00:06.000', verseId: 'MRK.14.x' },
             // parseInt would accept "1x" as 1; Number + isInteger must reject it.
             { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.1x' },
+            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.1e1' },
+            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.0x10' },
+            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14. 1 ' },
           ],
         },
       ])

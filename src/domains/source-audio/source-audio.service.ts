@@ -161,7 +161,8 @@ export function parseDblTimecodeStartSeconds(value: string): number | undefined 
     const minutes = Number.parseInt(minutesRaw, 10);
     const seconds = Number.parseFloat(secondsRaw);
     if (minutes >= 60 || seconds >= 60) return undefined;
-    return hours * 3600 + minutes * 60 + seconds;
+    const offset = hours * 3600 + minutes * 60 + seconds;
+    return Number.isFinite(offset) ? offset : undefined;
   }
 
   if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return undefined;
@@ -181,8 +182,7 @@ function dblTracksToResponse(params: {
   for (const track of params.tracks) {
     for (const timecode of track.timecodes ?? []) {
       const versePart = timecode.verseId.split('.').pop();
-      // Number (not parseInt) so trailing junk like "1x" is rejected, not truncated.
-      const verse = versePart ? Number(versePart) : Number.NaN;
+      const verse = versePart && /^\d+$/.test(versePart) ? Number(versePart) : Number.NaN;
       const startSeconds = parseDblTimecodeStartSeconds(timecode.start);
       if (!Number.isInteger(verse) || verse < 1 || startSeconds === undefined) continue;
       verseTimestamps.push({
