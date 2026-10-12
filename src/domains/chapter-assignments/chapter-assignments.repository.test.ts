@@ -379,5 +379,26 @@ describe('chapter-assignments.repository claim helpers', () => {
         claimConflictUserId: 5,
       });
     });
+
+    it('replaces claimConflictUserId on a later claimant (last-writer-wins; no first-conflict latch)', async () => {
+      mockUpdateChain.returning
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }])
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 11 }]);
+
+      await repo.flagClaimConflict(1, 5, mockTx());
+      await repo.flagClaimConflict(1, 11, mockTx());
+
+      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(1, {
+        hasClaimConflict: true,
+        claimConflictUserId: 5,
+      });
+      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(2, {
+        hasClaimConflict: true,
+        claimConflictUserId: 11,
+      });
+      // Id-only predicate — no latch on existing claimConflictUserId.
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(1, [chapter_assignments.id, 1]);
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(2, [chapter_assignments.id, 1]);
+    });
   });
 });

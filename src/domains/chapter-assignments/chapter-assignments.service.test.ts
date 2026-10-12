@@ -255,6 +255,87 @@ describe('claimChapterAssignment', () => {
     expect(row.hasClaimConflict).toBe(true);
     expect([10, 20]).toContain(row.assignedUserId);
   });
+
+  it('sequential losing claimants replace claimConflictUserId; assignee preserved; same-assignee no-op; PM clears', async () => {
+    const assigneeId = 7;
+    let row: ChapterAssignmentRecord = {
+      ...baseRecord,
+      assignedUserId: assigneeId,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+
+    // Mirror repository contract: claimIfUnassigned never steals an owner;
+    // flagClaimConflict always overwrites the scalar conflict user.
+    vi.mocked(repo.claimIfUnassigned).mockImplementation(async () => ({
+      claimed: false,
+      record: null,
+    }));
+    vi.mocked(repo.findById).mockImplementation(async () => ({ ...row }));
+    vi.mocked(repo.flagClaimConflict).mockImplementation(async (_id, claimConflictUserId) => {
+      row = { ...row, hasClaimConflict: true, claimConflictUserId };
+      return { ...row };
+    });
+    vi.mocked(repo.update).mockImplementation(async (_id, data) => {
+      row = {
+        ...row,
+        ...data,
+        assignedUserId:
+          data.assignedUserId !== undefined ? data.assignedUserId : row.assignedUserId,
+        hasClaimConflict:
+          data.hasClaimConflict !== undefined ? data.hasClaimConflict : row.hasClaimConflict,
+        claimConflictUserId:
+          data.claimConflictUserId !== undefined
+            ? data.claimConflictUserId
+            : row.claimConflictUserId,
+      } as ChapterAssignmentRecord;
+      return { ...row };
+    });
+
+    const firstLoser = await claimChapterAssignment(1, 5);
+    expect(firstLoser.ok).toBe(true);
+    if (firstLoser.ok) {
+      expect(firstLoser.data.assignedUserId).toBe(assigneeId);
+      expect(firstLoser.data.hasClaimConflict).toBe(true);
+      expect(firstLoser.data.claimConflictUserId).toBe(5);
+    }
+    expect(row.assignedUserId).toBe(assigneeId);
+    expect(row.claimConflictUserId).toBe(5);
+
+    const secondLoser = await claimChapterAssignment(1, 11);
+    expect(secondLoser.ok).toBe(true);
+    if (secondLoser.ok) {
+      expect(secondLoser.data.assignedUserId).toBe(assigneeId);
+      expect(secondLoser.data.hasClaimConflict).toBe(true);
+      expect(secondLoser.data.claimConflictUserId).toBe(11);
+    }
+    expect(row.assignedUserId).toBe(assigneeId);
+    expect(row.claimConflictUserId).toBe(11);
+    expect(repo.flagClaimConflict).toHaveBeenNthCalledWith(1, 1, 5, mockTx);
+    expect(repo.flagClaimConflict).toHaveBeenNthCalledWith(2, 1, 11, mockTx);
+
+    const assigneeRetry = await claimChapterAssignment(1, assigneeId);
+    expect(assigneeRetry.ok).toBe(true);
+    if (assigneeRetry.ok) {
+      expect(assigneeRetry.data.assignedUserId).toBe(assigneeId);
+      expect(assigneeRetry.data.claimConflictUserId).toBe(11);
+    }
+    expect(repo.flagClaimConflict).toHaveBeenCalledTimes(2);
+
+    const pmResolve = await updateChapterAssignment(1, { assignedUserId: 9 });
+    expect(pmResolve.ok).toBe(true);
+    expect(repo.update).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        assignedUserId: 9,
+        hasClaimConflict: false,
+        claimConflictUserId: null,
+      }),
+      mockTx
+    );
+    expect(row.hasClaimConflict).toBe(false);
+    expect(row.claimConflictUserId).toBeNull();
+    expect(row.assignedUserId).toBe(9);
+  });
 });
 
 describe('updateChapterAssignment conflict resolution', () => {

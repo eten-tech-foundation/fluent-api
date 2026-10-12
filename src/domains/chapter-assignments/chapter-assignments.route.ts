@@ -238,7 +238,7 @@ const claimChapterAssignmentRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       chapterAssignmentResponseSchema,
-      'Claim result: clean claim, same-user idempotent retry, or durable conflict (hasClaimConflict=true; assignedUserId unchanged)'
+      'Claim result: clean claim, same-user idempotent retry, or durable conflict (hasClaimConflict=true; claimConflictUserId=most recent losing claimant; assignedUserId unchanged)'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -255,7 +255,7 @@ const claimChapterAssignmentRoute = createRoute({
   },
   summary: 'Translator self-claim on first recording',
   description:
-    'Translator claims an unassigned chapter. Idempotent for the same user. If another user already holds the DRAFT (in-window race, late offline reconnect, or PM assign), returns 200 with durable hasClaimConflict/claimConflictUserId and does not overwrite assignedUserId. True missing ids and non-conflict denials (PM claim, missing content:update, non-DRAFT) return 404 — not a typed conflict (fluent-api#376, fluent-mobile#268/#271/#610).',
+    'Translator claims an unassigned chapter. Idempotent for the same user (no conflict write). If another user already holds the DRAFT (in-window race, late offline reconnect, or PM assign), returns 200 with durable hasClaimConflict and claimConflictUserId set to this losing claimant; a later eligible claimant replaces claimConflictUserId (last-writer-wins on that field only). assignedUserId is never overwritten by claim. PM assign clears both conflict fields. True missing ids and non-conflict denials (PM claim, missing content:update, non-DRAFT) return 404 — not a typed conflict (fluent-api#376, fluent-mobile#268/#271/#610).',
 });
 
 server.openapi(claimChapterAssignmentRoute, async (c) => {

@@ -152,9 +152,10 @@ export const ChapterAssignmentPolicy = {
     }
 
     // Another user holds the draft (translator race, late offline reconnect, or
-    // PM assign with peer). Service flags durable hasClaimConflict and returns
-    // 200 without overwriting assignedUserId — never 404 for these concurrency
-    // cases (#376). Non-DRAFT statuses remain denied (true auth/eligibility 404).
+    // PM assign with peer). Service flags durable hasClaimConflict (claimConflictUserId
+    // = this claimant; last-writer-wins on that scalar only) and returns 200 without
+    // overwriting assignedUserId — never 404 for these concurrency cases (#376).
+    // Non-DRAFT statuses remain denied (true auth/eligibility 404).
     if (assignment.assignedUserId != null) {
       return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
     }

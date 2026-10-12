@@ -430,6 +430,12 @@ export async function submitPeerCheckIfEligible(
   return updated ?? null;
 }
 
+/**
+ * Marks a durable claim conflict for the losing claimant.
+ * Unconditionally sets `claimConflictUserId` to this caller (last-writer-wins on
+ * the scalar conflict user). Does not change `assignedUserId`. There is no
+ * first-conflict latch; a later eligible claimant replaces the prior conflict user.
+ */
 export async function flagClaimConflict(
   id: number,
   claimConflictUserId: number,
