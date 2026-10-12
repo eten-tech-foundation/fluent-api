@@ -1,45 +1,23 @@
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
-import type { Executor, Tx } from './workflow-stages.repository';
 import type { WorkflowStepResponse } from './workflow-stages.types';
 
-import { db } from '../../../db';
-import { project_workflow_stages, projects } from '../../../db/schema';
+import { db } from '@/db';
+import { project_workflow_stages, projects } from '@/db/schema';
+import { err, ErrorCode, ok } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
+
+import { DEFAULT_WORKFLOW, END_STAGE, MAX_WORKFLOW_STAGES, START_STAGE } from './workflow-stages.constants';
 import * as repo from './workflow-stages.repository';
-
-export const DEFAULT_WORKFLOW = [
-  { defaultName: 'not_started', displayName: 'Not Started', position: 0, isFixed: true },
-  { defaultName: 'draft', displayName: 'Drafting', position: 1, isFixed: true },
-  { defaultName: 'peer_check', displayName: 'Peer Check', position: 2, isFixed: true },
-  { defaultName: 'community_review', displayName: 'Community Review', position: 3, isFixed: false },
-  { defaultName: 'linguist_check', displayName: 'Linguist Check', position: 4, isFixed: false },
-  {
-    defaultName: 'theological_check',
-    displayName: 'Theological Check',
-    position: 5,
-    isFixed: false,
-  },
-  { defaultName: 'consultant_check', displayName: 'Consultant Check', position: 6, isFixed: false },
-  { defaultName: 'complete', displayName: 'Complete', position: 7, isFixed: true },
-];
-
-const MAX_WORKFLOW_STAGES = 10;
-const START_STAGE = 'not_started';
-const END_STAGE = 'complete';
 
 type StageRow = typeof project_workflow_stages.$inferSelect;
 
-export class WorkflowStageValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'WorkflowStageValidationError';
-  }
-}
+export type { Executor } from './workflow-stages.repository';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export async function seedDefaultStages(projectId: number, executor: Executor = db) {
+export async function seedDefaultStages(projectId: number, executor: typeof db | DbTransaction = db) {
   const stagesToInsert = DEFAULT_WORKFLOW.map((s) => ({ projectId, ...s }));
   await executor.insert(project_workflow_stages).values(stagesToInsert).onConflictDoNothing();
 }
@@ -49,17 +27,18 @@ export async function seedDefaultStages(projectId: number, executor: Executor = 
  * stage change per project runs at a time. Exported so other code (e.g. chapter
  * submission) can take the same lock.
  */
-export async function lockProject(tx: Tx, projectId: number) {
+export async function lockProject(tx: DbTransaction, projectId: number): Promise<Result<void>> {
   const [row] = await tx
     .select({ id: projects.id })
     .from(projects)
     .where(eq(projects.id, projectId))
     .for('update');
-  if (!row) throw new Error('Project not found');
+  if (!row) return err(ErrorCode.WORKFLOW_PROJECT_NOT_FOUND);
+  return ok(undefined);
 }
 
 /** Reads stages inside the transaction, seeding the defaults if there are none. */
-export async function readStagesSeeded(tx: Tx, projectId: number): Promise<StageRow[]> {
+export async function readStagesSeeded(tx: DbTransaction, projectId: number): Promise<StageRow[]> {
   let stages = await repo.getWorkflowStagesByProjectId(projectId, tx);
   if (stages.length === 0) {
     await seedDefaultStages(projectId, tx);
@@ -86,17 +65,21 @@ function hasDuplicateName(stages: StageRow[], displayName: string, ignoreStageId
 
 // ─── Read ────────────────────────────────────────────────────────────────────
 
-export async function getWorkflowStages(projectId: number): Promise<WorkflowStepResponse[]> {
-  let stages = await repo.getWorkflowStagesByProjectId(projectId);
+/**
+ * Returns the workflow stages for a project.
+ * Missing stages (no rows) are treated as a configuration error — the GET
+ * endpoint no longer silently seeds the DB on read.
+ */
+export async function getWorkflowStages(projectId: number): Promise<Result<WorkflowStepResponse[]>> {
+  try {
+    const stages = await repo.getWorkflowStagesByProjectId(projectId);
+    if (stages.length === 0) return err(ErrorCode.WORKFLOW_STAGE_COMPLETE_NOT_FOUND);
 
-  if (stages.length === 0) {
-    // Safe if two requests seed at once: onConflictDoNothing + unique indexes.
-    await seedDefaultStages(projectId);
-    stages = await repo.getWorkflowStagesByProjectId(projectId);
+    const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
+    return ok(stages.map((stage) => toResponse(stage, lockedDefaultNames)));
+  } catch (error) {
+    return err(ErrorCode.INTERNAL_ERROR);
   }
-
-  const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
-  return stages.map((stage) => toResponse(stage, lockedDefaultNames));
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
@@ -104,160 +87,181 @@ export async function getWorkflowStages(projectId: number): Promise<WorkflowStep
 export async function addStage(
   projectId: number,
   displayName: string
-): Promise<WorkflowStepResponse> {
-  const created = await db.transaction(async (tx) => {
-    await lockProject(tx, projectId);
-    const stages = await readStagesSeeded(tx, projectId);
+): Promise<Result<WorkflowStepResponse>> {
+  try {
+    const created = await db.transaction(async (tx) => {
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
 
-    if (stages.length >= MAX_WORKFLOW_STAGES) {
-      throw new WorkflowStageValidationError(
-        `Maximum of ${MAX_WORKFLOW_STAGES} workflow stages reached.`
-      );
-    }
+      const stages = await readStagesSeeded(tx, projectId);
 
-    if (hasDuplicateName(stages, displayName)) {
-      throw new WorkflowStageValidationError('A stage with this name already exists.');
-    }
+      // Count only configurable stages (exclude bookend not_started / complete).
+      const configurableCount = stages.filter(
+        (s) => s.defaultName !== START_STAGE && s.defaultName !== END_STAGE
+      ).length;
+      if (configurableCount >= MAX_WORKFLOW_STAGES) {
+        return err(ErrorCode.WORKFLOW_STAGE_LIMIT_REACHED);
+      }
 
-    // "Complete" must stay last: move it down one, then put the new stage in its old slot.
-    // The move has to come first, otherwise two rows would share a position.
-    const completeStage = stages.find((s) => s.defaultName === END_STAGE);
-    if (!completeStage) throw new Error('Complete stage not found');
+      if (hasDuplicateName(stages, displayName)) {
+        return err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
+      }
 
-    await tx
-      .update(project_workflow_stages)
-      .set({ position: completeStage.position + 1 })
-      .where(eq(project_workflow_stages.id, completeStage.id));
+      // "Complete" must stay last: move it down one, then put the new stage in its old slot.
+      const completeStage = stages.find((s) => s.defaultName === END_STAGE);
+      if (!completeStage) return err(ErrorCode.WORKFLOW_STAGE_COMPLETE_NOT_FOUND);
 
-    return repo.addWorkflowStage(tx, {
-      projectId,
-      defaultName: `custom_${nanoid(10)}`,
-      displayName,
-      position: completeStage.position,
-      isFixed: false,
+      await tx
+        .update(project_workflow_stages)
+        .set({ position: completeStage.position + 1 })
+        .where(eq(project_workflow_stages.id, completeStage.id));
+
+      const newStage = await repo.addWorkflowStage(tx, {
+        projectId,
+        defaultName: `custom_${nanoid(10)}`,
+        displayName,
+        position: completeStage.position,
+        isFixed: false,
+      });
+      return ok(newStage);
     });
-  });
 
-  const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
-  return toResponse(created, lockedDefaultNames);
+    if (!created.ok) return created;
+
+    const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
+    return ok(toResponse(created.data, lockedDefaultNames));
+  } catch (error) {
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export async function renameStage(
   projectId: number,
   stageId: number,
   displayName: string
-): Promise<WorkflowStepResponse> {
-  const updated = await db.transaction(async (tx) => {
-    await lockProject(tx, projectId);
-    const stages = await readStagesSeeded(tx, projectId);
+): Promise<Result<WorkflowStepResponse>> {
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
 
-    const stage = stages.find((s) => s.id === stageId);
-    if (!stage) throw new WorkflowStageValidationError('Stage not found');
+      const stages = await readStagesSeeded(tx, projectId);
+      const stage = stages.find((s) => s.id === stageId);
 
-    if (stage.defaultName === START_STAGE || stage.defaultName === END_STAGE) {
-      throw new WorkflowStageValidationError('Cannot rename this stage.');
-    }
-    if (hasDuplicateName(stages, displayName, stageId)) {
-      throw new WorkflowStageValidationError('A stage with this name already exists.');
-    }
+      if (!stage) return err(ErrorCode.WORKFLOW_STAGE_NOT_FOUND);
+      if (stage.defaultName === START_STAGE || stage.defaultName === END_STAGE) {
+        return err(ErrorCode.WORKFLOW_STAGE_FIXED);
+      }
+      if (hasDuplicateName(stages, displayName, stageId)) {
+        return err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
+      }
 
-    return repo.renameWorkflowStage(stageId, displayName, tx);
-  });
+      const renamedStage = await repo.renameWorkflowStage(stageId, displayName, tx);
+      return ok(renamedStage);
+    });
 
-  const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
-  return toResponse(updated, lockedDefaultNames);
+    if (!updated.ok) return updated;
+
+    const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
+    return ok(toResponse(updated.data, lockedDefaultNames));
+  } catch (error) {
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export async function deleteStage(
   projectId: number,
   stageId: number
-): Promise<WorkflowStepResponse[]> {
-  await db.transaction(async (tx) => {
-    await lockProject(tx, projectId);
-    const stages = await readStagesSeeded(tx, projectId);
+): Promise<Result<WorkflowStepResponse[]>> {
+  try {
+    await db.transaction(async (tx) => {
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
 
-    const stage = stages.find((s) => s.id === stageId);
-    if (!stage) throw new WorkflowStageValidationError('Stage not found');
+      const stages = await readStagesSeeded(tx, projectId);
+      const stage = stages.find((s) => s.id === stageId);
 
-    if (stage.isFixed) {
-      throw new WorkflowStageValidationError(`Cannot delete fixed stage "${stage.displayName}".`);
-    }
+      if (!stage) return err(ErrorCode.WORKFLOW_STAGE_NOT_FOUND);
+      if (stage.isFixed) return err(ErrorCode.WORKFLOW_STAGE_FIXED);
 
-    const lockedDefaultNames = await repo.getLockedDefaultNames(projectId, tx);
-    if (lockedDefaultNames.includes(stage.defaultName)) {
-      throw new WorkflowStageValidationError(`Cannot delete locked stage "${stage.displayName}".`);
-    }
+      const lockedDefaultNames = await repo.getLockedDefaultNames(projectId, tx);
+      if (lockedDefaultNames.includes(stage.defaultName)) {
+        return err(ErrorCode.WORKFLOW_STAGE_LOCKED);
+      }
 
-    await tx.delete(project_workflow_stages).where(eq(project_workflow_stages.id, stageId));
+      await tx.delete(project_workflow_stages).where(eq(project_workflow_stages.id, stageId));
 
-    // Close the gap. `stages` is sorted ascending, so each stage moves into a slot
-    // that was just freed and never collides with another row.
-    const following = stages.filter((s) => s.position > stage.position);
-    for (const s of following) {
-      await tx
-        .update(project_workflow_stages)
-        .set({ position: s.position - 1 })
-        .where(eq(project_workflow_stages.id, s.id));
-    }
-  });
+      // Close the gap — sorted ascending, so each shift never collides.
+      const following = stages.filter((s) => s.position > stage.position);
+      for (const s of following) {
+        await tx
+          .update(project_workflow_stages)
+          .set({ position: s.position - 1 })
+          .where(eq(project_workflow_stages.id, s.id));
+      }
+      return ok(undefined);
+    });
 
-  return getWorkflowStages(projectId);
+    return getWorkflowStages(projectId);
+  } catch (error) {
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
 
 export async function reorderStages(
   projectId: number,
   stageIds: number[]
-): Promise<WorkflowStepResponse[]> {
-  await db.transaction(async (tx) => {
-    await lockProject(tx, projectId);
-    const stages = await readStagesSeeded(tx, projectId);
+): Promise<Result<WorkflowStepResponse[]>> {
+  try {
+    await db.transaction(async (tx) => {
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
 
-    // The request must contain every current stage exactly once.
-    const currentIds = new Set(stages.map((s) => s.id));
-    const requestedIds = new Set(stageIds);
-    if (
-      stageIds.length !== stages.length ||
-      requestedIds.size !== stageIds.length ||
-      stageIds.some((id) => !currentIds.has(id))
-    ) {
-      throw new WorkflowStageValidationError(
-        'Invalid stage list. All stages must be included exactly once.'
-      );
-    }
+      const stages = await readStagesSeeded(tx, projectId);
 
-    const lockedDefaultNames = await repo.getLockedDefaultNames(projectId, tx);
-
-    // Fixed and locked stages must stay where they are.
-    for (const original of stages) {
-      const newIndex = stageIds.indexOf(original.id);
-
-      if (original.isFixed && newIndex !== original.position) {
-        throw new WorkflowStageValidationError(
-          `Cannot move fixed stage "${original.displayName}".`
-        );
+      // The request must contain every current stage exactly once.
+      const currentIds = new Set(stages.map((s) => s.id));
+      const requestedIds = new Set(stageIds);
+      if (
+        stageIds.length !== stages.length ||
+        requestedIds.size !== stageIds.length ||
+        stageIds.some((id) => !currentIds.has(id))
+      ) {
+        return err(ErrorCode.WORKFLOW_STAGE_INVALID_LIST);
       }
-      if (lockedDefaultNames.includes(original.defaultName) && newIndex !== original.position) {
-        throw new WorkflowStageValidationError(
-          `Cannot move locked stage "${original.displayName}".`
-        );
+
+      const lockedDefaultNames = await repo.getLockedDefaultNames(projectId, tx);
+
+      // Fixed and locked stages must stay where they are.
+      for (const original of stages) {
+        const newIndex = stageIds.indexOf(original.id);
+        if (original.isFixed && newIndex !== original.position) {
+          return err(ErrorCode.WORKFLOW_STAGE_FIXED);
+        }
+        if (lockedDefaultNames.includes(original.defaultName) && newIndex !== original.position) {
+          return err(ErrorCode.WORKFLOW_STAGE_LOCKED);
+        }
       }
-    }
 
-    // Pass 1: park every stage on a negative position so the unique index never trips.
-    for (let i = 0; i < stageIds.length; i++) {
-      await tx
-        .update(project_workflow_stages)
-        .set({ position: -(i + 1) })
-        .where(eq(project_workflow_stages.id, stageIds[i]));
-    }
-    // Pass 2: write the final positions.
-    for (let i = 0; i < stageIds.length; i++) {
-      await tx
-        .update(project_workflow_stages)
-        .set({ position: i })
-        .where(eq(project_workflow_stages.id, stageIds[i]));
-    }
-  });
+      // Pass 1: park every stage on a negative position so the unique index never trips.
+      for (let i = 0; i < stageIds.length; i++) {
+        await tx
+          .update(project_workflow_stages)
+          .set({ position: -(i + 1) })
+          .where(eq(project_workflow_stages.id, stageIds[i]));
+      }
+      // Pass 2: write the final positions.
+      for (let i = 0; i < stageIds.length; i++) {
+        await tx
+          .update(project_workflow_stages)
+          .set({ position: i })
+          .where(eq(project_workflow_stages.id, stageIds[i]));
+      }
+      return ok(undefined);
+    });
 
-  return getWorkflowStages(projectId);
+    return getWorkflowStages(projectId);
+  } catch (error) {
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

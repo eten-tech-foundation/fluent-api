@@ -1,9 +1,6 @@
-import { eq } from 'drizzle-orm';
-
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { project_units } from '@/db/schema';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import {
@@ -296,14 +293,11 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
     const current = await repo.findById(chapterAssignmentId, tx);
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-    const [projectUnit] = await tx
-      .select({ projectId: project_units.projectId })
-      .from(project_units)
-      .where(eq(project_units.id, current.projectUnitId));
-    if (!projectUnit) return err(ErrorCode.INTERNAL_ERROR);
+    const projectId = await repo.findProjectIdByUnitId(current.projectUnitId, tx);
+    if (!projectId) return err(ErrorCode.INTERNAL_ERROR);
 
-    await lockProject(tx, projectUnit.projectId);
-    const stages = await readStagesSeeded(tx, projectUnit.projectId);
+    await lockProject(tx, projectId);
+    const stages = await readStagesSeeded(tx, projectId);
 
     const currentIndex = stages.findIndex((s) => s.defaultName === current.status);
     if (currentIndex === -1 || currentIndex >= stages.length - 1) {

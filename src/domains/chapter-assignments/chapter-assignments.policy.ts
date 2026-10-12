@@ -26,24 +26,47 @@ function isWithinClaimRaceWindow(updatedAt: Date | null | undefined, now = Date.
   return now - updatedAt.getTime() <= CLAIM_RACE_WINDOW_MS;
 }
 
-const POST_PEER_STATUSES = new Set<string>([
-  CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
-  CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK,
-  CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK,
-  CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK,
-]);
+export function isPostPeerStatus(
+  status: string | null | undefined,
+  stages?: Array<{ id?: string | number; defaultName?: string }>
+): boolean {
+  if (!status) return false;
+  if (stages && stages.length > 0) {
+    const peerIdx = stages.findIndex(
+      (s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK || s.id === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK
+    );
+    const completeIdx = stages.findIndex(
+      (s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.COMPLETE || s.id === CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+    );
+    const currentIdx = stages.findIndex(
+      (s) => s.defaultName === status || s.id === status
+    );
+    if (peerIdx !== -1 && completeIdx !== -1 && currentIdx !== -1) {
+      return currentIdx > peerIdx && currentIdx < completeIdx;
+    }
+  }
+
+  return (
+    status !== CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED &&
+    status !== CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
+    status !== CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK &&
+    status !== CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+  );
+}
 
 export const ChapterAssignmentPolicy = {
   edit(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    isProjectMember: boolean
+    isProjectMember: boolean,
+    stages?: Array<{ id?: string | number; defaultName?: string }>
   ): boolean {
     const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
+    const isPostPeer = isPostPeerStatus(assignment.status, stages);
 
-    // Managers (content:assign) may edit only at/after community review.
+    // Managers (content:assign) may edit only at/after peer check (post-peer stages).
     if (authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope)) {
-      return POST_PEER_STATUSES.has(assignment.status as any);
+      return isPostPeer;
     }
 
     // Content editors (translators) — assignment-position rules.
@@ -62,7 +85,7 @@ export const ChapterAssignmentPolicy = {
           assignment.assignedUserId !== user.id
         );
       default:
-        return POST_PEER_STATUSES.has(assignment.status as any) && isProjectMember;
+        return isPostPeer && isProjectMember;
     }
   },
 
@@ -108,9 +131,10 @@ export const ChapterAssignmentPolicy = {
   submit(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    isProjectMember: boolean
+    isProjectMember: boolean,
+    stages?: Array<{ id?: string | number; defaultName?: string }>
   ): boolean {
-    return this.edit(user, assignment, isProjectMember);
+    return this.edit(user, assignment, isProjectMember, stages);
   },
 
   /**
@@ -135,10 +159,11 @@ export const ChapterAssignmentPolicy = {
   isParticipant(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    isProjectMember: boolean = false
+    isProjectMember: boolean = false,
+    stages?: Array<{ id?: string | number; defaultName?: string }>
   ): boolean {
     // A participant in the editor is exactly anyone who currently has edit rights.
-    return this.edit(user, assignment, isProjectMember);
+    return this.edit(user, assignment, isProjectMember, stages);
   },
 
   claim(user: AppPolicyUser, assignment: PolicyChapterAssignment): boolean {

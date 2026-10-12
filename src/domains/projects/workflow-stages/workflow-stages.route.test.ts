@@ -7,21 +7,11 @@ import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ok } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
 import * as service from './workflow-stages.service';
 import './workflow-stages.route';
-
-const { WorkflowStageValidationError } = vi.hoisted(() => {
-  class WorkflowStageValidationError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'WorkflowStageValidationError';
-    }
-  }
-  return { WorkflowStageValidationError };
-});
 
 vi.mock('@/lib/auth', () => ({
   auth: {
@@ -66,7 +56,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 vi.mock('./workflow-stages.service', () => ({
-  WorkflowStageValidationError,
   getWorkflowStages: vi.fn(),
   addStage: vi.fn(),
   renameStage: vi.fn(),
@@ -120,7 +109,7 @@ describe('workflow stages routes', () => {
 
   it('returns the workflow stages for an authorized project member', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.getWorkflowStages).mockResolvedValue([stage]);
+    vi.mocked(service.getWorkflowStages).mockResolvedValue(ok([stage]));
 
     const response = await server.request('/projects/1/workflow-stages');
 
@@ -129,10 +118,10 @@ describe('workflow stages routes', () => {
     expect(service.getWorkflowStages).toHaveBeenCalledWith(1);
   });
 
-  it('returns a 400 for an expected workflow validation failure', async () => {
+  it('returns a 409 for duplicate stage name conflict', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.addStage).mockRejectedValue(
-      new WorkflowStageValidationError('A stage with this name already exists.')
+    vi.mocked(service.addStage).mockResolvedValue(
+      err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME)
     );
 
     const response = await server.request('/projects/1/workflow-stages', {
@@ -141,30 +130,31 @@ describe('workflow stages routes', () => {
       body: JSON.stringify({ displayName: 'Existing Stage' }),
     });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ message: 'A stage with this name already exists.' });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ message: 'A stage with this name already exists' });
   });
 
-  it('logs an unexpected mutation failure and returns a generic 500', async () => {
+  it('returns a 404 when stage is not found on rename', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.addStage).mockRejectedValue(new Error('database connection refused'));
+    vi.mocked(service.renameStage).mockResolvedValue(
+      err(ErrorCode.WORKFLOW_STAGE_NOT_FOUND)
+    );
 
-    const response = await server.request('/projects/1/workflow-stages', {
-      method: 'POST',
+    const response = await server.request('/projects/1/workflow-stages/999', {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName: 'Review' }),
+      body: JSON.stringify({ displayName: 'Renamed Stage' }),
     });
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ message: 'Internal Server Error' });
-    expect(logger.error).toHaveBeenCalled();
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: 'Workflow stage not found' });
   });
 
   it('forwards rename, delete, and reorder requests to the service', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.renameStage).mockResolvedValue(stage);
-    vi.mocked(service.deleteStage).mockResolvedValue([stage]);
-    vi.mocked(service.reorderStages).mockResolvedValue([stage]);
+    vi.mocked(service.renameStage).mockResolvedValue(ok(stage));
+    vi.mocked(service.deleteStage).mockResolvedValue(ok([stage]));
+    vi.mocked(service.reorderStages).mockResolvedValue(ok([stage]));
 
     const rename = await server.request('/projects/1/workflow-stages/4', {
       method: 'PATCH',

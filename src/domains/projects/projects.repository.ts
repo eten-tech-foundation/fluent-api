@@ -29,24 +29,24 @@ import type {
 } from './projects.types';
 
 import { baseJoinQuery } from './projects.query-builder';
-import { DEFAULT_WORKFLOW } from './workflow-stages/workflow-stages.service';
+import { DEFAULT_WORKFLOW } from './workflow-stages/workflow-stages.constants';
+import { getLockedDefaultNamesByProjectIds } from './workflow-stages/workflow-stages.repository';
 
 const WORKFLOW_DEFINITION: WorkflowStep[] = DEFAULT_WORKFLOW.map((stage) => ({
   id: stage.defaultName,
   label: stage.displayName,
+  isLocked: false,
 }));
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
 export function mapToProjectWithLanguages(
   rawProject: RawProjectRow,
-  stages: WorkflowStep[] = WORKFLOW_DEFINITION
+  stages: WorkflowStep[] = WORKFLOW_DEFINITION,
+  defaultCounts: ChapterStatusCounts = Object.fromEntries(
+    DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0])
+  )
 ): ProjectWithLanguageNames {
   const { counts, milestoneCount, ...rest } = rawProject;
-  const defaultCounts = DEFAULT_WORKFLOW.reduce((acc, stage) => {
-    acc[stage.defaultName] = 0;
-    return acc;
-  }, {} as ChapterStatusCounts);
-
   return {
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
@@ -66,24 +66,42 @@ export async function populateWorkflowStages(
     .where(inArray(project_workflow_stages.projectId, projectIds))
     .orderBy(project_workflow_stages.position);
 
+  // Load lock state in one batch query.
+  const lockedByProject = await getLockedDefaultNamesByProjectIds(projectIds);
+
   const stagesByProject = new Map<number, WorkflowStep[]>();
+  // Also track the default status-count map per project from its own stages.
+  const defaultCountsByProject = new Map<number, ChapterStatusCounts>();
+
   for (const stage of stages) {
     if (!stagesByProject.has(stage.projectId)) {
       stagesByProject.set(stage.projectId, []);
+      defaultCountsByProject.set(stage.projectId, {});
     }
+    const lockedNames = lockedByProject.get(stage.projectId) ?? [];
     stagesByProject.get(stage.projectId)!.push({
       id: stage.defaultName,
       label: stage.displayName,
       stageId: stage.id,
       position: stage.position,
       isFixed: stage.isFixed,
+      isLocked: lockedNames.includes(stage.defaultName),
     });
+    // Zero-fill from the project's own stage list.
+    defaultCountsByProject.get(stage.projectId)![stage.defaultName] = 0;
   }
 
-  return projects.map((p) => ({
-    ...p,
-    workflowConfig: stagesByProject.get(p.id) || WORKFLOW_DEFINITION,
-  }));
+  return projects.map((p) => {
+    const workflowConfig = stagesByProject.get(p.id) ?? WORKFLOW_DEFINITION;
+    const defaultCounts = defaultCountsByProject.get(p.id) ?? Object.fromEntries(
+      DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0])
+    );
+    return {
+      ...p,
+      workflowConfig,
+      chapterStatusCounts: { ...defaultCounts, ...p.chapterStatusCounts },
+    };
+  });
 }
 
 // Repository functions

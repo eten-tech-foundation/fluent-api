@@ -14,10 +14,11 @@ import {
   project_unit_usfm_imports,
   project_units,
   projects,
+  project_workflow_stages,
   translated_verses,
   verse_audio_recordings,
 } from '@/db/schema';
-import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.service';
+import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
 
 import type {
   CreateMilestoneInput,
@@ -131,21 +132,26 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
 
 type MilestoneSelectRow = Awaited<ReturnType<typeof milestoneSelect>>[number];
 
-function mapRow(row: MilestoneSelectRow): MilestoneRow {
-  const defaultCounts = DEFAULT_WORKFLOW.reduce(
-    (acc, stage) => {
-      acc[stage.defaultName] = 0;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+function mapRow(
+  row: MilestoneSelectRow,
+  defaultCounts?: Record<string, number>
+): MilestoneRow {
+  const counts =
+    defaultCounts ??
+    DEFAULT_WORKFLOW.reduce(
+      (acc, stage) => {
+        acc[stage.defaultName] = 0;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
   return {
     ...row,
     bookCount: row.bookCount ?? 0,
     bookIds: row.bookIds ?? [],
     chapterStatusCounts: {
-      ...defaultCounts,
+      ...counts,
       ...(row.chapterStatusCounts || {}),
     },
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
@@ -154,8 +160,21 @@ function mapRow(row: MilestoneSelectRow): MilestoneRow {
 }
 
 export async function listByProjectId(projectId: number): Promise<MilestoneRow[]> {
-  const rows = await milestoneSelect().where(eq(project_units.projectId, projectId));
-  return rows.map(mapRow);
+  const [rows, stages] = await Promise.all([
+    milestoneSelect().where(eq(project_units.projectId, projectId)),
+    db
+      .select({ defaultName: project_workflow_stages.defaultName })
+      .from(project_workflow_stages)
+      .where(eq(project_workflow_stages.projectId, projectId))
+      .orderBy(project_workflow_stages.position),
+  ]);
+
+  const defaultCounts: Record<string, number> =
+    stages.length > 0
+      ? Object.fromEntries(stages.map((s) => [s.defaultName, 0]))
+      : Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+  return rows.map((row) => mapRow(row, defaultCounts));
 }
 
 export async function listSummariesByProjectIds(

@@ -671,3 +671,17 @@ export async function findAssignmentsProgress(
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
+
+export async function findProjectIdByUnitId(
+  unitId: number,
+  tx?: DbTransaction
+): Promise<number | null> {
+  const executor = tx ?? db;
+  const [row] = await executor
+    .select({ projectId: project_units.projectId })
+    .from(project_units)
+    .where(eq(project_units.id, unitId))
+    .limit(1);
+  return row ? row.projectId : null;
+}
+

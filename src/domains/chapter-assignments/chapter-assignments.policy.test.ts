@@ -148,3 +148,42 @@ describe('chapterAssignmentPolicy.edit / submit — open Peer Check', () => {
     expect(ChapterAssignmentPolicy.submit(peer, inconsistent, true)).toBe(false);
   });
 });
+
+describe('chapterAssignmentPolicy.edit / submit — post-peer and custom stages', () => {
+  const customAssignment = {
+    ...baseAssignment,
+    assignedUserId: 42,
+    peerCheckerId: 7,
+    status: 'custom_review_1',
+  };
+
+  const manager = grant(1, 10, [PERMISSIONS.CONTENT_ASSIGN], 99);
+  const translator = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 42);
+  const outsiderTranslator = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 42);
+
+  it('allows manager (content:assign) to edit and submit in custom stage', () => {
+    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true)).toBe(true);
+    expect(ChapterAssignmentPolicy.submit(manager, customAssignment, true)).toBe(true);
+  });
+
+  it('allows project member translator to edit and submit in custom stage', () => {
+    expect(ChapterAssignmentPolicy.edit(translator, customAssignment, true)).toBe(true);
+    expect(ChapterAssignmentPolicy.submit(translator, customAssignment, true)).toBe(true);
+  });
+
+  it('denies translator who is not a project member in custom stage', () => {
+    expect(ChapterAssignmentPolicy.edit(outsiderTranslator, customAssignment, false)).toBe(false);
+    expect(ChapterAssignmentPolicy.submit(outsiderTranslator, customAssignment, false)).toBe(false);
+  });
+
+  it('supports explicit workflow stage list check', () => {
+    const stages = [
+      { defaultName: 'not_started' },
+      { defaultName: 'draft' },
+      { defaultName: 'peer_check' },
+      { defaultName: 'custom_review_1' },
+      { defaultName: 'complete' },
+    ];
+    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true, stages)).toBe(true);
+  });
+});

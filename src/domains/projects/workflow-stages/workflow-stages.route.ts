@@ -3,12 +3,13 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { logger } from '../../../lib/logger';
-import { PERMISSIONS } from '../../../lib/permissions';
-import { authenticateUser, requirePermission } from '../../../middlewares/role-auth';
-import { server } from '../../../server/server';
-import { requireProjectAccess } from './../project-auth.middleware';
-import { PROJECT_ACTIONS } from './../projects.types';
+import { logger } from '@/lib/logger';
+import { PERMISSIONS } from '@/lib/permissions';
+import { getHttpStatus } from '@/lib/types';
+import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
+import { server } from '@/server/server';
+import { requireProjectAccess } from '../project-auth.middleware';
+import { PROJECT_ACTIONS } from '../projects.types';
 import * as service from './workflow-stages.service';
 import {
   addWorkflowStageSchema,
@@ -17,17 +18,7 @@ import {
   workflowStepResponseSchema,
 } from './workflow-stages.types';
 
-function workflowStageErrorResponse(c: any, error: unknown, operation: string) {
-  if (error instanceof service.WorkflowStageValidationError) {
-    return c.json({ message: error.message }, HttpStatusCodes.BAD_REQUEST as never);
-  }
-
-  logger.error({ cause: error, operation }, 'Workflow stage operation failed');
-  return c.json(
-    { message: 'Internal Server Error' },
-    HttpStatusCodes.INTERNAL_SERVER_ERROR as never
-  );
-}
+// ─── Shared param schemas ────────────────────────────────────────────────────
 
 const projectIdParam = z.object({
   projectId: z.coerce
@@ -41,6 +32,8 @@ const projectAndStageIdParam = z.object({
     .openapi({ param: { name: 'projectId', in: 'path', required: true } }),
   stageId: z.coerce.number().openapi({ param: { name: 'stageId', in: 'path', required: true } }),
 });
+
+// ─── GET /projects/:projectId/workflow-stages ────────────────────────────────
 
 const getWorkflowStagesRoute = createRoute({
   tags: ['Workflow Stages'],
@@ -63,18 +56,23 @@ const getWorkflowStagesRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Insufficient permissions'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project or stages not found'
+    ),
   },
 });
 
 server.openapi(getWorkflowStagesRoute, async (c) => {
   const { projectId } = c.req.valid('param');
-  try {
-    const stages = await service.getWorkflowStages(projectId);
-    return c.json(stages, HttpStatusCodes.OK);
-  } catch (error) {
-    return workflowStageErrorResponse(c, error, 'get');
+  const result = await service.getWorkflowStages(projectId);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
+  return c.json(result.data, HttpStatusCodes.OK);
 });
+
+// ─── POST /projects/:projectId/workflow-stages ───────────────────────────────
 
 const addWorkflowStageRoute = createRoute({
   tags: ['Workflow Stages'],
@@ -96,19 +94,25 @@ const addWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Validation error'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Stage limit or duplicate name'
+    ),
   },
 });
 
 server.openapi(addWorkflowStageRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const body = c.req.valid('json');
-  try {
-    const newStage = await service.addStage(projectId, body.displayName);
-    return c.json(newStage, HttpStatusCodes.CREATED);
-  } catch (error) {
-    return workflowStageErrorResponse(c, error, 'add');
+  const result = await service.addStage(projectId, body.displayName);
+  if (!result.ok) {
+    logger.error({ error: result.error }, 'Workflow add stage failed');
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
+  return c.json(result.data, HttpStatusCodes.CREATED);
 });
+
+// ─── PATCH /projects/:projectId/workflow-stages/:stageId ────────────────────
 
 const renameWorkflowStageRoute = createRoute({
   tags: ['Workflow Stages'],
@@ -130,19 +134,28 @@ const renameWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Validation error'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Stage not found'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Duplicate name'
+    ),
   },
 });
 
 server.openapi(renameWorkflowStageRoute, async (c) => {
   const { projectId, stageId } = c.req.valid('param');
   const body = c.req.valid('json');
-  try {
-    const updatedStage = await service.renameStage(projectId, stageId, body.displayName);
-    return c.json(updatedStage, HttpStatusCodes.OK);
-  } catch (error) {
-    return workflowStageErrorResponse(c, error, 'rename');
+  const result = await service.renameStage(projectId, stageId, body.displayName);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
+  return c.json(result.data, HttpStatusCodes.OK);
 });
+
+// ─── DELETE /projects/:projectId/workflow-stages/:stageId ───────────────────
 
 const deleteWorkflowStageRoute = createRoute({
   tags: ['Workflow Stages'],
@@ -164,18 +177,27 @@ const deleteWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Validation error'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Stage not found'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Stage is locked'
+    ),
   },
 });
 
 server.openapi(deleteWorkflowStageRoute, async (c) => {
   const { projectId, stageId } = c.req.valid('param');
-  try {
-    const stages = await service.deleteStage(projectId, stageId);
-    return c.json(stages, HttpStatusCodes.OK);
-  } catch (error) {
-    return workflowStageErrorResponse(c, error, 'delete');
+  const result = await service.deleteStage(projectId, stageId);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
+  return c.json(result.data, HttpStatusCodes.OK);
 });
+
+// ─── PUT /projects/:projectId/workflow-stages/reorder ───────────────────────
 
 const reorderWorkflowStagesRoute = createRoute({
   tags: ['Workflow Stages'],
@@ -200,16 +222,19 @@ const reorderWorkflowStagesRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Validation error'
     ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'Stage is locked or fixed'
+    ),
   },
 });
 
 server.openapi(reorderWorkflowStagesRoute, async (c) => {
   const { projectId } = c.req.valid('param');
   const body = c.req.valid('json');
-  try {
-    const stages = await service.reorderStages(projectId, body.stageIds);
-    return c.json(stages, HttpStatusCodes.OK);
-  } catch (error) {
-    return workflowStageErrorResponse(c, error, 'reorder');
+  const result = await service.reorderStages(projectId, body.stageIds);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
   }
+  return c.json(result.data, HttpStatusCodes.OK);
 });
