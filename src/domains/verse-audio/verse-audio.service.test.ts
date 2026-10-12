@@ -20,9 +20,10 @@ import {
   listChapterRecordings,
   reclaimOrphanedStorageObjects,
   resolveConflict,
+  uploadRangeRecording,
   uploadRecording,
 } from './verse-audio.service';
-import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
+import { VERSE_AUDIO_CONFLICT_STATUS, VERSE_AUDIO_GRANULARITY } from './verse-audio.types';
 
 vi.mock('@/lib/audio-storage', () => ({
   audioBlobName: vi.fn(
@@ -46,6 +47,8 @@ vi.mock('./storage-objects.repository', () => ({
 vi.mock('./verse-audio.repository', () => ({
   get: vi.fn(),
   listByChapter: vi.fn(),
+  listByProjectUnit: vi.fn(),
+  getBibleTextById: vi.fn(),
   listTakesByRecordingIds: vi.fn(),
   listTakesForRecording: vi.fn(),
   findTakeByContentHash: vi.fn(),
@@ -55,6 +58,8 @@ vi.mock('./verse-audio.repository', () => ({
   createFirstRecordingWithTake: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
   markConflictPreservingActive: vi.fn(),
+  markIntersectingCoverageConflicts: vi.fn(),
+  updateTakeCoverage: vi.fn(),
   remove: vi.fn(),
   pruneSupersededTakes: vi.fn(),
 }));
@@ -76,7 +81,14 @@ const record: VerseAudioRecord = {
   durationSeconds: 12.5,
   versionToken: 1,
   conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+  granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+  startChapter: null,
+  startVerse: null,
+  endChapter: null,
+  endVerse: null,
   activeTakeId: 10,
+  bookId: 40,
+  chapterNumber: 1,
   verseNumber: 3,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -91,6 +103,11 @@ const take: VerseAudioTakeRecord = {
   sizeBytes: 4,
   durationSeconds: 12.5,
   contentHash: hashOf(Buffer.from('abcd')),
+  granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+  startChapter: null,
+  startVerse: null,
+  endChapter: null,
+  endVerse: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
 };
@@ -133,6 +150,10 @@ describe('verse-audio service', () => {
     vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
     vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
     vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
+    vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
+    vi.mocked(repo.getBibleTextById).mockResolvedValue(
+      ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
+    );
   });
 
   describe('uploadRecording', () => {
@@ -725,6 +746,304 @@ describe('verse-audio service', () => {
     });
   });
 
+  describe('uploadRangeRecording', () => {
+    const rangeInput = {
+      projectUnitId: 12,
+      bibleTextId: 3401,
+      uploadedBy: 7,
+      contentType: 'audio/mp4' as const,
+      data: Buffer.from('range-abcd'),
+      durationSeconds: 20,
+      baseVersionToken: 1 as number | undefined,
+      granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+      startChapter: 1,
+      startVerse: 3,
+      endChapter: 1,
+      endVerse: 8,
+    };
+
+    const pericopeShape = {
+      granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+      startChapter: 1,
+      startVerse: 3,
+      endChapter: 1,
+      endVerse: 8,
+    };
+
+    beforeEach(() => {
+      vi.mocked(repo.getBibleTextById).mockResolvedValue(
+        ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
+      );
+      vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
+    });
+
+    it('persists pericope shape on first upload', async () => {
+      const rangeTake = { ...take, ...pericopeShape, contentHash: hashOf(rangeInput.data) };
+      const rangeRecord = {
+        ...record,
+        ...pericopeShape,
+        versionToken: 2,
+        activeTakeId: 10,
+      };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok(rangeRecord));
+      vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
+        ok({ outcome: 'created', record: rangeRecord, take: rangeTake })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
+
+      const result = await uploadRangeRecording(rangeInput);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.granularity).toBe('pericope');
+        expect(result.data.startChapter).toBe(1);
+        expect(result.data.startVerse).toBe(3);
+        expect(result.data.endChapter).toBe(1);
+        expect(result.data.endVerse).toBe(8);
+        expect(result.data.takes[0]?.granularity).toBe('pericope');
+      }
+      expect(repo.createFirstRecordingWithTake).toHaveBeenCalledWith(
+        expect.objectContaining(pericopeShape),
+        expect.objectContaining(pericopeShape)
+      );
+    });
+
+    it('rejects empty / zero / reversed / malformed ranges', async () => {
+      for (const bad of [
+        { startChapter: 0, startVerse: 1, endChapter: 1, endVerse: 2 },
+        { startChapter: 1, startVerse: 5, endChapter: 1, endVerse: 2 },
+        { startChapter: 1.5, startVerse: 1, endChapter: 1, endVerse: 2 },
+      ]) {
+        const result = await uploadRangeRecording({ ...rangeInput, ...bad } as any);
+        expect(result).toEqual(err(ErrorCode.VALIDATION_ERROR));
+      }
+      expect(repo.createFirstRecordingWithTake).not.toHaveBeenCalled();
+      expect(uploadVerseAudio).not.toHaveBeenCalled();
+    });
+
+    it('rejects when bibleTextId does not match start chapter/verse', async () => {
+      vi.mocked(repo.getBibleTextById).mockResolvedValue(
+        ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 1 })
+      );
+
+      const result = await uploadRangeRecording(rangeInput);
+
+      expect(result).toEqual(err(ErrorCode.INVALID_REFERENCE));
+      expect(repo.createFirstRecordingWithTake).not.toHaveBeenCalled();
+    });
+
+    it('marks intersecting other recordings conflict without bumping their tokens', async () => {
+      const rangeTake = { ...take, ...pericopeShape, contentHash: hashOf(rangeInput.data) };
+      const rangeRecord = { ...record, ...pericopeShape, versionToken: 2 };
+      const otherVerse: VerseAudioRecord = {
+        ...record,
+        id: 2,
+        bibleTextId: 3402,
+        verseNumber: 5,
+        chapterNumber: 1,
+        bookId: 40,
+        versionToken: 4,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok(rangeRecord));
+      vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
+        ok({ outcome: 'created', record: rangeRecord, take: rangeTake })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
+      vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(
+        ok({ markedIds: [rangeRecord.id, otherVerse.id] })
+      );
+
+      const result = await uploadRangeRecording({ ...rangeInput, baseVersionToken: undefined });
+
+      expect(result.ok).toBe(true);
+      expect(repo.markIntersectingCoverageConflicts).toHaveBeenCalledWith({
+        projectUnitId: 12,
+        selfBibleTextId: 3401,
+        bookId: 40,
+        coverage: { start: { chapter: 1, verse: 3 }, end: { chapter: 1, verse: 8 } },
+      });
+      // Geometric conflicts flag both units without CAS/version bumps on the other row.
+      expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalledWith(
+        2,
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it('preserves single-verse upload shape defaults when shape is omitted', async () => {
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValue(ok({ ...record, versionToken: 2 }));
+      vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
+        ok({
+          outcome: 'created',
+          record: { ...record, versionToken: 2 },
+          take,
+        })
+      );
+
+      await uploadRecording(uploadInput);
+
+      expect(repo.createFirstRecordingWithTake).toHaveBeenCalledWith(
+        expect.objectContaining({
+          granularity: 'verse',
+          startChapter: null,
+          startVerse: null,
+          endChapter: null,
+          endVerse: null,
+        }),
+        expect.objectContaining({
+          granularity: 'verse',
+          startChapter: null,
+        })
+      );
+    });
+
+    it('keeps verse take metadata when pericope replaces active on same anchor', async () => {
+      const verseTake = { ...take };
+      const pericopeData = Buffer.from('pericope-bytes');
+      const pericopeHash = hashOf(pericopeData);
+      const pericopeTake = {
+        ...take,
+        id: 11,
+        contentHash: pericopeHash,
+        storageObjectId: 56,
+        ...pericopeShape,
+      };
+      const unit = { ...record, versionToken: 2, activeTakeId: 10 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(unit))
+        .mockResolvedValue(
+          ok({
+            ...unit,
+            ...pericopeShape,
+            versionToken: 3,
+            activeTakeId: 11,
+          })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${pericopeHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(pericopeTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({
+          applied: true,
+          record: { ...unit, ...pericopeShape, versionToken: 3, activeTakeId: 11 },
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([verseTake, pericopeTake]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: pericopeData,
+        baseVersionToken: 2,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const verse = result.data.takes.find((x) => x.id === 10);
+        const peri = result.data.takes.find((x) => x.id === 11);
+        expect(verse?.granularity).toBe('verse');
+        expect(verse?.startChapter).toBeNull();
+        expect(peri?.granularity).toBe('pericope');
+        expect(peri?.endVerse).toBe(8);
+        expect(result.data.granularity).toBe('pericope');
+      }
+    });
+
+    it('updates coverage on duplicate contentHash with a different range shape', async () => {
+      const unit = { ...record, versionToken: 2, activeTakeId: 10 };
+      const newShape = {
+        granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+        startChapter: 1,
+        startVerse: 3,
+        endChapter: 1,
+        endVerse: 10,
+      };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(unit))
+        .mockResolvedValue(ok({ ...unit, ...newShape, versionToken: 3 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateTakeCoverage).mockResolvedValue(ok({ ...take, ...newShape }));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: { ...unit, ...newShape, versionToken: 3 } })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([{ ...take, ...newShape }]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'), // same bytes as take
+        endVerse: 10,
+        baseVersionToken: 2,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.updateTakeCoverage).toHaveBeenCalledWith(10, newShape);
+      expect(repo.insertTake).not.toHaveBeenCalled();
+    });
+
+    it('still supports matching version tokens on range re-upload', async () => {
+      const newData = Buffer.from('range-next');
+      const newHash = hashOf(newData);
+      const newTake = {
+        ...take,
+        id: 11,
+        contentHash: newHash,
+        storageObjectId: 56,
+        ...pericopeShape,
+      };
+      const unit = { ...record, ...pericopeShape, versionToken: 3 };
+
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(unit))
+        .mockResolvedValue(ok({ ...unit, versionToken: 4, activeTakeId: 11 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 56,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: { ...unit, versionToken: 4, activeTakeId: 11 } })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: newData,
+        baseVersionToken: 3,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.insertTake).toHaveBeenCalledWith(expect.objectContaining(pericopeShape));
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalledWith(
+        1,
+        3,
+        expect.objectContaining({ ...pericopeShape, versionToken: 4, activeTakeId: 11 })
+      );
+    });
+  });
+
   describe('getRecording', () => {
     it('attaches takes and download URLs', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
@@ -736,6 +1055,9 @@ describe('verse-audio service', () => {
         expect(result.data.takes).toHaveLength(1);
         expect(result.data.downloadUrl).toContain('https://r2.example/');
         expect(result.data.versionToken).toBe(1);
+        expect(result.data.granularity).toBe('verse');
+        expect(result.data.startChapter).toBeNull();
+        expect(result.data.takes[0]?.granularity).toBe('verse');
       }
       // Hash-keyed objects derive the blob name — no storage_objects round trip.
       expect(storageRepo.getByIds).not.toHaveBeenCalled();
@@ -743,6 +1065,48 @@ describe('verse-audio service', () => {
       expect(generateAudioDownloadUrl).toHaveBeenCalledWith(
         `unit-12/text-3401/${take.contentHash}`
       );
+    });
+
+    it('echoes pericope range fields on get', async () => {
+      const rangeRecord = {
+        ...record,
+        granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+        startChapter: 1,
+        startVerse: 3,
+        endChapter: 1,
+        endVerse: 8,
+      };
+      const rangeTake = {
+        ...take,
+        granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+        startChapter: 1,
+        startVerse: 3,
+        endChapter: 1,
+        endVerse: 8,
+      };
+      vi.mocked(repo.get).mockResolvedValue(ok(rangeRecord));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
+
+      const result = await getRecording(12, 3401);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toEqual(
+          expect.objectContaining({
+            granularity: 'pericope',
+            startChapter: 1,
+            startVerse: 3,
+            endChapter: 1,
+            endVerse: 8,
+          })
+        );
+        expect(result.data.takes[0]).toEqual(
+          expect.objectContaining({
+            granularity: 'pericope',
+            endVerse: 8,
+          })
+        );
+      }
     });
 
     it('looks up legacy storage keys in one batch when contentHash is a placeholder', async () => {
@@ -911,6 +1275,11 @@ describe('verse-audio service', () => {
           conflictStatus: 'clean',
           versionToken: 2,
           storageObjectId: other.storageObjectId,
+          granularity: other.granularity,
+          startChapter: other.startChapter,
+          startVerse: other.startVerse,
+          endChapter: other.endChapter,
+          endVerse: other.endVerse,
         })
       );
       expect(result.ok).toBe(true);

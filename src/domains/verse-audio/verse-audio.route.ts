@@ -33,7 +33,7 @@ import {
 const STORAGE_UNAVAILABLE_MESSAGE = 'Audio storage is unavailable';
 const STORAGE_UNAVAILABLE_BODY = { message: STORAGE_UNAVAILABLE_MESSAGE } as const;
 
-const verseAudioParamsSchema = z.object({
+const projectUnitIdParamSchema = z.object({
   projectUnitId: z.coerce
     .number()
     .int()
@@ -43,6 +43,9 @@ const verseAudioParamsSchema = z.object({
       description: 'Project unit ID',
       example: 12,
     }),
+});
+
+const verseAudioParamsSchema = projectUnitIdParamSchema.extend({
   bibleTextId: z.coerce
     .number()
     .int()
@@ -53,6 +56,19 @@ const verseAudioParamsSchema = z.object({
       example: 3401,
     }),
 });
+
+const baseVersionTokenFormField = z
+  .preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.coerce.number().int().positive().optional()
+  )
+  .openapi({
+    type: 'integer',
+    minimum: 1,
+    description:
+      'Last-known unit versionToken (starts at 1). Matching token updates the active take; omitted or empty replaces the active take on behalf of clients too old to send one; a present-but-stale token keeps both takes and marks conflict. Present but not a positive integer is a 400. No upload clears an existing conflict — use the resolve endpoint.',
+    example: 1,
+  });
 
 const commonErrorResponses = {
   [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
@@ -95,6 +111,182 @@ async function respondVerseAudioError(
   return c.json(body, status as never);
 }
 
+function parseOptionalBaseVersionToken(
+  baseRaw: unknown
+): { ok: true; value: number | undefined } | { ok: false } {
+  if (baseRaw === undefined || baseRaw === '') {
+    return { ok: true, value: undefined };
+  }
+  const parsed = typeof baseRaw === 'string' ? Number(baseRaw) : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return { ok: false };
+  }
+  return { ok: true, value: parsed };
+}
+
+function parsePositiveIntField(raw: unknown): number | null {
+  if (raw === undefined || raw === '') {
+    return null;
+  }
+  const parsed = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return null;
+  }
+  return parsed;
+}
+
+// ─── PUT /verse-audio/{projectUnitId}/range ──────────────────────────────────
+// Registered before /{projectUnitId}/{bibleTextId} so "range" is not captured
+// as a bibleTextId path segment.
+
+const uploadRangeVerseAudioRoute = createRoute({
+  tags: ['Verse Audio'],
+  method: 'put',
+  path: '/verse-audio/{projectUnitId}/range',
+  middleware: [
+    authenticateUser,
+    // bodyLimit must run before FORM auth parseBody — otherwise the stream is locked.
+    bodyLimit({
+      maxSize: MAX_AUDIO_BYTES,
+      onError: (c) => c.json({ message: 'Audio file exceeds the 30 MB limit' }, 413),
+    }),
+    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.FORM),
+  ] as const,
+  request: {
+    params: projectUnitIdParamSchema,
+    body: {
+      content: {
+        'multipart/form-data': {
+          schema: z.object({
+            file: z.any().openapi({
+              type: 'string',
+              format: 'binary',
+              description: 'Audio file (mp3, m4a/aac/mp4, webm, wav, or ogg)',
+            }),
+            durationSeconds: z.coerce.number().positive().optional().openapi({
+              description: 'Client-measured duration in seconds',
+              example: 12.5,
+            }),
+            baseVersionToken: baseVersionTokenFormField,
+            granularity: z.literal('pericope').openapi({
+              description: 'Must be pericope for this route',
+              example: 'pericope',
+            }),
+            bibleTextId: z.coerce.number().int().positive().openapi({
+              description:
+                'Anchor bible_texts.id — must match startChapter/startVerse of the range',
+              example: 3401,
+            }),
+            startChapter: z.coerce.number().int().positive().openapi({ example: 1 }),
+            startVerse: z.coerce.number().int().positive().openapi({ example: 1 }),
+            endChapter: z.coerce.number().int().positive().openapi({ example: 1 }),
+            endVerse: z.coerce.number().int().positive().openapi({ example: 5 }),
+          }),
+        },
+      },
+      required: true,
+    },
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      verseAudioResponseSchema,
+      'Unit metadata with range fields, versionToken, conflictStatus, takes, and playback URLs'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad request'),
+      'Missing/empty file, malformed token/range fields, invalid anchor, or unsupported content type'
+    ),
+    [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
+      createMessageObjectSchema('Validation failed'),
+      'Empty, reversed, or malformed pericope range'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      verseAudioVersionConflictSchema,
+      'A concurrent write or cleanup invalidated the upload; refresh currentVersionToken and retry'
+    ),
+    413: jsonContent(
+      createMessageObjectSchema('Payload too large'),
+      'Audio file exceeds the 30 MB limit'
+    ),
+    ...commonErrorResponses,
+  },
+  summary: 'Upload a pericope / verse-range audio take',
+  description:
+    'Accepts granularity=pericope with start/end chapter and verse. bibleTextId is the anchor (first verse) and must match startChapter/startVerse on bible_texts. Version/CAS semantics match single-verse upload. After a successful upload, other same-book recordings whose active coverage intersects this range are marked conflict without bumping their versionToken.',
+});
+
+server.openapi(uploadRangeVerseAudioRoute, async (c) => {
+  if (!isAudioStorageAvailable()) {
+    return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
+  }
+
+  const { projectUnitId } = c.req.valid('param');
+  const user = c.get('user')!;
+
+  const body = await c.req.parseBody();
+  const file = body.file;
+  if (!(file instanceof File)) {
+    return c.json({ message: 'Missing audio file' }, HttpStatusCodes.BAD_REQUEST);
+  }
+
+  if (body.granularity !== 'pericope') {
+    return c.json({ message: 'granularity must be pericope' }, HttpStatusCodes.BAD_REQUEST);
+  }
+
+  const bibleTextId = parsePositiveIntField(body.bibleTextId);
+  if (bibleTextId === null) {
+    return c.json(
+      { message: 'bibleTextId must be a positive integer' },
+      HttpStatusCodes.BAD_REQUEST
+    );
+  }
+
+  const startChapter = parsePositiveIntField(body.startChapter);
+  const startVerse = parsePositiveIntField(body.startVerse);
+  const endChapter = parsePositiveIntField(body.endChapter);
+  const endVerse = parsePositiveIntField(body.endVerse);
+  if (startChapter === null || startVerse === null || endChapter === null || endVerse === null) {
+    return c.json(
+      { message: 'startChapter, startVerse, endChapter, and endVerse must be positive integers' },
+      HttpStatusCodes.BAD_REQUEST
+    );
+  }
+
+  const durationRaw = Number(body.durationSeconds);
+  const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
+
+  const baseToken = parseOptionalBaseVersionToken(body.baseVersionToken);
+  if (!baseToken.ok) {
+    return c.json(
+      { message: 'baseVersionToken must be a positive integer' },
+      HttpStatusCodes.BAD_REQUEST
+    );
+  }
+
+  const data = Buffer.from(await file.arrayBuffer());
+
+  const result = await verseAudioService.uploadRangeRecording({
+    projectUnitId,
+    bibleTextId,
+    uploadedBy: user.id,
+    contentType: file.type,
+    data,
+    durationSeconds,
+    baseVersionToken: baseToken.value,
+    granularity: 'pericope',
+    startChapter,
+    startVerse,
+    endChapter,
+    endVerse,
+  });
+
+  if (!result.ok) {
+    return respondVerseAudioError(c, projectUnitId, bibleTextId, result.error);
+  }
+
+  return c.json(result.data, HttpStatusCodes.OK);
+});
+
 // ─── PUT /verse-audio/{projectUnitId}/{bibleTextId} ──────────────────────────
 
 const uploadVerseAudioRoute = createRoute({
@@ -130,18 +322,7 @@ const uploadVerseAudioRoute = createRoute({
             // must coerce to a positive integer — `z.coerce` alone would read '' as
             // 0 and reject it. This schema is enforced, not just documentation:
             // zod-openapi validates multipart bodies through the form validator.
-            baseVersionToken: z
-              .preprocess(
-                (value) => (value === '' ? undefined : value),
-                z.coerce.number().int().positive().optional()
-              )
-              .openapi({
-                type: 'integer',
-                minimum: 1,
-                description:
-                  'Last-known unit versionToken (starts at 1). Matching token updates the active take; omitted or empty replaces the active take on behalf of clients too old to send one; a present-but-stale token keeps both takes and marks conflict. Present but not a positive integer is a 400. No upload clears an existing conflict — use the resolve endpoint.',
-                example: 1,
-              }),
+            baseVersionToken: baseVersionTokenFormField,
           }),
         },
       },
@@ -193,17 +374,12 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   // rather than read from c.req.valid('form') because this handler works from its
   // own parseBody copy, and reading a fumbled token as absent would quietly
   // disable the conflict detection the token exists for.
-  const baseRaw = body.baseVersionToken;
-  let baseVersionToken: number | undefined;
-  if (baseRaw !== undefined && baseRaw !== '') {
-    const parsed = typeof baseRaw === 'string' ? Number(baseRaw) : Number.NaN;
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      return c.json(
-        { message: 'baseVersionToken must be a positive integer' },
-        HttpStatusCodes.BAD_REQUEST
-      );
-    }
-    baseVersionToken = parsed;
+  const baseToken = parseOptionalBaseVersionToken(body.baseVersionToken);
+  if (!baseToken.ok) {
+    return c.json(
+      { message: 'baseVersionToken must be a positive integer' },
+      HttpStatusCodes.BAD_REQUEST
+    );
   }
 
   const data = Buffer.from(await file.arrayBuffer());
@@ -215,7 +391,7 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
     contentType: file.type,
     data,
     durationSeconds,
-    baseVersionToken,
+    baseVersionToken: baseToken.value,
   });
 
   if (!result.ok) {

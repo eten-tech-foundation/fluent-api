@@ -81,6 +81,7 @@ vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
 
 vi.mock('./verse-audio.service', () => ({
   uploadRecording: vi.fn(),
+  uploadRangeRecording: vi.fn(),
   getRecording: vi.fn(),
   getCurrentVersionToken: vi.fn(),
   listChapterRecordings: vi.fn(),
@@ -182,6 +183,125 @@ describe('verse-audio routes', () => {
 
       expect(res.status).toBe(400);
       expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('put /verse-audio/{projectUnitId}/range', () => {
+    function rangeUpload(
+      fields: Record<string, string> = {},
+      options: { includeFile?: boolean } = {}
+    ) {
+      const form = new FormData();
+      if (options.includeFile !== false) {
+        form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
+      }
+      form.append('granularity', fields.granularity ?? 'pericope');
+      form.append('bibleTextId', fields.bibleTextId ?? '10');
+      form.append('startChapter', fields.startChapter ?? '1');
+      form.append('startVerse', fields.startVerse ?? '1');
+      form.append('endChapter', fields.endChapter ?? '1');
+      form.append('endVerse', fields.endVerse ?? '5');
+      if (fields.baseVersionToken !== undefined) {
+        form.append('baseVersionToken', fields.baseVersionToken);
+      }
+      return server.request('/verse-audio/1/range', { method: 'PUT', body: form });
+    }
+
+    beforeEach(() => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      (verseAudioService.uploadRangeRecording as any).mockResolvedValue({
+        ok: true,
+        data: {
+          id: 1,
+          projectUnitId: 1,
+          bibleTextId: 10,
+          granularity: 'pericope',
+          startChapter: 1,
+          startVerse: 1,
+          endChapter: 1,
+          endVerse: 5,
+          versionToken: 2,
+        },
+      });
+    });
+
+    it('returns 401 when caller is unauthenticated', async () => {
+      (auth.api.getSession as any).mockResolvedValue(null);
+      const res = await rangeUpload();
+      expect(res.status).toBe(401);
+      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 and forwards range fields on happy path', async () => {
+      const res = await rangeUpload({ baseVersionToken: '2' });
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectUnitId: 1,
+          bibleTextId: 10,
+          granularity: 'pericope',
+          startChapter: 1,
+          startVerse: 1,
+          endChapter: 1,
+          endVerse: 5,
+          baseVersionToken: 2,
+        })
+      );
+      const json = await res.json();
+      expect(json.granularity).toBe('pericope');
+      expect(json.endVerse).toBe(5);
+    });
+
+    it('returns 400 when bibleTextId is missing from the form', async () => {
+      const form = new FormData();
+      form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
+      form.append('granularity', 'pericope');
+      form.append('startChapter', '1');
+      form.append('startVerse', '1');
+      form.append('endChapter', '1');
+      form.append('endVerse', '5');
+
+      const res = await server.request('/verse-audio/1/range', { method: 'PUT', body: form });
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when range bounds are not positive integers', async () => {
+      const res = await rangeUpload({ startChapter: '0' });
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('maps service VALIDATION_ERROR to 422', async () => {
+      vi.mocked(verseAudioService.uploadRangeRecording).mockResolvedValue(
+        err(ErrorCode.VALIDATION_ERROR)
+      );
+
+      const res = await rangeUpload({ startVerse: '9', endVerse: '2' });
+
+      expect(res.status).toBe(422);
+    });
+
+    it('maps INVALID_REFERENCE (anchor mismatch) to 400', async () => {
+      vi.mocked(verseAudioService.uploadRangeRecording).mockResolvedValue(
+        err(ErrorCode.INVALID_REFERENCE)
+      );
+
+      const res = await rangeUpload();
+
+      expect(res.status).toBe(400);
+    });
+
+    it('gates EDIT with form bibleTextId via chapter assignment', async () => {
+      const getAssignmentForVerse = (
+        await import('@/domains/chapter-assignments/chapter-assignments.service')
+      ).getAssignmentForVerse;
+
+      await rangeUpload({ bibleTextId: '42' });
+
+      expect(getAssignmentForVerse).toHaveBeenCalledWith(1, 42);
     });
   });
 

@@ -17,7 +17,9 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   ResolveConflictInput,
+  UploadRangeRecordingInput,
   UploadRecordingInput,
+  VerseAudioCoverageShape,
   VerseAudioRecord,
   VerseAudioTakeRecord,
   VerseAudioTakeWithUrl,
@@ -25,8 +27,18 @@ import type {
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import {
+  anchorMatchesStart,
+  coverageFromActive,
+  parseAndValidatePericopeRange,
+} from './verse-audio.coverage';
 import * as repo from './verse-audio.repository';
-import { ALLOWED_AUDIO_CONTENT_TYPES, VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
+import {
+  ALLOWED_AUDIO_CONTENT_TYPES,
+  VERSE_AUDIO_CONFLICT_STATUS,
+  VERSE_AUDIO_GRANULARITY,
+  VERSE_COVERAGE_SHAPE,
+} from './verse-audio.types';
 
 /** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
 const LEGACY_CONTENT_HASH_PREFIX = 'legacy-';
@@ -110,6 +122,26 @@ function collectLegacyStorageObjectIds(
   return [...ids];
 }
 
+function shapeFields(shape: VerseAudioCoverageShape): VerseAudioCoverageShape {
+  return {
+    granularity: shape.granularity,
+    startChapter: shape.startChapter,
+    startVerse: shape.startVerse,
+    endChapter: shape.endChapter,
+    endVerse: shape.endVerse,
+  };
+}
+
+function shapeFromTake(take: VerseAudioTakeRecord): VerseAudioCoverageShape {
+  return {
+    granularity: take.granularity,
+    startChapter: take.startChapter,
+    startVerse: take.startVerse,
+    endChapter: take.endChapter,
+    endVerse: take.endVerse,
+  };
+}
+
 async function takeWithUrl(
   take: VerseAudioTakeRecord,
   projectUnitId: number,
@@ -123,6 +155,7 @@ async function takeWithUrl(
     sizeBytes: take.sizeBytes,
     durationSeconds: take.durationSeconds,
     contentHash: take.contentHash,
+    ...shapeFromTake(take),
     downloadUrl: await resolveDownloadUrl(
       take.storageObjectId,
       take.contentHash,
@@ -159,6 +192,11 @@ async function withTakesAndUrl(
     durationSeconds: record.durationSeconds,
     versionToken: record.versionToken,
     conflictStatus: record.conflictStatus,
+    granularity: record.granularity,
+    startChapter: record.startChapter,
+    startVerse: record.startVerse,
+    endChapter: record.endChapter,
+    endVerse: record.endVerse,
     activeTakeId: record.activeTakeId,
     verseNumber: record.verseNumber,
     downloadUrl: await resolveDownloadUrl(
@@ -172,6 +210,60 @@ async function withTakesAndUrl(
     createdAt: toIso(record.createdAt),
     updatedAt: toIso(record.updatedAt),
   };
+}
+
+/**
+ * After a successful upload: lock the project-unit recordings and flag self +
+ * same-book intersecting coverages as conflict (no versionToken bumps).
+ */
+async function applyCoverageConflictsAfterUpload(
+  projectUnitId: number,
+  bibleTextId: number,
+  shape: VerseAudioCoverageShape
+): Promise<Result<void>> {
+  const bibleText = await repo.getBibleTextById(bibleTextId);
+  if (!bibleText.ok) {
+    return bibleText;
+  }
+
+  const coverage = coverageFromActive(
+    shape,
+    bibleText.data.chapterNumber,
+    bibleText.data.verseNumber
+  );
+
+  const marked = await repo.markIntersectingCoverageConflicts({
+    projectUnitId,
+    selfBibleTextId: bibleTextId,
+    bookId: bibleText.data.bookId,
+    coverage,
+  });
+  if (!marked.ok) {
+    return marked;
+  }
+  return ok(undefined);
+}
+
+async function finishUploadResponse(
+  projectUnitId: number,
+  bibleTextId: number,
+  shape: VerseAudioCoverageShape
+): Promise<Result<VerseAudioWithUrl>> {
+  const conflicts = await applyCoverageConflictsAfterUpload(projectUnitId, bibleTextId, shape);
+  if (!conflicts.ok) {
+    return conflicts;
+  }
+  return loadUnitResponse(projectUnitId, bibleTextId);
+}
+
+function shapesEqual(a: VerseAudioCoverageShape, b: VerseAudioCoverageShape): boolean {
+  return (
+    a.granularity === b.granularity &&
+    a.startChapter === b.startChapter &&
+    a.startVerse === b.startVerse &&
+    a.endChapter === b.endChapter &&
+    a.endVerse === b.endVerse
+  );
 }
 
 async function buildRecordingResponses(
@@ -239,6 +331,7 @@ export async function uploadRecording(
     return err(ErrorCode.EMPTY_AUDIO_FILE);
   }
 
+  const shape = shapeFields(input.shape ?? VERSE_COVERAGE_SHAPE);
   const contentHash = contentHashOf(input.data);
   const durationSeconds = input.durationSeconds ?? null;
   const existing = await repo.get(input.projectUnitId, input.bibleTextId);
@@ -273,6 +366,7 @@ export async function uploadRecording(
         versionToken: 1,
         conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
         activeTakeId: null,
+        ...shape,
       },
       {
         uploadedBy: input.uploadedBy,
@@ -281,6 +375,7 @@ export async function uploadRecording(
         sizeBytes: input.data.length,
         durationSeconds,
         contentHash,
+        ...shape,
       }
     );
     if (!created.ok) {
@@ -298,7 +393,7 @@ export async function uploadRecording(
       }
     }
 
-    return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+    return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
   }
 
   const unit = existing.data;
@@ -333,13 +428,44 @@ export async function uploadRecording(
   }
 
   if (duplicate.data) {
-    // Re-sending the active take's own bytes changes nothing, including the
-    // conflict flag: only resolve clears that.
+    const existingShape = shapeFromTake(duplicate.data);
+    const shapeMismatch = !shapesEqual(existingShape, shape);
+
+    // Same bytes as the active take: idempotent unless coverage metadata changed.
     if (duplicate.data.id === unit.activeTakeId) {
-      return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+      if (!shapeMismatch) {
+        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+      }
+      if (baseMatches || legacyReplace) {
+        const updatedTake = await repo.updateTakeCoverage(duplicate.data.id, shape);
+        if (!updatedTake.ok) {
+          return updatedTake;
+        }
+        const promoted = await repo.updateRecordingStateIfVersion(unit.id, unit.versionToken, {
+          versionToken: unit.versionToken + 1,
+          ...shape,
+        });
+        if (!promoted.ok) {
+          return promoted;
+        }
+        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+      }
+      // Stale token + shape change on the active take's bytes: do not overwrite
+      // coverage under a stale base; flag conflict and keep current active shape.
+      const marked = await repo.markConflictPreservingActive(unit.id);
+      if (!marked.ok) {
+        return marked;
+      }
+      return finishUploadResponse(input.projectUnitId, input.bibleTextId, existingShape);
     }
 
     if (baseMatches || legacyReplace) {
+      if (shapeMismatch) {
+        const updatedTake = await repo.updateTakeCoverage(duplicate.data.id, shape);
+        if (!updatedTake.ok) {
+          return updatedTake;
+        }
+      }
       const promoted = await repo.updateRecordingStateIfVersion(unit.id, unit.versionToken, {
         uploadedBy: duplicate.data.uploadedBy,
         storageObjectId: duplicate.data.storageObjectId,
@@ -348,23 +474,23 @@ export async function uploadRecording(
         durationSeconds: duplicate.data.durationSeconds,
         versionToken: unit.versionToken + 1,
         activeTakeId: duplicate.data.id,
+        ...shape,
       });
       if (!promoted.ok) {
         return promoted;
       }
-      if (!promoted.data.applied) {
-        // No new take was added on this path. A successful concurrent resolve
-        // may have won the CAS, so reopening its clean state would undo an
-        // explicit adjudication without introducing any new contender.
-        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
-      }
-      return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+      return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
     }
 
     // Stale token + duplicate of a non-active take: no new contender was added.
-    // Returning current state (rather than markConflictPreservingActive) preserves
-    // a concurrent /resolve that already adjudicated these same takes.
-    return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+    // Returning current state preserves a concurrent /resolve adjudication.
+    return finishUploadResponse(input.projectUnitId, input.bibleTextId, {
+      granularity: unit.granularity,
+      startChapter: unit.startChapter,
+      startVerse: unit.startVerse,
+      endChapter: unit.endChapter,
+      endVerse: unit.endVerse,
+    });
   }
 
   const stored = await storeTakeBytes(
@@ -386,6 +512,7 @@ export async function uploadRecording(
     sizeBytes: input.data.length,
     durationSeconds,
     contentHash,
+    ...shape,
   });
   if (!take.ok) {
     return take;
@@ -405,6 +532,7 @@ export async function uploadRecording(
       durationSeconds,
       versionToken: nextVersion,
       activeTakeId: take.data.id,
+      ...shape,
     });
     if (!updated.ok) {
       return updated;
@@ -433,7 +561,55 @@ export async function uploadRecording(
     }
   }
 
-  return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+  return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+}
+
+/**
+ * Pericope / range upload: validates anchor + range, then reuses uploadRecording
+ * CAS semantics and marks other same-book intersecting coverages as conflict.
+ */
+export async function uploadRangeRecording(
+  input: UploadRangeRecordingInput
+): Promise<Result<VerseAudioWithUrl>> {
+  if (input.granularity !== VERSE_AUDIO_GRANULARITY.PERICOPE) {
+    return err(ErrorCode.VALIDATION_ERROR);
+  }
+
+  const bibleText = await repo.getBibleTextById(input.bibleTextId);
+  if (!bibleText.ok) {
+    return bibleText;
+  }
+
+  const range = parseAndValidatePericopeRange({
+    startChapter: input.startChapter,
+    startVerse: input.startVerse,
+    endChapter: input.endChapter,
+    endVerse: input.endVerse,
+  });
+  if (!range.ok) {
+    return range;
+  }
+
+  if (!anchorMatchesStart(bibleText.data, range.data.start.chapter, range.data.start.verse)) {
+    return err(ErrorCode.INVALID_REFERENCE);
+  }
+
+  return uploadRecording({
+    projectUnitId: input.projectUnitId,
+    bibleTextId: input.bibleTextId,
+    uploadedBy: input.uploadedBy,
+    contentType: input.contentType,
+    data: input.data,
+    durationSeconds: input.durationSeconds,
+    baseVersionToken: input.baseVersionToken,
+    shape: {
+      granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+      startChapter: range.data.start.chapter,
+      startVerse: range.data.start.verse,
+      endChapter: range.data.end.chapter,
+      endVerse: range.data.end.verse,
+    },
+  });
 }
 
 export async function getRecording(
@@ -520,6 +696,7 @@ export async function resolveConflict(
       activeTakeId: take.data.id,
       conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
       versionToken: recording.data.versionToken + 1,
+      ...shapeFromTake(take.data),
     }
   );
   if (!updated.ok) {

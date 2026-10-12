@@ -27,6 +27,31 @@ export const VERSE_AUDIO_CONFLICT_STATUS = {
 export type VerseAudioConflictStatus =
   (typeof VERSE_AUDIO_CONFLICT_STATUS)[keyof typeof VERSE_AUDIO_CONFLICT_STATUS];
 
+export const VERSE_AUDIO_GRANULARITY = {
+  VERSE: 'verse',
+  PERICOPE: 'pericope',
+} as const;
+
+export type VerseAudioGranularity =
+  (typeof VERSE_AUDIO_GRANULARITY)[keyof typeof VERSE_AUDIO_GRANULARITY];
+
+/** Coverage shape persisted on a take and denormalized onto the active recording. */
+export interface VerseAudioCoverageShape {
+  granularity: VerseAudioGranularity;
+  startChapter: number | null;
+  startVerse: number | null;
+  endChapter: number | null;
+  endVerse: number | null;
+}
+
+export const VERSE_COVERAGE_SHAPE: VerseAudioCoverageShape = {
+  granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+  startChapter: null,
+  startVerse: null,
+  endChapter: null,
+  endVerse: null,
+};
+
 // ── Records ──────────────────────────────────────────────────────────────────
 
 export interface VerseAudioTakeRecord {
@@ -38,6 +63,11 @@ export interface VerseAudioTakeRecord {
   sizeBytes: number;
   durationSeconds: number | null;
   contentHash: string;
+  granularity: VerseAudioGranularity;
+  startChapter: number | null;
+  startVerse: number | null;
+  endChapter: number | null;
+  endVerse: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,7 +84,15 @@ export interface VerseAudioRecord {
   durationSeconds: number | null;
   versionToken: number;
   conflictStatus: VerseAudioConflictStatus;
+  granularity: VerseAudioGranularity;
+  startChapter: number | null;
+  startVerse: number | null;
+  endChapter: number | null;
+  endVerse: number | null;
   activeTakeId: number | null;
+  /** From bible_texts join — anchor verse location for coverage / listing. */
+  bookId: number;
+  chapterNumber: number;
   verseNumber: number;
   createdAt: Date;
   updatedAt: Date;
@@ -67,6 +105,11 @@ export interface VerseAudioTakeWithUrl {
   sizeBytes: number;
   durationSeconds: number | null;
   contentHash: string;
+  granularity: VerseAudioGranularity;
+  startChapter: number | null;
+  startVerse: number | null;
+  endChapter: number | null;
+  endVerse: number | null;
   downloadUrl: string;
   createdAt: string;
   updatedAt: string;
@@ -83,6 +126,11 @@ export interface VerseAudioWithUrl {
   durationSeconds: number | null;
   versionToken: number;
   conflictStatus: VerseAudioConflictStatus;
+  granularity: VerseAudioGranularity;
+  startChapter: number | null;
+  startVerse: number | null;
+  endChapter: number | null;
+  endVerse: number | null;
   activeTakeId: number | null;
   verseNumber: number;
   downloadUrl: string;
@@ -102,6 +150,11 @@ export interface UpsertVerseAudioInput {
   versionToken: number;
   conflictStatus: VerseAudioConflictStatus;
   activeTakeId: number | null;
+  granularity?: VerseAudioGranularity;
+  startChapter?: number | null;
+  startVerse?: number | null;
+  endChapter?: number | null;
+  endVerse?: number | null;
 }
 
 export interface InsertTakeInput {
@@ -112,6 +165,11 @@ export interface InsertTakeInput {
   sizeBytes: number;
   durationSeconds?: number | null;
   contentHash: string;
+  granularity?: VerseAudioGranularity;
+  startChapter?: number | null;
+  startVerse?: number | null;
+  endChapter?: number | null;
+  endVerse?: number | null;
 }
 
 export interface UploadRecordingInput {
@@ -123,6 +181,23 @@ export interface UploadRecordingInput {
   durationSeconds?: number;
   /** Client's last-known unit version (starts at 1). Omit for legacy replace; stale → conflict. */
   baseVersionToken?: number;
+  /** Take coverage. Defaults to single-verse (null range bounds). */
+  shape?: VerseAudioCoverageShape;
+}
+
+export interface UploadRangeRecordingInput {
+  projectUnitId: number;
+  bibleTextId: number;
+  uploadedBy: number;
+  contentType: string;
+  data: Buffer;
+  durationSeconds?: number;
+  baseVersionToken?: number;
+  granularity: typeof VERSE_AUDIO_GRANULARITY.PERICOPE;
+  startChapter: number;
+  startVerse: number;
+  endChapter: number;
+  endVerse: number;
 }
 
 export interface ResolveConflictInput {
@@ -133,6 +208,8 @@ export interface ResolveConflictInput {
 
 // ── OpenAPI schemas ──────────────────────────────────────────────────────────
 
+const nullablePositiveInt = z.number().int().positive().nullable();
+
 export const verseAudioTakeResponseSchema = z.object({
   id: z.number().int(),
   uploadedBy: z.number().int(),
@@ -140,6 +217,11 @@ export const verseAudioTakeResponseSchema = z.object({
   sizeBytes: z.number().int(),
   durationSeconds: z.number().nullable(),
   contentHash: z.string(),
+  granularity: z.enum(['verse', 'pericope']),
+  startChapter: nullablePositiveInt,
+  startVerse: nullablePositiveInt,
+  endChapter: nullablePositiveInt,
+  endVerse: nullablePositiveInt,
   downloadUrl: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -155,6 +237,11 @@ export const verseAudioResponseSchema = z.object({
   durationSeconds: z.number().nullable(),
   versionToken: z.number().int(),
   conflictStatus: z.enum(['clean', 'conflict']),
+  granularity: z.enum(['verse', 'pericope']),
+  startChapter: nullablePositiveInt,
+  startVerse: nullablePositiveInt,
+  endChapter: nullablePositiveInt,
+  endVerse: nullablePositiveInt,
   activeTakeId: z.number().int().nullable(),
   verseNumber: z.number().int(),
   downloadUrl: z.string(),
@@ -197,6 +284,8 @@ export type VerseAudioAction = (typeof VERSE_AUDIO_ACTIONS)[keyof typeof VERSE_A
 export const VERSE_AUDIO_ID_SOURCES = {
   PARAMS: 'params',
   QUERY: 'query',
+  /** Multipart form body — used by PUT /verse-audio/{projectUnitId}/range only. */
+  FORM: 'form',
 } as const;
 
 export type VerseAudioIdSource =

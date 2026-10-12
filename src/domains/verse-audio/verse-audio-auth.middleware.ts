@@ -20,8 +20,9 @@ const NOT_FOUND_MESSAGE = ErrorMessages.VERSE_AUDIO_NOT_FOUND;
 
 /**
  * Resolves the parent project (READ) or chapter assignment (EDIT) for a verse
- * audio route and evaluates the matching policy. IDs always come from path
- * params or the query string — never the multipart body.
+ * audio route and evaluates the matching policy. IDs come from path params,
+ * the query string, or (EDIT + FORM only) the multipart body — the latter is
+ * used solely by PUT /verse-audio/{projectUnitId}/range.
  */
 export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseAudioIdSource) {
   return createMiddleware<AppEnv>(async (c, next) => {
@@ -29,9 +30,9 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
     const policyUser = { id: user.id, grants: user.grants };
 
     const projectUnitId =
-      source === VERSE_AUDIO_ID_SOURCES.PARAMS
-        ? Number(c.req.param('projectUnitId'))
-        : Number(c.req.query('projectUnitId'));
+      source === VERSE_AUDIO_ID_SOURCES.QUERY
+        ? Number(c.req.query('projectUnitId'))
+        : Number(c.req.param('projectUnitId'));
 
     if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
@@ -57,7 +58,14 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
       c.set('project', projectResult.data);
       c.set('projectAuthContext', { isProjectMember });
     } else {
-      const bibleTextId = Number(c.req.param('bibleTextId'));
+      let bibleTextId: number;
+      if (source === VERSE_AUDIO_ID_SOURCES.FORM) {
+        const body = await c.req.parseBody();
+        bibleTextId = Number(body.bibleTextId);
+      } else {
+        bibleTextId = Number(c.req.param('bibleTextId'));
+      }
+
       if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
         return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
       }
