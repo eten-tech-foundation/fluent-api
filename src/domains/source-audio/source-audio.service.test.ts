@@ -195,20 +195,67 @@ describe('getChapterSourceAudio', () => {
             timecodeCount: 3,
             samples: [
               { start: '[redacted]', verseId: 'MRK.14.1' },
-              { start: '00:00:05.000', verseId: 'JHN.4.1' },
-              { start: '[redacted]', verseId: 'MRK.14.x' },
+              { start: '00:00:05.000', verseId: '[redacted]' },
+              { start: '[redacted]', verseId: '[redacted]' },
             ],
           }),
         });
-        const emitted = JSON.stringify(vi.mocked(logger.warn).mock.calls[0]?.[0]);
+        const emittedPayload = vi.mocked(logger.warn).mock.calls[0]?.[0];
+        const emitted = JSON.stringify(emittedPayload);
         expect(emitted).not.toContain('example.com');
         expect(emitted).not.toContain('not-a-time');
+        expect(emitted).not.toContain('JHN.4.1');
+        expect(emitted).not.toContain('MRK.14.x');
         expect(emitted).not.toMatch(/https?:\/\//i);
+        expect(emitted).not.toContain('eyJhbGci');
       } else {
         expect(logger.warn).not.toHaveBeenCalled();
       }
     }
   );
+
+  it('redacts JWT-shaped verseId in the emitted source-audio warn payload', async () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc123';
+    vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
+      ok([
+        {
+          audioBibleId: 'audio-1',
+          name: 'BSB Audio',
+          chapterId: 'MRK.14',
+          resourceUrl: 'https://example.com/audio.mp3',
+          expiresAt: null,
+          timecodes: [
+            { start: '00:00:05.000', end: '00:00:06.000', verseId: jwt },
+            { start: 'not-a-time', end: '1', verseId: 'MRK.14.1' },
+          ],
+        },
+      ])
+    );
+    const result = await getChapterSourceAudio({
+      languageCode: 'eng',
+      fluentBibleId: 1,
+      bookCode: 'MRK',
+      chapter: 14,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.verseTimestamps).toBeUndefined();
+    const payload = vi.mocked(logger.warn).mock.calls[0]?.[0];
+    expect(payload).toEqual({
+      message: 'All DBL timecodes dropped by shared parser',
+      context: {
+        path: 'source-audio',
+        audioBibleId: 'audio-1',
+        chapter: 'MRK.14',
+        timecodeCount: 2,
+        samples: [
+          { start: '00:00:05.000', verseId: '[redacted]' },
+          { start: '[redacted]', verseId: 'MRK.14.1' },
+        ],
+      },
+    });
+    expect(JSON.stringify(payload)).not.toContain(jwt);
+    expect(JSON.stringify(payload)).not.toContain('example.com');
+  });
 
   it('does not warn when at least one DBL timecode is accepted', async () => {
     vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(

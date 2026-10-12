@@ -391,10 +391,48 @@ describe('dBL actual audio identity and timing', () => {
           path: 'playback-audio',
           audioBibleId: 'audio-a',
           chapter: 'JHN.3',
-          samples: [{ start: '0', verseId: 'JHN.4.1' }],
+          samples: [{ start: '0', verseId: '[redacted]' }],
         }),
       })
     );
+    const emitted = JSON.stringify(vi.mocked(logger.warn).mock.calls[0]?.[0]);
+    expect(emitted).not.toContain('JHN.4.1');
+    expect(emitted).not.toContain('eyJhbGci');
+    expect(emitted).not.toMatch(/https?:\/\//i);
+  });
+
+  it('redacts JWT-shaped verseId in the emitted playback-audio warn payload', async () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc123';
+    vi.mocked(dblClient.getAudioChapter).mockResolvedValue(
+      ok({
+        id: 'JHN.3',
+        resourceUrl: 'https://example.com/a.mp3',
+        timecodes: [
+          { verseId: jwt, start: '00:00:05.120', end: '00:00:06.000' },
+          { verseId: 'JHN.3.1', start: 'not-a-time', end: '1' },
+        ],
+      })
+    );
+    expect(await getSourcePlayback({ ...input, fluentBibleId: 1 })).toMatchObject({
+      ok: true,
+      data: { verseAddressable: false },
+    });
+    const payload = vi.mocked(logger.warn).mock.calls[0]?.[0];
+    expect(payload).toEqual({
+      message: 'All DBL timecodes dropped by shared parser',
+      context: {
+        path: 'playback-audio',
+        audioBibleId: 'audio-a',
+        chapter: 'JHN.3',
+        timecodeCount: 2,
+        samples: [
+          { start: '00:00:05.120', verseId: '[redacted]' },
+          { start: '[redacted]', verseId: 'JHN.3.1' },
+        ],
+      },
+    });
+    expect(JSON.stringify(payload)).not.toContain(jwt);
+    expect(JSON.stringify(payload)).not.toContain('example.com');
   });
 
   it('does not warn when playback DBL timecodes are absent', async () => {

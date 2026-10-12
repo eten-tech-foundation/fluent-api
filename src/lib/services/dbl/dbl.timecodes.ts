@@ -19,8 +19,6 @@ const POSITIVE_VERSE = /^[1-9]\d*$/;
 
 /** Provisional format evidence only: decimal seconds or clock parts. */
 const SAFE_START_SAMPLE = /^[0-9.:]+$/;
-/** Verse-id shaped tokens (e.g. BOOK.CH.V); no query/URL punctuation. */
-const SAFE_VERSE_ID_SAMPLE = /^[a-z0-9.]+$/i;
 const SAFE_AUDIO_BIBLE_ID = /^[\w.-]+$/;
 const SAFE_CHAPTER_ID = /^[a-z0-9.]+$/i;
 
@@ -123,12 +121,31 @@ function sanitizeDiagnosticField(
 }
 
 /**
+ * Diagnostic verseId samples must satisfy the same structural contract as
+ * `parseDblVerseNumber` for the requested chapter (`chapter` + `.` prefix and a
+ * positive decimal safe-integer suffix). Unexpected shapes (JWT-like dotted
+ * tokens, `.x`, wrong chapter, ranges) are redacted — parser acceptance is
+ * unchanged.
+ */
+function sanitizeVerseIdSample(value: unknown, chapter: string): string {
+  if (typeof value !== 'string') return INVALID_TYPE;
+  const trimmed = value.trim();
+  if (!trimmed) return REDACTED;
+  if (looksCredentialLike(trimmed)) return REDACTED;
+  if (!SAFE_CHAPTER_ID.test(chapter) || looksCredentialLike(chapter)) return REDACTED;
+  if (parseDblVerseNumber(trimmed, `${chapter}.`) === undefined) return REDACTED;
+  if (trimmed.length <= MAX_FIELD_CHARS) return trimmed;
+  return `${trimmed.slice(0, MAX_FIELD_CHARS)}…`;
+}
+
+/**
  * Build allowlisted, length-capped diagnostic samples for logging.
- * Rejects URLs, query/credential punctuation, and non-strings; keeps only
- * provisional format-evidence shapes (clock/decimal start, dotted verse ids).
+ * Starts: provisional clock/decimal shape only. VerseIds: exact
+ * `parseDblVerseNumber` structure for `chapter`. Everything else redacted.
  */
 export function sanitizeDblTimecodeDiagnosticSamples(
-  timecodes: readonly unknown[]
+  timecodes: readonly unknown[],
+  chapter: string
 ): DblTimecodeDiagnosticSample[] {
   const samples: DblTimecodeDiagnosticSample[] = [];
   for (const row of timecodes.slice(0, MAX_SAMPLE_ROWS)) {
@@ -136,7 +153,7 @@ export function sanitizeDblTimecodeDiagnosticSamples(
       row !== null && typeof row === 'object' ? (row as Record<string, unknown>) : undefined;
     samples.push({
       start: sanitizeDiagnosticField(record?.start, SAFE_START_SAMPLE),
-      verseId: sanitizeDiagnosticField(record?.verseId, SAFE_VERSE_ID_SAMPLE),
+      verseId: sanitizeVerseIdSample(record?.verseId, chapter),
     });
     if (JSON.stringify(samples).length > MAX_SAMPLES_PAYLOAD_CHARS) {
       samples.pop();
@@ -149,8 +166,9 @@ export function sanitizeDblTimecodeDiagnosticSamples(
 /**
  * When a track supplies timecodes but the shared parser accepts none, log a
  * warning with audio Bible id, chapter, and up to three allowlisted
- * `start`/`verseId` samples (length-capped; URLs/tokens/non-strings redacted).
- * Missing, empty, or partially accepted payloads do not warn.
+ * `start`/`verseId` samples (length-capped; URLs/tokens/non-strings/unexpected
+ * verseId shapes redacted). Missing, empty, or partially accepted payloads do
+ * not warn.
  */
 export function warnIfAllDblTimecodesDropped(params: {
   path: 'source-audio' | 'playback-audio';
@@ -162,14 +180,16 @@ export function warnIfAllDblTimecodesDropped(params: {
   const rows = params.timecodes;
   if (rows == null || rows.length === 0 || params.acceptedCount > 0) return;
 
+  const chapter = sanitizeDiagnosticField(params.chapter, SAFE_CHAPTER_ID);
+
   logger.warn({
     message: 'All DBL timecodes dropped by shared parser',
     context: {
       path: params.path,
       audioBibleId: sanitizeDiagnosticField(params.audioBibleId, SAFE_AUDIO_BIBLE_ID),
-      chapter: sanitizeDiagnosticField(params.chapter, SAFE_CHAPTER_ID),
+      chapter,
       timecodeCount: rows.length,
-      samples: sanitizeDblTimecodeDiagnosticSamples(rows),
+      samples: sanitizeDblTimecodeDiagnosticSamples(rows, chapter === REDACTED ? '' : chapter),
     },
   });
 }
