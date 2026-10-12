@@ -181,6 +181,7 @@ export async function listByProjectUnit(
   }
 }
 
+/** Loads book/chapter/verse for range-upload anchor validation. */
 export async function getBibleTextById(bibleTextId: number): Promise<Result<BibleTextAnchor>> {
   try {
     const [row] = await db
@@ -210,8 +211,10 @@ export async function getBibleTextById(bibleTextId: number): Promise<Result<Bibl
 }
 
 /**
- * Lock every recording in the project unit, then mark self + same-book
- * intersecting coverages as conflict without bumping versionToken.
+ * Lock every recording in the project unit (`FOR UPDATE`), then mark self +
+ * same-book intersecting active coverages as `conflict` without bumping
+ * `versionToken`. Used after uploads that introduce a new contender or change
+ * active coverage — not for idempotent same-shape retries.
  */
 export async function markIntersectingCoverageConflicts(input: {
   projectUnitId: number;
@@ -696,6 +699,83 @@ export async function updateRecordingStateIfVersion(
       cause: error,
       message: 'Failed to conditionally update verse audio recording state',
       context: { recordingId, expectedVersionToken, patch, options },
+    });
+    if (hasPostgresErrorCode(error, '23503')) {
+      return mapForeignKeyViolation(error);
+    }
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Atomically update take coverage and CAS-promote the recording. If the
+ * version predicate misses, the take write is rolled back with the transaction
+ * so coverage cannot diverge from the recording row.
+ */
+export async function updateTakeCoverageAndRecordingIfVersion(
+  takeId: number,
+  recordingId: number,
+  expectedVersionToken: number,
+  shape: VerseAudioCoverageShape,
+  patch: RecordingStatePatch
+): Promise<Result<{ applied: boolean; record: VerseAudioRecord | null }>> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [takeRow] = await tx
+        .update(verse_audio_takes)
+        .set({
+          granularity: shape.granularity,
+          startChapter: shape.startChapter,
+          startVerse: shape.startVerse,
+          endChapter: shape.endChapter,
+          endVerse: shape.endVerse,
+          updatedAt: new Date(),
+        })
+        .where(eq(verse_audio_takes.id, takeId))
+        .returning({ id: verse_audio_takes.id });
+
+      if (!takeRow) {
+        return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+      }
+
+      const [row] = await tx
+        .update(verse_audio_recordings)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(verse_audio_recordings.id, recordingId),
+            eq(verse_audio_recordings.versionToken, expectedVersionToken)
+          )
+        )
+        .returning();
+
+      if (!row) {
+        // Must throw: returning a Result from the callback still commits the txn.
+        throw new Error('VERSE_AUDIO_CAS_MISS');
+      }
+
+      const [hydrated] = await tx
+        .select(recordSelection)
+        .from(verse_audio_recordings)
+        .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+        .where(eq(verse_audio_recordings.id, recordingId))
+        .limit(1);
+
+      if (!hydrated) {
+        // Both writes already ran — throw so Drizzle aborts rather than committing
+        // an ok:false Result while coverage+recording stay updated.
+        throw new Error('VERSE_AUDIO_HYDRATION_MISS');
+      }
+      return ok({ applied: true, record: hydrated as VerseAudioRecord });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'VERSE_AUDIO_CAS_MISS') {
+      return ok({ applied: false, record: null });
+    }
+    logger.error({
+      cause: error,
+      message: 'Failed to atomically update take coverage and recording state',
+      context: { takeId, recordingId, expectedVersionToken, shape, patch },
     });
     if (hasPostgresErrorCode(error, '23503')) {
       return mapForeignKeyViolation(error);

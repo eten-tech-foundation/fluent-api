@@ -60,6 +60,7 @@ vi.mock('./verse-audio.repository', () => ({
   markConflictPreservingActive: vi.fn(),
   markIntersectingCoverageConflicts: vi.fn(),
   updateTakeCoverage: vi.fn(),
+  updateTakeCoverageAndRecordingIfVersion: vi.fn(),
   remove: vi.fn(),
   pruneSupersededTakes: vi.fn(),
 }));
@@ -966,6 +967,194 @@ describe('verse-audio service', () => {
       }
     });
 
+    it('does not reflag overlaps on active same-shape retry after resolve', async () => {
+      const cleanUnit = {
+        ...record,
+        ...pericopeShape,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 10,
+      };
+      const activePericope = { ...take, ...pericopeShape };
+      vi.mocked(repo.get).mockResolvedValue(ok(cleanUnit));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(activePericope));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([activePericope]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        baseVersionToken: 5,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+      expect(repo.insertTake).not.toHaveBeenCalled();
+    });
+
+    it('does not reflag overlaps on stale duplicate of a non-active take', async () => {
+      const cleanUnit = {
+        ...record,
+        ...pericopeShape,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 11,
+      };
+      const staleDup = { ...take, id: 10, ...pericopeShape };
+      vi.mocked(repo.get).mockResolvedValue(ok(cleanUnit));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(staleDup));
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([staleDup, { ...take, id: 11 }]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        baseVersionToken: 1, // stale
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+      expect(repo.insertTake).not.toHaveBeenCalled();
+    });
+
+    it('still scans overlaps when a stale upload inserts a new contender', async () => {
+      const cleanUnit = {
+        ...record,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 10,
+      };
+      const newData = Buffer.from('stale-new-contender');
+      const newHash = hashOf(newData);
+      const newTake = {
+        ...take,
+        id: 12,
+        contentHash: newHash,
+        storageObjectId: 57,
+        ...pericopeShape,
+      };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(cleanUnit))
+        .mockResolvedValue(
+          ok({
+            ...cleanUnit,
+            versionToken: 6,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(storageRepo.claim).mockResolvedValue(
+        ok({
+          id: 57,
+          bucket: 'verse-audio',
+          key: `unit-12/text-3401/${newHash}`,
+          createdAt: new Date(),
+          deletedAt: null,
+        })
+      );
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({
+          applied: true,
+          record: {
+            ...cleanUnit,
+            versionToken: 6,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+          },
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+      vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(
+        ok({ markedIds: [1, 2] })
+      );
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: newData,
+        baseVersionToken: 1, // stale — new contender kept, conflict flagged
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.insertTake).toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).toHaveBeenCalled();
+    });
+
+    it('returns 409 when active-take coverage CAS misses (applied: false)', async () => {
+      const unit = { ...record, versionToken: 2, activeTakeId: 10 };
+      vi.mocked(repo.get).mockResolvedValue(ok(unit));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
+        ok({ applied: false, record: null })
+      );
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        endVerse: 10,
+        baseVersionToken: 2,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
+      expect(repo.updateTakeCoverageAndRecordingIfVersion).toHaveBeenCalled();
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 for omitted-token legacy shape change when atomic CAS misses', async () => {
+      const unit = { ...record, versionToken: 2, activeTakeId: 10 };
+      vi.mocked(repo.get).mockResolvedValue(ok(unit));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
+        ok({ applied: false, record: null })
+      );
+
+      // Omit baseVersionToken → legacyReplace path; failed promote is not 200 success.
+      const { baseVersionToken: _omit, ...legacyInput } = rangeInput;
+      const result = await uploadRangeRecording({
+        ...legacyInput,
+        data: Buffer.from('abcd'),
+        endVerse: 10,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
+      expect(repo.updateTakeCoverageAndRecordingIfVersion).toHaveBeenCalledWith(
+        10,
+        1,
+        2,
+        expect.objectContaining({ endVerse: 10 }),
+        expect.objectContaining({ versionToken: 3, endVerse: 10 })
+      );
+      expect(repo.updateTakeCoverage).not.toHaveBeenCalled();
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 for non-active duplicate shape promote when atomic CAS misses', async () => {
+      const unit = { ...record, versionToken: 2, activeTakeId: 11 };
+      const staleDup = { ...take, id: 10 };
+      vi.mocked(repo.get).mockResolvedValue(ok(unit));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(staleDup));
+      vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
+        ok({ applied: false, record: null })
+      );
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        endVerse: 10,
+        baseVersionToken: 2,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
+      expect(repo.updateTakeCoverageAndRecordingIfVersion).toHaveBeenCalledWith(
+        10,
+        1,
+        2,
+        expect.objectContaining({ endVerse: 10 }),
+        expect.objectContaining({ activeTakeId: 10, versionToken: 3 })
+      );
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+    });
+
     it('updates coverage on duplicate contentHash with a different range shape', async () => {
       const unit = { ...record, versionToken: 2, activeTakeId: 10 };
       const newShape = {
@@ -979,8 +1168,7 @@ describe('verse-audio service', () => {
         .mockResolvedValueOnce(ok(unit))
         .mockResolvedValue(ok({ ...unit, ...newShape, versionToken: 3 }));
       vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
-      vi.mocked(repo.updateTakeCoverage).mockResolvedValue(ok({ ...take, ...newShape }));
-      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+      vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
         ok({ applied: true, record: { ...unit, ...newShape, versionToken: 3 } })
       );
       vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([{ ...take, ...newShape }]));
@@ -993,8 +1181,15 @@ describe('verse-audio service', () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(repo.updateTakeCoverage).toHaveBeenCalledWith(10, newShape);
+      expect(repo.updateTakeCoverageAndRecordingIfVersion).toHaveBeenCalledWith(
+        10,
+        1,
+        2,
+        newShape,
+        expect.objectContaining({ ...newShape, versionToken: 3 })
+      );
       expect(repo.insertTake).not.toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).toHaveBeenCalled();
     });
 
     it('still supports matching version tokens on range re-upload', async () => {

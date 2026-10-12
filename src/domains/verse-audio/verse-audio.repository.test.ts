@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { bible_texts } from '@/db/schema';
-import { err, ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './verse-audio.repository';
 
@@ -123,5 +123,143 @@ describe('verse-audio repository', () => {
     });
 
     expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
+  });
+
+  describe('updateTakeCoverageAndRecordingIfVersion', () => {
+    const shape = {
+      granularity: 'pericope' as const,
+      startChapter: 1,
+      startVerse: 3,
+      endChapter: 1,
+      endVerse: 10,
+    };
+
+    function chainUpdate(returningRows: unknown[]) {
+      return {
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue(returningRows),
+          }),
+        }),
+      };
+    }
+
+    it('rolls back the take write when recording CAS misses (txn abort)', async () => {
+      let takeWriteVisible = false;
+      const tx = {
+        update: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            // Take coverage write lands first inside the txn.
+            takeWriteVisible = true;
+            return chainUpdate([{ id: 10 }]);
+          })
+          .mockImplementationOnce(() => {
+            // Recording version predicate misses — empty returning.
+            return chainUpdate([]);
+          }),
+        select: vi.fn(),
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
+        try {
+          return await callback(tx);
+        } catch (error) {
+          // Drizzle/Postgres would roll back uncommitted take coverage here.
+          takeWriteVisible = false;
+          throw error;
+        }
+      });
+
+      const result = await repo.updateTakeCoverageAndRecordingIfVersion(10, 1, 2, shape, {
+        versionToken: 3,
+        ...shape,
+      });
+
+      expect(result).toEqual(ok({ applied: false, record: null }));
+      expect(takeWriteVisible).toBe(false);
+      expect(tx.update).toHaveBeenCalledTimes(2);
+      expect(tx.select).not.toHaveBeenCalled();
+    });
+
+    it('applies take coverage and recording patch in one transaction on CAS hit', async () => {
+      const hydrated = {
+        id: 1,
+        projectUnitId: 12,
+        bibleTextId: 3401,
+        versionToken: 3,
+        ...shape,
+      };
+      const tx = {
+        update: vi
+          .fn()
+          .mockImplementationOnce(() => chainUpdate([{ id: 10 }]))
+          .mockImplementationOnce(() =>
+            chainUpdate([{ id: 1, projectUnitId: 12, bibleTextId: 3401 }])
+          ),
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([hydrated]),
+              }),
+            }),
+          }),
+        }),
+      };
+      vi.mocked(db.transaction).mockImplementation(async (callback: any) => callback(tx));
+
+      const result = await repo.updateTakeCoverageAndRecordingIfVersion(10, 1, 2, shape, {
+        versionToken: 3,
+        ...shape,
+      });
+
+      expect(result).toEqual(ok({ applied: true, record: hydrated }));
+      expect(tx.update).toHaveBeenCalledTimes(2);
+      expect(tx.select).toHaveBeenCalledTimes(1);
+    });
+
+    it('rolls back both writes when post-CAS hydration is missing (throws, not Result)', async () => {
+      let writesCommitted = false;
+      const tx = {
+        update: vi
+          .fn()
+          .mockImplementationOnce(() => chainUpdate([{ id: 10 }]))
+          .mockImplementationOnce(() =>
+            chainUpdate([{ id: 1, projectUnitId: 12, bibleTextId: 3401 }])
+          ),
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([]),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
+        try {
+          const value = await callback(tx);
+          // Drizzle commits when the callback resolves (including ok:false Results).
+          writesCommitted = true;
+          return value;
+        } catch (error) {
+          // Abort path — uncommitted take+recording writes are discarded.
+          writesCommitted = false;
+          throw error;
+        }
+      });
+
+      const result = await repo.updateTakeCoverageAndRecordingIfVersion(10, 1, 2, shape, {
+        versionToken: 3,
+        ...shape,
+      });
+
+      expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
+      expect(writesCommitted).toBe(false);
+      expect(tx.update).toHaveBeenCalledTimes(2);
+    });
   });
 });

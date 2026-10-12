@@ -244,14 +244,22 @@ async function applyCoverageConflictsAfterUpload(
   return ok(undefined);
 }
 
+/**
+ * Load the unit response after upload. When `scanCoverageConflicts` is true,
+ * mark intersecting same-book recordings (and self) as conflict. Skip the scan
+ * for unchanged retries so a resolved CLEAN unit is not re-flagged.
+ */
 async function finishUploadResponse(
   projectUnitId: number,
   bibleTextId: number,
-  shape: VerseAudioCoverageShape
+  shape: VerseAudioCoverageShape,
+  options: { scanCoverageConflicts: boolean }
 ): Promise<Result<VerseAudioWithUrl>> {
-  const conflicts = await applyCoverageConflictsAfterUpload(projectUnitId, bibleTextId, shape);
-  if (!conflicts.ok) {
-    return conflicts;
+  if (options.scanCoverageConflicts) {
+    const conflicts = await applyCoverageConflictsAfterUpload(projectUnitId, bibleTextId, shape);
+    if (!conflicts.ok) {
+      return conflicts;
+    }
   }
   return loadUnitResponse(projectUnitId, bibleTextId);
 }
@@ -393,7 +401,9 @@ export async function uploadRecording(
       }
     }
 
-    return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+    return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+      scanCoverageConflicts: true,
+    });
   }
 
   const unit = existing.data;
@@ -434,38 +444,75 @@ export async function uploadRecording(
     // Same bytes as the active take: idempotent unless coverage metadata changed.
     if (duplicate.data.id === unit.activeTakeId) {
       if (!shapeMismatch) {
-        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+        // Unchanged retry — do not re-scan overlaps (would re-flag resolved CLEAN).
+        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+          scanCoverageConflicts: false,
+        });
       }
       if (baseMatches || legacyReplace) {
-        const updatedTake = await repo.updateTakeCoverage(duplicate.data.id, shape);
-        if (!updatedTake.ok) {
-          return updatedTake;
-        }
-        const promoted = await repo.updateRecordingStateIfVersion(unit.id, unit.versionToken, {
-          versionToken: unit.versionToken + 1,
-          ...shape,
-        });
+        const promoted = await repo.updateTakeCoverageAndRecordingIfVersion(
+          duplicate.data.id,
+          unit.id,
+          unit.versionToken,
+          shape,
+          {
+            versionToken: unit.versionToken + 1,
+            ...shape,
+          }
+        );
         if (!promoted.ok) {
           return promoted;
         }
-        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+        if (!promoted.data.applied) {
+          // Coverage change did not apply (txn rolled back). Do not report 200
+          // success or reopen conflict — same 409 contract as resolve CAS miss.
+          return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+        }
+        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+          scanCoverageConflicts: true,
+        });
       }
       // Stale token + shape change on the active take's bytes: do not overwrite
-      // coverage under a stale base; flag conflict and keep current active shape.
+      // coverage under a stale base; flag unit conflict only (no geometric re-scan).
       const marked = await repo.markConflictPreservingActive(unit.id);
       if (!marked.ok) {
         return marked;
       }
-      return finishUploadResponse(input.projectUnitId, input.bibleTextId, existingShape);
+      return finishUploadResponse(input.projectUnitId, input.bibleTextId, existingShape, {
+        scanCoverageConflicts: false,
+      });
     }
 
     if (baseMatches || legacyReplace) {
       if (shapeMismatch) {
-        const updatedTake = await repo.updateTakeCoverage(duplicate.data.id, shape);
-        if (!updatedTake.ok) {
-          return updatedTake;
+        const promoted = await repo.updateTakeCoverageAndRecordingIfVersion(
+          duplicate.data.id,
+          unit.id,
+          unit.versionToken,
+          shape,
+          {
+            uploadedBy: duplicate.data.uploadedBy,
+            storageObjectId: duplicate.data.storageObjectId,
+            contentType: duplicate.data.contentType,
+            sizeBytes: duplicate.data.sizeBytes,
+            durationSeconds: duplicate.data.durationSeconds,
+            versionToken: unit.versionToken + 1,
+            activeTakeId: duplicate.data.id,
+            ...shape,
+          }
+        );
+        if (!promoted.ok) {
+          return promoted;
         }
+        if (!promoted.data.applied) {
+          // Failed coverage promote — 409, preserve takes / conflictStatus as-is.
+          return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+        }
+        return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+          scanCoverageConflicts: true,
+        });
       }
+
       const promoted = await repo.updateRecordingStateIfVersion(unit.id, unit.versionToken, {
         uploadedBy: duplicate.data.uploadedBy,
         storageObjectId: duplicate.data.storageObjectId,
@@ -479,18 +526,41 @@ export async function uploadRecording(
       if (!promoted.ok) {
         return promoted;
       }
-      return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+      if (!promoted.data.applied) {
+        // Same-shape duplicate promote lost the CAS (often to /resolve). No new
+        // contender and no coverage rewrite — return current state without
+        // reopening conflict (see service test: resolve wins duplicate race).
+        return finishUploadResponse(
+          input.projectUnitId,
+          input.bibleTextId,
+          {
+            granularity: unit.granularity,
+            startChapter: unit.startChapter,
+            startVerse: unit.startVerse,
+            endChapter: unit.endChapter,
+            endVerse: unit.endVerse,
+          },
+          { scanCoverageConflicts: false }
+        );
+      }
+      return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+        scanCoverageConflicts: true,
+      });
     }
 
     // Stale token + duplicate of a non-active take: no new contender was added.
-    // Returning current state preserves a concurrent /resolve adjudication.
-    return finishUploadResponse(input.projectUnitId, input.bibleTextId, {
-      granularity: unit.granularity,
-      startChapter: unit.startChapter,
-      startVerse: unit.startVerse,
-      endChapter: unit.endChapter,
-      endVerse: unit.endVerse,
-    });
+    return finishUploadResponse(
+      input.projectUnitId,
+      input.bibleTextId,
+      {
+        granularity: unit.granularity,
+        startChapter: unit.startChapter,
+        startVerse: unit.startVerse,
+        endChapter: unit.endChapter,
+        endVerse: unit.endVerse,
+      },
+      { scanCoverageConflicts: false }
+    );
   }
 
   const stored = await storeTakeBytes(
@@ -561,12 +631,17 @@ export async function uploadRecording(
     }
   }
 
-  return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape);
+  // New take inserted (matching or stale base) — always scan overlaps.
+  return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+    scanCoverageConflicts: true,
+  });
 }
 
 /**
- * Pericope / range upload: validates anchor + range, then reuses uploadRecording
- * CAS semantics and marks other same-book intersecting coverages as conflict.
+ * Pericope / range upload: validates anchor + range against bible_texts, then
+ * reuses `uploadRecording` CAS / legacy / conflict semantics. Geometric overlap
+ * scanning runs only when the upload introduces a new contender or changes
+ * active coverage (see `finishUploadResponse`).
  */
 export async function uploadRangeRecording(
   input: UploadRangeRecordingInput

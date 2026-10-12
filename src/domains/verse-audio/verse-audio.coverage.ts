@@ -100,6 +100,7 @@ export function parseAndValidatePericopeRange(input: {
   return ok({ start, end });
 }
 
+/** True when the bible_texts anchor equals the pericope range start (product rule). */
 export function anchorMatchesStart(
   bibleText: { chapterNumber: number; verseNumber: number },
   startChapter: number,
