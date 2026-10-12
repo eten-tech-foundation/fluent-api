@@ -37,6 +37,11 @@ export function rangesOverlap(a: RangeCoverage, b: RangeCoverage): boolean {
   return compareVerseRef(a.start, b.end) <= 0 && compareVerseRef(b.start, a.end) <= 0;
 }
 
+/** True when both ranges share the same inclusive start and end. */
+export function rangesEqual(a: RangeCoverage, b: RangeCoverage): boolean {
+  return compareVerseRef(a.start, b.start) === 0 && compareVerseRef(a.end, b.end) === 0;
+}
+
 /**
  * Active coverage for conflict scanning. Pericope uses stored bounds; verse is a
  * single point at the bible_texts anchor (stored range columns stay null).

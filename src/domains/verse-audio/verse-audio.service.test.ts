@@ -993,6 +993,56 @@ describe('verse-audio service', () => {
       expect(repo.insertTake).not.toHaveBeenCalled();
     });
 
+    it('does not reflag overlaps when verse↔one-verse pericope metadata changes at same bounds', async () => {
+      // Contract: one-verse pericopes are valid (end >= start). Overlap scan uses
+      // geometric coverageFromActive ranges — granularity alone is not a conflict axis.
+      const oneVersePericope = {
+        granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+        startChapter: 1,
+        startVerse: 3,
+        endChapter: 1,
+        endVerse: 3,
+      };
+      const cleanVerseUnit = {
+        ...record,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 10,
+        granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+        chapterNumber: 1,
+        verseNumber: 3,
+      };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(cleanVerseUnit))
+        .mockResolvedValue(ok({ ...cleanVerseUnit, ...oneVersePericope, versionToken: 6 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+      vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
+        ok({
+          applied: true,
+          record: { ...cleanVerseUnit, ...oneVersePericope, versionToken: 6 },
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(
+        ok([{ ...take, ...oneVersePericope }])
+      );
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        endVerse: 3,
+        baseVersionToken: 5,
+      });
+
+      expect(result.ok).toBe(true);
+      // Metadata rewrite still happens (full shape includes granularity).
+      expect(repo.updateTakeCoverageAndRecordingIfVersion).toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+    });
+
     it('does not reflag overlaps on stale duplicate of a non-active take', async () => {
       const cleanUnit = {
         ...record,

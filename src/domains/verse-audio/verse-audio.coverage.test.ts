@@ -6,11 +6,32 @@ import {
   anchorMatchesStart,
   coverageFromActive,
   parseAndValidatePericopeRange,
+  rangesEqual,
   rangesOverlap,
 } from './verse-audio.coverage';
 import { VERSE_AUDIO_GRANULARITY } from './verse-audio.types';
 
 describe('verse-audio coverage', () => {
+  describe('rangesEqual', () => {
+    it('is true for identical inclusive bounds', () => {
+      expect(
+        rangesEqual(
+          { start: { chapter: 1, verse: 3 }, end: { chapter: 1, verse: 3 } },
+          { start: { chapter: 1, verse: 3 }, end: { chapter: 1, verse: 3 } }
+        )
+      ).toBe(true);
+    });
+
+    it('is false when either endpoint differs', () => {
+      expect(
+        rangesEqual(
+          { start: { chapter: 1, verse: 3 }, end: { chapter: 1, verse: 3 } },
+          { start: { chapter: 1, verse: 3 }, end: { chapter: 1, verse: 8 } }
+        )
+      ).toBe(false);
+    });
+  });
+
   describe('rangesOverlap', () => {
     it('detects overlapping ranges in the same chapter', () => {
       expect(
@@ -80,6 +101,22 @@ describe('verse-audio coverage', () => {
         ok({
           start: { chapter: 1, verse: 1 },
           end: { chapter: 1, verse: 5 },
+        })
+      );
+    });
+
+    it('accepts a one-verse pericope (end equals start)', () => {
+      expect(
+        parseAndValidatePericopeRange({
+          startChapter: 1,
+          startVerse: 3,
+          endChapter: 1,
+          endVerse: 3,
+        })
+      ).toEqual(
+        ok({
+          start: { chapter: 1, verse: 3 },
+          end: { chapter: 1, verse: 3 },
         })
       );
     });

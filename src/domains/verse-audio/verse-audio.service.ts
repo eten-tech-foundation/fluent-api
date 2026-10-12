@@ -31,6 +31,7 @@ import {
   anchorMatchesStart,
   coverageFromActive,
   parseAndValidatePericopeRange,
+  rangesEqual,
 } from './verse-audio.coverage';
 import * as repo from './verse-audio.repository';
 import {
@@ -450,9 +451,14 @@ export async function uploadRecording(
 
   if (duplicate.data) {
     const existingShape = shapeFromTake(duplicate.data);
+    // Full shape (incl. granularity) — drives take/recording metadata rewrites.
     const shapeMismatch = !shapesEqual(existingShape, shape);
-    // Geometric re-scan only when denormalized active coverage actually changes.
-    const activeCoverageChanged = !shapesEqual(shapeFromRecord(unit), shape);
+    // Overlap scan is geometric only: verse ↔ one-verse pericope at the same
+    // anchor bounds must not re-flag a resolved CLEAN unit.
+    const activeGeometryChanged = !rangesEqual(
+      coverageFromActive(shapeFromRecord(unit), unit.chapterNumber, unit.verseNumber),
+      coverageFromActive(shape, unit.chapterNumber, unit.verseNumber)
+    );
 
     // Same bytes as the active take: idempotent unless coverage metadata changed.
     if (duplicate.data.id === unit.activeTakeId) {
@@ -482,7 +488,7 @@ export async function uploadRecording(
           return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-          scanCoverageConflicts: activeCoverageChanged,
+          scanCoverageConflicts: activeGeometryChanged,
         });
       }
       // Stale token + shape change on the active take's bytes: do not overwrite
@@ -522,7 +528,7 @@ export async function uploadRecording(
           return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-          scanCoverageConflicts: activeCoverageChanged,
+          scanCoverageConflicts: activeGeometryChanged,
         });
       }
 
@@ -558,7 +564,7 @@ export async function uploadRecording(
       }
       // activeTakeId-only promote (geometry unchanged) must not re-flag CLEAN.
       return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-        scanCoverageConflicts: activeCoverageChanged,
+        scanCoverageConflicts: activeGeometryChanged,
       });
     }
 
