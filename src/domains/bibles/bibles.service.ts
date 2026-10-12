@@ -33,9 +33,9 @@ function mapBibleResponse(
       ? bibleKey({ provider: bible.provider, externalId: bible.externalId })
       : null,
     selectedRecordingKey: audio ? bibleKey(audio) : null,
+    updatedAt: bible.updatedAt?.toISOString() ?? null,
   } satisfies BibleResponse;
 }
-
 async function toBibleResponse(bible: Bible) {
   const text = bible.externalId
     ? await resources.getByProviderIdentity(bible.provider, bible.externalId)

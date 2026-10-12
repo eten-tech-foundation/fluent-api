@@ -69,9 +69,8 @@ const listBooksRoute = createRoute({
   },
   summary: 'Get all books',
   description:
-    'Returns a list of all books. When updatedAfter is provided, returns only books updated at or after that ISO timestamp.',
+    'Returns a raw array of books (not a syncedAt envelope). When updatedAfter is provided, returns only books with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Do not use device wall-clock time.',
 });
-
 server.openapi(listBooksRoute, async (c) => {
   const { updatedAfter } = c.req.valid('query');
   const result = await booksService.getAllBooks(updatedAfter);

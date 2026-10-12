@@ -23,6 +23,10 @@ export const bibleResponseSchema = z.object({
   ttsLicenseStatus: ttsLicenseStatusSchema.optional(),
   textBibleKey: z.string().nullable(),
   selectedRecordingKey: z.string().nullable(),
+  updatedAt: z.string().datetime().nullable().openapi({
+    description:
+      'Server watermark for this bible row (advanced when the bible row or linked provider-resource license/recording facts change via watermark writers). Clients must use max(updatedAt) across a successful non-empty list as the next updatedAfter cursor; empty lists must not advance the cursor. Device wall-clock cursors can skip rows.',
+  }),
 });
 
 export type BibleResponse = z.infer<typeof bibleResponseSchema>;

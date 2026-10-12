@@ -11,6 +11,7 @@ export function toLanguageResponse(language: Language): LanguageResponse {
     langNameLocalized: language.langNameLocalized,
     langCodeIso6393: language.langCodeIso6393,
     scriptDirection: language.scriptDirection,
+    updatedAt: language.updatedAt?.toISOString() ?? null,
   };
 }
 

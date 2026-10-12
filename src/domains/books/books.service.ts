@@ -9,6 +9,7 @@ function toResponse(book: Book): BookResponse {
     id: book.id,
     code: book.code,
     eng_display_name: book.eng_display_name,
+    updatedAt: book.updatedAt?.toISOString() ?? null,
   };
 }
 

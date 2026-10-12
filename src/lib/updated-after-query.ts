@@ -34,6 +34,16 @@ function isValidCalendarDateTime(value: string): boolean {
 /**
  * Optional ISO-8601 `updatedAfter` query param used by incremental catalogue sync.
  * Empty / unzoned / invalid calendars fail Zod validation → HTTP 400 via @hono/zod-validator.
+ *
+ * Cursor contract (languages / books / bibles list arrays):
+ * - Filter is inclusive: `updatedAt >= updatedAfter`.
+ * - Each list item exposes server `updatedAt` (ISO-8601). Clients must persist the next
+ *   cursor from those values (typically `max(updatedAt)` across returned items for that
+ *   catalogue), never from the device wall clock.
+ * - On `200` + `[]`, keep the previous cursor unchanged (do not advance).
+ * - Equal timestamps are re-fetched on the next call (`gte`); clients must upsert idempotently.
+ * - Concurrent writes during a fetch may require a later sync; advancing past server
+ *   timestamps with device time can skip rows permanently.
  */
 export const updatedAfterQuerySchema = z
   .string()
@@ -49,7 +59,7 @@ export const updatedAfterQuerySchema = z
   .openapi({
     param: { name: 'updatedAfter', in: 'query', required: false },
     description:
-      'Return only rows updated at or after this ISO-8601 date-time (must include an explicit time zone)',
+      'Inclusive lower bound (`updatedAt >= updatedAfter`). ISO-8601 with explicit time zone. Derive the next cursor from max(item.updatedAt) in the response; on empty arrays keep the previous cursor. Do not use device wall-clock time.',
     example: '2025-01-01T00:00:00.000Z',
   });
 

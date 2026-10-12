@@ -46,7 +46,7 @@ const listLanguagesRoute = createRoute({
   },
   summary: 'Get all languages',
   description:
-    'Returns a list of all languages. When updatedAfter is provided, returns only languages updated at or after that ISO timestamp.',
+    'Returns a raw array of languages (not a syncedAt envelope). When updatedAfter is provided, returns only languages with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Do not use device wall-clock time.',
 });
 
 server.openapi(listLanguagesRoute, async (c) => {
