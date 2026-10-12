@@ -291,6 +291,8 @@ describe('verse-audio service', () => {
           versionToken: 4,
         })
       );
+      // Same geometry as current unit — promote must not re-run overlap marking.
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.activeTakeId).toBe(10);
@@ -1013,6 +1015,84 @@ describe('verse-audio service', () => {
       expect(result.ok).toBe(true);
       expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
       expect(repo.insertTake).not.toHaveBeenCalled();
+    });
+
+    it('does not reflag overlaps when promoting a same-geometry non-active take after resolve', async () => {
+      const cleanUnit = {
+        ...record,
+        ...pericopeShape,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 11,
+      };
+      const prior = { ...take, id: 10, ...pericopeShape };
+      const active = {
+        ...take,
+        id: 11,
+        ...pericopeShape,
+        contentHash: hashOf(Buffer.from('other')),
+      };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(cleanUnit))
+        .mockResolvedValue(ok({ ...cleanUnit, versionToken: 6, activeTakeId: 10 }));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: { ...cleanUnit, versionToken: 6, activeTakeId: 10 } })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        baseVersionToken: 5,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+    });
+
+    it('scans overlaps when promoting a non-active take changes active coverage geometry', async () => {
+      const cleanUnit = {
+        ...record,
+        versionToken: 5,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+        activeTakeId: 11,
+        granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+      // Take already stores the requested pericope shape; unit denormalized coverage is still verse.
+      const prior = { ...take, id: 10, ...pericopeShape };
+      const active = { ...take, id: 11 };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(ok(cleanUnit))
+        .mockResolvedValue(
+          ok({ ...cleanUnit, ...pericopeShape, versionToken: 6, activeTakeId: 10 })
+        );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({
+          applied: true,
+          record: { ...cleanUnit, ...pericopeShape, versionToken: 6, activeTakeId: 10 },
+        })
+      );
+      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+      vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(
+        ok({ markedIds: [1, 2] })
+      );
+
+      const result = await uploadRangeRecording({
+        ...rangeInput,
+        data: Buffer.from('abcd'),
+        baseVersionToken: 5,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(repo.updateRecordingStateIfVersion).toHaveBeenCalled();
+      expect(repo.markIntersectingCoverageConflicts).toHaveBeenCalled();
     });
 
     it('still scans overlaps when a stale upload inserts a new contender', async () => {

@@ -142,6 +142,16 @@ function shapeFromTake(take: VerseAudioTakeRecord): VerseAudioCoverageShape {
   };
 }
 
+function shapeFromRecord(record: VerseAudioRecord): VerseAudioCoverageShape {
+  return {
+    granularity: record.granularity,
+    startChapter: record.startChapter,
+    startVerse: record.startVerse,
+    endChapter: record.endChapter,
+    endVerse: record.endVerse,
+  };
+}
+
 async function takeWithUrl(
   take: VerseAudioTakeRecord,
   projectUnitId: number,
@@ -246,8 +256,9 @@ async function applyCoverageConflictsAfterUpload(
 
 /**
  * Load the unit response after upload. When `scanCoverageConflicts` is true,
- * mark intersecting same-book recordings (and self) as conflict. Skip the scan
- * for unchanged retries so a resolved CLEAN unit is not re-flagged.
+ * mark intersecting same-book recordings (and self) as conflict. Skip when the
+ * upload did not change active geometric coverage and did not insert a new
+ * contender (e.g. same-shape retry or activeTakeId-only promote).
  */
 async function finishUploadResponse(
   projectUnitId: number,
@@ -440,6 +451,8 @@ export async function uploadRecording(
   if (duplicate.data) {
     const existingShape = shapeFromTake(duplicate.data);
     const shapeMismatch = !shapesEqual(existingShape, shape);
+    // Geometric re-scan only when denormalized active coverage actually changes.
+    const activeCoverageChanged = !shapesEqual(shapeFromRecord(unit), shape);
 
     // Same bytes as the active take: idempotent unless coverage metadata changed.
     if (duplicate.data.id === unit.activeTakeId) {
@@ -469,7 +482,7 @@ export async function uploadRecording(
           return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-          scanCoverageConflicts: true,
+          scanCoverageConflicts: activeCoverageChanged,
         });
       }
       // Stale token + shape change on the active take's bytes: do not overwrite
@@ -509,7 +522,7 @@ export async function uploadRecording(
           return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-          scanCoverageConflicts: true,
+          scanCoverageConflicts: activeCoverageChanged,
         });
       }
 
@@ -543,8 +556,9 @@ export async function uploadRecording(
           { scanCoverageConflicts: false }
         );
       }
+      // activeTakeId-only promote (geometry unchanged) must not re-flag CLEAN.
       return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
-        scanCoverageConflicts: true,
+        scanCoverageConflicts: activeCoverageChanged,
       });
     }
 
