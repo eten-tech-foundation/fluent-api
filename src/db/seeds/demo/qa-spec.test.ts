@@ -212,4 +212,13 @@ describe('qaSpec', () => {
     expect(bibles.WEB?.hasAudio).toBe(true);
     expect(bibles.WEB?.books?.sort()).toEqual(['JON', 'RUT']);
   });
+
+  it('carries API.Bible externalIds on every sourceBible — required for text/audio ingest', () => {
+    const externalIds = new Map(qaSpec.bibles?.map((b) => [b.abbreviation, b.externalId]));
+    for (const project of qaSpec.projects) {
+      expect(externalIds.get(project.sourceBible)).toMatch(/^[0-9a-f]{16}-\d{2}$/);
+    }
+    expect(externalIds.get('BSB')).toBe('bba9f40183526463-01');
+    expect(externalIds.get('WEB')).toBe('9879dbb7cfe39e4d-01');
+  });
 });

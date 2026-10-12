@@ -59,12 +59,18 @@ export const qaSpec: DemoSpec = {
       abbreviation: 'BSB',
       name: 'Berean Standard Bible',
       language: 'eng',
+      // API.Bible catalogue id (public, not a credential) — lets the ingest
+      // worker fetch real text for MRK/JHN/JAS after seeding.
+      externalId: 'bba9f40183526463-01',
       books: ['MRK', 'JHN', 'JAS'],
     },
     {
       abbreviation: 'WEB',
       name: 'World English Bible',
       language: 'eng',
+      // API.Bible catalogue id — unlocks text ingest (RUT/JON) and DBL audio
+      // resolution for the OBT milestone.
+      externalId: '9879dbb7cfe39e4d-01',
       hasAudio: true,
       books: ['RUT', 'JON'],
     },

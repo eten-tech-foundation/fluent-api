@@ -23,6 +23,7 @@ import type { DemoProject, DemoSpec, DemoUser } from './types';
 
 import { reconcileSeedUser } from '../dev-users';
 import { buildGrantPlan, isStaleProjectRoleGrant } from './grants';
+import { seedIngestJobs } from './ingest';
 
 /**
  * `seedDemoSpec` — interprets a declarative DemoSpec into seeded rows.
@@ -33,7 +34,7 @@ import { buildGrantPlan, isStaleProjectRoleGrant } from './grants';
  *
  *   languages → orgs → bibles → users (+org-scoped & global grants)
  *   → projects → milestones → book links → chapter assignments
- *   → project-scoped grants → stale-grant cleanup
+ *   → project-scoped grants → stale-grant cleanup → DBL ingest jobs
  */
 
 interface Ctx {
@@ -179,7 +180,7 @@ async function seedSpecBibles(ctx: Ctx) {
   for (const spec of ctx.spec.bibles ?? []) {
     const languageId = ctx.languages.get(spec.language)!;
     let [bible] = await db
-      .select({ id: bibles.id, hasAudio: bibles.hasAudio })
+      .select({ id: bibles.id, hasAudio: bibles.hasAudio, externalId: bibles.externalId })
       .from(bibles)
       .where(eq(bibles.abbreviation, spec.abbreviation))
       .limit(1);
@@ -190,10 +191,18 @@ async function seedSpecBibles(ctx: Ctx) {
           abbreviation: spec.abbreviation,
           name: spec.name,
           languageId,
+          externalId: spec.externalId,
           hasAudio: spec.hasAudio ?? false,
         })
-        .returning({ id: bibles.id, hasAudio: bibles.hasAudio });
+        .returning({ id: bibles.id, hasAudio: bibles.hasAudio, externalId: bibles.externalId });
       console.log(`  bible ${spec.abbreviation}`);
+    } else if (spec.externalId !== undefined && bible.externalId !== spec.externalId) {
+      // Spec-provided externalId wins on reconcile; an omitted spec value
+      // leaves whatever the row already has.
+      await db
+        .update(bibles)
+        .set({ externalId: spec.externalId })
+        .where(eq(bibles.id, bible.id));
     }
     ctx.bibles.set(spec.abbreviation, bible.id);
 
@@ -656,5 +665,7 @@ export async function seedDemoSpec(spec: DemoSpec): Promise<void> {
   console.log('  project-scoped grants...');
   await seedProjectGrants(ctx);
   await cleanupStaleGrants(ctx);
+  console.log('  DBL text-ingest jobs...');
+  await seedIngestJobs(ctx);
   console.log('Demo spec seeded.');
 }

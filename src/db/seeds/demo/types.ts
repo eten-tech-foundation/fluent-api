@@ -36,6 +36,12 @@ export interface DemoBible {
   name: string;
   /** ISO-639-3 language code. */
   language: string;
+  /**
+   * API.Bible (DBL) catalogue id, e.g. `bba9f40183526463-01` — a public
+   * identifier, not a credential. Required for the worker to ingest text and
+   * for bible-audio resolution; seed jobs for bibles lacking one are skipped.
+   */
+  externalId?: string;
   hasAudio?: boolean;
   /** Book codes to link via bible_books. */
   books?: string[];
