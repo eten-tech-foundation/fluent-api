@@ -33,14 +33,16 @@ export function isPostPeerStatus(
   if (!status) return false;
   if (stages && stages.length > 0) {
     const peerIdx = stages.findIndex(
-      (s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK || s.id === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK
+      (s) =>
+        s.defaultName === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK ||
+        s.id === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK
     );
     const completeIdx = stages.findIndex(
-      (s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.COMPLETE || s.id === CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+      (s) =>
+        s.defaultName === CHAPTER_ASSIGNMENT_STATUS.COMPLETE ||
+        s.id === CHAPTER_ASSIGNMENT_STATUS.COMPLETE
     );
-    const currentIdx = stages.findIndex(
-      (s) => s.defaultName === status || s.id === status
-    );
+    const currentIdx = stages.findIndex((s) => s.defaultName === status || s.id === status);
     if (peerIdx !== -1 && completeIdx !== -1 && currentIdx !== -1) {
       return currentIdx > peerIdx && currentIdx < completeIdx;
     }

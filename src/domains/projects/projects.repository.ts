@@ -93,9 +93,9 @@ export async function populateWorkflowStages(
 
   return projects.map((p) => {
     const workflowConfig = stagesByProject.get(p.id) ?? WORKFLOW_DEFINITION;
-    const defaultCounts = defaultCountsByProject.get(p.id) ?? Object.fromEntries(
-      DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0])
-    );
+    const defaultCounts =
+      defaultCountsByProject.get(p.id) ??
+      Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
     return {
       ...p,
       workflowConfig,

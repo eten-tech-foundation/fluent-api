@@ -13,8 +13,8 @@ import {
   project_unit_bible_books,
   project_unit_usfm_imports,
   project_units,
-  projects,
   project_workflow_stages,
+  projects,
   translated_verses,
   verse_audio_recordings,
 } from '@/db/schema';
@@ -132,10 +132,7 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
 
 type MilestoneSelectRow = Awaited<ReturnType<typeof milestoneSelect>>[number];
 
-function mapRow(
-  row: MilestoneSelectRow,
-  defaultCounts?: Record<string, number>
-): MilestoneRow {
+function mapRow(row: MilestoneSelectRow, defaultCounts?: Record<string, number>): MilestoneRow {
   const counts =
     defaultCounts ??
     DEFAULT_WORKFLOW.reduce(

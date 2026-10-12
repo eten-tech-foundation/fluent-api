@@ -5,7 +5,6 @@ import { resolveIsProjectMember } from '@/domains/projects/users/project-users.s
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
@@ -120,9 +119,7 @@ describe('workflow stages routes', () => {
 
   it('returns a 409 for duplicate stage name conflict', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.addStage).mockResolvedValue(
-      err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME)
-    );
+    vi.mocked(service.addStage).mockResolvedValue(err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME));
 
     const response = await server.request('/projects/1/workflow-stages', {
       method: 'POST',
@@ -136,9 +133,7 @@ describe('workflow stages routes', () => {
 
   it('returns a 404 when stage is not found on rename', async () => {
     asAuthenticatedProjectManager();
-    vi.mocked(service.renameStage).mockResolvedValue(
-      err(ErrorCode.WORKFLOW_STAGE_NOT_FOUND)
-    );
+    vi.mocked(service.renameStage).mockResolvedValue(err(ErrorCode.WORKFLOW_STAGE_NOT_FOUND));
 
     const response = await server.request('/projects/1/workflow-stages/999', {
       method: 'PATCH',

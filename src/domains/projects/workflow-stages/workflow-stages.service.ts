@@ -1,14 +1,20 @@
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
-import type { WorkflowStepResponse } from './workflow-stages.types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { project_workflow_stages, projects } from '@/db/schema';
 import { err, ErrorCode, ok } from '@/lib/types';
-import type { DbTransaction, Result } from '@/lib/types';
 
-import { DEFAULT_WORKFLOW, END_STAGE, MAX_WORKFLOW_STAGES, START_STAGE } from './workflow-stages.constants';
+import type { WorkflowStepResponse } from './workflow-stages.types';
+
+import {
+  DEFAULT_WORKFLOW,
+  END_STAGE,
+  MAX_WORKFLOW_STAGES,
+  START_STAGE,
+} from './workflow-stages.constants';
 import * as repo from './workflow-stages.repository';
 
 type StageRow = typeof project_workflow_stages.$inferSelect;
@@ -17,7 +23,10 @@ export type { Executor } from './workflow-stages.repository';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export async function seedDefaultStages(projectId: number, executor: typeof db | DbTransaction = db) {
+export async function seedDefaultStages(
+  projectId: number,
+  executor: typeof db | DbTransaction = db
+) {
   const stagesToInsert = DEFAULT_WORKFLOW.map((s) => ({ projectId, ...s }));
   await executor.insert(project_workflow_stages).values(stagesToInsert).onConflictDoNothing();
 }
@@ -70,14 +79,16 @@ function hasDuplicateName(stages: StageRow[], displayName: string, ignoreStageId
  * Missing stages (no rows) are treated as a configuration error — the GET
  * endpoint no longer silently seeds the DB on read.
  */
-export async function getWorkflowStages(projectId: number): Promise<Result<WorkflowStepResponse[]>> {
+export async function getWorkflowStages(
+  projectId: number
+): Promise<Result<WorkflowStepResponse[]>> {
   try {
     const stages = await repo.getWorkflowStagesByProjectId(projectId);
     if (stages.length === 0) return err(ErrorCode.WORKFLOW_STAGE_COMPLETE_NOT_FOUND);
 
     const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
     return ok(stages.map((stage) => toResponse(stage, lockedDefaultNames)));
-  } catch (error) {
+  } catch {
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -130,7 +141,7 @@ export async function addStage(
 
     const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
     return ok(toResponse(created.data, lockedDefaultNames));
-  } catch (error) {
+  } catch {
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -164,7 +175,7 @@ export async function renameStage(
 
     const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
     return ok(toResponse(updated.data, lockedDefaultNames));
-  } catch (error) {
+  } catch {
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -203,7 +214,7 @@ export async function deleteStage(
     });
 
     return getWorkflowStages(projectId);
-  } catch (error) {
+  } catch {
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -261,7 +272,7 @@ export async function reorderStages(
     });
 
     return getWorkflowStages(projectId);
-  } catch (error) {
+  } catch {
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
