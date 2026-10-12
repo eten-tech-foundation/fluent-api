@@ -124,7 +124,8 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - Create: `src/db/seeds/demo/qa-spec.ts` — the QA spec above (Task 3)
 - Create: `src/db/seeds/demo/dev-spec.ts` — `devSpec(credentials)` factory serving `dev.ts` and `local.ts` (Task 3)
 - Create: `src/db/seeds/demo/index.ts` — `seedDemoSpec(spec)` engine (Tasks 4–6)
-- Create: `src/db/seeds/demo/data/` — home for follow-on bible-text JSON (empty now)
+- Create: `src/db/seeds/demo/ingest.ts` — `planIngestJobs` planner + queue enqueue for DBL text ingestion (Task 9)
+- Create: `src/db/seeds/demo/ingest.test.ts` — planner unit tests (Task 9)
 - Modify: `src/db/env-configs/types.ts` — `EnvConfig.demoSpec?: DemoSpec`; widen `SeedUser.role` union (Task 3)
 - Modify: `src/db/env-configs/qa.ts` — remove `QA_PM_*` getters, export `demoSpec: qaSpec` (Task 3)
 - Modify: `src/db/env-configs/dev.ts` — `demoSpec: devSpec(envCreds)`; `seedUsers` getter retires (Task 3)
@@ -219,10 +220,22 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - [ ] **Step 1:** Update `docs/db-provisioning-and-setup.md` — add `db:reset:*` to the command table + a "Resetting a QA/Dev environment" section (confirm gate, what gets dropped, what survives — the `ai` schema).
 - [ ] **Step 2:** Update the env-var table: remove `QA_PM_EMAIL`/`QA_PM_PASSWORD`, note the committed-hash model.
 
+### Task 9: Demo seed triggers DBL text ingest (no data in the seeder)
+
+**Why:** the engine writes `project_unit_bible_books` + `chapter_assignments` directly, bypassing `milestones.service.ts`, which is the code path that enqueues `DBL_INGEST_TEXT*` jobs for newly-linked books. Result: QA's BSB/WEB books render empty source panels forever unless text arrives some other way. Fix by reproducing the *trigger* — the existing worker produces the expected state; the seeder holds zero verse data. Supersedes Follow-On 1 (no data file needed).
+
+**Files:** Create `src/db/seeds/demo/ingest.ts`, `src/db/seeds/demo/ingest.test.ts`; Modify `src/db/seeds/demo/types.ts`, `src/db/seeds/demo/qa-spec.ts`, `src/db/seeds/demo/engine.ts`
+
+- [ ] **Step 1:** `DemoBible` gains `externalId?: string`; `qa-spec.ts` sets the real API.Bible catalogue ids for BSB + WEB (verify against the live catalogue — likely `bba9f40183526463-01` / `9879dbb7cfe39e4d-01`; public identifiers, not credentials). Engine's bible reconcile writes `externalId` (adopts an existing row's value when the spec omits it). Side benefit: `bible-audio.service` resolves the audio-bible id from `externalId` at runtime — lands most of Follow-On 2.
+- [ ] **Step 2:** `planIngestJobs(spec, ctx)` — pure planner in the `buildGrantPlan` pattern: for each milestone's linked books where the (`bibleId`, `bookId`) pair has zero `bible_texts` rows, emit one job `{ bibleId, bookCodes[], projectUnitId }` per milestone (batched — job type already accepts a codes array). Empty text → enqueue; existing text → skip. Idempotent by construction.
+- [ ] **Step 3:** `enqueueIngestJobs(jobs)` — post-commit step in the engine (never inside a seed tx): `initializeQueue()` → `boss.send(QUEUE_NAMES.DBL_INGEST_TEXT, job)` per planned job → `stopQueue()`. Gates that degrade rather than fail: `DBL_API_KEY` unset → skip all + warn (worker would `DBL_NOT_CONFIGURED`-fail anyway); resolved bible missing `externalId` → skip its books + warn (worker throws → retry spam → dead-letter); queue unreachable → warn + continue (a later-running worker drains the jobs).
+- [ ] **Step 4:** Tests for the planner (missing-text gate, batching per milestone, no-jobs-when-text-exists) via injected predicates — no queue needed. Worker-side safety already verified: verse upserts are `onConflictDoUpdate`, post-ingest assignment creation is `onConflictDoNothing` — the spec's deterministic statuses are never clobbered.
+- [ ] **Step 5:** Verify live where creds exist: seed → `DBL_INGEST_TEXT` jobs land → worker ingests → `bible_texts` populated + `bible_books.textIngested_at` set; re-run seed → zero jobs planned. Dev/local unchanged (IRV text already seeded → planner returns empty).
+
 ## Follow-Ons (tracked, not built here)
 
-1. **BSB/WEB verse text** — user supplies data; add `src/db/seeds/demo/data/bible-texts.json` + a small loader (`db:seed:demo-texts`) writing `bible_texts` rows for the demo bibles/books. Until then source panels for Mark/John/Ruth/Jonah/James render empty (dev's IRV project is unaffected — its texts are already seeded).
-2. **Audio for the OBT project** — set `bibles.externalId` (and the DBL audio bible id if needed) on WEB once the user supplies DBL ids; verify `DBL_*` env creds exist in the QA App Service config. No code changes needed — `bible-audio.service` resolves at runtime. (The `chichewa-obt` milestone already carries `type='audio'`; this follow-on only wires real audio files.)
+1. ~~**BSB/WEB verse text**~~ — **superseded by Task 9**: the demo seed now enqueues `DBL_INGEST_TEXT` jobs for spec books lacking `bible_texts`; the existing worker ingests real DBL text (no data file). Requires `DBL_API_KEY` in the target env and `externalId` on BSB/WEB (Task 9 Step 1).
+2. **Audio for the OBT project** — Task 9 lands `bibles.externalId` on WEB, which is the bulk of the wiring (`bible-audio.service` resolves the DBL audio-bible id at runtime). Remaining: verify `DBL_*` env creds exist in the QA App Service config and smoke-test playback. (The `chichewa-obt` milestone already carries `type='audio'`.)
 3. **AI-suggestions corpus** — separate spec/strategy for where `gjk` `translated_verses` seed content lives (must not become a large committed blob). Until then AI suggestions return empty in QA.
 4. **Remove the `project:create` TEMP bypass** in `projects.route.ts` — explicitly marked for removal once QA has real org-manager accounts, which this plan delivers. Separate change with its own testing; flag it to whoever picks up the org-manager work (`feat/org-manager-self-service` / `feat/organization-onboarding` are in flight).
 
@@ -234,3 +247,4 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - **Milestone shape check**: `projects.source_bible_id`/`pericope_set_id` set on all 3 QA projects; `project_units` rows carry the spec names + types (`Old Testament Narratives` is `audio`); book links have `deleted_at IS NULL`; no book is actively linked to two milestones in one project.
 - `chapter_assignments` status counts match the distribution tables per book; `peerCheckerId` pairing on mob chapters; each seeded assignment has at least one `chapter_assignment_status_history` row.
 - `npm run db:setup:qa` and `db:setup:dev` re-runs are clean (idempotent reconcile, no dupes, no org-scoped PM rows recreated, soft-deleted book links restored rather than duplicated).
+- **Text-ingest trigger check (Task 9):** after seeding QA where `DBL_API_KEY` is set, `bible_texts` rows exist for every spec milestone book (`MRK`/`JHN`/`JAS` on BSB, `RUT`/`JON` on WEB) and `bible_books.text_ingested_at` is set once the worker drains. Re-running the seed plans zero ingest jobs. With `DBL_API_KEY` unset or a missing `externalId`, the seed completes with a skip warning instead of enqueueing doomed jobs.
