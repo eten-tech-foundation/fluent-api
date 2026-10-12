@@ -109,4 +109,22 @@ describe('get /bibles', () => {
     expect(res.status).toBe(400);
     expect(bibleService.getAllBibles).not.toHaveBeenCalled();
   });
+
+  it('returns 400 for an empty updatedAfter instead of returning the full catalogue', async () => {
+    authenticate();
+
+    const res = await server.request('/bibles?updatedAfter=');
+
+    expect(res.status).toBe(400);
+    expect(bibleService.getAllBibles).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an updatedAfter date-time without a time zone', async () => {
+    authenticate();
+
+    const res = await server.request('/bibles?updatedAfter=2025-01-01T00:00:00');
+
+    expect(res.status).toBe(400);
+    expect(bibleService.getAllBibles).not.toHaveBeenCalled();
+  });
 });

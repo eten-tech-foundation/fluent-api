@@ -1,4 +1,3 @@
-import type { LicenseFactsPatch } from './bible-provider-resources.repository';
 import type { Provider, ProviderIdentity } from './bible-provider-resources.types';
 
 import * as repo from './bible-provider-resources.repository';
@@ -17,12 +16,4 @@ export function getByIds(ids: number[]) {
 
 export function getByProviderIdentities(identities: ProviderIdentity[]) {
   return repo.getByProviderIdentities(identities);
-}
-
-export function touchLinkedBibles(resource: Parameters<typeof repo.touchLinkedBibles>[0]) {
-  return repo.touchLinkedBibles(resource);
-}
-
-export function updateLicenseFacts(id: number, patch: LicenseFactsPatch) {
-  return repo.updateLicenseFacts(id, patch);
 }

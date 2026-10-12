@@ -231,7 +231,16 @@ export async function upsertFromDbl(
               abbreviation: sql`excluded.abbreviation`,
               languageId: sql`excluded.language_id`,
               hasAudio: sql`excluded.has_audio`,
-              updatedAt: sql`now()`,
+              // Advance watermark only when a tracked column actually changes.
+              updatedAt: sql`
+                CASE
+                  WHEN bibles.name IS DISTINCT FROM excluded.name
+                    OR bibles.abbreviation IS DISTINCT FROM excluded.abbreviation
+                    OR bibles.language_id IS DISTINCT FROM excluded.language_id
+                    OR bibles.has_audio IS DISTINCT FROM excluded.has_audio
+                  THEN now()
+                  ELSE bibles.updated_at
+                END`,
             },
           })
           .returning({ wasInsert: sql<boolean>`(xmax = 0)` });

@@ -1,39 +1,10 @@
 import { z } from '@hono/zod-openapi';
 
 /**
- * Rejects ISO date-times that Date would silently roll over (e.g. 2025-02-30).
- * Only applies the UTC component check for `Z` / `z` suffixes; offset forms are
- * already constrained by `z.string().datetime({ offset: true })`.
- */
-function isValidCalendarDateTime(value: string): boolean {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-
-  if (!/Z$/i.test(value)) return true;
-
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(value);
-  if (!match) return false;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() + 1 === month &&
-    date.getUTCDate() === day &&
-    date.getUTCHours() === hour &&
-    date.getUTCMinutes() === minute &&
-    date.getUTCSeconds() === second
-  );
-}
-
-/**
  * Optional ISO-8601 `updatedAfter` query param used by incremental catalogue sync.
  * Empty / unzoned / invalid calendars fail Zod validation → HTTP 400 via @hono/zod-validator.
+ * `z.string().datetime({ offset: true })` already rejects impossible calendar dates
+ * (e.g. 2025-02-30) in both `Z` and offset forms on zod 3.25.x.
  *
  * Cursor contract (languages / books / bibles list arrays):
  * - Filter is inclusive: `updatedAt >= updatedAfter`.
@@ -51,9 +22,6 @@ export const updatedAfterQuerySchema = z
     offset: true,
     message: 'updatedAfter must be an ISO-8601 date-time with an explicit time zone',
   })
-  .refine(isValidCalendarDateTime, {
-    message: 'updatedAfter must be a valid calendar date-time',
-  })
   .transform((value) => new Date(value))
   .optional()
   .openapi({
@@ -63,6 +31,11 @@ export const updatedAfterQuerySchema = z
     example: '2025-01-01T00:00:00.000Z',
   });
 
+/**
+ * Shared OpenAPI body for Zod validation failures on the three catalogue list
+ * routes. Broader convergence onto stoker's `createErrorSchema` is out of scope
+ * for this PR (other domains still keep local copies).
+ */
 export const validationErrorSchema = z.object({
   success: z.boolean(),
   error: z.object({

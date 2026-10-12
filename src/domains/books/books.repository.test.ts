@@ -43,9 +43,9 @@ describe('books.getAll', () => {
 });
 
 describe('books.upsertFromDbl', () => {
-  it('bumps updatedAt on conflict without overwriting eng_display_name', async () => {
-    const onConflictDoUpdateFn = vi.fn().mockResolvedValue(undefined);
-    const valuesFn = vi.fn().mockReturnValue({ onConflictDoUpdate: onConflictDoUpdateFn });
+  it('inserts with onConflictDoNothing so no-op sync does not stamp updatedAt', async () => {
+    const onConflictDoNothingFn = vi.fn().mockResolvedValue(undefined);
+    const valuesFn = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictDoNothingFn });
     mockTx.insert.mockReturnValueOnce({ values: valuesFn });
 
     const whereFn = vi.fn().mockResolvedValue([{ id: 1 }]);
@@ -60,12 +60,6 @@ describe('books.upsertFromDbl', () => {
     const result = await upsertFromDbl(10, [{ code: 'GEN', eng_display_name: 'Génesis' }]);
 
     expect(result).toEqual({ ok: true, data: { linkedBooks: 1 } });
-    expect(onConflictDoUpdateFn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        set: expect.objectContaining({ updatedAt: expect.anything() }),
-      })
-    );
-    const setArg = onConflictDoUpdateFn.mock.calls[0][0].set;
-    expect(setArg).not.toHaveProperty('eng_display_name');
+    expect(onConflictDoNothingFn).toHaveBeenCalledWith({ target: expect.anything() });
   });
 });

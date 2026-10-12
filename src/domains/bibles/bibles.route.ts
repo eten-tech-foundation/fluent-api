@@ -92,7 +92,7 @@ const listBiblesRoute = createRoute({
   },
   summary: 'Get all bibles',
   description:
-    'Returns a raw array of bibles (not a syncedAt envelope). When updatedAfter is provided, returns only bibles with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Provider-resource license/recording changes bump bibles.updatedAt via watermark writers. Do not use device wall-clock time.',
+    'Returns a raw array of bibles (not a syncedAt envelope). When updatedAfter is provided, returns only bibles with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Provider-resource license/display INSERT or UPDATE bumps linked bibles.updatedAt via a database trigger; selectedRecordingKey changes advance via the bible row write ($onUpdate). Do not use device wall-clock time.',
 });
 
 server.openapi(listBiblesRoute, async (c) => {
