@@ -1,5 +1,6 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
+import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
@@ -59,7 +60,11 @@ const getWorkflowStagesRoute = createRoute({
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema('Not Found'),
-      'Project or stages not found'
+      'Project not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
     ),
   },
 });
@@ -95,9 +100,17 @@ const addWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Bad Request'),
       'Validation error'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project not found'
+    ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
-      'Stage limit or duplicate name'
+      'Stage limit reached or duplicate name'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
     ),
   },
 });
@@ -143,6 +156,10 @@ const renameWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Conflict'),
       'Duplicate name'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
   },
 });
 
@@ -186,6 +203,10 @@ const deleteWorkflowStageRoute = createRoute({
       createMessageObjectSchema('Conflict'),
       'Stage is locked'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
   },
 });
 
@@ -221,11 +242,19 @@ const reorderWorkflowStagesRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Validation error'
+      'Invalid stage list or cannot move fixed stage'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Not Found'),
+      'Project not found'
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('Conflict'),
-      'Stage is locked or fixed'
+      'Stage is locked'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
     ),
   },
 });

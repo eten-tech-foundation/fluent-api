@@ -290,13 +290,18 @@ export async function updateChapterAssignment(
 
 export async function submitChapterAssignment(chapterAssignmentId: number, userId: number) {
   const exec = async (tx: DbTransaction) => {
-    const current = await repo.findById(chapterAssignmentId, tx);
-    if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    const initial = await repo.findById(chapterAssignmentId, tx);
+    if (!initial) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-    const projectId = await repo.findProjectIdByUnitId(current.projectUnitId, tx);
+    const projectId = await repo.findProjectIdByUnitId(initial.projectUnitId, tx);
     if (!projectId) return err(ErrorCode.INTERNAL_ERROR);
 
     await lockProject(tx, projectId);
+
+    // Refresh assignment after lock to avoid stale status under concurrency.
+    const current = await repo.findById(chapterAssignmentId, tx);
+    if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
     const stages = await readStagesSeeded(tx, projectId);
 
     const currentIndex = stages.findIndex((s) => s.defaultName === current.status);

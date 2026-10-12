@@ -143,14 +143,20 @@ function mapRow(row: MilestoneSelectRow, defaultCounts?: Record<string, number>)
       {} as Record<string, number>
     );
 
+  const mergedCounts: Record<string, number> = { ...counts };
+  if (row.chapterStatusCounts) {
+    for (const [key, val] of Object.entries(row.chapterStatusCounts)) {
+      if (key in mergedCounts) {
+        mergedCounts[key] = val;
+      }
+    }
+  }
+
   return {
     ...row,
     bookCount: row.bookCount ?? 0,
     bookIds: row.bookIds ?? [],
-    chapterStatusCounts: {
-      ...counts,
-      ...(row.chapterStatusCounts || {}),
-    },
+    chapterStatusCounts: mergedCounts,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };
@@ -196,11 +202,24 @@ export async function getByIdForProject(
   tx?: DbTransaction
 ): Promise<MilestoneRow | null> {
   const conn = tx ?? db;
-  const rows = await milestoneSelect(conn).where(
-    and(eq(project_units.id, milestoneId), eq(project_units.projectId, projectId))
-  );
+  const [rows, stages] = await Promise.all([
+    milestoneSelect(conn).where(
+      and(eq(project_units.id, milestoneId), eq(project_units.projectId, projectId))
+    ),
+    conn
+      .select({ defaultName: project_workflow_stages.defaultName })
+      .from(project_workflow_stages)
+      .where(eq(project_workflow_stages.projectId, projectId))
+      .orderBy(project_workflow_stages.position),
+  ]);
   if (rows.length === 0) return null;
-  return mapRow(rows[0]);
+
+  const defaultCounts: Record<string, number> =
+    stages.length > 0
+      ? Object.fromEntries(stages.map((s) => [s.defaultName, 0]))
+      : Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+  return mapRow(rows[0], defaultCounts);
 }
 
 // Keep getMilestoneById for internal checks where only ID is known

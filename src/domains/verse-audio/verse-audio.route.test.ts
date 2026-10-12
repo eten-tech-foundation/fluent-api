@@ -28,6 +28,7 @@ vi.mock('@/db', () => {
     innerJoin: vi.fn().mockReturnThis(),
     leftJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockResolvedValue([]),
     limit: vi.fn().mockResolvedValue([{ organizationId: 1, projectId: 1 }]),
     returning: vi.fn().mockResolvedValue([]),
   };

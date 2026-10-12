@@ -46,13 +46,14 @@ export function isPostPeerStatus(
     if (peerIdx !== -1 && completeIdx !== -1 && currentIdx !== -1) {
       return currentIdx > peerIdx && currentIdx < completeIdx;
     }
+    return false;
   }
 
   return (
-    status !== CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED &&
-    status !== CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
-    status !== CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK &&
-    status !== CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+    status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
+    status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
+    status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
+    status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
   );
 }
 

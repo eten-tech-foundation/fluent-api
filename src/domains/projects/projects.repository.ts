@@ -96,10 +96,21 @@ export async function populateWorkflowStages(
     const defaultCounts =
       defaultCountsByProject.get(p.id) ??
       Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+    const allowedStageIds = new Set(workflowConfig.map((s) => s.id));
+    const mergedCounts: ChapterStatusCounts = { ...defaultCounts };
+    if (p.chapterStatusCounts) {
+      for (const [k, v] of Object.entries(p.chapterStatusCounts)) {
+        if (allowedStageIds.has(k)) {
+          mergedCounts[k] = v;
+        }
+      }
+    }
+
     return {
       ...p,
       workflowConfig,
-      chapterStatusCounts: { ...defaultCounts, ...p.chapterStatusCounts },
+      chapterStatusCounts: mergedCounts,
     };
   });
 }

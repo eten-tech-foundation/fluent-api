@@ -364,6 +364,7 @@ describe('submitChapterAssignment open Peer Check', () => {
     };
     vi.mocked(repo.findById)
       .mockResolvedValueOnce(peerCheckRecord)
+      .mockResolvedValueOnce(peerCheckRecord)
       .mockResolvedValueOnce(currentAfterRace);
     vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(null);
 

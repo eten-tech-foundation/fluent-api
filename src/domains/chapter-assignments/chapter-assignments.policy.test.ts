@@ -157,33 +157,40 @@ describe('chapterAssignmentPolicy.edit / submit — post-peer and custom stages'
     status: 'custom_review_1',
   };
 
+  const stages = [
+    { defaultName: 'not_started' },
+    { defaultName: 'draft' },
+    { defaultName: 'peer_check' },
+    { defaultName: 'custom_review_1' },
+    { defaultName: 'complete' },
+  ];
+
   const manager = grant(1, 10, [PERMISSIONS.CONTENT_ASSIGN], 99);
   const translator = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 42);
   const outsiderTranslator = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE], 42);
 
-  it('allows manager (content:assign) to edit and submit in custom stage', () => {
-    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true)).toBe(true);
-    expect(ChapterAssignmentPolicy.submit(manager, customAssignment, true)).toBe(true);
+  it('allows manager (content:assign) to edit and submit in custom stage when stages provided', () => {
+    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true, stages)).toBe(true);
+    expect(ChapterAssignmentPolicy.submit(manager, customAssignment, true, stages)).toBe(true);
   });
 
-  it('allows project member translator to edit and submit in custom stage', () => {
-    expect(ChapterAssignmentPolicy.edit(translator, customAssignment, true)).toBe(true);
-    expect(ChapterAssignmentPolicy.submit(translator, customAssignment, true)).toBe(true);
+  it('allows project member translator to edit and submit in custom stage when stages provided', () => {
+    expect(ChapterAssignmentPolicy.edit(translator, customAssignment, true, stages)).toBe(true);
+    expect(ChapterAssignmentPolicy.submit(translator, customAssignment, true, stages)).toBe(true);
   });
 
   it('denies translator who is not a project member in custom stage', () => {
-    expect(ChapterAssignmentPolicy.edit(outsiderTranslator, customAssignment, false)).toBe(false);
-    expect(ChapterAssignmentPolicy.submit(outsiderTranslator, customAssignment, false)).toBe(false);
+    expect(ChapterAssignmentPolicy.edit(outsiderTranslator, customAssignment, false, stages)).toBe(
+      false
+    );
+    expect(
+      ChapterAssignmentPolicy.submit(outsiderTranslator, customAssignment, false, stages)
+    ).toBe(false);
   });
 
-  it('supports explicit workflow stage list check', () => {
-    const stages = [
-      { defaultName: 'not_started' },
-      { defaultName: 'draft' },
-      { defaultName: 'peer_check' },
-      { defaultName: 'custom_review_1' },
-      { defaultName: 'complete' },
-    ];
-    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true, stages)).toBe(true);
+  it('denies edit in custom stage when stages are absent or stage is unlisted', () => {
+    expect(ChapterAssignmentPolicy.edit(manager, customAssignment, true)).toBe(false);
+    const unlistedAssignment = { ...customAssignment, status: 'unknown_custom_stage' };
+    expect(ChapterAssignmentPolicy.edit(manager, unlistedAssignment, true, stages)).toBe(false);
   });
 });
