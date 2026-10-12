@@ -247,6 +247,10 @@ async function hydrateTextItems(
   });
 }
 
+/**
+ * Treat a single verse as an inclusive one-verse range so single-verse routes
+ * share the same Aquifer search + dedupe path as pericope ranges.
+ */
 function asSingleVerseRange(ref: VerseRef): VerseRangeRef {
   return {
     bookCode: ref.bookCode,
@@ -257,6 +261,11 @@ function asSingleVerseRange(ref: VerseRef): VerseRangeRef {
   };
 }
 
+/**
+ * One same-chapter Aquifer collection search for `[startVerse, endVerse]`.
+ * Dedupes by content id before hydrate so overlapping verse associations are not
+ * fetched twice. Propagates Aquifer failures (empty search → `ok([])`).
+ */
 async function searchVerseRangeCollection(
   ref: VerseRangeRef,
   resourceCollectionCode: string
@@ -274,6 +283,10 @@ async function searchVerseRangeCollection(
   return ok(dedupeSearchHitsById(search.data));
 }
 
+/**
+ * Shared TN/TQ range loader: search+dedupe then TipTap hydrate.
+ * Empty Aquifer hits → `{ items: [] }`; total hydrate failure → upstream error (502).
+ */
 async function getTextResourcesForRange(
   ref: VerseRangeRef,
   resourceCollectionCode: string
@@ -285,21 +298,30 @@ async function getTextResourcesForRange(
   return ok({ items: hydrated.data });
 }
 
-/** Same-chapter TN range — one Aquifer search, deduped by id; empty items when none. */
+/**
+ * Same-chapter TN range for mobile pericope units.
+ * One Aquifer search, content-id dedupe; empty `items` when none (not an error).
+ */
 export async function getTranslationNotesForRange(
   ref: VerseRangeRef
 ): Promise<Result<TranslationNotesResponse>> {
   return getTextResourcesForRange(ref, AQUIFER_RESOURCE_COLLECTIONS.translationNotes);
 }
 
-/** Same-chapter TQ range — TipTap preserved; empty items when none. */
+/**
+ * Same-chapter TQ range — TipTap preserved (Q/A split stays client-side).
+ * Empty `items` when none; Aquifer failures stay section-scoped.
+ */
 export async function getTranslationQuestionsForRange(
   ref: VerseRangeRef
 ): Promise<Result<TranslationQuestionsResponse>> {
   return getTextResourcesForRange(ref, AQUIFER_RESOURCE_COLLECTIONS.translationQuestions);
 }
 
-/** Same-chapter Images range — hydrate asset URLs; empty items when none. */
+/**
+ * Same-chapter Images range — one Images search, dedupe, then asset URL hydrate.
+ * Skips hits without a resolvable url/href; empty `items` when none.
+ */
 export async function getTranslationImagesForRange(
   ref: VerseRangeRef
 ): Promise<Result<TranslationImagesResponse>> {
