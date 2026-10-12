@@ -4,10 +4,18 @@ How to recover the `worker` continuous WebJob when it is stuck in
 `InactiveInstance` because a previous app instance died holding the Kudu
 singleton file lock.
 
+> **Deprecated mechanism.** `is_singleton` was removed from the generated
+> `settings.job` after the 2026-10 QA outage: pg-boss already claims each job
+> atomically, so per-instance workers cannot double-process. Once an
+> environment runs a deployment built without `is_singleton`, this failure mode
+> no longer applies there (leftover `singleton.job.lock` files on shared
+> storage are inert). Keep this runbook for environments still on a
+> singleton-enabled deployment.
+
 Applies to every App Service that hosts this worker (e.g. `fluent-server-qa`,
-`fluent-server-prod`). The WebJob is produced by `scripts/setup-webjob.js` with
-`is_singleton: true`, so Kudu guards it with a file-lease lock on shared
-storage.
+`fluent-server-prod`). Older WebJobs are produced by `scripts/setup-webjob.js`
+with `is_singleton: true`, so Kudu guards them with a file-lease lock on
+shared storage.
 
 ## Symptoms
 
