@@ -354,8 +354,8 @@ export async function uploadRecording(
       }
       if (!promoted.data.applied) {
         // No new take was added on this path. A successful concurrent resolve
-        // may have won the CAS, so reopening its clean state would undo an
-        // explicit adjudication without introducing any new contender.
+        // may have won the CAS, so reopening its clean or resolved state would
+        // undo an explicit adjudication without introducing any new contender.
         return loadUnitResponse(input.projectUnitId, input.bibleTextId);
       }
       return loadUnitResponse(input.projectUnitId, input.bibleTextId);
@@ -506,6 +506,14 @@ export async function resolveConflict(
   }
   if (take.data.recordingId !== recording.data.id) {
     return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+  }
+
+  // Reject resolve on units that are not actively conflicted. Allowing it would
+  // silently stamp 'resolved' on a clean or already-resolved unit, which makes
+  // clients show "conflict resolved" when no conflict ever existed (or was
+  // already settled). The caller should reload and check conflictStatus first.
+  if (recording.data.conflictStatus !== VERSE_AUDIO_CONFLICT_STATUS.CONFLICT) {
+    return err(ErrorCode.VERSE_AUDIO_NOT_IN_CONFLICT);
   }
 
   const updated = await repo.updateRecordingStateIfVersion(

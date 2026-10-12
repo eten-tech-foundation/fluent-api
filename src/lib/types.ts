@@ -61,6 +61,7 @@ export const ErrorCode = {
   VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
   VERSE_AUDIO_TAKE_NOT_FOUND: 'VERSE_AUDIO_TAKE_NOT_FOUND',
   VERSE_AUDIO_VERSION_CONFLICT: 'VERSE_AUDIO_VERSION_CONFLICT',
+  VERSE_AUDIO_NOT_IN_CONFLICT: 'VERSE_AUDIO_NOT_IN_CONFLICT',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -124,6 +125,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   VERSE_AUDIO_VERSION_CONFLICT:
     'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
+  VERSE_AUDIO_NOT_IN_CONFLICT:
+    "Verse audio is not in conflict; resolve is a no-op unless conflictStatus is 'conflict'",
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
   EMAIL_CONFLICT: 'Email is already in use',
@@ -198,6 +201,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   VERSE_AUDIO_NOT_FOUND: 404,
   VERSE_AUDIO_TAKE_NOT_FOUND: 404,
   VERSE_AUDIO_VERSION_CONFLICT: 409,
+  VERSE_AUDIO_NOT_IN_CONFLICT: 400,
   UNSUPPORTED_AUDIO_TYPE: 400,
   EMPTY_AUDIO_FILE: 400,
 };

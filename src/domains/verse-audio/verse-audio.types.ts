@@ -22,7 +22,7 @@ export const ALLOWED_AUDIO_CONTENT_TYPES = new Set([
 export const VERSE_AUDIO_CONFLICT_STATUS = {
   CLEAN: 'clean',
   CONFLICT: 'conflict',
-  /** Conflict was resolved via PUT /resolve — distinct from 'clean' (never conflicted). */
+  /** Conflict was resolved via POST /resolve — distinct from 'clean' (never conflicted). */
   RESOLVED: 'resolved',
 } as const;
 
@@ -192,7 +192,7 @@ export const verseAudioVersionConflictSchema = z.object({
 export const VERSE_AUDIO_ACTIONS = {
   READ: 'read',
   EDIT: 'edit',
-  /** Conflict resolution — allowed for CONTENT_ASSIGN (PMs) at any chapter status. */
+  /** Conflict resolution — allowed for CONTENT_ASSIGN (PMs) at any chapter status, or users with edit() access. */
   RESOLVE: 'resolve',
 } as const;
 

@@ -140,6 +140,15 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
       expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
     });
+
+    it('filters strictly on conflict status so clean and resolved recordings are excluded', () => {
+      const fragment = repo.hasConflictRollupSql();
+      const text = sqlText(fragment);
+
+      expect(text).toMatch(/var\.conflict_status\s*=\s*conflict/);
+      expect(text).not.toContain('resolved');
+      expect(text).not.toContain('clean');
+    });
   });
 
   it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {

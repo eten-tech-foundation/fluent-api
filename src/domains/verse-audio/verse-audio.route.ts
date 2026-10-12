@@ -350,11 +350,11 @@ const resolveVerseAudioRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       verseAudioResponseSchema,
-      'Unit after designating the active take (conflict cleared)'
+      "Unit after designating the active take (conflictStatus set to 'resolved')"
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
-      'Invalid parameters'
+      "Invalid parameters, or the unit is not currently in conflict (conflictStatus must be 'conflict')"
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       verseAudioVersionConflictSchema,
@@ -364,7 +364,7 @@ const resolveVerseAudioRoute = createRoute({
   },
   summary: 'Resolve a verse-audio conflict by selecting the active take',
   description:
-    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. This is the only way a conflict is cleared; uploads never clear one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.',
+    "Designates takeId as active via compare-and-swap on versionToken, sets conflictStatus to 'resolved', and advances the token. The unit must currently have conflictStatus 'conflict'; resolving a clean or already-resolved unit returns 400. This is the only way a conflict is resolved; uploads never resolve one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.",
 });
 
 server.openapi(resolveVerseAudioRoute, async (c) => {
