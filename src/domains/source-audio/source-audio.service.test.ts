@@ -194,15 +194,16 @@ describe('getChapterSourceAudio', () => {
             chapter: 'MRK.14',
             timecodeCount: 3,
             samples: [
-              { start: 'not-a-time', verseId: 'MRK.14.1' },
+              { start: '[redacted]', verseId: 'MRK.14.1' },
               { start: '00:00:05.000', verseId: 'JHN.4.1' },
-              { start: 'bad', verseId: 'MRK.14.x' },
+              { start: '[redacted]', verseId: 'MRK.14.x' },
             ],
           }),
         });
-        expect(JSON.stringify(vi.mocked(logger.warn).mock.calls[0]?.[0])).not.toContain(
-          'example.com'
-        );
+        const emitted = JSON.stringify(vi.mocked(logger.warn).mock.calls[0]?.[0]);
+        expect(emitted).not.toContain('example.com');
+        expect(emitted).not.toContain('not-a-time');
+        expect(emitted).not.toMatch(/https?:\/\//i);
       } else {
         expect(logger.warn).not.toHaveBeenCalled();
       }
