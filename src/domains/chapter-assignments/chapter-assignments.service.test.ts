@@ -48,6 +48,7 @@ vi.mock('@/db', () => ({
 
 vi.mock('./chapter-assignments.repository', () => ({
   findById: vi.fn(),
+  findProjectIdByUnitId: vi.fn().mockResolvedValue(1),
   claimIfUnassigned: vi.fn(),
   flagClaimConflict: vi.fn(),
   insertStatusHistory: vi.fn(),
@@ -293,6 +294,7 @@ describe('submitChapterAssignment open Peer Check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx));
+    vi.mocked(repo.findProjectIdByUnitId).mockResolvedValue(1);
     vi.mocked(repo.getContent).mockResolvedValue({
       ok: true,
       data: { type: 'USJ', version: '0.0.1', content: [] },

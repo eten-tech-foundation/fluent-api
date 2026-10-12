@@ -185,7 +185,7 @@ export async function deleteStage(
   stageId: number
 ): Promise<Result<WorkflowStepResponse[]>> {
   try {
-    await db.transaction(async (tx) => {
+    const deleted = await db.transaction(async (tx) => {
       const lockResult = await lockProject(tx, projectId);
       if (!lockResult.ok) return lockResult;
 
@@ -213,6 +213,8 @@ export async function deleteStage(
       return ok(undefined);
     });
 
+    if (!deleted.ok) return deleted;
+
     return getWorkflowStages(projectId);
   } catch {
     return err(ErrorCode.INTERNAL_ERROR);
@@ -224,7 +226,7 @@ export async function reorderStages(
   stageIds: number[]
 ): Promise<Result<WorkflowStepResponse[]>> {
   try {
-    await db.transaction(async (tx) => {
+    const reordered = await db.transaction(async (tx) => {
       const lockResult = await lockProject(tx, projectId);
       if (!lockResult.ok) return lockResult;
 
@@ -270,6 +272,8 @@ export async function reorderStages(
       }
       return ok(undefined);
     });
+
+    if (!reordered.ok) return reordered;
 
     return getWorkflowStages(projectId);
   } catch {
