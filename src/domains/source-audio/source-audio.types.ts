@@ -34,9 +34,9 @@ export const sourceAudioItemSchema = z
 export const sourceAudioVerseTimestampSchema = z
   .object({
     verse: z.number().int().positive(),
-    startSeconds: z.number().nonnegative().optional().openapi({
+    startSeconds: z.number().nonnegative().openapi({
       description:
-        'Offset in seconds from the start of the chapter audio. For DBL, derived from API.Bible clock strings (`HH:MM:SS.mmm`). Entries with unparseable starts are dropped from `verseTimestamps`.',
+        'Offset in seconds from the start of the chapter audio. For DBL, derived via the shared parser in `src/lib/services/dbl/dbl.timecodes.ts` (provisional accepted formats until live API.Bible timecode payloads are captured). Entries with unparseable starts are dropped from `verseTimestamps`.',
     }),
     dblAudioBibleId: z.string().optional().openapi({
       description:

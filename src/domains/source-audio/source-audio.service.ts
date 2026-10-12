@@ -13,6 +13,7 @@ import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import { getBookByCode } from '@/domains/books/books.service';
 import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
+import { parseDblTimestampSeconds, parseDblVerseNumber } from '@/lib/services/dbl/dbl.timecodes';
 import { ErrorCode, ok } from '@/lib/types';
 
 import type {
@@ -30,7 +31,7 @@ export function isBibleBookLinkedToProject(projectId: number, bibleId: number, b
 
 interface SourceAudioVerseTimestamp {
   verse: number;
-  startSeconds?: number;
+  startSeconds: number;
   dblAudioBibleId?: string;
 }
 
@@ -132,44 +133,6 @@ function formatFromUrl(url: string): 'mp3' | 'webm' {
   return ext === 'webm' ? 'webm' : 'mp3';
 }
 
-/**
- * Convert a DBL / API.Bible timecode `start` string to seconds from chapter start.
- * Production values are `HH:MM:SS.mmm` (e.g. `"00:00:05.120"`). Decimal-second
- * strings (`"9.0"`) are accepted for compatibility with fixtures / older shapes.
- * `Number.parseFloat` alone is wrong for clock strings — it stops at the first `:`
- * and collapses every verse to `0`.
- */
-export function parseDblTimecodeStartSeconds(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  if (trimmed.includes(':')) {
-    const parts = trimmed.split(':');
-    if (parts.length !== 3) return undefined;
-    const [hoursRaw, minutesRaw, secondsRaw] = parts;
-    if (
-      hoursRaw === undefined ||
-      minutesRaw === undefined ||
-      secondsRaw === undefined ||
-      !/^\d+$/.test(hoursRaw) ||
-      !/^\d+$/.test(minutesRaw) ||
-      !/^\d+(?:\.\d+)?$/.test(secondsRaw)
-    ) {
-      return undefined;
-    }
-    const hours = Number.parseInt(hoursRaw, 10);
-    const minutes = Number.parseInt(minutesRaw, 10);
-    const seconds = Number.parseFloat(secondsRaw);
-    if (minutes >= 60 || seconds >= 60) return undefined;
-    const offset = hours * 3600 + minutes * 60 + seconds;
-    return Number.isFinite(offset) ? offset : undefined;
-  }
-
-  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return undefined;
-  const decimal = Number.parseFloat(trimmed);
-  return Number.isFinite(decimal) ? decimal : undefined;
-}
-
 function dblTracksToResponse(params: {
   tracks: BibleAudioResponse[];
   fluentBible: Bible;
@@ -178,13 +141,13 @@ function dblTracksToResponse(params: {
   verse?: number;
 }): SourceAudioResponse {
   const primary = params.tracks[0]!;
+  const chapterPrefix = `${params.bookCode}.${params.chapter}.`;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
   for (const track of params.tracks) {
     for (const timecode of track.timecodes ?? []) {
-      const versePart = timecode.verseId.split('.').pop();
-      const verse = versePart && /^\d+$/.test(versePart) ? Number(versePart) : Number.NaN;
-      const startSeconds = parseDblTimecodeStartSeconds(timecode.start);
-      if (!Number.isInteger(verse) || verse < 1 || startSeconds === undefined) continue;
+      const verse = parseDblVerseNumber(timecode.verseId, chapterPrefix);
+      const startSeconds = parseDblTimestampSeconds(timecode.start);
+      if (verse === undefined || startSeconds === undefined) continue;
       verseTimestamps.push({
         verse,
         startSeconds,

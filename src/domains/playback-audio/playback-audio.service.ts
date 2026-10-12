@@ -8,11 +8,14 @@ import * as resources from '@/domains/bible-provider-resources/bible-provider-re
 import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
+import { parseDblTimestampSeconds, parseDblVerseNumber } from '@/lib/services/dbl/dbl.timecodes';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { PlaybackAudioResponse } from './playback-audio.types';
 
 import { getSourceChapterVerseNumbers } from './playback-audio.repository';
+
+export { parseDblTimestampSeconds, parseDblVerseNumber };
 
 interface ChapterInput {
   languageCode: string;
@@ -180,23 +183,6 @@ async function aquifer(
     );
   }
   return ok(base);
-}
-
-export function parseDblTimestampSeconds(value: string): number | undefined {
-  if (!/^\d+(?:\.\d+)?$/.test(value) && !/^\d+(?::\d{1,2}){1,2}(?:\.\d+)?$/.test(value))
-    return undefined;
-  const parts = value.split(':').map(Number);
-  if (parts.slice(1).some((part) => part >= 60)) return undefined;
-  const total = parts.reduce((sum, part) => sum * 60 + part, 0);
-  return Number.isFinite(total) ? total : undefined;
-}
-
-function parseDblVerseNumber(verseId: string, chapterPrefix: string): number | undefined {
-  if (!verseId.startsWith(chapterPrefix)) return undefined;
-  const suffix = verseId.slice(chapterPrefix.length);
-  if (!/^[1-9]\d*$/.test(suffix)) return undefined;
-  const verse = Number(suffix);
-  return Number.isSafeInteger(verse) ? verse : undefined;
 }
 
 async function dbl(

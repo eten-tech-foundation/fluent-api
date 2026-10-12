@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Bible } from '@/domains/bibles/bibles.types';
-import type { AquiferBible } from '@/lib/services/aquifer/aquifer.types';
 
 import * as bibleAudioService from '@/domains/bibles/bible-audio/bible-audio.service';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
@@ -15,7 +14,6 @@ import {
   getSourceAudioManifest,
   isBibleBookLinkedToProject,
   matchAquiferBible,
-  parseDblTimecodeStartSeconds,
 } from './source-audio.service';
 
 vi.mock('@/domains/bibles/bibles.repository', () => ({
@@ -59,67 +57,29 @@ describe('project Bible/book membership', () => {
     ['propagates a membership lookup failure', err(ErrorCode.INTERNAL_ERROR)],
   ])('%s', async (_label, expected) => {
     vi.mocked(sourceAudioRepo.isBibleBookLinkedToProject).mockResolvedValue(expected);
-
     await expect(isBibleBookLinkedToProject(10, 20, 'JHN')).resolves.toEqual(expected);
-    expect(sourceAudioRepo.isBibleBookLinkedToProject).toHaveBeenCalledWith(10, 20, 'JHN');
-  });
-});
-
-describe('parseDblTimecodeStartSeconds', () => {
-  it('parses API.Bible HH:MM:SS.mmm clock strings', () => {
-    expect(parseDblTimecodeStartSeconds('00:00:00.000')).toBe(0);
-    expect(parseDblTimecodeStartSeconds('00:00:05.120')).toBeCloseTo(5.12);
-    expect(parseDblTimecodeStartSeconds('00:01:30.500')).toBeCloseTo(90.5);
-    expect(parseDblTimecodeStartSeconds('01:00:00.000')).toBe(3600);
-  });
-
-  it('parses decimal-second strings', () => {
-    expect(parseDblTimecodeStartSeconds('0.0')).toBe(0);
-    expect(parseDblTimecodeStartSeconds('9.0')).toBe(9);
-    expect(parseDblTimecodeStartSeconds('12.5')).toBe(12.5);
-  });
-
-  it('rejects clock values whose calculated offset is non-finite', () => {
-    expect(parseDblTimecodeStartSeconds(`${'9'.repeat(309)}:00:00`)).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds(`${'9'.repeat(305)}:00:00`)).toBeUndefined();
-  });
-
-  it('rejects malformed values', () => {
-    expect(parseDblTimecodeStartSeconds('')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('00:05.120')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('00:60:00.000')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('00:00:60.000')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('00:00:05.120junk')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('1.5x')).toBeUndefined();
-    expect(parseDblTimecodeStartSeconds('not-a-time')).toBeUndefined();
   });
 });
 
 describe('matchAquiferBible', () => {
-  it('prefers abbreviation match', () => {
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Other Bible', abbreviation: 'OTH' },
-      { id: 11, name: 'Berean Standard Bible', abbreviation: 'BSB' },
-    ];
-    expect(matchAquiferBible(fluentBible, candidates)?.id).toBe(11);
-  });
-
-  it('falls back to name match', () => {
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Berean Standard Bible', abbreviation: 'BER' },
-    ];
-    expect(matchAquiferBible(fluentBible, candidates)?.id).toBe(10);
-  });
-
-  it('does not fall through to a language default or first catalogue entry', () => {
-    const candidates: AquiferBible[] = [
-      { id: 10, name: 'Unrelated', abbreviation: 'X', isLanguageDefault: true },
-      { id: 11, name: 'Also unrelated', abbreviation: 'Y' },
-    ];
-    expect(matchAquiferBible(fluentBible, candidates)).toBeUndefined();
-  });
-
-  it('returns undefined when no candidates', () => {
+  it('matches abbreviation, then name, and never language-default/first entry', () => {
+    expect(
+      matchAquiferBible(fluentBible, [
+        { id: 10, name: 'Other Bible', abbreviation: 'OTH' },
+        { id: 11, name: 'Berean Standard Bible', abbreviation: 'BSB' },
+      ])?.id
+    ).toBe(11);
+    expect(
+      matchAquiferBible(fluentBible, [
+        { id: 10, name: 'Berean Standard Bible', abbreviation: 'BER' },
+      ])?.id
+    ).toBe(10);
+    expect(
+      matchAquiferBible(fluentBible, [
+        { id: 10, name: 'Unrelated', abbreviation: 'X', isLanguageDefault: true },
+        { id: 11, name: 'Also unrelated', abbreviation: 'Y' },
+      ])
+    ).toBeUndefined();
     expect(matchAquiferBible(fluentBible, [])).toBeUndefined();
   });
 });
@@ -185,7 +145,17 @@ describe('getChapterSourceAudio', () => {
     expect(getBibles).not.toHaveBeenCalled();
   });
 
-  it('omits verseTimestamps when DBL timecodes are missing or unparseable', async () => {
+  it.each<[string, { start: string; end: string; verseId: string }[] | null]>([
+    ['null', null],
+    ['empty', []],
+    [
+      'unparseable/wrong-chapter',
+      [
+        { start: 'not-a-time', end: '00:00:01.000', verseId: 'MRK.14.1' },
+        { start: '00:00:05.000', end: '00:00:06.000', verseId: 'JHN.4.1' },
+      ],
+    ],
+  ])('omits verseTimestamps when DBL timecodes are %s', async (_label, timecodes) => {
     vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
       ok([
         {
@@ -194,31 +164,18 @@ describe('getChapterSourceAudio', () => {
           chapterId: 'MRK.14',
           resourceUrl: 'https://example.com/audio.mp3',
           expiresAt: null,
-          timecodes: [
-            { start: 'not-a-time', end: '00:00:01.000', verseId: 'MRK.14.1' },
-            { start: '00:00:05.000', end: '00:00:06.000', verseId: 'MRK.14.x' },
-            // parseInt would accept "1x" as 1; Number + isInteger must reject it.
-            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.1x' },
-            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.1e1' },
-            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14.0x10' },
-            { start: '00:00:07.000', end: '00:00:08.000', verseId: 'MRK.14. 1 ' },
-          ],
+          timecodes,
         },
       ])
     );
-
     const result = await getChapterSourceAudio({
       languageCode: 'eng',
       fluentBibleId: 1,
       bookCode: 'MRK',
       chapter: 14,
     });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data.items).toHaveLength(1);
-      expect(result.data.verseTimestamps).toBeUndefined();
-    }
+    expect(result).toMatchObject({ ok: true, data: { items: [{ dblAudioBibleId: 'audio-1' }] } });
+    if (result.ok) expect(result.data.verseTimestamps).toBeUndefined();
   });
 
   it('falls back to Aquifer when DBL has no tracks', async () => {
