@@ -4,15 +4,22 @@
  *
  * Acceptance rules below are provisional: they unify the two domains' prior
  * parsers so both endpoints interpret the same provider strings the same way.
- * They are not yet backed by captured live API.Bible `timecodes` payloads in
- * this repo (see docs/features/source-audio/design.md). When genuine responses
- * are recorded, tighten fixtures and regexes to the observed shapes only.
+ * Authorized live API.Bible audio-chapter calls have so far returned zero
+ * timecodes (see PR #380 discussion). When the first non-empty payload appears,
+ * `warnIfAllDblTimecodesDropped` records raw samples so accepted formats can be
+ * narrowed to observed shapes. Aquifer verse timestamps use a separate path.
  */
 
-const DECIMAL_SECONDS = /^\d+(?:\.\d+)?$/;
+import { logger } from '@/lib/logger';
+
+const DECIMAL_OR_CLOCK_SECONDS = /^\d+(?:\.\d+)?$/;
 const CLOCK_PART = /^\d+$/;
-const CLOCK_SECONDS = /^\d+(?:\.\d+)?$/;
 const POSITIVE_VERSE = /^[1-9]\d*$/;
+
+export interface DblTimecodeSample {
+  start: string;
+  verseId: string;
+}
 
 /**
  * Parse a DBL / API.Bible timecode `start`/`end` string to seconds.
@@ -30,7 +37,7 @@ export function parseDblTimestampSeconds(value: string): number | undefined {
   if (!trimmed) return undefined;
 
   if (!trimmed.includes(':')) {
-    if (!DECIMAL_SECONDS.test(trimmed)) return undefined;
+    if (!DECIMAL_OR_CLOCK_SECONDS.test(trimmed)) return undefined;
     const decimal = Number(trimmed);
     return Number.isFinite(decimal) ? decimal : undefined;
   }
@@ -42,7 +49,11 @@ export function parseDblTimestampSeconds(value: string): number | undefined {
   const minuteRaw = parts[parts.length - 2]!;
   const hourRaw = parts.length === 3 ? parts[0]! : '0';
 
-  if (!CLOCK_PART.test(hourRaw) || !CLOCK_PART.test(minuteRaw) || !CLOCK_SECONDS.test(secondsRaw)) {
+  if (
+    !CLOCK_PART.test(hourRaw) ||
+    !CLOCK_PART.test(minuteRaw) ||
+    !DECIMAL_OR_CLOCK_SECONDS.test(secondsRaw)
+  ) {
     return undefined;
   }
 
@@ -68,4 +79,32 @@ export function parseDblVerseNumber(verseId: string, chapterPrefix: string): num
   if (!POSITIVE_VERSE.test(suffix)) return undefined;
   const verse = Number(suffix);
   return Number.isSafeInteger(verse) ? verse : undefined;
+}
+
+/**
+ * When a track supplies timecodes but the shared parser accepts none, log a
+ * privacy-safe warning with audio Bible id, chapter, and up to three raw
+ * `start`/`verseId` samples (no URLs or tokens). Missing, empty, or partially
+ * accepted payloads do not warn.
+ */
+export function warnIfAllDblTimecodesDropped(params: {
+  path: 'source-audio' | 'playback-audio';
+  audioBibleId: string;
+  chapter: string;
+  timecodes: readonly DblTimecodeSample[] | null | undefined;
+  acceptedCount: number;
+}): void {
+  const rows = params.timecodes;
+  if (rows == null || rows.length === 0 || params.acceptedCount > 0) return;
+
+  logger.warn({
+    message: 'All DBL timecodes dropped by shared parser',
+    context: {
+      path: params.path,
+      audioBibleId: params.audioBibleId,
+      chapter: params.chapter,
+      timecodeCount: rows.length,
+      samples: rows.slice(0, 3).map((row) => ({ start: row.start, verseId: row.verseId })),
+    },
+  });
 }

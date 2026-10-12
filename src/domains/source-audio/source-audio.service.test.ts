@@ -5,6 +5,7 @@ import type { Bible } from '@/domains/bibles/bibles.types';
 import * as bibleAudioService from '@/domains/bibles/bible-audio/bible-audio.service';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import { getBookByCode } from '@/domains/books/books.service';
+import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -35,6 +36,10 @@ vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
 
 vi.mock('./source-audio.repository', () => ({
   isBibleBookLinkedToProject: vi.fn(),
+}));
+
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
 const fluentBible: Bible = {
@@ -145,17 +150,66 @@ describe('getChapterSourceAudio', () => {
     expect(getBibles).not.toHaveBeenCalled();
   });
 
-  it.each<[string, { start: string; end: string; verseId: string }[] | null]>([
-    ['null', null],
-    ['empty', []],
+  it.each<[string, { start: string; end: string; verseId: string }[] | null, boolean]>([
+    ['null', null, false],
+    ['empty', [], false],
     [
       'unparseable/wrong-chapter',
       [
         { start: 'not-a-time', end: '00:00:01.000', verseId: 'MRK.14.1' },
         { start: '00:00:05.000', end: '00:00:06.000', verseId: 'JHN.4.1' },
+        { start: 'bad', end: 'bad', verseId: 'MRK.14.x' },
       ],
+      true,
     ],
-  ])('omits verseTimestamps when DBL timecodes are %s', async (_label, timecodes) => {
+  ])(
+    'omits verseTimestamps when DBL timecodes are %s',
+    async (_label, timecodes, expectDropWarning) => {
+      vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
+        ok([
+          {
+            audioBibleId: 'audio-1',
+            name: 'BSB Audio',
+            chapterId: 'MRK.14',
+            resourceUrl: 'https://example.com/audio.mp3',
+            expiresAt: null,
+            timecodes,
+          },
+        ])
+      );
+      const result = await getChapterSourceAudio({
+        languageCode: 'eng',
+        fluentBibleId: 1,
+        bookCode: 'MRK',
+        chapter: 14,
+      });
+      expect(result).toMatchObject({ ok: true, data: { items: [{ dblAudioBibleId: 'audio-1' }] } });
+      if (result.ok) expect(result.data.verseTimestamps).toBeUndefined();
+      if (expectDropWarning) {
+        expect(logger.warn).toHaveBeenCalledWith({
+          message: 'All DBL timecodes dropped by shared parser',
+          context: expect.objectContaining({
+            path: 'source-audio',
+            audioBibleId: 'audio-1',
+            chapter: 'MRK.14',
+            timecodeCount: 3,
+            samples: [
+              { start: 'not-a-time', verseId: 'MRK.14.1' },
+              { start: '00:00:05.000', verseId: 'JHN.4.1' },
+              { start: 'bad', verseId: 'MRK.14.x' },
+            ],
+          }),
+        });
+        expect(JSON.stringify(vi.mocked(logger.warn).mock.calls[0]?.[0])).not.toContain(
+          'example.com'
+        );
+      } else {
+        expect(logger.warn).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it('does not warn when at least one DBL timecode is accepted', async () => {
     vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
       ok([
         {
@@ -164,7 +218,10 @@ describe('getChapterSourceAudio', () => {
           chapterId: 'MRK.14',
           resourceUrl: 'https://example.com/audio.mp3',
           expiresAt: null,
-          timecodes,
+          timecodes: [
+            { start: 'not-a-time', end: '1', verseId: 'MRK.14.1' },
+            { start: '5.0', end: '9.0', verseId: 'MRK.14.2' },
+          ],
         },
       ])
     );
@@ -174,8 +231,13 @@ describe('getChapterSourceAudio', () => {
       bookCode: 'MRK',
       chapter: 14,
     });
-    expect(result).toMatchObject({ ok: true, data: { items: [{ dblAudioBibleId: 'audio-1' }] } });
-    if (result.ok) expect(result.data.verseTimestamps).toBeUndefined();
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.verseTimestamps).toEqual([
+        { verse: 2, startSeconds: 5, dblAudioBibleId: 'audio-1' },
+      ]);
+    }
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('falls back to Aquifer when DBL has no tracks', async () => {

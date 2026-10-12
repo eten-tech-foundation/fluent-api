@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { parseDblTimestampSeconds, parseDblVerseNumber } from './dbl.timecodes';
+import { logger } from '@/lib/logger';
+
+import {
+  parseDblTimestampSeconds,
+  parseDblVerseNumber,
+  warnIfAllDblTimecodesDropped,
+} from './dbl.timecodes';
+
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
 
 describe('parseDblTimestampSeconds', () => {
   it('parses HH:MM:SS.mmm clock strings (provisional fixture shape)', () => {
@@ -66,5 +76,66 @@ describe('parseDblVerseNumber', () => {
     expect(parseDblVerseNumber('MRK.14.0x10', chapterPrefix)).toBeUndefined();
     expect(parseDblVerseNumber('MRK.14. 1 ', chapterPrefix)).toBeUndefined();
     expect(parseDblVerseNumber('MRK.14.1-2', chapterPrefix)).toBeUndefined();
+  });
+});
+
+describe('warnIfAllDblTimecodesDropped', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('warns with bounded start/verseId samples when every row is dropped', () => {
+    warnIfAllDblTimecodesDropped({
+      path: 'playback-audio',
+      audioBibleId: 'audio-z',
+      chapter: 'JHN.3',
+      timecodes: [
+        { start: 'bad-a', verseId: 'JHN.3.1' },
+        { start: 'bad-b', verseId: 'JHN.3.2' },
+        { start: 'bad-c', verseId: 'JHN.3.3' },
+        { start: 'bad-d', verseId: 'JHN.3.4' },
+      ],
+      acceptedCount: 0,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith({
+      message: 'All DBL timecodes dropped by shared parser',
+      context: {
+        path: 'playback-audio',
+        audioBibleId: 'audio-z',
+        chapter: 'JHN.3',
+        timecodeCount: 4,
+        samples: [
+          { start: 'bad-a', verseId: 'JHN.3.1' },
+          { start: 'bad-b', verseId: 'JHN.3.2' },
+          { start: 'bad-c', verseId: 'JHN.3.3' },
+        ],
+      },
+    });
+  });
+
+  it.each([
+    ['null', null],
+    ['empty', [] as const],
+  ])('does not warn when timecodes are %s', (_label, timecodes) => {
+    warnIfAllDblTimecodesDropped({
+      path: 'source-audio',
+      audioBibleId: 'audio-z',
+      chapter: 'JHN.3',
+      timecodes,
+      acceptedCount: 0,
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('does not warn when at least one row was accepted', () => {
+    warnIfAllDblTimecodesDropped({
+      path: 'source-audio',
+      audioBibleId: 'audio-z',
+      chapter: 'JHN.3',
+      timecodes: [{ start: 'bad', verseId: 'JHN.3.1' }],
+      acceptedCount: 1,
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

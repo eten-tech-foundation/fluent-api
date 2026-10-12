@@ -13,7 +13,11 @@ import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import { getBookByCode } from '@/domains/books/books.service';
 import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
-import { parseDblTimestampSeconds, parseDblVerseNumber } from '@/lib/services/dbl/dbl.timecodes';
+import {
+  parseDblTimestampSeconds,
+  parseDblVerseNumber,
+  warnIfAllDblTimecodesDropped,
+} from '@/lib/services/dbl/dbl.timecodes';
 import { ErrorCode, ok } from '@/lib/types';
 
 import type {
@@ -141,9 +145,11 @@ function dblTracksToResponse(params: {
   verse?: number;
 }): SourceAudioResponse {
   const primary = params.tracks[0]!;
-  const chapterPrefix = `${params.bookCode}.${params.chapter}.`;
+  const chapterId = `${params.bookCode}.${params.chapter}`;
+  const chapterPrefix = `${chapterId}.`;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
   for (const track of params.tracks) {
+    const before = verseTimestamps.length;
     for (const timecode of track.timecodes ?? []) {
       const verse = parseDblVerseNumber(timecode.verseId, chapterPrefix);
       const startSeconds = parseDblTimestampSeconds(timecode.start);
@@ -154,6 +160,13 @@ function dblTracksToResponse(params: {
         dblAudioBibleId: track.audioBibleId,
       });
     }
+    warnIfAllDblTimecodesDropped({
+      path: 'source-audio',
+      audioBibleId: track.audioBibleId,
+      chapter: chapterId,
+      timecodes: track.timecodes,
+      acceptedCount: verseTimestamps.length - before,
+    });
   }
 
   return {

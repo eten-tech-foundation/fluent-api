@@ -4,8 +4,10 @@ import type { DblBible, DblVerseListItem } from '@/lib/services/dbl/dbl.types';
 
 import * as resources from '@/domains/bible-provider-resources/bible-provider-resources.service';
 import { getBibleRecordById } from '@/domains/bibles/bibles.service';
+import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
+import { parseDblTimestampSeconds } from '@/lib/services/dbl/dbl.timecodes';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import { getSourceChapterVerseNumbers } from './playback-audio.repository';
@@ -13,7 +15,6 @@ import {
   getReferencePlayback,
   getResourceFacts,
   getSourcePlayback,
-  parseDblTimestampSeconds,
 } from './playback-audio.service';
 
 vi.mock('@/domains/bible-provider-resources/bible-provider-resources.service', () => ({
@@ -29,6 +30,9 @@ vi.mock('@/lib/services/dbl/dbl.client', () => ({
   dblClient: { getBible: vi.fn(), getAudioChapter: vi.fn(), getVerses: vi.fn() },
 }));
 vi.mock('./playback-audio.repository', () => ({ getSourceChapterVerseNumbers: vi.fn() }));
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
 const input = { languageCode: 'eng', bookCode: 'JHN' as const, chapter: 3 };
 const text = { provider: 'dbl' as const, externalId: 'text-id' };
 const recording = {
@@ -380,6 +384,29 @@ describe('dBL actual audio identity and timing', () => {
       data: { verseAddressable: false },
     });
     expect(getSourceChapterVerseNumbers).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'All DBL timecodes dropped by shared parser',
+        context: expect.objectContaining({
+          path: 'playback-audio',
+          audioBibleId: 'audio-a',
+          chapter: 'JHN.3',
+          samples: [{ start: '0', verseId: 'JHN.4.1' }],
+        }),
+      })
+    );
+  });
+
+  it('does not warn when playback DBL timecodes are absent', async () => {
+    vi.mocked(dblClient.getAudioChapter).mockResolvedValue(
+      ok({
+        id: 'JHN.3',
+        resourceUrl: 'https://example.com/a.mp3',
+        timecodes: null,
+      })
+    );
+    await getSourcePlayback({ ...input, fluentBibleId: 1 });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('does not call a timecoded prefix a complete source chapter', async () => {

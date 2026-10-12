@@ -8,14 +8,16 @@ import * as resources from '@/domains/bible-provider-resources/bible-provider-re
 import { getBibleRecordById } from '@/domains/bibles/bibles.service';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
 import { dblClient } from '@/lib/services/dbl/dbl.client';
-import { parseDblTimestampSeconds, parseDblVerseNumber } from '@/lib/services/dbl/dbl.timecodes';
+import {
+  parseDblTimestampSeconds,
+  parseDblVerseNumber,
+  warnIfAllDblTimecodesDropped,
+} from '@/lib/services/dbl/dbl.timecodes';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { PlaybackAudioResponse } from './playback-audio.types';
 
 import { getSourceChapterVerseNumbers } from './playback-audio.repository';
-
-export { parseDblTimestampSeconds, parseDblVerseNumber };
 
 interface ChapterInput {
   languageCode: string;
@@ -201,9 +203,10 @@ async function dbl(
   }
   const timestamps: NonNullable<PlaybackAudioResponse['verseTimestamps']> = [];
   const trackWindows: { starts: Set<number> }[] = [];
-  const chapterPrefix = `${input.bookCode}.${input.chapter}.`;
+  const chapterId = `${input.bookCode}.${input.chapter}`;
+  const chapterPrefix = `${chapterId}.`;
   for (const audio of audioIds) {
-    const chapter = await dblClient.getAudioChapter(audio.id, `${input.bookCode}.${input.chapter}`);
+    const chapter = await dblClient.getAudioChapter(audio.id, chapterId);
     if (!chapter.ok) {
       if (chapter.error.code === ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND) continue;
       return chapter;
@@ -230,6 +233,7 @@ async function dbl(
       ...(track.expiresAt == null ? {} : { expiresAt: track.expiresAt }),
     });
     const starts = new Set<number>();
+    const before = timestamps.length;
     for (const code of track.timecodes ?? []) {
       const verse = parseDblVerseNumber(code.verseId, chapterPrefix);
       if (verse === undefined) continue;
@@ -244,6 +248,13 @@ async function dbl(
         dblAudioBibleId: audio.id,
       });
     }
+    warnIfAllDblTimecodesDropped({
+      path: 'playback-audio',
+      audioBibleId: audio.id,
+      chapter: chapterId,
+      timecodes: track.timecodes,
+      acceptedCount: timestamps.length - before,
+    });
     trackWindows.push({ starts });
   }
   if (timestamps.length) base.verseTimestamps = timestamps;
