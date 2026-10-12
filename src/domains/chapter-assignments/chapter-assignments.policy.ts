@@ -10,7 +10,7 @@ import type { AppPolicyUser } from '@/lib/types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { authorize } from '@/lib/services/permissions/authorize';
 
-import { CHAPTER_ASSIGNMENT_STATUS, CLAIM_RACE_WINDOW_MS } from './chapter-assignments.types';
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export interface PolicyChapterAssignment {
   organizationId: number;
@@ -19,11 +19,6 @@ export interface PolicyChapterAssignment {
   peerCheckerId?: number | null;
   status?: string | null;
   updatedAt?: Date | null;
-}
-
-function isWithinClaimRaceWindow(updatedAt: Date | null | undefined, now = Date.now()): boolean {
-  if (!updatedAt) return false;
-  return now - updatedAt.getTime() <= CLAIM_RACE_WINDOW_MS;
 }
 
 const POST_PEER_STATUSES = new Set<string>([
@@ -156,16 +151,12 @@ export const ChapterAssignmentPolicy = {
       return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
     }
 
-    // Another translator won a recent self-claim (true race / retry overlap).
-    // Service flags hasClaimConflict and returns 200 — never 404 for concurrency.
-    // Stale drafts are not claimable; offline reconnect conflicts are detected
-    // client-side during assignment sync (#271), not via this branch.
+    // Another user holds the draft (translator race, late offline reconnect, or
+    // PM assign with peer). Service flags durable hasClaimConflict and returns
+    // 200 without overwriting assignedUserId — never 404 for these concurrency
+    // cases (#376). Non-DRAFT statuses remain denied (true auth/eligibility 404).
     if (assignment.assignedUserId != null) {
-      return (
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
-        assignment.peerCheckerId == null &&
-        isWithinClaimRaceWindow(assignment.updatedAt)
-      );
+      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
     }
 
     return (

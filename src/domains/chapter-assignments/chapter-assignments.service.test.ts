@@ -153,6 +153,56 @@ describe('claimChapterAssignment', () => {
     expect(projectsService.recordProjectAssignmentActivity).not.toHaveBeenCalled();
   });
 
+  it('persists durable conflict for late reconnect without changing assignee', async () => {
+    const staleWinner = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+      updatedAt: new Date(Date.now() - 6 * 60 * 1000),
+    };
+    const conflictRecord = { ...staleWinner, hasClaimConflict: true, claimConflictUserId: 5 };
+
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValue(staleWinner);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(conflictRecord);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.hasClaimConflict).toBe(true);
+      expect(result.data.claimConflictUserId).toBe(5);
+      expect(result.data.assignedUserId).toBe(7);
+    }
+    expect(repo.flagClaimConflict).toHaveBeenCalledWith(1, 5, mockTx);
+  });
+
+  it('persists durable conflict when PM assigned with peer checker; assignee preserved', async () => {
+    const pmAssigned = {
+      ...baseRecord,
+      assignedUserId: 7,
+      peerCheckerId: 88,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const conflictRecord = { ...pmAssigned, hasClaimConflict: true, claimConflictUserId: 5 };
+
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValue(pmAssigned);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(conflictRecord);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.hasClaimConflict).toBe(true);
+      expect(result.data.claimConflictUserId).toBe(5);
+      expect(result.data.assignedUserId).toBe(7);
+      expect(result.data.peerCheckerId).toBe(88);
+    }
+    expect(repo.flagClaimConflict).toHaveBeenCalledWith(1, 5, mockTx);
+    expect(repo.claimIfUnassigned).toHaveBeenCalled();
+  });
+
   it('returns not found when the assignment does not exist after losing the race', async () => {
     vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
     vi.mocked(repo.findById).mockResolvedValue(null);
