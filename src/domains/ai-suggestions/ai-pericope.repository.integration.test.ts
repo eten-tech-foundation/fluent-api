@@ -1,9 +1,9 @@
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { createTestSchema } from '@/db/testing/create-schema';
 
 import type { PericopeSuggestionItem, PericopeUsageRequest } from './ai-suggestions.types';
 
@@ -55,37 +55,41 @@ describe('pericope repository with real PostgreSQL queries', () => {
   });
 
   beforeAll(async () => {
-    await createTestSchema(client, {
-      ai_pericope_suggestion_usage: schema.ai_pericope_suggestion_usage,
-      ai_pericope_suggestions: schema.ai_pericope_suggestions,
-      ai_suggestions: schema.ai_suggestions,
-      ai_suggestion_usage_log: schema.ai_suggestion_usage_log,
-      bible_texts: schema.bible_texts,
-      books: schema.books,
-      chapter_assignments: schema.chapter_assignments,
-      pericope_verses: schema.pericope_verses,
-      pericope_sets: schema.pericope_sets,
-      project_unit_bible_books: schema.project_unit_bible_books,
-      project_units: schema.project_units,
-      projects: schema.projects,
-      translated_verses: schema.translated_verses,
-      users: schema.users,
-      organizations: schema.organizations,
-      languages: schema.languages,
-      bibles: schema.bibles,
-      bible_provider_resources: schema.bible_provider_resources,
-      authUser: schema.authUser,
-      authSession: schema.authSession,
-      bibleProviderEnum: schema.bibleProviderEnum,
-      resourceProviderEnum: schema.resourceProviderEnum,
-      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-      chapterStatusEnum: schema.chapterStatusEnum,
-      milestoneTypeEnum: schema.milestoneTypeEnum,
-      projectStatusEnum: schema.projectStatusEnum,
-      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-      scriptDirectionEnum: schema.scriptDirectionEnum,
-      userStatusEnum: schema.userStatusEnum,
-    });
+    const statements = await generateMigration(
+      generateDrizzleJson({}),
+      generateDrizzleJson({
+        ai_pericope_suggestion_usage: schema.ai_pericope_suggestion_usage,
+        ai_pericope_suggestions: schema.ai_pericope_suggestions,
+        ai_suggestions: schema.ai_suggestions,
+        ai_suggestion_usage_log: schema.ai_suggestion_usage_log,
+        bible_texts: schema.bible_texts,
+        books: schema.books,
+        chapter_assignments: schema.chapter_assignments,
+        pericope_verses: schema.pericope_verses,
+        pericope_sets: schema.pericope_sets,
+        project_unit_bible_books: schema.project_unit_bible_books,
+        project_units: schema.project_units,
+        projects: schema.projects,
+        translated_verses: schema.translated_verses,
+        users: schema.users,
+        organizations: schema.organizations,
+        languages: schema.languages,
+        bibles: schema.bibles,
+        bible_provider_resources: schema.bible_provider_resources,
+        authUser: schema.authUser,
+        authSession: schema.authSession,
+        bibleProviderEnum: schema.bibleProviderEnum,
+        resourceProviderEnum: schema.resourceProviderEnum,
+        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+        chapterStatusEnum: schema.chapterStatusEnum,
+        milestoneTypeEnum: schema.milestoneTypeEnum,
+        projectStatusEnum: schema.projectStatusEnum,
+        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+        scriptDirectionEnum: schema.scriptDirectionEnum,
+        userStatusEnum: schema.userStatusEnum,
+      })
+    );
+    await client.exec(statements.join('\n'));
     const suffix = Date.now().toString();
     const [org] = await db
       .insert(schema.organizations)

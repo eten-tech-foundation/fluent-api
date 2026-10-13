@@ -5,7 +5,6 @@ import { z } from '@hono/zod-openapi';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
-  check,
   index,
   integer,
   json,
@@ -171,17 +170,6 @@ export const users = pgTable('users', {
     .$onUpdate(() => new Date()),
 });
 
-// Shared commit-ordered revision allocator, installed by migration 0034.
-// Catalogue writes must use next_catalogue_watermark(), never explicit dates.
-export const catalogue_watermark = pgTable(
-  'catalogue_watermark',
-  {
-    id: boolean('id').primaryKey().default(true),
-    updatedAt: timestamp('updated_at').notNull(),
-  },
-  (table) => [check('catalogue_watermark_singleton', sql`${table.id} = true`)]
-);
-
 export const languages = pgTable('languages', {
   id: serial('id').primaryKey(),
   langName: varchar('lang_name', { length: 255 }).notNull(),
@@ -190,8 +178,8 @@ export const languages = pgTable('languages', {
   scriptDirection: scriptDirectionEnum('script_direction').default('ltr'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
-    .default(sql`next_catalogue_watermark()`)
-    .$onUpdate(() => sql`next_catalogue_watermark()`),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 // ─── Pericope Tables ─────────────────────────────────────────────────────────
@@ -242,8 +230,8 @@ export const bibles = pgTable(
     }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
-      .default(sql`next_catalogue_watermark()`)
-      .$onUpdate(() => sql`next_catalogue_watermark()`),
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   (table) => [
     // DBL identity: a given provider + externalId pair maps to exactly one row.
@@ -286,8 +274,8 @@ export const books = pgTable('books', {
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
-    .default(sql`next_catalogue_watermark()`)
-    .$onUpdate(() => sql`next_catalogue_watermark()`),
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 export const pericope_verses = pgTable(

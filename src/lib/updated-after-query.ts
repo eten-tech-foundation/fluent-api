@@ -13,9 +13,8 @@ import { z } from '@hono/zod-openapi';
  *   catalogue), never from the device wall clock.
  * - On `200` + `[]`, keep the previous cursor unchanged (do not advance).
  * - Equal timestamps are re-fetched on the next call (`gte`); clients must upsert idempotently.
- * - Watermarks are timestamp-shaped logical revisions allocated under a database
- *   row lock held through commit. A writer still in flight cannot be overtaken by
- *   a newer committed watermark; advancing past them with device time is unsafe.
+ * - Concurrent writes during a fetch may require a later sync; advancing past server
+ *   timestamps with device time can skip rows permanently.
  */
 export const updatedAfterQuerySchema = z
   .string()
@@ -24,7 +23,6 @@ export const updatedAfterQuerySchema = z
     message: 'updatedAfter must be an ISO-8601 date-time with an explicit time zone',
   })
   .transform((value) => new Date(value))
-  .pipe(z.date())
   .optional()
   .openapi({
     param: { name: 'updatedAfter', in: 'query', required: false },
