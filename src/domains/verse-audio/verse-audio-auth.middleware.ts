@@ -81,7 +81,7 @@ export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseA
         : false;
       const stages = unitResult.ok
         ? await getWorkflowStagesByProjectId(unitResult.data.projectId)
-        : undefined;
+        : [];
 
       if (
         !ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)

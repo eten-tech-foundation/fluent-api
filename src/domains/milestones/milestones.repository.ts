@@ -19,6 +19,7 @@ import {
   verse_audio_recordings,
 } from '@/db/schema';
 import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
+import { logger } from '@/lib/logger';
 
 import type {
   CreateMilestoneInput,
@@ -148,6 +149,11 @@ function mapRow(row: MilestoneSelectRow, defaultCounts?: Record<string, number>)
     for (const [key, val] of Object.entries(row.chapterStatusCounts)) {
       if (key in mergedCounts) {
         mergedCounts[key] = val;
+      } else if (val > 0) {
+        logger.warn(
+          { milestoneId: row.id, projectId: row.projectId, status: key, count: val },
+          'Milestone chapterStatusCounts contains non-zero count for status not in workflow stages; dropping from response'
+        );
       }
     }
   }

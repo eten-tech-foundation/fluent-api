@@ -28,33 +28,16 @@ function isWithinClaimRaceWindow(updatedAt: Date | null | undefined, now = Date.
 
 export function isPostPeerStatus(
   status: string | null | undefined,
-  stages?: Array<{ id?: string | number; defaultName?: string }>
+  stages: Array<{ defaultName: string }>
 ): boolean {
-  if (!status) return false;
-  if (stages && stages.length > 0) {
-    const peerIdx = stages.findIndex(
-      (s) =>
-        s.defaultName === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK ||
-        s.id === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK
-    );
-    const completeIdx = stages.findIndex(
-      (s) =>
-        s.defaultName === CHAPTER_ASSIGNMENT_STATUS.COMPLETE ||
-        s.id === CHAPTER_ASSIGNMENT_STATUS.COMPLETE
-    );
-    const currentIdx = stages.findIndex((s) => s.defaultName === status || s.id === status);
-    if (peerIdx !== -1 && completeIdx !== -1 && currentIdx !== -1) {
-      return currentIdx > peerIdx && currentIdx < completeIdx;
-    }
-    return false;
+  if (!status || !stages || stages.length === 0) return false;
+  const peerIdx = stages.findIndex((s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+  const completeIdx = stages.findIndex((s) => s.defaultName === CHAPTER_ASSIGNMENT_STATUS.COMPLETE);
+  const currentIdx = stages.findIndex((s) => s.defaultName === status);
+  if (peerIdx !== -1 && completeIdx !== -1 && currentIdx !== -1) {
+    return currentIdx > peerIdx && currentIdx < completeIdx;
   }
-
-  return (
-    status === CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW ||
-    status === CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK ||
-    status === CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK ||
-    status === CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK
-  );
+  return false;
 }
 
 export const ChapterAssignmentPolicy = {
@@ -62,7 +45,7 @@ export const ChapterAssignmentPolicy = {
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
     isProjectMember: boolean,
-    stages?: Array<{ id?: string | number; defaultName?: string }>
+    stages: Array<{ defaultName: string }>
   ): boolean {
     const scope = { orgId: assignment.organizationId, projectId: assignment.projectId };
     const isPostPeer = isPostPeerStatus(assignment.status, stages);
@@ -135,7 +118,7 @@ export const ChapterAssignmentPolicy = {
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
     isProjectMember: boolean,
-    stages?: Array<{ id?: string | number; defaultName?: string }>
+    stages: Array<{ defaultName: string }>
   ): boolean {
     return this.edit(user, assignment, isProjectMember, stages);
   },
@@ -162,8 +145,8 @@ export const ChapterAssignmentPolicy = {
   isParticipant(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
-    isProjectMember: boolean = false,
-    stages?: Array<{ id?: string | number; defaultName?: string }>
+    isProjectMember: boolean,
+    stages: Array<{ defaultName: string }>
   ): boolean {
     // A participant in the editor is exactly anyone who currently has edit rights.
     return this.edit(user, assignment, isProjectMember, stages);

@@ -103,6 +103,11 @@ export async function populateWorkflowStages(
       for (const [k, v] of Object.entries(p.chapterStatusCounts)) {
         if (allowedStageIds.has(k)) {
           mergedCounts[k] = v;
+        } else if (v > 0) {
+          logger.warn(
+            { projectId: p.id, status: k, count: v },
+            'Project chapterStatusCounts contains non-zero count for status not in workflow stages; dropping from response'
+          );
         }
       }
     }

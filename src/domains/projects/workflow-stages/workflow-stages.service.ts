@@ -84,7 +84,7 @@ export async function getWorkflowStages(
 ): Promise<Result<WorkflowStepResponse[]>> {
   try {
     const stages = await repo.getWorkflowStagesByProjectId(projectId);
-    if (stages.length === 0) return err(ErrorCode.WORKFLOW_STAGE_COMPLETE_NOT_FOUND);
+    if (stages.length === 0) return err(ErrorCode.WORKFLOW_NOT_CONFIGURED);
 
     const lockedDefaultNames = await repo.getLockedDefaultNames(projectId);
     return ok(stages.map((stage) => toResponse(stage, lockedDefaultNames)));
@@ -114,7 +114,17 @@ export async function addStage(
         return err(ErrorCode.WORKFLOW_STAGE_LIMIT_REACHED);
       }
 
-      if (hasDuplicateName(stages, displayName)) {
+      let finalDisplayName = displayName;
+      if (
+        finalDisplayName.trim().toLowerCase() === 'new stage' &&
+        hasDuplicateName(stages, finalDisplayName)
+      ) {
+        let counter = 2;
+        while (hasDuplicateName(stages, `New Stage ${counter}`)) {
+          counter++;
+        }
+        finalDisplayName = `New Stage ${counter}`;
+      } else if (hasDuplicateName(stages, finalDisplayName)) {
         return err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
       }
 
@@ -130,7 +140,7 @@ export async function addStage(
       const newStage = await repo.addWorkflowStage(tx, {
         projectId,
         defaultName: `custom_${nanoid(10)}`,
-        displayName,
+        displayName: finalDisplayName,
         position: completeStage.position,
         isFixed: false,
       });

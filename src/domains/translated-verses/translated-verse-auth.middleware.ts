@@ -102,7 +102,7 @@ export function requireTranslatedVerseAccess(
         : false;
       const stages = unitResult.ok
         ? await getWorkflowStagesByProjectId(unitResult.data.projectId)
-        : undefined;
+        : [];
 
       if (
         !ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)
