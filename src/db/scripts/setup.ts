@@ -150,7 +150,6 @@ async function setup() {
   await seedBibleTexts();
   await seedBsbBibleTexts();
   await seedPericopeSets();
-  await seedAudioDemo(envName, config.orgName, localProjectManager?.email);
   console.log('');
 
   // ── Demo spec (env-specific) — users, grants, projects, milestones, etc. ──
@@ -163,6 +162,9 @@ async function setup() {
     console.log('[9/9] Demo spec — none configured, skipping.');
     console.log('');
   }
+
+  // Local-only audio demo needs the demo-spec users/roles in place first.
+  await seedAudioDemo(envName, config.orgName, localProjectManager?.email);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log('╔═══════════════════════════════════════╗');
