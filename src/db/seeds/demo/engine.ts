@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   bible_books,
+  bible_provider_resources,
   bibles,
   books,
   chapter_assignment_assigned_user_history,
@@ -179,8 +180,43 @@ async function seedSpecBibles(ctx: Ctx) {
 
   for (const spec of ctx.spec.bibles ?? []) {
     const languageId = ctx.languages.get(spec.language)!;
+
+    // Provider-resource identities — the text row backs the TTS license
+    // gate (`bibleKey` lookups), the audio row is the selectable recording.
+    // Bare provider ids only; the `dbl-…` bibleKey form lives in responses.
+    const upsertResource = async (externalId: string) => {
+      const [row] = await db
+        .insert(bible_provider_resources)
+        .values({
+          provider: 'dbl',
+          externalId,
+          ttsLicenseStatus: spec.ttsLicenseStatus ?? 'unknown',
+          licenseNotice: spec.licenseNotice,
+          displayName: spec.name,
+        })
+        .onConflictDoUpdate({
+          target: [bible_provider_resources.provider, bible_provider_resources.externalId],
+          set: {
+            ttsLicenseStatus: spec.ttsLicenseStatus ?? 'unknown',
+            licenseNotice: spec.licenseNotice,
+            displayName: spec.name,
+          },
+        })
+        .returning({ id: bible_provider_resources.id });
+      return row.id;
+    };
+    if (spec.externalId) await upsertResource(spec.externalId);
+    const audioResourceId = spec.audioExternalId
+      ? await upsertResource(spec.audioExternalId)
+      : undefined;
+
     let [bible] = await db
-      .select({ id: bibles.id, hasAudio: bibles.hasAudio, externalId: bibles.externalId })
+      .select({
+        id: bibles.id,
+        hasAudio: bibles.hasAudio,
+        externalId: bibles.externalId,
+        audioResourceId: bibles.audioResourceId,
+      })
       .from(bibles)
       .where(eq(bibles.abbreviation, spec.abbreviation))
       .limit(1);
@@ -193,13 +229,25 @@ async function seedSpecBibles(ctx: Ctx) {
           languageId,
           externalId: spec.externalId,
           hasAudio: spec.hasAudio ?? false,
+          audioResourceId,
         })
-        .returning({ id: bibles.id, hasAudio: bibles.hasAudio, externalId: bibles.externalId });
+        .returning({
+          id: bibles.id,
+          hasAudio: bibles.hasAudio,
+          externalId: bibles.externalId,
+          audioResourceId: bibles.audioResourceId,
+        });
       console.log(`  bible ${spec.abbreviation}`);
-    } else if (spec.externalId !== undefined && bible.externalId !== spec.externalId) {
-      // Spec-provided externalId wins on reconcile; an omitted spec value
-      // leaves whatever the row already has.
-      await db.update(bibles).set({ externalId: spec.externalId }).where(eq(bibles.id, bible.id));
+    } else {
+      // Spec-provided values win on reconcile; omitted spec values leave
+      // whatever the row already has.
+      const patch: { externalId?: string; audioResourceId?: number } = {};
+      if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
+        patch.externalId = spec.externalId;
+      if (audioResourceId !== undefined && bible.audioResourceId !== audioResourceId)
+        patch.audioResourceId = audioResourceId;
+      if (Object.keys(patch).length)
+        await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     }
     ctx.bibles.set(spec.abbreviation, bible.id);
 

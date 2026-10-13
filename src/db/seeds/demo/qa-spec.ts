@@ -62,6 +62,8 @@ export const qaSpec: DemoSpec = {
       // API.Bible catalogue id (public, not a credential) — lets the ingest
       // worker fetch real text for MRK/JHN/JAS after seeding.
       externalId: 'bba9f40183526463-01',
+      ttsLicenseStatus: 'allowed',
+      licenseNotice: 'Berean Standard Bible (BSB). Public domain.',
       books: ['MRK', 'JHN', 'JAS'],
     },
     {
@@ -71,7 +73,11 @@ export const qaSpec: DemoSpec = {
       // API.Bible catalogue id — unlocks text ingest (RUT/JON) and DBL audio
       // resolution for the OBT milestone.
       externalId: '9879dbb7cfe39e4d-01',
+      // WEB's DBL audio bible — the selected recording, not the text id.
+      audioExternalId: '105a06b6146d11e7-01',
       hasAudio: true,
+      ttsLicenseStatus: 'allowed',
+      licenseNotice: 'World English Bible (WEB). Public domain.',
       books: ['RUT', 'JON'],
     },
   ],

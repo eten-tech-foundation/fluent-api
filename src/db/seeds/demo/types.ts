@@ -1,4 +1,9 @@
-import type { chapterStatusEnum, milestoneTypeEnum, projectStatusEnum } from '@/db/schema';
+import type {
+  chapterStatusEnum,
+  milestoneTypeEnum,
+  projectStatusEnum,
+  ttsLicenseStatusEnum,
+} from '@/db/schema';
 
 /**
  * Declarative demo-world spec, interpreted by `seedDemoSpec` in `engine.ts`.
@@ -43,6 +48,21 @@ export interface DemoBible {
    */
   externalId?: string;
   hasAudio?: boolean;
+  /**
+   * Provider catalogue id of the SELECTED audio recording — the DBL audio
+   * bible id (e.g. `105a06b6146d11e7-01` for WEB), which differs from the
+   * text bible's externalId. Bare provider id, never the `dbl-…` bibleKey
+   * form. Drives `bibles.audio_resource_id`.
+   */
+  audioExternalId?: string;
+  /**
+   * License state seeded on the text-identity provider-resource row — the
+   * value the TTS gate checks (`/projects/{id}/bible-resources/{bibleKey}`).
+   * Defaults to 'unknown' (TTS blocked) when omitted.
+   */
+  ttsLicenseStatus?: (typeof ttsLicenseStatusEnum.enumValues)[number];
+  /** License text seeded on the provider-resource rows. */
+  licenseNotice?: string;
   /** Book codes to link via bible_books. */
   books?: string[];
 }

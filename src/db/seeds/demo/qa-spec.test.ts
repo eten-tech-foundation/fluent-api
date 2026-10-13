@@ -221,4 +221,18 @@ describe('qaSpec', () => {
     expect(externalIds.get('BSB')).toBe('bba9f40183526463-01');
     expect(externalIds.get('WEB')).toBe('9879dbb7cfe39e4d-01');
   });
+
+  it('licenses every spec bible for TTS and selects WEB audio by bare provider id', () => {
+    const bibles = Object.fromEntries((qaSpec.bibles ?? []).map((b) => [b.abbreviation, b]));
+    for (const bible of qaSpec.bibles ?? []) {
+      expect(bible.ttsLicenseStatus).toBe('allowed');
+      expect(bible.licenseNotice).toBeTruthy();
+      // Stored externalIds are bare provider ids — never the `dbl-…` key form.
+      expect(bible.externalId).not.toMatch(/^(aq|yv|dbl)-/);
+      if (bible.audioExternalId !== undefined)
+        expect(bible.audioExternalId).not.toMatch(/^(aq|yv|dbl)-/);
+    }
+    expect(bibles.WEB?.audioExternalId).toBe('105a06b6146d11e7-01');
+    expect(bibles.WEB?.audioExternalId).toMatch(/^[0-9a-f]{16}-\d{2}$/);
+  });
 });
