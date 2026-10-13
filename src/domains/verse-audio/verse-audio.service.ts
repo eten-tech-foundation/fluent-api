@@ -410,7 +410,10 @@ export async function uploadRecording(
       return updated;
     }
     if (!updated.data.applied) {
-      // Newer state won the race — keep our take, flag conflict, don't clobber.
+      // Newer state won the race — keep our take, advance versionToken, and mark
+      // conflict without clobbering the winner's active take. If the winner was a
+      // concurrent resolve, markConflictPreservingActive preserves its 'resolved'
+      // status so the manager's adjudication is not undone.
       const marked = await repo.markConflictPreservingActive(unit.id);
       if (!marked.ok) {
         return marked;
@@ -426,6 +429,8 @@ export async function uploadRecording(
       return updated;
     }
     if (!updated.data.applied) {
+      // CAS miss on stale-base update: bump versionToken and mark conflict,
+      // preserving an intervening resolve if one settled the unit.
       const marked = await repo.markConflictPreservingActive(unit.id);
       if (!marked.ok) {
         return marked;

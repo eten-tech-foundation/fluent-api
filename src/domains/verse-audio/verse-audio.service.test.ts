@@ -891,7 +891,7 @@ describe('verse-audio service', () => {
   });
 
   describe('resolveConflict', () => {
-    it('sets the chosen take active and clears conflict', async () => {
+    it('sets the chosen take active and marks the conflict resolved', async () => {
       const other = { ...take, id: 11, uploadedBy: 9, contentHash: 'other' };
       vi.mocked(repo.get)
         .mockResolvedValueOnce(

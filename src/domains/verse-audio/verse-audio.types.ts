@@ -189,15 +189,6 @@ export const verseAudioVersionConflictSchema = z.object({
 
 // ── Const enumerations ───────────────────────────────────────────────────────
 
-export const VERSE_AUDIO_ACTIONS = {
-  READ: 'read',
-  EDIT: 'edit',
-  /** Conflict resolution — allowed for CONTENT_ASSIGN (PMs) at any chapter status, or users with edit() access. */
-  RESOLVE: 'resolve',
-} as const;
-
-export type VerseAudioAction = (typeof VERSE_AUDIO_ACTIONS)[keyof typeof VERSE_AUDIO_ACTIONS];
-
 export const VERSE_AUDIO_ID_SOURCES = {
   PARAMS: 'params',
   QUERY: 'query',

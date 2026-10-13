@@ -52,25 +52,21 @@ function parseBibleTextId(c: Context<AppEnv>): number | undefined {
 }
 
 // The assignment lookup also proves the verse belongs to this unit
-// (INVALID_REFERENCE → 400). It and the unit→project lookup are independent,
-// so they run in parallel; membership still waits on the resolved projectId.
-// Membership is skipped when the assignment failed — resolveIsProjectMember
-// can reject on a DB error, and the caller must still surface the
-// assignment error rather than an unhandled 500.
+// (INVALID_REFERENCE → 400) and returns PolicyChapterAssignment including projectId.
+// Membership check uses assignmentResult.data.projectId once the assignment lookup succeeds.
 async function loadAssignmentAuthContext(
   projectUnitId: number,
   bibleTextId: number,
   userId: number
 ) {
-  const [assignmentResult, unitResult] = await Promise.all([
-    chapterAssignmentService.getAssignmentForVerse(projectUnitId, bibleTextId),
-    projectService.getProjectIdByUnitId(projectUnitId),
-  ]);
+  const assignmentResult = await chapterAssignmentService.getAssignmentForVerse(
+    projectUnitId,
+    bibleTextId
+  );
 
-  const isProjectMember =
-    assignmentResult.ok && unitResult.ok
-      ? await resolveIsProjectMember(unitResult.data.projectId, userId)
-      : false;
+  const isProjectMember = assignmentResult.ok
+    ? await resolveIsProjectMember(assignmentResult.data.projectId, userId)
+    : false;
 
   return { assignmentResult, isProjectMember };
 }
@@ -89,13 +85,12 @@ export function requireReadVerseAudioAccess(source: VerseAudioIdSource) {
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 
-    const [projectResult, isProjectMember] = await Promise.all([
-      projectService.getProjectById(unitResult.data.projectId),
-      resolveIsProjectMember(unitResult.data.projectId, user.id),
-    ]);
+    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
     if (!projectResult.ok) {
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
+
+    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
     if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
@@ -122,7 +117,7 @@ export function requireResolveVerseAudioConflictAccess(source: VerseAudioIdSourc
       return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
-    const { assignmentResult, isProjectMember } = await loadAssignmentAuthContext(
+    const { assignmentResult } = await loadAssignmentAuthContext(
       projectUnitId,
       bibleTextId,
       user.id
@@ -134,9 +129,7 @@ export function requireResolveVerseAudioConflictAccess(source: VerseAudioIdSourc
       );
     }
 
-    const allowed =
-      ChapterAssignmentPolicy.resolveAudioConflict(policyUser, assignmentResult.data) ||
-      ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember);
+    const allowed = ChapterAssignmentPolicy.resolveAudioConflict(policyUser, assignmentResult.data);
 
     if (!allowed) {
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);

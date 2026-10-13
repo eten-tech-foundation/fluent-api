@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -382,7 +382,13 @@ export async function updateRecordingStateIfVersion(
   }
 }
 
-/** Flag conflict without touching versionToken / active take (CAS-miss path). */
+/**
+ * Flag conflict without touching active take (CAS-miss path).
+ *
+ * Atomically increments versionToken and sets conflictStatus to 'conflict',
+ * while preserving an intervening 'resolved' status so a racing upload cannot
+ * reopen a unit that was just explicitly adjudicated.
+ */
 export async function markConflictPreservingActive(
   recordingId: number
 ): Promise<Result<VerseAudioRecord>> {
@@ -391,13 +397,33 @@ export async function markConflictPreservingActive(
       .update(verse_audio_recordings)
       .set({
         conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+        versionToken: sql`${verse_audio_recordings.versionToken} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(verse_audio_recordings.id, recordingId))
+      .where(
+        and(
+          eq(verse_audio_recordings.id, recordingId),
+          ne(verse_audio_recordings.conflictStatus, VERSE_AUDIO_CONFLICT_STATUS.RESOLVED)
+        )
+      )
       .returning();
 
     if (!row) {
-      return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+      const [existing] = await db
+        .select()
+        .from(verse_audio_recordings)
+        .where(eq(verse_audio_recordings.id, recordingId))
+        .limit(1);
+
+      if (!existing) {
+        return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+      }
+
+      const result = await get(existing.projectUnitId, existing.bibleTextId);
+      if (!result.ok) {
+        return err(ErrorCode.INTERNAL_ERROR);
+      }
+      return ok(result.data);
     }
 
     const result = await get(row.projectUnitId, row.bibleTextId);

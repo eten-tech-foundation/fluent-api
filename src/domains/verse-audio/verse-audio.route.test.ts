@@ -286,10 +286,10 @@ describe('verse-audio routes', () => {
     }
 
     beforeEach(() => {
-      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      asAuthenticatedUser([PERMISSIONS.CONTENT_ASSIGN]);
     });
 
-    it('returns the resolved recording (assigned translator)', async () => {
+    it('returns the resolved recording for PM (CONTENT_ASSIGN)', async () => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
         ok: true,
         data: { id: 1, activeTakeId: 11, conflictStatus: 'resolved' } as any,
@@ -306,19 +306,11 @@ describe('verse-audio routes', () => {
       expect(await res.json()).toMatchObject({ conflictStatus: 'resolved' });
     });
 
-    it('returns 200 for PM (CONTENT_ASSIGN) resolving a draft-stage conflict', async () => {
-      // Bug regression test: PMs were blocked (404) when chapter was in 'draft'
-      // status because the old EDIT middleware required post-peer-check for PMs.
-      asAuthenticatedUser([PERMISSIONS.CONTENT_ASSIGN]);
-      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
-        ok: true,
-        data: { id: 1, activeTakeId: 11, conflictStatus: 'resolved' } as any,
-      });
-
+    it('returns 404 for an assigned translator with only CONTENT_UPDATE (spec #383)', async () => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
       const res = await resolve();
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ conflictStatus: 'resolved' });
+      expect(res.status).toBe(404);
+      expect(verseAudioService.resolveConflict).not.toHaveBeenCalled();
     });
 
     it('returns 404 for an unauthenticated outsider', async () => {
