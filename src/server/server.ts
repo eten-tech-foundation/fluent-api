@@ -57,8 +57,9 @@ export function createServer() {
         return null;
       },
       credentials: true,
-      // Clients read the session token after sign-in and ETag for conditional sync.
-      exposeHeaders: ['set-auth-token', 'ETag'],
+      // Clients read the session token after sign-in, ETag for conditional sync,
+      // and Retry-After to follow the TTS admission backoff in the browser.
+      exposeHeaders: ['set-auth-token', 'ETag', 'Retry-After'],
     })
   );
 

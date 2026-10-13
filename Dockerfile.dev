@@ -34,6 +34,13 @@ RUN npm pkg delete scripts.prepare && \
 # Rebuild native addons that need compilation (safe — runs node-gyp, not package scripts)
 RUN npm rebuild
 
+# Vite's default config loader writes temporary modules here. Keep only this
+# scratch directory writable by the runtime user: node_modules is otherwise
+# root-owned, and the read-only container cannot use Vite's /app fallback.
+# A fresh dependency volume inherits this directory and its ownership.
+RUN mkdir -p /app/node_modules/.vite-temp && \
+    chown nodejs:nodejs /app/node_modules/.vite-temp
+
 # Copy entrypoint script and source code
 COPY --chown=nodejs:nodejs . .
 

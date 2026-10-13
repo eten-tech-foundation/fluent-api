@@ -4,8 +4,9 @@ import { eq, ne } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import { chapter_assignments } from '@/db/schema';
+import { bibles, chapter_assignments } from '@/db/schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
+import { ErrorCode } from '@/lib/types';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -53,7 +54,8 @@ function buildProgressSelectChain(rows: unknown[]) {
   };
 }
 
-const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+const { mockDbSelect, mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+  const dbSelect = vi.fn<(selection?: unknown) => unknown>();
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
@@ -65,11 +67,11 @@ const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
     where: vi.fn().mockReturnThis(),
     limit: vi.fn(),
   };
-  return { mockSelectChain: selectChain, mockUpdateChain: updateChain };
+  return { mockDbSelect: dbSelect, mockSelectChain: selectChain, mockUpdateChain: updateChain };
 });
 
 vi.mock('@/db', () => ({
-  db: { select: vi.fn() },
+  db: { select: mockDbSelect },
 }));
 
 vi.mock('drizzle-orm', async (importOriginal) => {
@@ -140,6 +142,38 @@ describe('chapter-assignments.repository claim helpers', () => {
     });
   });
 
+  it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
+    const chain = buildProgressSelectChain([]);
+    mockDbSelect.mockReturnValue(chain);
+
+    expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
+    expect(db.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ttsLicenseStatus: expect.anything(),
+        textBibleProvider: expect.anything(),
+        textBibleExternalId: expect.anything(),
+        selectedRecordingProvider: expect.anything(),
+        selectedRecordingExternalId: expect.anything(),
+      })
+    );
+    // PostgreSQL recognizes functional dependency on the primary key, not on
+    // the Bible's UNIQUE name. Without this the real query fails with 42803.
+    expect(chain.groupBy.mock.calls[0]).toContain(bibles.id);
+  });
+
+  it('returns an operation failure when the assignment query fails', async () => {
+    const chain = buildProgressSelectChain([]);
+    chain.groupBy.mockReturnValue({
+      orderBy: vi.fn().mockRejectedValue(new Error('database unavailable')),
+    });
+    mockDbSelect.mockReturnValue(chain);
+
+    const result = await repo.findAssignmentsProgress({ projectId: 3 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
+  });
+
   describe('findAssignmentsProgress hasConflict rollup', () => {
     it('surfaces hasConflict per assignment row from the bible-scoped EXISTS', async () => {
       const rows = [
@@ -150,6 +184,12 @@ describe('chapter-assignments.repository claim helpers', () => {
           projectUnitId: 12,
           bibleId: 9,
           bibleName: 'Target',
+          ttsLicenseStatus: 'allowed',
+          textBibleProvider: 'dbl',
+          textBibleExternalId: 'opaque-text-ID',
+          selectedRecordingId: 20,
+          selectedRecordingProvider: 'aquifer',
+          selectedRecordingExternalId: '20',
           bookId: 1,
           bookCode: 'JHN',
           bookNameEng: 'John',
@@ -179,6 +219,12 @@ describe('chapter-assignments.repository claim helpers', () => {
           projectUnitId: 12,
           bibleId: 10,
           bibleName: 'Source',
+          ttsLicenseStatus: 'unknown',
+          textBibleProvider: 'dbl',
+          textBibleExternalId: null,
+          selectedRecordingId: 88,
+          selectedRecordingProvider: 'youversion',
+          selectedRecordingExternalId: '88',
           bookId: 1,
           bookCode: 'JHN',
           bookNameEng: 'John',
@@ -216,8 +262,24 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toHaveLength(2);
-        expect(result.data.find((r) => r.bibleId === 9)?.hasConflict).toBe(true);
-        expect(result.data.find((r) => r.bibleId === 10)?.hasConflict).toBe(false);
+        expect(result.data.map(({ assignmentId }) => assignmentId)).toEqual([1, 2]);
+        expect(result.data.find((r) => r.bibleId === 9)).toMatchObject({
+          hasConflict: true,
+          textBibleKey: 'dbl-opaque-text-ID',
+          selectedRecordingKey: 'aq-20',
+        });
+        expect(result.data.find((r) => r.bibleId === 10)).toMatchObject({
+          hasConflict: false,
+          textBibleKey: null,
+          selectedRecordingKey: 'yv-88',
+        });
+        for (const row of result.data) {
+          expect(row).not.toHaveProperty('textBibleProvider');
+          expect(row).not.toHaveProperty('textBibleExternalId');
+          expect(row).not.toHaveProperty('selectedRecordingId');
+          expect(row).not.toHaveProperty('selectedRecordingProvider');
+          expect(row).not.toHaveProperty('selectedRecordingExternalId');
+        }
       }
     });
   });
