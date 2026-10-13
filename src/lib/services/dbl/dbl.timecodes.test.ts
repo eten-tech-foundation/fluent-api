@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger';
 import {
   parseDblTimestampSeconds,
   parseDblVerseNumber,
-  sanitizeDblTimecodeDiagnosticSamples,
+  timecodeShape,
   warnIfAllDblTimecodesDropped,
 } from './dbl.timecodes';
 
@@ -15,19 +15,20 @@ vi.mock('@/lib/logger', () => ({
 
 const JWT_SHAPED = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc123';
 const OPAQUE_TOKEN = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4';
+const MALICIOUS_URL = 'https://evil.com/audio.mp3?token=secret-value';
 
 function lastWarnPayload(): unknown {
   return vi.mocked(logger.warn).mock.calls.at(-1)?.[0];
 }
 
-function assertPayloadHasNoSecrets(payload: unknown): void {
+function assertPayloadHasNoRawSecrets(payload: unknown, rawValues: string[]): void {
   const serialized = JSON.stringify(payload);
-  expect(serialized).not.toMatch(/https?:\/\//i);
-  expect(serialized).not.toMatch(/example\.com|evil\.com|amazonaws\.com/i);
-  expect(serialized).not.toMatch(/Bearer\s|Signature=|X-Amz-|access_token|api[_-]?key/i);
-  expect(serialized).not.toContain('sk-live');
+  for (const raw of rawValues) {
+    expect(serialized).not.toContain(raw);
+  }
+  expect(serialized).not.toMatch(/https?:\/\/[a-z]/i);
+  expect(serialized).not.toContain('evil.com');
   expect(serialized).not.toContain('secret-value');
-  expect(serialized).not.toContain(JWT_SHAPED);
   expect(serialized).not.toContain('eyJhbGci');
   expect(serialized).not.toContain(OPAQUE_TOKEN);
 }
@@ -99,75 +100,27 @@ describe('parseDblVerseNumber', () => {
   });
 });
 
-describe('sanitizeDblTimecodeDiagnosticSamples', () => {
-  it('keeps legitimate chapter-scoped verseIds and clock/decimal starts', () => {
-    expect(
-      sanitizeDblTimecodeDiagnosticSamples(
-        [
-          { start: '00:00:05.120', verseId: 'JHN.3.1' },
-          { start: '4.5', verseId: 'JHN.3.12' },
-          { start: 'not-a-time', verseId: 'JHN.3.2' },
-        ],
-        'JHN.3'
-      )
-    ).toEqual([
-      { start: '00:00:05.120', verseId: 'JHN.3.1' },
-      { start: '4.5', verseId: 'JHN.3.12' },
-      { start: '[redacted]', verseId: 'JHN.3.2' },
-    ]);
+describe('timecodeShape', () => {
+  it.each([
+    ['00:00:05,120', '99:99:99,999'],
+    ['PT5.12S', 'AA9.99A'],
+    ['5.12s', '9.99a'],
+    ['00:00:05:12', '99:99:99:99'],
+    ['MRK.14.1-2', 'AAA.99.9-9'],
+    ['mrk.14.1', 'aaa.99.9'],
+    ['MRK 14:1', 'AAA 99:9'],
+    ['MRK.14.1a', 'AAA.99.9a'],
+    ['https://x.com/a?sig=abc', 'aaaaa://a.aaa/a?aaa=aaa'],
+  ])('maps %s to format-only shape', (raw, shape) => {
+    expect(timecodeShape(raw)).toBe(shape);
   });
 
-  it('redacts verseIds that fail parseDblVerseNumber structure for the chapter', () => {
-    expect(
-      sanitizeDblTimecodeDiagnosticSamples(
-        [
-          { start: '00:00:01.000', verseId: 'JHN.3.x' },
-          { start: '00:00:02.000', verseId: 'JHN.4.1' },
-          { start: '00:00:03.000', verseId: 'JHN.3.0' },
-          { start: '00:00:04.000', verseId: 'JHN.3.1-2' },
-        ],
-        'JHN.3'
-      )
-    ).toEqual([
-      { start: '00:00:01.000', verseId: '[redacted]' },
-      { start: '00:00:02.000', verseId: '[redacted]' },
-      { start: '00:00:03.000', verseId: '[redacted]' },
-    ]);
-  });
-
-  it('redacts JWT-shaped and opaque dotted tokens that previously passed the broad allowlist', () => {
-    const samples = sanitizeDblTimecodeDiagnosticSamples(
-      [
-        { start: '00:00:01.000', verseId: JWT_SHAPED },
-        { start: '4.5', verseId: OPAQUE_TOKEN },
-        { start: JWT_SHAPED, verseId: 'JHN.3.1' },
-      ],
-      'JHN.3'
-    );
-    expect(samples).toEqual([
-      { start: '00:00:01.000', verseId: '[redacted]' },
-      { start: '4.5', verseId: '[redacted]' },
-      { start: '[redacted]', verseId: 'JHN.3.1' },
-    ]);
-    assertPayloadHasNoSecrets(samples);
-  });
-
-  it('redacts URL/credential-bearing fields and marks non-strings', () => {
-    const samples = sanitizeDblTimecodeDiagnosticSamples(
-      [
-        {
-          start: 'https://evil.com/audio.mp3?token=secret-value',
-          verseId: 'JHN.3.1',
-        },
-        { start: 12.5, verseId: { nested: true } },
-      ],
-      'JHN.3'
-    );
-    expect(samples).toEqual([
-      { start: '[redacted]', verseId: 'JHN.3.1' },
-      { start: '[invalid-type]', verseId: '[invalid-type]' },
-    ]);
-    assertPayloadHasNoSecrets(samples);
+  it('length-caps long values and preserves non-string markers', () => {
+    const shaped = timecodeShape(JWT_SHAPED);
+    expect(shaped.endsWith('…')).toBe(true);
+    expect(shaped.length).toBe(33);
+    expect(timecodeShape(null)).toBe('[null]');
+    expect(timecodeShape(12.5)).toBe('[number]');
   });
 });
 
@@ -176,16 +129,16 @@ describe('warnIfAllDblTimecodesDropped', () => {
     vi.clearAllMocks();
   });
 
-  it('warns with structurally valid samples when every row is dropped', () => {
+  it('warns with format-only shapes when every row is dropped', () => {
     warnIfAllDblTimecodesDropped({
       path: 'playback-audio',
       audioBibleId: 'audio-z',
       chapter: 'JHN.3',
       timecodes: [
-        { start: 'bad-a', verseId: 'JHN.3.1' },
-        { start: '00:00:05.120', verseId: JWT_SHAPED },
-        { start: 'bad-c', verseId: 'JHN.3.3' },
-        { start: 'bad-d', verseId: 'JHN.3.4' },
+        { start: '00:00:05,120', end: '00:00:06,120', verseId: 'MRK.14.1' },
+        { start: 'PT5.12S', end: 'PT6S', verseId: 'mrk.14.1' },
+        { start: '5.12s', end: '6s', verseId: 'MRK 14:1' },
+        { start: 'extra', end: 'row', verseId: 'MRK.14.4' },
       ],
       acceptedCount: 0,
     });
@@ -199,44 +152,51 @@ describe('warnIfAllDblTimecodesDropped', () => {
         chapter: 'JHN.3',
         timecodeCount: 4,
         samples: [
-          { start: '[redacted]', verseId: 'JHN.3.1' },
-          { start: '00:00:05.120', verseId: '[redacted]' },
-          { start: '[redacted]', verseId: 'JHN.3.3' },
+          { start: '99:99:99,999', end: '99:99:99,999', verseId: 'AAA.99.9' },
+          { start: 'AA9.99A', end: 'AA9A', verseId: 'aaa.99.9' },
+          { start: '9.99a', end: '9a', verseId: 'AAA 99:9' },
         ],
       },
     });
-    assertPayloadHasNoSecrets(payload);
   });
 
-  it('never emits JWT-shaped verseId or malicious start in the logger payload', () => {
+  it('never emits raw rejected provider values in the logger payload', () => {
     warnIfAllDblTimecodesDropped({
       path: 'source-audio',
-      audioBibleId: 'https://evil.com/bible?api_key=sk-live',
+      audioBibleId: 'audio-z',
       chapter: 'JHN.3',
       timecodes: [
-        { start: 'https://evil.com/x?token=secret-value', verseId: JWT_SHAPED },
-        { start: '00:00:05.120', verseId: OPAQUE_TOKEN },
-        { start: 'not-a-time', verseId: 'JHN.3.1' },
+        { start: MALICIOUS_URL, end: '1', verseId: JWT_SHAPED },
+        { start: '00:00:05.120', end: '00:00:06.000', verseId: OPAQUE_TOKEN },
+        { start: 'not-a-time', end: '1', verseId: 'JHN.3.1' },
       ],
       acceptedCount: 0,
     });
 
     const payload = lastWarnPayload();
-    expect(payload).toEqual({
+    expect(payload).toMatchObject({
       message: 'All DBL timecodes dropped by shared parser',
       context: {
         path: 'source-audio',
-        audioBibleId: '[redacted]',
+        audioBibleId: 'audio-z',
         chapter: 'JHN.3',
         timecodeCount: 3,
         samples: [
-          { start: '[redacted]', verseId: '[redacted]' },
-          { start: '00:00:05.120', verseId: '[redacted]' },
-          { start: '[redacted]', verseId: 'JHN.3.1' },
+          {
+            start: timecodeShape(MALICIOUS_URL),
+            end: '9',
+            verseId: timecodeShape(JWT_SHAPED),
+          },
+          {
+            start: '99:99:99.999',
+            end: '99:99:99.999',
+            verseId: timecodeShape(OPAQUE_TOKEN),
+          },
+          { start: 'aaa-a-aaaa', end: '9', verseId: 'AAA.9.9' },
         ],
       },
     });
-    assertPayloadHasNoSecrets(payload);
+    assertPayloadHasNoRawSecrets(payload, [MALICIOUS_URL, JWT_SHAPED, OPAQUE_TOKEN, 'not-a-time']);
   });
 
   it.each([

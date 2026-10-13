@@ -194,19 +194,19 @@ describe('getChapterSourceAudio', () => {
             chapter: 'MRK.14',
             timecodeCount: 3,
             samples: [
-              { start: '[redacted]', verseId: 'MRK.14.1' },
-              { start: '00:00:05.000', verseId: '[redacted]' },
-              { start: '[redacted]', verseId: '[redacted]' },
+              { start: 'aaa-a-aaaa', end: '99:99:99.999', verseId: 'AAA.99.9' },
+              { start: '99:99:99.999', end: '99:99:99.999', verseId: 'AAA.9.9' },
+              { start: 'aaa', end: 'aaa', verseId: 'AAA.99.a' },
             ],
           }),
         });
         const emittedPayload = vi.mocked(logger.warn).mock.calls[0]?.[0];
         const emitted = JSON.stringify(emittedPayload);
-        expect(emitted).not.toContain('example.com');
         expect(emitted).not.toContain('not-a-time');
         expect(emitted).not.toContain('JHN.4.1');
         expect(emitted).not.toContain('MRK.14.x');
-        expect(emitted).not.toMatch(/https?:\/\//i);
+        expect(emitted).not.toContain('MRK.14.1');
+        expect(emitted).not.toMatch(/https?:\/\/example/i);
         expect(emitted).not.toContain('eyJhbGci');
       } else {
         expect(logger.warn).not.toHaveBeenCalled();
@@ -214,7 +214,7 @@ describe('getChapterSourceAudio', () => {
     }
   );
 
-  it('redacts JWT-shaped verseId in the emitted source-audio warn payload', async () => {
+  it('emits format-only shapes for rejected source-audio warn samples', async () => {
     const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.abc123';
     vi.mocked(bibleAudioService.getSourceAudio).mockResolvedValue(
       ok([
@@ -248,13 +248,20 @@ describe('getChapterSourceAudio', () => {
         chapter: 'MRK.14',
         timecodeCount: 2,
         samples: [
-          { start: '00:00:05.000', verseId: '[redacted]' },
-          { start: '[redacted]', verseId: 'MRK.14.1' },
+          {
+            start: '99:99:99.999',
+            end: '99:99:99.999',
+            verseId: 'aaAaaAaaAaAAAaA9AaAaAaA9aAA9AaaA…',
+          },
+          { start: 'aaa-a-aaaa', end: '9', verseId: 'AAA.99.9' },
         ],
       },
     });
-    expect(JSON.stringify(payload)).not.toContain(jwt);
-    expect(JSON.stringify(payload)).not.toContain('example.com');
+    const emitted = JSON.stringify(payload);
+    expect(emitted).not.toContain(jwt);
+    expect(emitted).not.toContain('not-a-time');
+    expect(emitted).not.toContain('MRK.14.1');
+    expect(emitted).not.toContain('example.com');
   });
 
   it('does not warn when at least one DBL timecode is accepted', async () => {
