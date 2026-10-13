@@ -23,6 +23,10 @@ describe('updatedAfterQuerySchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it.each(['+24:00', '+00:60', '-99:99'])('rejects invalid offset %s', (offset) => {
+    expect(updatedAfterQuerySchema.safeParse(`2025-01-01T00:00:00${offset}`).success).toBe(false);
+  });
+
   it('rejects an empty string instead of treating it as omitted', () => {
     expect(updatedAfterQuerySchema.safeParse('').success).toBe(false);
   });

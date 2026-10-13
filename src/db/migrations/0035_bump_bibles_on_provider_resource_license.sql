@@ -14,14 +14,22 @@ BEGIN
     OR NEW.tts_license_status IS DISTINCT FROM OLD.tts_license_status
     OR NEW.license_notice IS DISTINCT FROM OLD.license_notice
     OR NEW.display_name IS DISTINCT FROM OLD.display_name
+    OR NEW.provider IS DISTINCT FROM OLD.provider
+    OR NEW.external_id IS DISTINCT FROM OLD.external_id
   THEN
     UPDATE bibles
-    SET updated_at = now()
+    SET updated_at = next_catalogue_watermark()
     WHERE audio_resource_id = NEW.id
       OR (
         NEW.provider = 'dbl'
         AND bibles.provider = 'dbl'
         AND bibles.external_id = NEW.external_id
+      )
+      OR (
+        TG_OP = 'UPDATE'
+        AND OLD.provider = 'dbl'
+        AND bibles.provider = 'dbl'
+        AND bibles.external_id = OLD.external_id
       );
   END IF;
   RETURN NEW;
@@ -29,7 +37,7 @@ END;
 $$ LANGUAGE plpgsql;--> statement-breakpoint
 DROP TRIGGER IF EXISTS trg_bump_bibles_on_provider_resource_license ON bible_provider_resources;--> statement-breakpoint
 CREATE TRIGGER trg_bump_bibles_on_provider_resource_license
-AFTER INSERT OR UPDATE OF tts_license_status, license_notice, display_name
+AFTER INSERT OR UPDATE OF tts_license_status, license_notice, display_name, provider, external_id
 ON bible_provider_resources
 FOR EACH ROW
 EXECUTE FUNCTION bump_linked_bibles_on_provider_resource_license();

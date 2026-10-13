@@ -26,21 +26,31 @@ const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../db/migrat
 
 describe('catalogue sync watermarks (PGlite)', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        languages: schema.languages,
-        books: schema.books,
-        bible_books: schema.bible_books,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibles: schema.bibles,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-      })
-    );
+    const initial = generateDrizzleJson({
+      languages: schema.languages,
+      books: schema.books,
+      bible_books: schema.bible_books,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibles: schema.bibles,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+    });
+    // Reconstruct the pre-0034 catalogue, then exercise the actual migrations.
+    delete initial.tables['public.books']!.columns.created_at;
+    delete initial.tables['public.books']!.columns.updated_at;
+    for (const table of ['languages', 'bibles']) {
+      initial.tables[`public.${table}`]!.columns.updated_at!.default = 'now()';
+    }
+    const statements = await generateMigration(generateDrizzleJson({}), initial);
     await client.exec(statements.join('\n'));
+    await client.exec(
+      readFileSync(join(migrationDir, '0034_add_books_timestamps.sql'), 'utf8').replaceAll(
+        '--> statement-breakpoint',
+        ''
+      )
+    );
     // Production invariant (migration 0035): INSERT/UPDATE of license/display
     // columns bumps linked bibles.updated_at for any SQL/ORM writer.
     const triggerSql = readFileSync(
@@ -79,8 +89,6 @@ describe('catalogue sync watermarks (PGlite)', () => {
         })
         .returning();
       const before = bible!.updatedAt!;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-
       await database.insert(schema.bible_provider_resources).values({
         provider: 'dbl',
         externalId: 'text-insert',
@@ -141,8 +149,6 @@ describe('catalogue sync watermarks (PGlite)', () => {
 
       const textBefore = textBible!.updatedAt!;
       const audioBefore = audioBible!.updatedAt!;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-
       // Ordinary ORM UPDATE — DB trigger is the invariant (no app writer required).
       await database
         .update(schema.bible_provider_resources)
@@ -172,6 +178,84 @@ describe('catalogue sync watermarks (PGlite)', () => {
         );
       }
     });
+
+    it.each(['externalId', 'provider', 'displayName'] as const)(
+      'bumps all affected bibles when %s changes',
+      async (field) => {
+        const [language] = await database
+          .insert(schema.languages)
+          .values({ langName: 'English' })
+          .returning();
+        const [resource] = await database
+          .insert(schema.bible_provider_resources)
+          .values({
+            provider: 'dbl',
+            externalId: 'old-text',
+            displayName: 'Old label',
+          })
+          .returning();
+        const linked = await database
+          .insert(schema.bibles)
+          .values([
+            { languageId: language!.id, name: 'Old', abbreviation: 'OLD', externalId: 'old-text' },
+            { languageId: language!.id, name: 'New', abbreviation: 'NEW', externalId: 'new-text' },
+            {
+              languageId: language!.id,
+              name: 'Audio',
+              abbreviation: 'AUD',
+              audioResourceId: resource!.id,
+            },
+            {
+              languageId: language!.id,
+              name: 'Unrelated',
+              abbreviation: 'NON',
+              externalId: 'unrelated',
+            },
+          ])
+          .returning();
+        const change =
+          field === 'externalId'
+            ? { externalId: 'new-text' }
+            : field === 'provider'
+              ? { provider: 'aquifer' as const }
+              : { displayName: 'New label' };
+        await database
+          .update(schema.bible_provider_resources)
+          .set(change)
+          .where(eq(schema.bible_provider_resources.id, resource!.id));
+        const after = await database.select().from(schema.bibles);
+        for (const before of linked) {
+          const updated = after.find((row) => row.id === before.id)!;
+          const shouldBump =
+            before.abbreviation === 'OLD' ||
+            before.abbreviation === 'AUD' ||
+            (field === 'externalId' && before.abbreviation === 'NEW');
+          if (shouldBump)
+            expect(updated.updatedAt!.getTime()).toBeGreaterThan(before.updatedAt!.getTime());
+          else expect(updated.updatedAt).toEqual(before.updatedAt);
+        }
+        // Repeating the same identity/display update is a no-op.
+        await database
+          .update(schema.bible_provider_resources)
+          .set(change)
+          .where(eq(schema.bible_provider_resources.id, resource!.id));
+        expect(await database.select().from(schema.bibles)).toEqual(after);
+        if (field === 'provider') {
+          // Moving back into DBL also invalidates the new text identity.
+          await database
+            .update(schema.bible_provider_resources)
+            .set({ provider: 'dbl' })
+            .where(eq(schema.bible_provider_resources.id, resource!.id));
+          const [restored] = await database
+            .select()
+            .from(schema.bibles)
+            .where(eq(schema.bibles.abbreviation, 'OLD'));
+          expect(restored!.updatedAt!.getTime()).toBeGreaterThan(
+            after.find((row) => row.abbreviation === 'OLD')!.updatedAt!.getTime()
+          );
+        }
+      }
+    );
 
     it('does not bump on unchanged license UPDATE', async () => {
       const [language] = await database
@@ -235,8 +319,6 @@ describe('catalogue sync watermarks (PGlite)', () => {
         })
         .returning();
       const before = bible!.updatedAt!;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-
       // selectedRecordingKey is derived from bibles.audio_resource_id; that column
       // lives on bibles and already advances updated_at via drizzle $onUpdate.
       await database
@@ -298,6 +380,31 @@ describe('catalogue sync watermarks (PGlite)', () => {
       expect(resource!.ttsLicenseStatus).toBe('allowed');
       expect(after!.updatedAt!.getTime()).toBe(before.getTime());
     });
+  });
+
+  it('allocates revisions beyond the clock and rolls the allocator back with the write', async () => {
+    const future = new Date('2090-01-01T00:00:00.000Z');
+    await database.update(schema.catalogue_watermark).set({ updatedAt: future });
+    await expect(
+      database.transaction(async (tx) => {
+        await tx.insert(schema.books).values({ code: 'ROLLBACK', eng_display_name: 'Rollback' });
+        throw new Error('rollback');
+      })
+    ).rejects.toThrow('rollback');
+    const [state] = await database.select().from(schema.catalogue_watermark);
+    expect(state!.updatedAt).toEqual(future);
+    const [first] = await database
+      .insert(schema.books)
+      .values({ code: 'A', eng_display_name: 'A' })
+      .returning();
+    const [second] = await database
+      .insert(schema.books)
+      .values({ code: 'B', eng_display_name: 'B' })
+      .returning();
+    expect(first!.updatedAt!.getTime()).toBe(future.getTime() + 1);
+    expect(second!.updatedAt!.getTime()).toBe(first!.updatedAt!.getTime() + 1);
+    const incremental = await booksRepo.getAll(first!.updatedAt!);
+    expect(incremental.ok && incremental.data.map((row) => row.code)).toEqual(['A', 'B']);
   });
 
   it('books upsert does not stamp updatedAt on unchanged re-sync but still links', async () => {
