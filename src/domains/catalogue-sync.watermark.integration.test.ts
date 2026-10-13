@@ -173,6 +173,86 @@ describe('catalogue sync watermarks (PGlite)', () => {
       }
     });
 
+    it.each(['externalId', 'provider', 'displayName'] as const)(
+      'bumps all affected bibles when %s changes',
+      async (field) => {
+        const [language] = await database
+          .insert(schema.languages)
+          .values({ langName: 'English' })
+          .returning();
+        const [resource] = await database
+          .insert(schema.bible_provider_resources)
+          .values({
+            provider: 'dbl',
+            externalId: 'old-text',
+            displayName: 'Old label',
+          })
+          .returning();
+        const linked = await database
+          .insert(schema.bibles)
+          .values([
+            { languageId: language!.id, name: 'Old', abbreviation: 'OLD', externalId: 'old-text' },
+            { languageId: language!.id, name: 'New', abbreviation: 'NEW', externalId: 'new-text' },
+            {
+              languageId: language!.id,
+              name: 'Audio',
+              abbreviation: 'AUD',
+              audioResourceId: resource!.id,
+            },
+            {
+              languageId: language!.id,
+              name: 'Unrelated',
+              abbreviation: 'NON',
+              externalId: 'unrelated',
+            },
+          ])
+          .returning();
+        const change =
+          field === 'externalId'
+            ? { externalId: 'new-text' }
+            : field === 'provider'
+              ? { provider: 'aquifer' as const }
+              : { displayName: 'New label' };
+        // `now()` is millisecond-resolution; wait so the trigger stamp advances.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await database
+          .update(schema.bible_provider_resources)
+          .set(change)
+          .where(eq(schema.bible_provider_resources.id, resource!.id));
+        const after = await database.select().from(schema.bibles);
+        for (const before of linked) {
+          const updated = after.find((row) => row.id === before.id)!;
+          const shouldBump =
+            before.abbreviation === 'OLD' ||
+            before.abbreviation === 'AUD' ||
+            (field === 'externalId' && before.abbreviation === 'NEW');
+          if (shouldBump)
+            expect(updated.updatedAt!.getTime()).toBeGreaterThan(before.updatedAt!.getTime());
+          else expect(updated.updatedAt).toEqual(before.updatedAt);
+        }
+        // Repeating the same identity/display update is a no-op.
+        await database
+          .update(schema.bible_provider_resources)
+          .set(change)
+          .where(eq(schema.bible_provider_resources.id, resource!.id));
+        expect(await database.select().from(schema.bibles)).toEqual(after);
+        if (field === 'provider') {
+          // Moving back into DBL also invalidates the new text identity.
+          await database
+            .update(schema.bible_provider_resources)
+            .set({ provider: 'dbl' })
+            .where(eq(schema.bible_provider_resources.id, resource!.id));
+          const [restored] = await database
+            .select()
+            .from(schema.bibles)
+            .where(eq(schema.bibles.abbreviation, 'OLD'));
+          expect(restored!.updatedAt!.getTime()).toBeGreaterThan(
+            after.find((row) => row.abbreviation === 'OLD')!.updatedAt!.getTime()
+          );
+        }
+      }
+    );
+
     it('does not bump on unchanged license UPDATE', async () => {
       const [language] = await database
         .insert(schema.languages)

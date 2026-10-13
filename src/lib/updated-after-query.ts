@@ -23,6 +23,7 @@ export const updatedAfterQuerySchema = z
     message: 'updatedAfter must be an ISO-8601 date-time with an explicit time zone',
   })
   .transform((value) => new Date(value))
+  .pipe(z.date())
   .optional()
   .openapi({
     param: { name: 'updatedAfter', in: 'query', required: false },
