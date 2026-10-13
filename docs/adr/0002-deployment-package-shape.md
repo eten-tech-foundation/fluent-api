@@ -13,6 +13,14 @@ Node resolves bare specifiers by walking up the directory tree, so
 `WEBSITE_RUN_FROM_PACKAGE=1` (zip mounted directly, no extraction), deploys
 become upload + swap instead of upload + extract + swap.
 
+**Required companion setting:** `settings.job` sets `is_in_place: true`.
+Without it Kudu shadow-copies the job to `/tmp/jobs/continuous/worker/<rand>/`
+before running — verified on Linux in the dev job log, where stack traces show
+modules loading from `/tmp/jobs/continuous/worker/ytlkidtf.gtz/...`. From that
+temp path the parent chain is `…/worker/<rand> → worker → continuous → jobs →
+/tmp → /`, which never reaches `wwwroot/node_modules`. In-place execution is
+what makes the upward-resolution design hold at runtime.
+
 **Consequences:** `wwwroot` is read-only under run-from-package — nothing in the
 API or worker may write beneath it (verified: exports stream to R2, no temp
 files). A future change that _does_ need local scratch space must use

@@ -81,6 +81,11 @@ try {
 
 const settings = {
   is_singleton: true,
+  // Required for the shared-node_modules layout above: without is_in_place,
+  // Kudu shadow-copies the job to /tmp/jobs/continuous/worker/<rand>/ before
+  // running (verified in the dev job log's stack traces), and upward module
+  // resolution from there never reaches wwwroot/node_modules.
+  is_in_place: true,
   stopping_wait_time: 60,
 };
 
