@@ -91,6 +91,7 @@ export const ErrorCode = {
   // DBL upstream errors
   DBL_SERVICE_UNAVAILABLE: 'DBL_SERVICE_UNAVAILABLE',
   DBL_NOT_CONFIGURED: 'DBL_NOT_CONFIGURED',
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL_AUDIO_CHAPTER_NOT_FOUND',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
@@ -145,6 +146,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   YOUVERSION_SERVICE_UNAVAILABLE: 'YouVersion service is unavailable',
   DBL_SERVICE_UNAVAILABLE: 'DBL API is unavailable',
   DBL_NOT_CONFIGURED: 'DBL API key is not configured',
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL audio chapter not found',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
 };
@@ -162,6 +164,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   YOUVERSION_SERVICE_UNAVAILABLE: 502,
   DBL_SERVICE_UNAVAILABLE: 502,
   DBL_NOT_CONFIGURED: 503,
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 404,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,

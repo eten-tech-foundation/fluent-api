@@ -58,6 +58,13 @@ async function loadConfig(envName: EnvName): Promise<EnvConfig> {
 async function setup() {
   const envName = resolveEnvName();
   const config = await loadConfig(envName);
+  const localProjectManager =
+    envName === 'local'
+      ? config.seedUsers.find((user) => user.role === 'project_manager')
+      : undefined;
+  if (envName === 'local' && !localProjectManager) {
+    throw new Error('Audio demo needs a configured local project manager.');
+  }
 
   console.log('╔═══════════════════════════════════════╗');
   console.log(`║   Fluent DB Setup — ${config.label.padEnd(17)}║`);
@@ -99,6 +106,8 @@ async function setup() {
     { seedBibles },
     { seedBibleTexts },
     { seedPericopeSets },
+    { seedBsbBibleTexts },
+    { seedAudioDemo },
   ] = await Promise.all([
     import('@/db/seeds/organizations'),
     import('@/db/seeds/roles'),
@@ -108,6 +117,8 @@ async function setup() {
     import('@/db/seeds/bibles'),
     import('@/db/seeds/bible-texts'),
     import('@/db/seeds/pericope-sets'),
+    import('@/db/seeds/bible-texts-bsb'),
+    import('@/db/seeds/audio-demo'),
   ]);
 
   // ── Reference / system data (same for every environment) ──────────────────
@@ -138,7 +149,9 @@ async function setup() {
 
   console.log('[8/9] Seeding bible texts and pericope sets...');
   await seedBibleTexts();
+  await seedBsbBibleTexts();
   await seedPericopeSets();
+  await seedAudioDemo(envName, config.orgName, localProjectManager?.email);
   console.log('');
 
   // ── Demo spec (env-specific) — users, grants, projects, milestones, etc. ──

@@ -58,6 +58,36 @@ describe('buildFeatures', () => {
     expect(features.aiSuggestions).toBe(false);
   });
 
+  it('honors an explicitly-set sourceAudio flag (true) regardless of AI wiring', () => {
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_AUDIO: true }));
+    expect(features.sourceAudio).toBe(true);
+  });
+
+  it('honors an explicitly-set sourceAudio flag (false) even when AI is wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_WIRED, EN_FEATURE_SOURCE_AUDIO: false }));
+    expect(features.sourceAudio).toBe(false);
+  });
+
+  it('keeps sourceAudio = false when unset even when AI is wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_WIRED }));
+    expect(features.sourceAudio).toBe(false);
+  });
+
+  it('keeps sourceAudio = false when unset and AI is not wired', () => {
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED }));
+    expect(features.sourceAudio).toBe(false);
+  });
+
+  it('resolves each flag independently — one set flag does not move the others', () => {
+    // Guards the registry against a copy-paste slip where two entries share an
+    // env key or a resolver: with AI unwired, forcing sourceAudio ON must leave the
+    // other AI-dependent flags at their safe-off default.
+    const features = buildFeatures(makeEnv({ ...AI_UNWIRED, EN_FEATURE_SOURCE_AUDIO: true }));
+    expect(features.sourceAudio).toBe(true);
+    expect(features.repeatedWordCheck).toBe(false);
+    expect(features.aiSuggestions).toBe(false);
+  });
+
   it('returns exactly the known flag keys — no extras, none missing', () => {
     const features = buildFeatures(makeEnv({ ...AI_WIRED }));
     expect(Object.keys(features).sort()).toEqual([...wireFeatureKeys].sort());

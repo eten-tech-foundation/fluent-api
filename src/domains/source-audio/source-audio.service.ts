@@ -22,6 +22,12 @@ import type {
   SourceAudioResponse,
 } from './source-audio.types';
 
+import * as repo from './source-audio.repository';
+
+export function isBibleBookLinkedToProject(projectId: number, bibleId: number, bookCode: string) {
+  return repo.isBibleBookLinkedToProject(projectId, bibleId, bookCode);
+}
+
 interface SourceAudioVerseTimestamp {
   verse: number;
   startSeconds?: number;
