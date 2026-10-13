@@ -169,6 +169,17 @@ describe('workflow stages service (PGlite integration)', () => {
       }
     });
 
+    it('rejects adding a stage with a duplicate custom name even with surrounding whitespace', async () => {
+      await seedProject();
+      await seedDefaultStages(PROJECT_ID);
+
+      const result = await addStage(PROJECT_ID, '  Community Review  ');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
+      }
+    });
+
     it('rejects adding a stage when 10 configurable stages limit is reached', async () => {
       await seedProject();
       await seedDefaultStages(PROJECT_ID);
@@ -234,6 +245,23 @@ describe('workflow stages service (PGlite integration)', () => {
       const communityStage = rows.find((r) => r.defaultName === 'community_review')!;
 
       const result = await renameStage(PROJECT_ID, communityStage.id, 'Drafting');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
+      }
+    });
+
+    it('rejects renaming to duplicate name even with surrounding whitespace', async () => {
+      await seedProject();
+      await seedDefaultStages(PROJECT_ID);
+
+      const rows = await database
+        .select()
+        .from(project_workflow_stages)
+        .where(eq(project_workflow_stages.projectId, PROJECT_ID));
+      const communityStage = rows.find((r) => r.defaultName === 'community_review')!;
+
+      const result = await renameStage(PROJECT_ID, communityStage.id, '  Drafting  ');
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);

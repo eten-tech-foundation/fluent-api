@@ -68,8 +68,10 @@ function toResponse(stage: StageRow, lockedDefaultNames: string[]): WorkflowStep
 }
 
 function hasDuplicateName(stages: StageRow[], displayName: string, ignoreStageId?: number) {
-  const wanted = displayName.toLowerCase();
-  return stages.some((s) => s.id !== ignoreStageId && s.displayName.toLowerCase() === wanted);
+  const wanted = displayName.trim().toLowerCase();
+  return stages.some(
+    (s) => s.id !== ignoreStageId && s.displayName.trim().toLowerCase() === wanted
+  );
 }
 
 // ─── Read ────────────────────────────────────────────────────────────────────
@@ -114,9 +116,9 @@ export async function addStage(
         return err(ErrorCode.WORKFLOW_STAGE_LIMIT_REACHED);
       }
 
-      let finalDisplayName = displayName;
+      let finalDisplayName = displayName.trim();
       if (
-        finalDisplayName.trim().toLowerCase() === 'new stage' &&
+        finalDisplayName.toLowerCase() === 'new stage' &&
         hasDuplicateName(stages, finalDisplayName)
       ) {
         let counter = 2;
@@ -173,11 +175,12 @@ export async function renameStage(
       if (stage.defaultName === START_STAGE || stage.defaultName === END_STAGE) {
         return err(ErrorCode.WORKFLOW_STAGE_FIXED);
       }
-      if (hasDuplicateName(stages, displayName, stageId)) {
+      const trimmedName = displayName.trim();
+      if (hasDuplicateName(stages, trimmedName, stageId)) {
         return err(ErrorCode.WORKFLOW_STAGE_DUPLICATE_NAME);
       }
 
-      const renamedStage = await repo.renameWorkflowStage(stageId, displayName, tx);
+      const renamedStage = await repo.renameWorkflowStage(stageId, trimmedName, tx);
       return ok(renamedStage);
     });
 

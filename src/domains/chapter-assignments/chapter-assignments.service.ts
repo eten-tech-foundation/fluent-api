@@ -296,7 +296,8 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
     const projectId = await repo.findProjectIdByUnitId(initial.projectUnitId, tx);
     if (!projectId) return err(ErrorCode.INTERNAL_ERROR);
 
-    await lockProject(tx, projectId);
+    const lockResult = await lockProject(tx, projectId);
+    if (!lockResult.ok) return lockResult;
 
     // Refresh assignment after lock to avoid stale status under concurrency.
     const current = await repo.findById(chapterAssignmentId, tx);
