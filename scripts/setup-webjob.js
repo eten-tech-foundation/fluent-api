@@ -77,7 +77,6 @@ try {
 }
 
 const settings = {
-  is_singleton: true,
   stopping_wait_time: 60,
 };
 
