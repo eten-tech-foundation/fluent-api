@@ -199,10 +199,7 @@ async function seedSpecBibles(ctx: Ctx) {
     } else if (spec.externalId !== undefined && bible.externalId !== spec.externalId) {
       // Spec-provided externalId wins on reconcile; an omitted spec value
       // leaves whatever the row already has.
-      await db
-        .update(bibles)
-        .set({ externalId: spec.externalId })
-        .where(eq(bibles.id, bible.id));
+      await db.update(bibles).set({ externalId: spec.externalId }).where(eq(bibles.id, bible.id));
     }
     ctx.bibles.set(spec.abbreviation, bible.id);
 
