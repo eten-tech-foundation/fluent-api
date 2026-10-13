@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
 import {
@@ -150,4 +151,27 @@ export async function seedAudioDemo(
     // Reruns retain assignment ownership, progress and the suggestion toggle, not just verse IDs.
     console.log(`Audio demo ready: project ${project.id}, BSB John 3 (local only).`);
   });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const main = async () => {
+    // Audio demo is local-only — load the local env-config for the org name
+    // and the spec's Project Manager, the same lookup setup.ts performs.
+    const { config } = await import('@/db/env-configs/local');
+    const { applyDatabaseUrl } = await import('@/db/env-configs/database-url');
+    const { findSpecProjectManager } = await import('@/db/seeds/demo');
+    const maskedUrl = applyDatabaseUrl(config);
+    if (!maskedUrl) {
+      console.error('❌  No DATABASE_URL for local — compose injects it inside the container.');
+      process.exit(1);
+    }
+    const pm = findSpecProjectManager(config.demoSpec);
+    await seedAudioDemo('local', config.orgName, pm?.email);
+  };
+  main()
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
 }

@@ -30,6 +30,7 @@ import { execSync } from 'node:child_process';
 import type { EnvConfig } from '@/db/env-configs/types';
 
 import { applyDatabaseUrl } from '@/db/env-configs/database-url';
+import { findSpecProjectManager } from '@/db/seeds/demo';
 
 // ─── 1. Resolve the target environment ───────────────────────────────────────
 
@@ -59,9 +60,7 @@ async function setup() {
   const envName = resolveEnvName();
   const config = await loadConfig(envName);
   const localProjectManager =
-    envName === 'local'
-      ? config.seedUsers.find((user) => user.role === 'project_manager')
-      : undefined;
+    envName === 'local' ? findSpecProjectManager(config.demoSpec) : undefined;
   if (envName === 'local' && !localProjectManager) {
     throw new Error('Audio demo needs a configured local project manager.');
   }

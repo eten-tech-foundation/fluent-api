@@ -12,12 +12,17 @@ import type { EnvConfig } from '@/db/env-configs/types';
 
 import { applyDatabaseUrl } from '@/db/env-configs/database-url';
 
-import type { DemoSpec } from './types';
+import type { DemoSpec, DemoUser } from './types';
 
 export { devSpec } from './dev-spec';
 export { buildGrantPlan, isStaleProjectRoleGrant } from './grants';
 export { spread } from './spread';
 export * from './types';
+
+/** The spec user carrying a `Project Manager` project role — the local PM. */
+export function findSpecProjectManager(spec: DemoSpec | undefined): DemoUser | undefined {
+  return spec?.users.find((u) => u.projectRoles?.some((r) => r.role === 'Project Manager'));
+}
 
 export async function seedDemoSpec(spec: DemoSpec): Promise<void> {
   const { seedDemoSpec: impl } = await import('./engine');
