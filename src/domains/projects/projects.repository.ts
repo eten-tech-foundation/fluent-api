@@ -6,10 +6,10 @@ import { db } from '@/db';
 import {
   bible_books,
   chapter_assignments,
-  chapterStatusEnum,
   project_unit_bible_books,
   project_unit_usfm_imports,
   project_units,
+  project_workflow_stages,
   projects,
   roles,
   user_roles,
@@ -29,32 +29,95 @@ import type {
 } from './projects.types';
 
 import { baseJoinQuery } from './projects.query-builder';
+import { DEFAULT_WORKFLOW } from './workflow-stages/workflow-stages.constants';
+import { getLockedDefaultNamesByProjectIds } from './workflow-stages/workflow-stages.repository';
 
-const formatLabel = (str: string) =>
-  str
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-
-const WORKFLOW_DEFINITION: WorkflowStep[] = chapterStatusEnum.enumValues.map((status) => ({
-  id: status,
-  label: formatLabel(status),
+const WORKFLOW_DEFINITION: WorkflowStep[] = DEFAULT_WORKFLOW.map((stage) => ({
+  id: stage.defaultName,
+  label: stage.displayName,
+  isLocked: false,
 }));
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
-export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
+export function mapToProjectWithLanguages(
+  rawProject: RawProjectRow,
+  stages: WorkflowStep[] = WORKFLOW_DEFINITION,
+  defaultCounts: ChapterStatusCounts = Object.fromEntries(
+    DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0])
+  )
+): ProjectWithLanguageNames {
   const { counts, milestoneCount, ...rest } = rawProject;
-  const defaultCounts = chapterStatusEnum.enumValues.reduce((acc, status) => {
-    acc[status] = 0;
-    return acc;
-  }, {} as ChapterStatusCounts);
-
   return {
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
     milestoneCount: milestoneCount ?? 0,
-    workflowConfig: WORKFLOW_DEFINITION,
+    workflowConfig: stages,
   };
+}
+
+export async function populateWorkflowStages(
+  projects: ProjectWithLanguageNames[]
+): Promise<ProjectWithLanguageNames[]> {
+  if (projects.length === 0) return projects;
+  const projectIds = projects.map((p) => p.id);
+  const stages = await db
+    .select()
+    .from(project_workflow_stages)
+    .where(inArray(project_workflow_stages.projectId, projectIds))
+    .orderBy(project_workflow_stages.position);
+
+  // Load lock state in one batch query.
+  const lockedByProject = await getLockedDefaultNamesByProjectIds(projectIds);
+
+  const stagesByProject = new Map<number, WorkflowStep[]>();
+  // Also track the default status-count map per project from its own stages.
+  const defaultCountsByProject = new Map<number, ChapterStatusCounts>();
+
+  for (const stage of stages) {
+    if (!stagesByProject.has(stage.projectId)) {
+      stagesByProject.set(stage.projectId, []);
+      defaultCountsByProject.set(stage.projectId, {});
+    }
+    const lockedNames = lockedByProject.get(stage.projectId) ?? [];
+    stagesByProject.get(stage.projectId)!.push({
+      id: stage.defaultName,
+      label: stage.displayName,
+      stageId: stage.id,
+      position: stage.position,
+      isFixed: stage.isFixed,
+      isLocked: lockedNames.includes(stage.defaultName),
+    });
+    // Zero-fill from the project's own stage list.
+    defaultCountsByProject.get(stage.projectId)![stage.defaultName] = 0;
+  }
+
+  return projects.map((p) => {
+    const workflowConfig = stagesByProject.get(p.id) ?? WORKFLOW_DEFINITION;
+    const defaultCounts =
+      defaultCountsByProject.get(p.id) ??
+      Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+    const allowedStageIds = new Set(workflowConfig.map((s) => s.id));
+    const mergedCounts: ChapterStatusCounts = { ...defaultCounts };
+    if (p.chapterStatusCounts) {
+      for (const [k, v] of Object.entries(p.chapterStatusCounts)) {
+        if (allowedStageIds.has(k)) {
+          mergedCounts[k] = v;
+        } else if (v > 0) {
+          logger.warn(
+            { projectId: p.id, status: k, count: v },
+            'Project chapterStatusCounts contains non-zero count for status not in workflow stages; dropping from response'
+          );
+        }
+      }
+    }
+
+    return {
+      ...p,
+      workflowConfig,
+      chapterStatusCounts: mergedCounts,
+    };
+  });
 }
 
 // Repository functions
@@ -64,7 +127,7 @@ export async function getByOrganization(
 ): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
     const rawProjects = await baseJoinQuery().where(eq(projects.organization, organizationId));
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rawProjects.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({
       cause: error,
@@ -78,7 +141,7 @@ export async function getByOrganization(
 export async function getAllProjects(): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
     const rawProjects = await baseJoinQuery();
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rawProjects.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all projects' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -95,7 +158,7 @@ export async function findByOrgIdsOrProjectIds(
     if (orgIds.length) conditions.push(inArray(projects.organization, orgIds));
     if (projectIds.length) conditions.push(inArray(projects.id, projectIds));
     const rows = await baseJoinQuery().where(or(...conditions));
-    return ok(rows.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rows.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to find projects for user' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -153,7 +216,9 @@ export async function getByUserId(
     for (const row of rawProjects) {
       if (!seen.has(row.id)) seen.set(row.id, row);
     }
-    return ok([...seen.values()].map(mapToProjectWithLanguages));
+    return ok(
+      await populateWorkflowStages([...seen.values()].map((p) => mapToProjectWithLanguages(p)))
+    );
   } catch (error) {
     logger.error({
       cause: error,
@@ -168,7 +233,8 @@ export async function getById(id: number): Promise<Result<ProjectWithLanguageNam
   try {
     const rawProjects = await baseJoinQuery().where(eq(projects.id, id)).limit(1);
     if (rawProjects.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
-    return ok(mapToProjectWithLanguages(rawProjects[0]));
+    const populated = await populateWorkflowStages([mapToProjectWithLanguages(rawProjects[0])]);
+    return ok(populated[0]);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get project by ID', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);

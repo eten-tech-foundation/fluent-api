@@ -3,10 +3,8 @@
 -- observes them. Text identity: DBL provider + external_id. Recording selection:
 -- audio_resource_id (selectedRecordingKey changes advance via bibles.$onUpdate).
 --
--- Migration chain note: this PR claims 0035 (+ meta/0035_snapshot.json journal
--- entry). Sibling #391 currently reserves 0037 for verse-audio range metadata —
--- before land, rebase if main has claimed 0035/0036 and keep the snapshot/journal
--- chain contiguous with whatever landed first.
+-- Migration chain note: numbered 0037 after main claimed 0034 (conflict resolved)
+-- and 0035 (dynamic workflow stages). Companion books timestamps live in 0036.
 CREATE OR REPLACE FUNCTION bump_linked_bibles_on_provider_resource_license()
 RETURNS trigger AS $$
 BEGIN

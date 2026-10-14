@@ -44,7 +44,7 @@ describe('catalogue sync watermarks (PGlite)', () => {
     // Production invariant (migration 0035): INSERT/UPDATE of license/display
     // columns bumps linked bibles.updated_at for any SQL/ORM writer.
     const triggerSql = readFileSync(
-      join(migrationDir, '0035_bump_bibles_on_provider_resource_license.sql'),
+      join(migrationDir, '0037_bump_bibles_on_provider_resource_license.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(triggerSql);

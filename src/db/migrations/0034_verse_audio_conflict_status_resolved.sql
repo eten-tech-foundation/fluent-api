@@ -1,0 +1,1 @@
+ALTER TYPE "public"."verse_audio_conflict_status" ADD VALUE 'resolved';
