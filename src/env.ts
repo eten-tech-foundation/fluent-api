@@ -43,6 +43,14 @@ const envBool = () =>
     return z.NEVER;
   });
 
+// Assistant wiring is intentionally parsed as permissive raw text here. A bad optional
+// Assistant value must disable only Assistant, never prevent unrelated API routes from booting.
+// Complete validation and defaults live at the Assistant domain boundary.
+const optionalAssistantValue = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() || undefined);
+
 const EnvBaseSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
@@ -181,6 +189,21 @@ const EnvBaseSchema = z.object({
   DBL_API_KEY: z.string().optional().default(''),
   // Per-request timeout (ms) for calls to the DBL/API.Bible client.
   DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+  // Direct BT Servant integration for the requested/read-only Assistant briefing.
+  // All are optional so unrelated API routes keep booting when Assistant is unwired.
+  BT_SERVANT_BASE_URL: optionalAssistantValue,
+  BT_SERVANT_ENGINE_KEY: optionalAssistantValue,
+  BT_SERVANT_ORG: optionalAssistantValue,
+  ASSISTANT_LANGUAGES_JSON: optionalAssistantValue,
+  ASSISTANT_OPERATION_VERSION: optionalAssistantValue,
+  ASSISTANT_CACHE_EPOCH: optionalAssistantValue,
+  ASSISTANT_CONNECT_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_IDLE_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_TOTAL_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_MAX_INPUT_BYTES: optionalAssistantValue,
+  ASSISTANT_MAX_OUTPUT_BYTES: optionalAssistantValue,
+  ASSISTANT_MAX_FRAME_BYTES: optionalAssistantValue,
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated

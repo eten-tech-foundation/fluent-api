@@ -66,3 +66,22 @@ describe('r2 bucket names', () => {
     expect(result.data?.R2_AUDIO_BUCKET).toBe('fluent-audio-recordings-dev');
   });
 });
+
+describe('optional assistant wiring', () => {
+  it('keeps blank and malformed values raw so they cannot fail global API boot', () => {
+    const result = EnvSchema.safeParse({
+      ...baseEnv,
+      BT_SERVANT_BASE_URL: 'not a URL',
+      BT_SERVANT_ENGINE_KEY: ' ',
+      ASSISTANT_CONNECT_TIMEOUT_MS: '-5',
+      ASSISTANT_LANGUAGES_JSON: '{bad',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      BT_SERVANT_BASE_URL: 'not a URL',
+      ASSISTANT_CONNECT_TIMEOUT_MS: '-5',
+      ASSISTANT_LANGUAGES_JSON: '{bad',
+    });
+    expect(result.data?.BT_SERVANT_ENGINE_KEY).toBeUndefined();
+  });
+});
