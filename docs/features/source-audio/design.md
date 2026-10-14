@@ -13,7 +13,7 @@ Issue: [#282](https://github.com/eten-tech-foundation/fluent-api/issues/282)
 
 ### Resolution order (online playback)
 
-1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`. Each item and each `verseTimestamps` entry includes `dblAudioBibleId` so timings stay associated with their track (`bible.dblAudioBibleId` is the first track).
+1. **DBL** — when the Fluent bible is linked to DBL and audio bibles exist for the chapter. All DBL audio bibles for the chapter are returned as `items`. Each item and each `verseTimestamps` entry includes `dblAudioBibleId` so timings stay associated with their track (`bible.dblAudioBibleId` is the first track). DBL `start`/`end` strings and `verseId`s are parsed by the shared helper `src/lib/services/dbl/dbl.timecodes.ts` (also used by `/playback-audio`). Accepted clock shapes are provisional (`HH:MM:SS[.frac]`, `MM:SS[.frac]`, decimal seconds) until genuine API.Bible chapter responses with `timecodes` are captured; live DBL timecodes were absent in the measured catalogue (see Verification tiers). Chapters without parseable timecodes omit `verseTimestamps` — do not invent offsets.
 2. **Aquifer** — when DBL returns no tracks, or DBL is unavailable (`502`). Aquifer is matched by Fluent bible **abbreviation or name only** — never a language-default, first-catalogue, or sibling-edition fallback. If that exact matched edition reports `hasAudio: false`, the API returns empty `items` even if another edition in the language has audio.
 3. **Empty `items`** — when neither provider has audio, the Aquifer catalogue is empty, or no Aquifer bible matches (HTTP 200, not 404).
 

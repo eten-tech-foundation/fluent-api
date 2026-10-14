@@ -16,7 +16,29 @@ import {
 } from './chapter-assignments.service';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
-const mockTx = { _isMockTx: true } as any;
+const mockTx = {
+  _isMockTx: true,
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        orderBy: vi.fn(() => ({
+          then: (resolve: any) =>
+            resolve([
+              { defaultName: 'not_started', position: 0 },
+              { defaultName: 'draft', position: 1 },
+              { defaultName: 'peer_check', position: 2 },
+              { defaultName: 'community_review', position: 3 },
+              { defaultName: 'complete', position: 4 },
+            ]),
+        })),
+        for: vi.fn(() => ({
+          then: (resolve: any) => resolve([{ id: 1, projectId: 1 }]),
+        })),
+        then: (resolve: any) => resolve([{ projectId: 1 }]),
+      })),
+    })),
+  })),
+} as any;
 
 vi.mock('@/db', () => ({
   db: {
@@ -26,6 +48,7 @@ vi.mock('@/db', () => ({
 
 vi.mock('./chapter-assignments.repository', () => ({
   findById: vi.fn(),
+  findProjectIdByUnitId: vi.fn().mockResolvedValue(1),
   claimIfUnassigned: vi.fn(),
   flagClaimConflict: vi.fn(),
   insertStatusHistory: vi.fn(),
@@ -271,6 +294,7 @@ describe('submitChapterAssignment open Peer Check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx));
+    vi.mocked(repo.findProjectIdByUnitId).mockResolvedValue(1);
     vi.mocked(repo.getContent).mockResolvedValue({
       ok: true,
       data: { type: 'USJ', version: '0.0.1', content: [] },
@@ -297,7 +321,13 @@ describe('submitChapterAssignment open Peer Check', () => {
       expect(result.data.peerCheckerId).toBe(7);
       expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW);
     }
-    expect(repo.submitPeerCheckIfEligible).toHaveBeenCalledWith(1, 7, expect.any(Date), mockTx);
+    expect(repo.submitPeerCheckIfEligible).toHaveBeenCalledWith(
+      1,
+      7,
+      'community_review',
+      expect.any(Date),
+      mockTx
+    );
     expect(repo.insertUserAssignmentHistory).toHaveBeenCalledWith(
       mockTx,
       1,
@@ -333,6 +363,7 @@ describe('submitChapterAssignment open Peer Check', () => {
       status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
     };
     vi.mocked(repo.findById)
+      .mockResolvedValueOnce(peerCheckRecord)
       .mockResolvedValueOnce(peerCheckRecord)
       .mockResolvedValueOnce(currentAfterRace);
     vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(null);

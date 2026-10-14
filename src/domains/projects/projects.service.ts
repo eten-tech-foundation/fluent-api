@@ -20,6 +20,7 @@ import type {
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
 import * as usfmImportService from './usfm-import.service';
+import { seedDefaultStages } from './workflow-stages/workflow-stages.service';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
@@ -176,6 +177,8 @@ export async function createProject(
         { ...projectData, status: 'not_assigned' },
         tx
       );
+
+      await seedDefaultStages(project.id, tx);
 
       if (!createInitialUnit) return ok(project);
 

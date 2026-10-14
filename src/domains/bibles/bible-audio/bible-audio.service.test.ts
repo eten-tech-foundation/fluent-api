@@ -39,7 +39,13 @@ const BIBLE: Bible = {
   updatedAt: null,
 };
 
-const BOOK: Book = { id: 1, code: 'GEN', eng_display_name: 'Genesis' };
+const BOOK: Book = {
+  id: 1,
+  code: 'GEN',
+  eng_display_name: 'Genesis',
+  createdAt: null,
+  updatedAt: null,
+};
 
 const DBL_BIBLE = {
   id: 'ext-bible',

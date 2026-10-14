@@ -9,9 +9,9 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Provider, ProviderIdentity } from './bible-provider-resources.types';
 
-async function find(
-  where: ReturnType<typeof eq>
-): Promise<Result<typeof bible_provider_resources.$inferSelect | null>> {
+export type BibleProviderResource = typeof bible_provider_resources.$inferSelect;
+
+async function find(where: ReturnType<typeof eq>): Promise<Result<BibleProviderResource | null>> {
   try {
     const [row] = await db.select().from(bible_provider_resources).where(where).limit(1);
     return ok(row ?? null);
@@ -35,7 +35,7 @@ export function getByProviderIdentity(provider: Provider, externalId: string) {
 }
 
 export async function getByIds(ids: number[]) {
-  if (ids.length === 0) return ok<(typeof bible_provider_resources.$inferSelect)[]>([]);
+  if (ids.length === 0) return ok<BibleProviderResource[]>([]);
   try {
     return ok(
       await db
@@ -50,7 +50,7 @@ export async function getByIds(ids: number[]) {
 }
 
 export async function getByProviderIdentities(identities: ProviderIdentity[]) {
-  if (identities.length === 0) return ok<(typeof bible_provider_resources.$inferSelect)[]>([]);
+  if (identities.length === 0) return ok<BibleProviderResource[]>([]);
   try {
     return ok(
       await db
