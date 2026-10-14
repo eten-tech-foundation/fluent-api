@@ -215,6 +215,118 @@ describe('claimChapterAssignment', () => {
     }
   });
 
+  it('does not return ghost success when flag CAS misses after delete', async () => {
+    const stale = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(stale).mockResolvedValueOnce(null);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+  });
+
+  it('treats PM reassignment to the claimant as idempotent when flag CAS misses and status stays DRAFT', async () => {
+    const priorRival = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const nowMineDraft = {
+      ...priorRival,
+      assignedUserId: 5,
+      peerCheckerId: 88,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(nowMineDraft);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.assignedUserId).toBe(5);
+      expect(result.data.peerCheckerId).toBe(88);
+      expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.DRAFT);
+      expect(result.data.hasClaimConflict).toBe(false);
+    }
+  });
+
+  it('returns 404 when early read shows caller owns non-DRAFT (not same-user idempotent)', async () => {
+    const mineAdvanced = {
+      ...baseRecord,
+      assignedUserId: 5,
+      peerCheckerId: 88,
+      status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValue(mineAdvanced);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+    expect(repo.flagClaimConflict).not.toHaveBeenCalled();
+  });
+
+  it('returns not found when flag CAS misses because the row left rival DRAFT', async () => {
+    const priorRival = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const advanced = {
+      ...priorRival,
+      status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+      peerCheckerId: 88,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(advanced);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+    expect(advanced.hasClaimConflict).toBe(false);
+  });
+
+  it('returns 404 when CAS miss reveals PM assigned caller and advanced past DRAFT', async () => {
+    const priorRival = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const mineAdvanced = {
+      ...priorRival,
+      assignedUserId: 5,
+      peerCheckerId: 88,
+      status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(mineAdvanced);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+  });
+
   it('handles two overlapping claim transactions with one winner and one conflict', async () => {
     let row: ChapterAssignmentRecord = { ...baseRecord };
 

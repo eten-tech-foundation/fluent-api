@@ -408,18 +408,37 @@ export async function claimChapterAssignment(id: number, userId: number) {
       const current = await repo.findById(id, tx);
       if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-      if (current.assignedUserId === userId) {
+      // Same-user idempotency matches policy.claim: DRAFT only. Same assignee on
+      // non-DRAFT is eligibility 404 (not a read-only claim success).
+      if (current.assignedUserId === userId && current.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
         return ok({
           response: toChapterAssignmentResponse(current),
           shouldTriggerAi: false,
         });
       }
+      if (current.assignedUserId === userId) {
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
 
       const flagged = await repo.flagClaimConflict(id, userId, tx);
-      return ok({
-        response: toChapterAssignmentResponse(flagged ?? current),
-        shouldTriggerAi: false,
-      });
+      if (flagged) {
+        return ok({
+          response: toChapterAssignmentResponse(flagged),
+          shouldTriggerAi: false,
+        });
+      }
+
+      // CAS miss after middleware snapshot: deleted, reassigned to caller as DRAFT,
+      // or no longer a rival DRAFT. Never return flagged ?? current (ghost 200).
+      const latest = await repo.findById(id, tx);
+      if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      if (latest.assignedUserId === userId && latest.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
+        return ok({
+          response: toChapterAssignmentResponse(latest),
+          shouldTriggerAi: false,
+        });
+      }
+      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     });
 
     if (!result.ok) {

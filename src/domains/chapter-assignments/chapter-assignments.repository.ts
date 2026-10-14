@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import type { Provider } from '@/domains/bible-provider-resources/bible-provider-resources.types';
@@ -432,9 +432,11 @@ export async function submitPeerCheckIfEligible(
 
 /**
  * Marks a durable claim conflict for the losing claimant.
- * Unconditionally sets `claimConflictUserId` to this caller (last-writer-wins on
- * the scalar conflict user). Does not change `assignedUserId`. There is no
- * first-conflict latch; a later eligible claimant replaces the prior conflict user.
+ * CAS: only a rival DRAFT (assigned to someone else) is eligible. When it matches,
+ * unconditionally sets `claimConflictUserId` to this caller (last-writer-wins on
+ * that scalar only; no first-conflict latch). Does not change `assignedUserId` or
+ * `peerCheckerId`. Returns null when the row is gone, reassigned to the caller,
+ * or no longer DRAFT — callers must not treat that as durable conflict success.
  */
 export async function flagClaimConflict(
   id: number,
@@ -444,7 +446,14 @@ export async function flagClaimConflict(
   const [updated] = await tx
     .update(chapter_assignments)
     .set({ hasClaimConflict: true, claimConflictUserId })
-    .where(eq(chapter_assignments.id, id))
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT),
+        isNotNull(chapter_assignments.assignedUserId),
+        ne(chapter_assignments.assignedUserId, claimConflictUserId)
+      )
+    )
     .returning();
   return updated ?? null;
 }

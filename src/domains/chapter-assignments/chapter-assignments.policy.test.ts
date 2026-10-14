@@ -47,6 +47,18 @@ describe('chapterAssignmentPolicy.claim', () => {
     ).toBe(true);
   });
 
+  it('denies same-user claim when status is no longer DRAFT', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: user.id,
+        peerCheckerId: 88,
+        status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+      })
+    ).toBe(false);
+  });
+
   it('allows a race loser when another translator recently claimed a draft without peer', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
