@@ -55,6 +55,14 @@ describe('editorStateResourcesSchema — Repeated Word Check extension', () => {
     expect(editorStateResourcesSchema.parse(withChecks)).toEqual(withChecks);
   });
 
+  it('accepts the Assistant left-panel tab', () => {
+    const withAssistant = {
+      ...CURRENT_EDITOR_STATE,
+      activeLeftTab: 'assistant' as const,
+    };
+    expect(editorStateResourcesSchema.parse(withAssistant)).toEqual(withAssistant);
+  });
+
   it('rejects an invalid activeLeftTab value', () => {
     expect(() =>
       editorStateResourcesSchema.parse({ ...LEGACY_EDITOR_STATE, activeLeftTab: 'nope' })

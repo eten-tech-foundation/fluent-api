@@ -883,8 +883,8 @@ export const editorStateResourcesSchema = z
     languageCode: z.string().min(1),
     tabStatus: z.boolean(),
     // ── Repeated Word Check additions (optional; old rows parse unchanged — no migration) ──
-    // Which left-panel tab is active (Resources vs Checks).
-    activeLeftTab: z.enum(['resources', 'checks']).optional(),
+    // Which left-panel tab is active (Resources, Checks, or Assistant).
+    activeLeftTab: z.enum(['resources', 'checks', 'assistant']).optional(),
     // Per-occurrence ignore rules for repeated-word findings, keyed by
     // "{snt_id}|{repeated_word}|{ordinal}" (see fluent-web useResolvedFindings).
     checkOccurrenceRules: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
