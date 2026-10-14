@@ -108,6 +108,11 @@ export async function addStage(
 
       const stages = await readStagesSeeded(tx, projectId);
 
+      const lockedDefaultNames = await repo.getLockedDefaultNames(projectId, tx);
+      if (lockedDefaultNames.includes(END_STAGE)) {
+        return err(ErrorCode.WORKFLOW_STAGE_LOCKED);
+      }
+
       // Count only configurable stages (exclude bookend not_started / complete).
       const configurableCount = stages.filter(
         (s) => s.defaultName !== START_STAGE && s.defaultName !== END_STAGE

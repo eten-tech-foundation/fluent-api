@@ -197,6 +197,36 @@ describe('workflow stages service (PGlite integration)', () => {
         expect(overflow.error.code).toBe(ErrorCode.WORKFLOW_STAGE_LIMIT_REACHED);
       }
     });
+
+    it('rejects adding a stage when Complete stage has been reached in status history', async () => {
+      await seedProject();
+      await seedDefaultStages(PROJECT_ID);
+
+      // Create milestone, assignment, and status history reaching 'complete'
+      await database.insert(schema.project_units).values({
+        id: 11,
+        projectId: PROJECT_ID,
+        name: 'Milestone 1',
+      });
+      await database.insert(schema.chapter_assignments).values({
+        id: 101,
+        projectUnitId: 11,
+        bibleId: 1,
+        bookId: 41,
+        chapterNumber: 1,
+        status: 'complete',
+      });
+      await database.insert(schema.chapter_assignment_status_history).values({
+        chapterAssignmentId: 101,
+        status: 'complete',
+      });
+
+      const result = await addStage(PROJECT_ID, 'Post Complete Check');
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.WORKFLOW_STAGE_LOCKED);
+      }
+    });
   });
 
   describe('renameStage', () => {
