@@ -83,6 +83,7 @@ vi.mock('drizzle-orm', async (importOriginal) => {
     and: vi.fn((...args) => args),
     or: vi.fn((...args) => args),
     isNull: vi.fn((col) => col),
+    isNotNull: vi.fn((col) => ['isNotNull', col]),
   };
 });
 
@@ -367,7 +368,7 @@ describe('chapter-assignments.repository claim helpers', () => {
   });
 
   describe('flagClaimConflict', () => {
-    it('sets hasClaimConflict and claimConflictUserId', async () => {
+    it('sets hasClaimConflict and claimConflictUserId under rival-DRAFT CAS predicates', async () => {
       const record = { id: 1, hasClaimConflict: true, claimConflictUserId: 5 };
       mockUpdateChain.returning.mockResolvedValueOnce([record]);
 
@@ -378,6 +379,52 @@ describe('chapter-assignments.repository claim helpers', () => {
         hasClaimConflict: true,
         claimConflictUserId: 5,
       });
+      expect(mockUpdateChain.where).toHaveBeenCalledWith([
+        [chapter_assignments.id, 1],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 5],
+      ]);
+      expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 5);
+    });
+
+    it('replaces claimConflictUserId on a later claimant (last-writer-wins; no first-conflict latch)', async () => {
+      mockUpdateChain.returning
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }])
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 11 }]);
+
+      await repo.flagClaimConflict(1, 5, mockTx());
+      await repo.flagClaimConflict(1, 11, mockTx());
+
+      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(1, {
+        hasClaimConflict: true,
+        claimConflictUserId: 5,
+      });
+      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(2, {
+        hasClaimConflict: true,
+        claimConflictUserId: 11,
+      });
+      // Rival-DRAFT CAS only — no latch on existing claimConflictUserId.
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(1, [
+        [chapter_assignments.id, 1],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 5],
+      ]);
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(2, [
+        [chapter_assignments.id, 1],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 11],
+      ]);
+    });
+
+    it('returns null when the rival-DRAFT CAS misses', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([]);
+
+      const result = await repo.flagClaimConflict(1, 5, mockTx());
+
+      expect(result).toBeNull();
     });
   });
 });

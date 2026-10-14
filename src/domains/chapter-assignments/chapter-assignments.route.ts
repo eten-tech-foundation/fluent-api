@@ -238,7 +238,7 @@ const claimChapterAssignmentRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       chapterAssignmentResponseSchema,
-      'Claim result (clean or conflicted)'
+      'Claim result: clean claim, same-user idempotent retry, or durable conflict (hasClaimConflict=true; claimConflictUserId=most recent losing claimant; assignedUserId unchanged)'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -246,7 +246,7 @@ const claimChapterAssignmentRoute = createRoute({
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
-      'Chapter assignment not found'
+      'Missing chapter assignment id, or claim denied for auth/role/non-DRAFT eligibility (not a claim-conflict signal)'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -255,7 +255,7 @@ const claimChapterAssignmentRoute = createRoute({
   },
   summary: 'Translator self-claim on first recording',
   description:
-    'Translator claims an unassigned chapter. Idempotent for the same user. If another user already claimed/was assigned concurrently, marks a durable claim conflict instead of rejecting or overwriting (fluent-mobile#268/#271).',
+    'Translator claims an unassigned chapter. Idempotent for the same user only while status remains DRAFT (no conflict write). If another user already holds the DRAFT (in-window race, late offline reconnect, or PM assign), returns 200 with durable hasClaimConflict and claimConflictUserId set to this losing claimant; a later eligible claimant replaces claimConflictUserId (last-writer-wins on that field only). Conflict persistence is CAS on rival DRAFT — stale middleware authorize after PM reassign-to-self+non-DRAFT / non-DRAFT / delete follows eligibility 404, not ghost 200. assignedUserId and peerCheckerId are never overwritten by claim. PM assign clears both conflict fields. True missing ids and non-conflict denials (PM claim, missing content:update, non-DRAFT including same assignee) return 404 — not a typed conflict (fluent-api#376, fluent-mobile#268/#271/#610).',
 });
 
 server.openapi(claimChapterAssignmentRoute, async (c) => {

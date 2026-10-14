@@ -32,9 +32,6 @@ export const CHAPTER_ASSIGNMENT_STATUS = {
 export type ChapterAssignmentStatus =
   (typeof CHAPTER_ASSIGNMENT_STATUS)[keyof typeof CHAPTER_ASSIGNMENT_STATUS];
 
-/** Max age of a rival claim (via `updated_at`) for the race-loser policy branch. */
-export const CLAIM_RACE_WINDOW_MS = 5 * 60 * 1000;
-
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
 export type ChapterAssignmentRecord = z.infer<typeof selectChapterAssignmentsSchema>;
