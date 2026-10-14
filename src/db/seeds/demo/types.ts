@@ -1,9 +1,5 @@
-import type {
-  chapterStatusEnum,
-  milestoneTypeEnum,
-  projectStatusEnum,
-  ttsLicenseStatusEnum,
-} from '@/db/schema';
+import type { milestoneTypeEnum, projectStatusEnum, ttsLicenseStatusEnum } from '@/db/schema';
+import type { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
 
 /**
  * Declarative demo-world spec, interpreted by `seedDemoSpec` in `engine.ts`.
@@ -13,7 +9,11 @@ import type {
  * writes are idempotent reconciles: create-if-missing, update-drifted-fields.
  */
 
-export type DemoChapterStatus = (typeof chapterStatusEnum.enumValues)[number];
+/**
+ * Chapter statuses are dynamic workflow-stage names (`varchar`), not a fixed
+ * enum — spec chapters use the canonical stage names from DEFAULT_WORKFLOW.
+ */
+export type DemoChapterStatus = (typeof DEFAULT_WORKFLOW)[number]['defaultName'];
 export type DemoMilestoneType = (typeof milestoneTypeEnum.enumValues)[number];
 export type DemoMilestoneStatus = (typeof projectStatusEnum.enumValues)[number];
 

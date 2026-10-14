@@ -14,10 +14,12 @@ import {
   pericope_sets,
   project_unit_bible_books,
   project_units,
+  project_workflow_stages,
   projects,
   roles,
   user_roles,
 } from '@/db/schema';
+import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
 
 import type { GrantPlan } from './grants';
 import type { DemoProject, DemoSpec, DemoUser } from './types';
@@ -405,11 +407,13 @@ async function seedSpecProjects(ctx: Ctx) {
         })
         .returning({ id: projects.id });
       ctx.projects.set(project.key, row.id);
+      await ensureWorkflowStages(row.id);
       console.log(`  project ${project.name}`);
       continue;
     }
 
     ctx.projects.set(project.key, existing.id);
+    await ensureWorkflowStages(existing.id);
     const drifted: Partial<typeof projects.$inferInsert> = {};
     if (existing.sourceBibleId !== sourceBibleId) drifted.sourceBibleId = sourceBibleId;
     if (existing.pericopeSetId !== pericopeSetId) drifted.pericopeSetId = pericopeSetId;
@@ -672,6 +676,28 @@ async function cleanupStaleGrants(ctx: Ctx) {
   if (deleted.length) {
     console.log(`  removed ${deleted.length} stale org-scoped project-role grant(s)`);
   }
+}
+
+/**
+ * Converges a project's workflow stages to the default set. Chapter statuses
+ * are validated against `project_workflow_stages` rows — the engine inserts
+ * `projects` directly (bypassing the repository path that creates them), so
+ * demo projects need the stages written here. `onConflictDoNothing` fills gaps
+ * without clobbering a stage the project has since customized.
+ */
+async function ensureWorkflowStages(projectId: number) {
+  await db
+    .insert(project_workflow_stages)
+    .values(
+      DEFAULT_WORKFLOW.map((s) => ({
+        projectId,
+        defaultName: s.defaultName,
+        displayName: s.displayName,
+        position: s.position,
+        isFixed: s.isFixed,
+      }))
+    )
+    .onConflictDoNothing();
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────
