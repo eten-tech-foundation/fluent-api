@@ -8,6 +8,12 @@ const IRV_BIBLE = {
   name: 'IRV Gujarati',
   abbreviation: 'IRV',
   languageCode: 'guj',
+  // API.Bible catalogue ids (public identifiers, not credentials): the text
+  // bible and its selected audio recording — real Gujarati IRV audio.
+  externalId: 'a3644a98420c2703-01',
+  audioExternalId: '2abea5341ec34814-01',
+  licenseNotice:
+    'Indian Revised Version (IRV) © 2019 Bridge Connectivity Solutions. CC BY-SA 4.0.',
 } as const;
 
 const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;
@@ -39,18 +45,60 @@ async function seedIrvGujarati() {
     throw new Error(`Language "${IRV_BIBLE.languageCode}" not found. Run seedLanguages first.`);
   }
 
-  // 2. Insert the bible (idempotent via unique abbreviation).
+  // 2. Provider-resource identities — the text row backs the TTS license
+  // gate (bibleKey lookups), the audio row is the selected recording.
+  await db
+    .insert(bible_provider_resources)
+    .values([
+      {
+        provider: 'dbl',
+        externalId: IRV_BIBLE.externalId,
+        ttsLicenseStatus: 'allowed',
+        licenseNotice: IRV_BIBLE.licenseNotice,
+        displayName: IRV_BIBLE.name,
+      },
+      {
+        provider: 'dbl',
+        externalId: IRV_BIBLE.audioExternalId,
+        ttsLicenseStatus: 'allowed',
+        licenseNotice: IRV_BIBLE.licenseNotice,
+        displayName: `${IRV_BIBLE.name} audio`,
+      },
+    ])
+    .onConflictDoNothing();
+
+  const [recording] = await db
+    .select()
+    .from(bible_provider_resources)
+    .where(
+      and(
+        eq(bible_provider_resources.provider, 'dbl'),
+        eq(bible_provider_resources.externalId, IRV_BIBLE.audioExternalId)
+      )
+    );
+  if (!recording) throw new Error('IRV audio recording resource missing');
+
+  // 3. Insert the bible (idempotent via unique abbreviation), then reconcile
+  // provider fields so rows created before these ids existed still converge.
   await db
     .insert(bibles)
     .values({
       name: IRV_BIBLE.name,
       abbreviation: IRV_BIBLE.abbreviation,
       languageId: language.id,
+      externalId: IRV_BIBLE.externalId,
+      hasAudio: true,
+      audioResourceId: recording.id,
     })
     .onConflictDoNothing({ target: bibles.abbreviation });
 
   const [bible] = await db
-    .select({ id: bibles.id })
+    .select({
+      id: bibles.id,
+      externalId: bibles.externalId,
+      hasAudio: bibles.hasAudio,
+      audioResourceId: bibles.audioResourceId,
+    })
     .from(bibles)
     .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
     .limit(1);
@@ -59,7 +107,22 @@ async function seedIrvGujarati() {
     throw new Error('IRV bible not found after insert.');
   }
 
-  // 3. Resolve GEN + EXO book ids.
+  if (
+    bible.externalId !== IRV_BIBLE.externalId ||
+    !bible.hasAudio ||
+    bible.audioResourceId !== recording.id
+  ) {
+    await db
+      .update(bibles)
+      .set({
+        externalId: IRV_BIBLE.externalId,
+        hasAudio: true,
+        audioResourceId: recording.id,
+      })
+      .where(eq(bibles.id, bible.id));
+  }
+
+  // 4. Resolve GEN + EXO book ids.
   const bookRows = await db
     .select({ id: books.id, code: books.code })
     .from(books)
@@ -89,7 +152,7 @@ async function seedIrvGujarati() {
     throw new Error(`Book(s) not found: ${missing.join(', ')}. Run seedBooks first.`);
   }
 
-  // 4. Link bible -> books (idempotent; table has no unique constraint).
+  // 5. Link bible -> books (idempotent; table has no unique constraint).
   const existingLinks = await db
     .select({ bookId: bible_books.bookId })
     .from(bible_books)
