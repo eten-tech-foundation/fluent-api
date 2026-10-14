@@ -246,6 +246,13 @@
       "when": 1791286548662,
       "tag": "0034_verse_audio_conflict_status_resolved",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791958111324,
+      "tag": "0035_add_dynamic_workflow_stages",
+      "breakpoints": true
     }
   ]
 }
