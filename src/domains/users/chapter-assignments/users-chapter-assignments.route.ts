@@ -14,6 +14,7 @@ import { server } from '@/server/server';
 import * as service from '../../projects/chapter-assignments/project-chapter-assignments.service';
 import * as usersChapterAssignmentsService from './users-chapter-assignments.service';
 import {
+  excludeProjectIdsQuerySchema,
   memberChapterAssignmentsResponseSchema,
   userChapterAssignmentsByUserResponseSchema,
 } from './users-chapter-assignments.types';
@@ -95,15 +96,7 @@ const getUserChapterAssignmentsRoute = createRoute({
         }),
     }),
     query: z.object({
-      excludeProjectIds: z
-        .string()
-        .optional()
-        .transform((val) => val?.split(',').map(Number).filter(Boolean) ?? [])
-        .openapi({
-          param: { name: 'excludeProjectIds', in: 'query', required: false },
-          description: 'Comma-separated list of project IDs to exclude',
-          example: '97,98',
-        }),
+      excludeProjectIds: excludeProjectIdsQuerySchema,
       updatedAfter: z
         .string()
         .optional()

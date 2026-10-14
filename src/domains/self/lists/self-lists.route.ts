@@ -7,6 +7,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 import * as chapterAssignmentsByUserService from '@/domains/projects/chapter-assignments/project-chapter-assignments.service';
 import * as userChapterAssignmentsService from '@/domains/users/chapter-assignments/users-chapter-assignments.service';
 import {
+  excludeProjectIdsQuerySchema,
   memberChapterAssignmentsResponseSchema,
   userChapterAssignmentsByUserResponseSchema,
 } from '@/domains/users/chapter-assignments/users-chapter-assignments.types';
@@ -115,15 +116,7 @@ const getSelfChapterAssignmentsAllRoute = createRoute({
   middleware: [authenticateUser] as const,
   request: {
     query: z.object({
-      excludeProjectIds: z
-        .string()
-        .optional()
-        .transform((val) => val?.split(',').map(Number).filter(Boolean) ?? [])
-        .openapi({
-          param: { name: 'excludeProjectIds', in: 'query', required: false },
-          description: 'Comma-separated list of project IDs to exclude',
-          example: '97,98',
-        }),
+      excludeProjectIds: excludeProjectIdsQuerySchema,
       updatedAfter: z
         .string()
         .optional()

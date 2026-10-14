@@ -192,6 +192,21 @@ describe('get /self list routes', () => {
     );
   });
 
+  it.each(['abc', '1,abc,2', '0', '-1', '1.5', '01', '97, 98', ''])(
+    'returns 400 when excludeProjectIds is %j on /self/chapter-assignments/all',
+    async (excludeProjectIds) => {
+      asAuthenticatedUser();
+
+      const res = await server.request(
+        `/self/chapter-assignments/all?excludeProjectIds=${encodeURIComponent(excludeProjectIds)}`,
+        { method: 'GET' }
+      );
+
+      expect(res.status).toBe(400);
+      expect(getChapterAssignmentsByUserId).not.toHaveBeenCalled();
+    }
+  );
+
   it('returns 200 empty assigned and peer-check chapters from /self/chapter-assignments', async () => {
     asAuthenticatedUser();
     vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(

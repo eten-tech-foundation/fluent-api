@@ -105,3 +105,14 @@ export const memberChapterAssignmentsResponseSchema = z.object({
   syncedAt: z.date(),
   data: memberChapterAssignmentResponseSchema.array(),
 });
+
+export const excludeProjectIdsQuerySchema = z
+  .string()
+  .regex(/^[1-9]\d*(,[1-9]\d*)*$/, 'excludeProjectIds must be comma-separated positive integers')
+  .optional()
+  .transform((val) => val?.split(',').map((id) => Number(id)) ?? [])
+  .openapi({
+    param: { name: 'excludeProjectIds', in: 'query', required: false },
+    description: 'Comma-separated list of project IDs to exclude',
+    example: '97,98',
+  });
