@@ -287,13 +287,13 @@ describe('verse-audio routes', () => {
     }
 
     beforeEach(() => {
-      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      asAuthenticatedUser([PERMISSIONS.CONTENT_ASSIGN]);
     });
 
-    it('returns the resolved recording', async () => {
+    it('returns the resolved recording for PM (CONTENT_ASSIGN)', async () => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue({
         ok: true,
-        data: { id: 1, activeTakeId: 11, conflictStatus: 'clean' } as any,
+        data: { id: 1, activeTakeId: 11, conflictStatus: 'resolved' } as any,
       });
 
       const res = await resolve();
@@ -304,18 +304,33 @@ describe('verse-audio routes', () => {
         bibleTextId: 10,
         takeId: 11,
       });
+      expect(await res.json()).toMatchObject({ conflictStatus: 'resolved' });
     });
 
-    it.each([[ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404]])(
-      'maps %s to %i',
-      async (code, status) => {
-        vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
+    it('returns 404 for an assigned translator with only CONTENT_UPDATE (spec #383)', async () => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      const res = await resolve();
+      expect(res.status).toBe(404);
+      expect(verseAudioService.resolveConflict).not.toHaveBeenCalled();
+    });
 
-        const res = await resolve();
+    it('returns 404 for an unauthenticated outsider', async () => {
+      asAuthenticatedUser([]); // no permissions at all
+      const res = await resolve();
+      expect(res.status).toBe(404);
+      expect(verseAudioService.resolveConflict).not.toHaveBeenCalled();
+    });
 
-        expect(res.status).toBe(status);
-      }
-    );
+    it.each([
+      [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
+      [ErrorCode.VERSE_AUDIO_NOT_IN_CONFLICT, 400],
+    ])('maps %s to %i', async (code, status) => {
+      vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(err(code));
+
+      const res = await resolve();
+
+      expect(res.status).toBe(status);
+    });
 
     it('returns 409 with currentVersionToken on version conflict', async () => {
       vi.mocked(verseAudioService.resolveConflict).mockResolvedValue(

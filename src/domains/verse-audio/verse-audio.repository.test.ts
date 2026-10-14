@@ -21,6 +21,9 @@ vi.mock('drizzle-orm', async (importOriginal) => {
   return {
     ...actual,
     eq: vi.fn((...args) => args),
+    ne: vi.fn((...args) => args),
+    and: vi.fn((...args) => args),
+    sql: vi.fn((...args) => args),
   };
 });
 
@@ -123,5 +126,77 @@ describe('verse-audio repository', () => {
     });
 
     expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
+  });
+
+  describe('markConflictPreservingActive', () => {
+    const mockRecord = {
+      id: 1,
+      projectUnitId: 10,
+      bibleTextId: 20,
+      uploadedBy: 1,
+      storageObjectId: 1,
+      contentType: 'audio/mp4',
+      sizeBytes: 100,
+      durationSeconds: 5,
+      versionToken: 3,
+      conflictStatus: 'conflict',
+      activeTakeId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    function mockSelect(record: any) {
+      const limit = vi.fn().mockResolvedValue(record ? [record] : []);
+      const where = vi.fn().mockReturnValue({ limit });
+      const innerJoin = vi.fn().mockReturnValue({ where });
+      const from = vi.fn().mockReturnValue({ innerJoin, where });
+      vi.mocked(db.select).mockReturnValue({ from } as any);
+    }
+
+    it('sets conflict status and advances version token when not resolved', async () => {
+      const returning = vi.fn().mockResolvedValue([{ id: 1, projectUnitId: 10, bibleTextId: 20 }]);
+      const where = vi.fn().mockReturnValue({ returning });
+      const set = vi.fn().mockReturnValue({ where });
+      vi.mocked(db.update).mockReturnValue({ set } as any);
+
+      mockSelect(mockRecord);
+
+      const result = await repo.markConflictPreservingActive(1);
+
+      expect(result).toEqual({ ok: true, data: mockRecord });
+      expect(set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conflictStatus: 'conflict',
+        })
+      );
+    });
+
+    it('preserves resolved status when conflictStatus was resolved', async () => {
+      // update returns empty array because where condition excluded 'resolved'
+      const returning = vi.fn().mockResolvedValue([]);
+      const where = vi.fn().mockReturnValue({ returning });
+      const set = vi.fn().mockReturnValue({ where });
+      vi.mocked(db.update).mockReturnValue({ set } as any);
+
+      const resolvedRecord = { ...mockRecord, conflictStatus: 'resolved' };
+      mockSelect(resolvedRecord);
+
+      const result = await repo.markConflictPreservingActive(1);
+
+      expect(result).toEqual({ ok: true, data: resolvedRecord });
+    });
+
+    it('returns 404 when recording does not exist', async () => {
+      const returning = vi.fn().mockResolvedValue([]);
+      const where = vi.fn().mockReturnValue({ returning });
+      const set = vi.fn().mockReturnValue({ where });
+      vi.mocked(db.update).mockReturnValue({ set } as any);
+
+      mockSelect(null);
+
+      const result = await repo.markConflictPreservingActive(1);
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
+    });
   });
 });
