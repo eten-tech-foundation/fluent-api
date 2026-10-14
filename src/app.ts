@@ -45,6 +45,7 @@ import '@/domains/self/milestones/self-milestones.route';
 import '@/domains/self/chapter-assignments/self-chapter-assignments.route';
 import '@/domains/aquifer-resources/aquifer-resources.route';
 import '@/domains/youversion/youversion.route';
+import '@/domains/assistant/assistant.route';
 configureOpenAPI(server);
 
 export default server;
