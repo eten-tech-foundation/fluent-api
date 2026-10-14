@@ -15,12 +15,15 @@ import { ErrorCode, getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
-import { requireVerseAudioAccess } from './verse-audio-auth.middleware';
+import {
+  requireEditVerseAudioAccess,
+  requireReadVerseAudioAccess,
+  requireResolveVerseAudioConflictAccess,
+} from './verse-audio-auth.middleware';
 import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
   resolveConflictBodySchema,
-  VERSE_AUDIO_ACTIONS,
   VERSE_AUDIO_ID_SOURCES,
   verseAudioListResponseSchema,
   verseAudioResponseSchema,
@@ -103,7 +106,7 @@ const uploadVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
     bodyLimit({
       maxSize: MAX_AUDIO_BYTES,
       onError: (c) => c.json({ message: 'Audio file exceeds the 30 MB limit' }, 413),
@@ -233,7 +236,7 @@ const getVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireReadVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,
@@ -277,7 +280,7 @@ const listVerseAudioRoute = createRoute({
   path: '/verse-audio',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.READ, VERSE_AUDIO_ID_SOURCES.QUERY),
+    requireReadVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.QUERY),
   ] as const,
   request: {
     query: z.object({
@@ -331,7 +334,7 @@ const resolveVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}/resolve',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireResolveVerseAudioConflictAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,
@@ -347,11 +350,11 @@ const resolveVerseAudioRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       verseAudioResponseSchema,
-      'Unit after designating the active take (conflict cleared)'
+      "Unit after designating the active take (conflictStatus set to 'resolved')"
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad request'),
-      'Invalid parameters'
+      "Invalid parameters, or the unit is not currently in conflict (conflictStatus must be 'conflict')"
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       verseAudioVersionConflictSchema,
@@ -361,7 +364,7 @@ const resolveVerseAudioRoute = createRoute({
   },
   summary: 'Resolve a verse-audio conflict by selecting the active take',
   description:
-    'Designates takeId as active via compare-and-swap on versionToken, clears conflictStatus, and advances the token. This is the only way a conflict is cleared; uploads never clear one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.',
+    "Designates takeId as active via compare-and-swap on versionToken, sets conflictStatus to 'resolved', and advances the token. The unit must currently have conflictStatus 'conflict'; resolving a clean or already-resolved unit returns 400. This is the only way a conflict is resolved; uploads never resolve one. Non-selected takes are retained until the unit has been settled for the take retention window. Returns 409 if another writer advanced the token first.",
 });
 
 server.openapi(resolveVerseAudioRoute, async (c) => {
@@ -392,7 +395,7 @@ const deleteVerseAudioRoute = createRoute({
   path: '/verse-audio/{projectUnitId}/{bibleTextId}',
   middleware: [
     authenticateUser,
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.PARAMS),
+    requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
   ] as const,
   request: {
     params: verseAudioParamsSchema,

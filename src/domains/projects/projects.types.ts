@@ -2,26 +2,17 @@ import { z } from '@hono/zod-openapi';
 
 import type { UsjVerseText } from '@/lib/usfm-converter';
 
-import {
-  chapterStatusEnum,
-  insertProjectsSchema,
-  patchProjectsClientSchema,
-  selectProjectsSchema,
-} from '@/db/schema';
+import { insertProjectsSchema, patchProjectsClientSchema, selectProjectsSchema } from '@/db/schema';
 
-export const chapterStatusCountsSchema = z.object(
-  chapterStatusEnum.enumValues.reduce(
-    (acc, status) => {
-      acc[status] = z.number().int().min(0);
-      return acc;
-    },
-    {} as Record<string, z.ZodNumber>
-  )
-);
+export const chapterStatusCountsSchema = z.record(z.number().int().min(0));
 
 export const workflowStepSchema = z.object({
   id: z.string(),
   label: z.string(),
+  stageId: z.number().int().optional(),
+  position: z.number().int().optional(),
+  isFixed: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
 });
 
 export const projectResponseSchema = selectProjectsSchema.openapi('Project');

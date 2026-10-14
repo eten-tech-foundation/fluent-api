@@ -22,6 +22,8 @@ export const ALLOWED_AUDIO_CONTENT_TYPES = new Set([
 export const VERSE_AUDIO_CONFLICT_STATUS = {
   CLEAN: 'clean',
   CONFLICT: 'conflict',
+  /** Conflict was resolved via POST /resolve — distinct from 'clean' (never conflicted). */
+  RESOLVED: 'resolved',
 } as const;
 
 export type VerseAudioConflictStatus =
@@ -154,7 +156,7 @@ export const verseAudioResponseSchema = z.object({
   sizeBytes: z.number().int(),
   durationSeconds: z.number().nullable(),
   versionToken: z.number().int(),
-  conflictStatus: z.enum(['clean', 'conflict']),
+  conflictStatus: z.enum(['clean', 'conflict', 'resolved']),
   activeTakeId: z.number().int().nullable(),
   verseNumber: z.number().int(),
   downloadUrl: z.string(),
@@ -186,13 +188,6 @@ export const verseAudioVersionConflictSchema = z.object({
 });
 
 // ── Const enumerations ───────────────────────────────────────────────────────
-
-export const VERSE_AUDIO_ACTIONS = {
-  READ: 'read',
-  EDIT: 'edit',
-} as const;
-
-export type VerseAudioAction = (typeof VERSE_AUDIO_ACTIONS)[keyof typeof VERSE_AUDIO_ACTIONS];
 
 export const VERSE_AUDIO_ID_SOURCES = {
   PARAMS: 'params',
