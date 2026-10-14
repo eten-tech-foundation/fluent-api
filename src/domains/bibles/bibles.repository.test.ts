@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { searchSourceBibles } from './bibles.repository';
+import { getAll, searchSourceBibles } from './bibles.repository';
 
 const { mockDb } = vi.hoisted(() => {
   const mockDb = { select: vi.fn() };
@@ -11,6 +11,31 @@ vi.mock('@/db', () => ({ db: mockDb }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('bibles.getAll', () => {
+  it('returns all bibles without a where clause when updatedAfter is omitted', async () => {
+    const rows = [{ id: 1, name: 'ESV', abbreviation: 'ESV', languageId: 1 }];
+    const fromFn = vi.fn().mockResolvedValue(rows);
+    mockDb.select.mockReturnValue({ from: fromFn });
+
+    const result = await getAll();
+
+    expect(result).toEqual({ ok: true, data: rows });
+    expect(fromFn).toHaveBeenCalled();
+  });
+
+  it('applies updatedAfter filter via where when provided', async () => {
+    const rows: unknown[] = [];
+    const whereFn = vi.fn().mockResolvedValue(rows);
+    const fromFn = vi.fn().mockReturnValue({ where: whereFn });
+    mockDb.select.mockReturnValue({ from: fromFn });
+
+    const result = await getAll(new Date('2025-01-01T00:00:00.000Z'));
+
+    expect(result).toEqual({ ok: true, data: [] });
+    expect(whereFn).toHaveBeenCalledOnce();
+  });
 });
 
 describe('searchSourceBibles', () => {

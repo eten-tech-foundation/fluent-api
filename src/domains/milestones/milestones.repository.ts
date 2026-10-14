@@ -10,14 +10,16 @@ import {
   bible_texts,
   books,
   chapter_assignments,
-  chapterStatusEnum,
   project_unit_bible_books,
   project_unit_usfm_imports,
   project_units,
+  project_workflow_stages,
   projects,
   translated_verses,
   verse_audio_recordings,
 } from '@/db/schema';
+import { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
+import { logger } from '@/lib/logger';
 
 import type {
   CreateMilestoneInput,
@@ -131,31 +133,57 @@ function milestoneSelect(conn: typeof db | DbTransaction = db) {
 
 type MilestoneSelectRow = Awaited<ReturnType<typeof milestoneSelect>>[number];
 
-function mapRow(row: MilestoneSelectRow): MilestoneRow {
-  const defaultCounts = chapterStatusEnum.enumValues.reduce(
-    (acc, status) => {
-      acc[status] = 0;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
+function mapRow(row: MilestoneSelectRow, defaultCounts?: Record<string, number>): MilestoneRow {
+  const counts =
+    defaultCounts ??
+    DEFAULT_WORKFLOW.reduce(
+      (acc, stage) => {
+        acc[stage.defaultName] = 0;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
+  const mergedCounts: Record<string, number> = { ...counts };
+  if (row.chapterStatusCounts) {
+    for (const [key, val] of Object.entries(row.chapterStatusCounts)) {
+      if (key in mergedCounts) {
+        mergedCounts[key] = val;
+      } else if (val > 0) {
+        logger.warn(
+          { milestoneId: row.id, projectId: row.projectId, status: key, count: val },
+          'Milestone chapterStatusCounts contains non-zero count for status not in workflow stages; dropping from response'
+        );
+      }
+    }
+  }
 
   return {
     ...row,
     bookCount: row.bookCount ?? 0,
     bookIds: row.bookIds ?? [],
-    chapterStatusCounts: {
-      ...defaultCounts,
-      ...(row.chapterStatusCounts || {}),
-    },
+    chapterStatusCounts: mergedCounts,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
   };
 }
 
 export async function listByProjectId(projectId: number): Promise<MilestoneRow[]> {
-  const rows = await milestoneSelect().where(eq(project_units.projectId, projectId));
-  return rows.map(mapRow);
+  const [rows, stages] = await Promise.all([
+    milestoneSelect().where(eq(project_units.projectId, projectId)),
+    db
+      .select({ defaultName: project_workflow_stages.defaultName })
+      .from(project_workflow_stages)
+      .where(eq(project_workflow_stages.projectId, projectId))
+      .orderBy(project_workflow_stages.position),
+  ]);
+
+  const defaultCounts: Record<string, number> =
+    stages.length > 0
+      ? Object.fromEntries(stages.map((s) => [s.defaultName, 0]))
+      : Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+  return rows.map((row) => mapRow(row, defaultCounts));
 }
 
 export async function listSummariesByProjectIds(
@@ -180,11 +208,24 @@ export async function getByIdForProject(
   tx?: DbTransaction
 ): Promise<MilestoneRow | null> {
   const conn = tx ?? db;
-  const rows = await milestoneSelect(conn).where(
-    and(eq(project_units.id, milestoneId), eq(project_units.projectId, projectId))
-  );
+  const [rows, stages] = await Promise.all([
+    milestoneSelect(conn).where(
+      and(eq(project_units.id, milestoneId), eq(project_units.projectId, projectId))
+    ),
+    conn
+      .select({ defaultName: project_workflow_stages.defaultName })
+      .from(project_workflow_stages)
+      .where(eq(project_workflow_stages.projectId, projectId))
+      .orderBy(project_workflow_stages.position),
+  ]);
   if (rows.length === 0) return null;
-  return mapRow(rows[0]);
+
+  const defaultCounts: Record<string, number> =
+    stages.length > 0
+      ? Object.fromEntries(stages.map((s) => [s.defaultName, 0]))
+      : Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+  return mapRow(rows[0], defaultCounts);
 }
 
 // Keep getMilestoneById for internal checks where only ID is known

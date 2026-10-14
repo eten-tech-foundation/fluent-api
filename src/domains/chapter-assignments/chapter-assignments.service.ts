@@ -3,6 +3,10 @@ import type { DbTransaction, Result } from '@/lib/types';
 import { db } from '@/db';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
+import {
+  lockProject,
+  readStagesSeeded,
+} from '@/domains/projects/workflow-stages/workflow-stages.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -286,39 +290,33 @@ export async function updateChapterAssignment(
 
 export async function submitChapterAssignment(chapterAssignmentId: number, userId: number) {
   const exec = async (tx: DbTransaction) => {
+    const initial = await repo.findById(chapterAssignmentId, tx);
+    if (!initial) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+    const projectId = await repo.findProjectIdByUnitId(initial.projectUnitId, tx);
+    if (!projectId) return err(ErrorCode.INTERNAL_ERROR);
+
+    const lockResult = await lockProject(tx, projectId);
+    if (!lockResult.ok) return lockResult;
+
+    // Refresh assignment after lock to avoid stale status under concurrency.
     const current = await repo.findById(chapterAssignmentId, tx);
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-    let nextStatus: ChapterAssignmentStatus;
-    let snapshotUser: number | null;
+    const stages = await readStagesSeeded(tx, projectId);
 
-    switch (current.status) {
-      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
-        snapshotUser = current.peerCheckerId ?? userId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
-        snapshotUser = current.assignedUserId;
-        break;
-      default:
-        return err(ErrorCode.INVALID_STATUS_TRANSITION);
+    const currentIndex = stages.findIndex((s) => s.defaultName === current.status);
+    if (currentIndex === -1 || currentIndex >= stages.length - 1) {
+      return err(ErrorCode.INVALID_STATUS_TRANSITION);
+    }
+
+    const nextStatus = stages[currentIndex + 1].defaultName as ChapterAssignmentStatus;
+
+    // Determine the snapshot user (who submitted it).
+    // For peer check, it's the peer checker. For everything else, it's the assigned drafter.
+    let snapshotUser = current.assignedUserId;
+    if (current.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK) {
+      snapshotUser = current.peerCheckerId ?? userId;
     }
 
     const contentResult = await repo.getContent(tx, current);
@@ -329,6 +327,7 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
       const updated = await repo.submitPeerCheckIfEligible(
         chapterAssignmentId,
         userId,
+        nextStatus,
         submittedTime,
         tx
       );

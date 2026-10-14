@@ -26,6 +26,7 @@ vi.mock('@/domains/bible-provider-resources/bible-provider-resources.service', (
   getByProviderIdentities: vi.fn(),
 }));
 
+const bibleUpdatedAt = new Date('2026-06-01T12:00:00.000Z');
 const bible = {
   id: 1,
   name: 'BSB',
@@ -36,7 +37,7 @@ const bible = {
   audioResourceId: 3,
   hasAudio: false,
   createdAt: null,
-  updatedAt: null,
+  updatedAt: bibleUpdatedAt,
 };
 const recording = {
   id: 3,
@@ -68,7 +69,12 @@ describe('source bootstrap policy identity', () => {
       const result = await getBibleById(1);
       expect(result).toMatchObject({
         ok: true,
-        data: { ttsLicenseStatus, textBibleKey: 'dbl-text-id', selectedRecordingKey: 'aq-1' },
+        data: {
+          ttsLicenseStatus,
+          textBibleKey: 'dbl-text-id',
+          selectedRecordingKey: 'aq-1',
+          updatedAt: '2026-06-01T12:00:00.000Z',
+        },
       });
       if (result.ok) expect(result.data).not.toHaveProperty('licenseNotice');
       expect(resources.getByProviderIdentities).not.toHaveBeenCalled();
@@ -166,25 +172,38 @@ describe('batched list enrichment', () => {
     expect(result).toMatchObject({
       ok: true,
       data: [
-        { id: 2, ttsLicenseStatus: 'forbidden', selectedRecordingKey: 'aq-1' },
+        {
+          id: 2,
+          ttsLicenseStatus: 'forbidden',
+          selectedRecordingKey: 'aq-1',
+          updatedAt: '2026-06-01T12:00:00.000Z',
+        },
         {
           id: 3,
           ttsLicenseStatus: 'unknown',
           textBibleKey: 'dbl-missing-text',
           selectedRecordingKey: null,
+          updatedAt: '2026-06-01T12:00:00.000Z',
         },
         {
           id: 5,
           ttsLicenseStatus: 'allowed',
           textBibleKey: 'dbl-other-text',
           selectedRecordingKey: 'yv-88',
+          updatedAt: '2026-06-01T12:00:00.000Z',
         },
-        { id: 1, ttsLicenseStatus: 'forbidden', selectedRecordingKey: 'aq-1' },
+        {
+          id: 1,
+          ttsLicenseStatus: 'forbidden',
+          selectedRecordingKey: 'aq-1',
+          updatedAt: '2026-06-01T12:00:00.000Z',
+        },
         {
           id: 4,
           ttsLicenseStatus: 'unknown',
           textBibleKey: null,
           selectedRecordingKey: null,
+          updatedAt: '2026-06-01T12:00:00.000Z',
         },
       ],
     });

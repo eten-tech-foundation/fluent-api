@@ -9,11 +9,12 @@ function toResponse(book: Book): BookResponse {
     id: book.id,
     code: book.code,
     eng_display_name: book.eng_display_name,
+    updatedAt: book.updatedAt?.toISOString() ?? null,
   };
 }
 
-export async function getAllBooks() {
-  const result = await repo.getAll();
+export async function getAllBooks(updatedAfter?: Date) {
+  const result = await repo.getAll(updatedAfter);
   if (!result.ok) return result;
   return ok(result.data.map(toResponse));
 }
