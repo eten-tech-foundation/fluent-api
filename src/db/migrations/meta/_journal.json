@@ -239,6 +239,13 @@
       "when": 1791286548661,
       "tag": "0033_add_bible_provider_resources",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791835658773,
+      "tag": "0037_add_verse_audio_range_metadata",
+      "breakpoints": true
     }
   ]
 }

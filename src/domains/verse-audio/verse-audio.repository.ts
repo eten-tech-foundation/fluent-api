@@ -8,15 +8,26 @@ import { getPostgresConstraintName, hasPostgresErrorCode } from '@/lib/db-errors
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import type { RangeCoverage } from './verse-audio.coverage';
 import type {
   InsertTakeInput,
   UpsertVerseAudioInput,
   VerseAudioConflictStatus,
+  VerseAudioCoverageShape,
+  VerseAudioGranularity,
   VerseAudioRecord,
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
+import { coverageFromActive, rangesOverlap } from './verse-audio.coverage';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
+
+export interface BibleTextAnchor {
+  id: number;
+  bookId: number;
+  chapterNumber: number;
+  verseNumber: number;
+}
 
 /** Storage-object FKs that fail when reclaim races an insert/promotion. */
 const RETRYABLE_STORAGE_FK_CONSTRAINTS = new Set([
@@ -48,9 +59,16 @@ const recordSelection = {
   durationSeconds: verse_audio_recordings.durationSeconds,
   versionToken: verse_audio_recordings.versionToken,
   conflictStatus: verse_audio_recordings.conflictStatus,
+  granularity: verse_audio_recordings.granularity,
+  startChapter: verse_audio_recordings.startChapter,
+  startVerse: verse_audio_recordings.startVerse,
+  endChapter: verse_audio_recordings.endChapter,
+  endVerse: verse_audio_recordings.endVerse,
   activeTakeId: verse_audio_recordings.activeTakeId,
   createdAt: verse_audio_recordings.createdAt,
   updatedAt: verse_audio_recordings.updatedAt,
+  bookId: bible_texts.bookId,
+  chapterNumber: bible_texts.chapterNumber,
   verseNumber: bible_texts.verseNumber,
 };
 
@@ -63,6 +81,11 @@ const takeSelection = {
   sizeBytes: verse_audio_takes.sizeBytes,
   durationSeconds: verse_audio_takes.durationSeconds,
   contentHash: verse_audio_takes.contentHash,
+  granularity: verse_audio_takes.granularity,
+  startChapter: verse_audio_takes.startChapter,
+  startVerse: verse_audio_takes.startVerse,
+  endChapter: verse_audio_takes.endChapter,
+  endVerse: verse_audio_takes.endVerse,
   createdAt: verse_audio_takes.createdAt,
   updatedAt: verse_audio_takes.updatedAt,
 };
@@ -126,6 +149,166 @@ export async function listByChapter(
       cause: error,
       message: 'Failed to list verse audio recordings',
       context: { projectUnitId, bibleId, bookId, chapterNumber },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** All recordings for a project unit with bible_texts location (overlap scan). */
+export async function listByProjectUnit(
+  projectUnitId: number
+): Promise<Result<VerseAudioRecord[]>> {
+  try {
+    const recordings = await db
+      .select(recordSelection)
+      .from(verse_audio_recordings)
+      .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+      .where(eq(verse_audio_recordings.projectUnitId, projectUnitId))
+      .orderBy(
+        asc(bible_texts.bookId),
+        asc(bible_texts.chapterNumber),
+        asc(bible_texts.verseNumber)
+      );
+
+    return ok(recordings as VerseAudioRecord[]);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to list verse audio recordings for project unit',
+      context: { projectUnitId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** Loads book/chapter/verse for range-upload anchor validation. */
+export async function getBibleTextById(bibleTextId: number): Promise<Result<BibleTextAnchor>> {
+  try {
+    const [row] = await db
+      .select({
+        id: bible_texts.id,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+        verseNumber: bible_texts.verseNumber,
+      })
+      .from(bible_texts)
+      .where(eq(bible_texts.id, bibleTextId))
+      .limit(1);
+
+    if (!row) {
+      return err(ErrorCode.INVALID_REFERENCE);
+    }
+
+    return ok(row);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to load bible text for verse audio',
+      context: { bibleTextId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Lock every recording in the project unit (`FOR UPDATE`), then mark self +
+ * same-book intersecting active coverages as `conflict` without bumping
+ * `versionToken`. Used after uploads that introduce a new contender or change
+ * active coverage — not for idempotent same-shape retries.
+ */
+export async function markIntersectingCoverageConflicts(input: {
+  projectUnitId: number;
+  selfBibleTextId: number;
+  bookId: number;
+  coverage: RangeCoverage;
+}): Promise<Result<{ markedIds: number[] }>> {
+  try {
+    return await db.transaction(async (tx) => {
+      const locked = await tx
+        .select(recordSelection)
+        .from(verse_audio_recordings)
+        .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+        .where(eq(verse_audio_recordings.projectUnitId, input.projectUnitId))
+        .orderBy(asc(verse_audio_recordings.id))
+        .for('update');
+
+      const records = locked as VerseAudioRecord[];
+      const toMark = new Set<number>();
+      let selfId: number | undefined;
+
+      for (const record of records) {
+        if (record.bibleTextId === input.selfBibleTextId) {
+          selfId = record.id;
+          continue;
+        }
+        if (record.bookId !== input.bookId) {
+          continue;
+        }
+        const otherCoverage = coverageFromActive(record, record.chapterNumber, record.verseNumber);
+        if (rangesOverlap(input.coverage, otherCoverage)) {
+          toMark.add(record.id);
+        }
+      }
+
+      if (toMark.size > 0 && selfId !== undefined) {
+        toMark.add(selfId);
+      }
+
+      const markedIds = [...toMark].sort((a, b) => a - b);
+      if (markedIds.length > 0) {
+        await tx
+          .update(verse_audio_recordings)
+          .set({
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
+            updatedAt: new Date(),
+          })
+          .where(inArray(verse_audio_recordings.id, markedIds));
+      }
+
+      return ok({ markedIds });
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to mark intersecting verse-audio coverage conflicts',
+      context: {
+        projectUnitId: input.projectUnitId,
+        selfBibleTextId: input.selfBibleTextId,
+        bookId: input.bookId,
+      },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** Updates take coverage metadata in place (same contentHash, new range shape). */
+export async function updateTakeCoverage(
+  takeId: number,
+  shape: VerseAudioCoverageShape
+): Promise<Result<VerseAudioTakeRecord>> {
+  try {
+    const [row] = await db
+      .update(verse_audio_takes)
+      .set({
+        granularity: shape.granularity,
+        startChapter: shape.startChapter,
+        startVerse: shape.startVerse,
+        endChapter: shape.endChapter,
+        endVerse: shape.endVerse,
+        updatedAt: new Date(),
+      })
+      .where(eq(verse_audio_takes.id, takeId))
+      .returning();
+
+    if (!row) {
+      return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+    }
+    return ok(row);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to update verse audio take coverage',
+      context: { takeId, shape },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -390,6 +573,11 @@ export async function createFirstRecordingWithTake(
           contentType: takeInput.contentType,
           sizeBytes: takeInput.sizeBytes,
           durationSeconds: takeInput.durationSeconds,
+          granularity: take.granularity,
+          startChapter: take.startChapter,
+          startVerse: take.startVerse,
+          endChapter: take.endChapter,
+          endVerse: take.endVerse,
           versionToken: 2,
           updatedAt: new Date(),
         })
@@ -459,6 +647,11 @@ export interface RecordingStatePatch {
   versionToken?: number;
   conflictStatus?: VerseAudioConflictStatus;
   activeTakeId?: number | null;
+  granularity?: VerseAudioGranularity;
+  startChapter?: number | null;
+  startVerse?: number | null;
+  endChapter?: number | null;
+  endVerse?: number | null;
 }
 
 export interface UpdateIfVersionOptions {
@@ -506,6 +699,83 @@ export async function updateRecordingStateIfVersion(
       cause: error,
       message: 'Failed to conditionally update verse audio recording state',
       context: { recordingId, expectedVersionToken, patch, options },
+    });
+    if (hasPostgresErrorCode(error, '23503')) {
+      return mapForeignKeyViolation(error);
+    }
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Atomically update take coverage and CAS-promote the recording. If the
+ * version predicate misses, the take write is rolled back with the transaction
+ * so coverage cannot diverge from the recording row.
+ */
+export async function updateTakeCoverageAndRecordingIfVersion(
+  takeId: number,
+  recordingId: number,
+  expectedVersionToken: number,
+  shape: VerseAudioCoverageShape,
+  patch: RecordingStatePatch
+): Promise<Result<{ applied: boolean; record: VerseAudioRecord | null }>> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [takeRow] = await tx
+        .update(verse_audio_takes)
+        .set({
+          granularity: shape.granularity,
+          startChapter: shape.startChapter,
+          startVerse: shape.startVerse,
+          endChapter: shape.endChapter,
+          endVerse: shape.endVerse,
+          updatedAt: new Date(),
+        })
+        .where(eq(verse_audio_takes.id, takeId))
+        .returning({ id: verse_audio_takes.id });
+
+      if (!takeRow) {
+        return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+      }
+
+      const [row] = await tx
+        .update(verse_audio_recordings)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(verse_audio_recordings.id, recordingId),
+            eq(verse_audio_recordings.versionToken, expectedVersionToken)
+          )
+        )
+        .returning();
+
+      if (!row) {
+        // Must throw: returning a Result from the callback still commits the txn.
+        throw new Error('VERSE_AUDIO_CAS_MISS');
+      }
+
+      const [hydrated] = await tx
+        .select(recordSelection)
+        .from(verse_audio_recordings)
+        .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
+        .where(eq(verse_audio_recordings.id, recordingId))
+        .limit(1);
+
+      if (!hydrated) {
+        // Both writes already ran — throw so Drizzle aborts rather than committing
+        // an ok:false Result while coverage+recording stay updated.
+        throw new Error('VERSE_AUDIO_HYDRATION_MISS');
+      }
+      return ok({ applied: true, record: hydrated as VerseAudioRecord });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'VERSE_AUDIO_CAS_MISS') {
+      return ok({ applied: false, record: null });
+    }
+    logger.error({
+      cause: error,
+      message: 'Failed to atomically update take coverage and recording state',
+      context: { takeId, recordingId, expectedVersionToken, shape, patch },
     });
     if (hasPostgresErrorCode(error, '23503')) {
       return mapForeignKeyViolation(error);
