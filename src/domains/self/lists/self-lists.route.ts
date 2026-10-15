@@ -173,7 +173,7 @@ const getSelfChapterAssignmentsRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       userChapterAssignmentsByUserResponseSchema,
-      'Assigned and peer-check chapters for the current user. Both lists are empty when the user has none.'
+      'Assigned and peer-check chapters for the current user. Both lists are empty when the user is in no project.'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: unauthorized,
     [HttpStatusCodes.FORBIDDEN]: inactiveAccount,
@@ -181,17 +181,41 @@ const getSelfChapterAssignmentsRoute = createRoute({
   },
   summary: 'Get chapter assignments for the current user',
   description:
-    'Session-scoped assigned and peer-check chapters for the authenticated user. Authenticates only.',
+    'Session-scoped assigned and peer-check chapters for the authenticated user, limited to projects they still belong to. Authenticates only.',
 });
 
 server.openapi(getSelfChapterAssignmentsRoute, async (c) => {
   const currentUser = c.get('user')!;
   const activeOrgId = c.get('activeOrgId');
+  const orgId = activeOrgId ?? undefined;
 
-  const result = await userChapterAssignmentsService.getAllChapterAssignmentsByUserId(
-    currentUser.id,
-    activeOrgId ?? undefined
+  const [projectsResult, assignmentsResult] = await Promise.all([
+    userProjectsService.getProjectsByUserId(currentUser.id, orgId),
+    userChapterAssignmentsService.getAllChapterAssignmentsByUserId(currentUser.id, orgId),
+  ]);
+  if (!projectsResult.ok) {
+    return c.json(
+      { message: projectsResult.error.message },
+      getHttpStatus(projectsResult.error) as never
+    );
+  }
+  if (!assignmentsResult.ok) {
+    return c.json(
+      { message: assignmentsResult.error.message },
+      getHttpStatus(assignmentsResult.error) as never
+    );
+  }
+
+  const projectIds = new Set(projectsResult.data.map((project) => project.id));
+  return c.json(
+    {
+      assignedChapters: assignmentsResult.data.assignedChapters.filter((chapter) =>
+        projectIds.has(chapter.projectId)
+      ),
+      peerCheckChapters: assignmentsResult.data.peerCheckChapters.filter((chapter) =>
+        projectIds.has(chapter.projectId)
+      ),
+    },
+    HttpStatusCodes.OK
   );
-  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
-  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserChapterAssignmentResponse } from '@/domains/users/chapter-assignments/users-chapter-assignments.types';
+import type { UserProjectResponse } from '@/domains/users/projects/user-projects.types';
 import type { UserResponse } from '@/domains/users/users.types';
 import type { Permission } from '@/lib/permissions';
 
@@ -73,6 +75,38 @@ const APP_USER: UserResponse = {
   updatedAt: null,
   lastActiveOrgId: null,
 };
+
+function chapter(projectId: number, chapterAssignmentId: number): UserChapterAssignmentResponse {
+  return {
+    chapterAssignmentId,
+    projectId,
+    projectName: `Project ${projectId}`,
+    projectUnitId: projectId,
+    bibleId: 1,
+    bibleName: 'BSB',
+    ttsLicenseStatus: 'unknown',
+    textBibleKey: null,
+    selectedRecordingKey: null,
+    chapterStatus: 'peer_check',
+    targetLanguage: 'English',
+    targetLangCode: 'eng',
+    sourceLangCode: 'eng',
+    bookCode: 'MRK',
+    bookId: 41,
+    book: 'Mark',
+    chapterNumber: 1,
+    totalVerses: 45,
+    completedVerses: 1,
+    submittedTime: null,
+    assignedUserId: 1,
+    peerCheckerId: null,
+    updatedAt: null,
+    isAiEnabled: false,
+    hasClaimConflict: false,
+    claimConflictUserId: null,
+    hasConflict: false,
+  };
+}
 
 function asAuthenticatedUser(user: UserResponse = APP_USER, permissions: Permission[] = []) {
   const now = new Date();
@@ -209,6 +243,7 @@ describe('get /self list routes', () => {
 
   it('returns 200 empty assigned and peer-check chapters from /self/chapter-assignments', async () => {
     asAuthenticatedUser();
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([]));
     vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
       ok({ assignedChapters: [], peerCheckChapters: [] })
     );
@@ -217,7 +252,41 @@ describe('get /self list routes', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ assignedChapters: [], peerCheckChapters: [] });
+    expect(getProjectsByUserId).toHaveBeenCalledWith(1, 1);
     expect(getAllChapterAssignmentsByUserId).toHaveBeenCalledWith(1, 1);
+  });
+
+  it('drops chapters from projects the caller has left', async () => {
+    asAuthenticatedUser();
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([]));
+    vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
+      ok({
+        assignedChapters: [chapter(1, 10)],
+        peerCheckChapters: [chapter(1, 11)],
+      })
+    );
+
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ assignedChapters: [], peerCheckChapters: [] });
+  });
+
+  it('keeps chapters only for projects the caller still belongs to', async () => {
+    asAuthenticatedUser();
+    const kept = chapter(2, 20);
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([{ id: 2 } as UserProjectResponse]));
+    vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
+      ok({
+        assignedChapters: [chapter(1, 10), kept],
+        peerCheckChapters: [chapter(1, 11)],
+      })
+    );
+
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ assignedChapters: [kept], peerCheckChapters: [] });
   });
 
   it('returns the projects service error status', async () => {
