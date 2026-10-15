@@ -7,7 +7,7 @@ import { getQueue } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './projects.repository';
-import { createProject } from './projects.service';
+import { createProject, initialMilestoneName } from './projects.service';
 import { createProjectSchema } from './projects.types';
 import * as usfmImportService from './usfm-import.service';
 
@@ -43,6 +43,7 @@ vi.mock('@/lib/queue', () => ({
 
 vi.mock('./projects.repository', () => ({
   getValidBookIdsForBible: vi.fn(),
+  getBookDisplayNames: vi.fn(),
   insertProjectRecord: vi.fn(),
   insertProjectUnitRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx as never));
   vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 40, 99]);
+  vi.mocked(repo.getBookDisplayNames).mockResolvedValue(['Genesis', 'Matthew']);
   vi.mocked(repo.insertProjectRecord).mockResolvedValue({ id: 500 } as never);
   vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue({ id: 600 } as never);
   vi.mocked(createChapterAssignmentForProjectUnit).mockResolvedValue(ok([]));
@@ -422,5 +424,40 @@ describe('uSFM creation retry and milestone compatibility', () => {
     });
     expect(db.transaction).not.toHaveBeenCalled();
     expect(usfmImportService.parseUsfmFiles).not.toHaveBeenCalled();
+  });
+
+  it('names the imported milestone after the books in the files', async () => {
+    expect(await createProject({ ...BASE, usfmFiles: FILES })).toEqual(ok({ id: 500 }));
+    expect(repo.getBookDisplayNames).toHaveBeenCalledWith([1, 40], mockTx);
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
+      { projectId: 500, status: 'not_started', name: 'Genesis, Matthew' },
+      mockTx
+    );
+  });
+
+  it('names the legacy initial milestone after its requested books', async () => {
+    vi.mocked(repo.getBookDisplayNames).mockResolvedValue(['Psalms']);
+    expect(await createProject(BASE)).toEqual(ok({ id: 500 }));
+    expect(repo.getBookDisplayNames).toHaveBeenCalledWith([99], mockTx);
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
+      { projectId: 500, status: 'not_started', name: 'Psalms' },
+      mockTx
+    );
+  });
+});
+
+describe('initialMilestoneName', () => {
+  it('lists the books when they fit the column', () => {
+    expect(initialMilestoneName(['Mark'])).toBe('Mark');
+    expect(initialMilestoneName(['Genesis', 'Exodus', 'Leviticus'])).toBe(
+      'Genesis, Exodus, Leviticus'
+    );
+  });
+
+  it('collapses a list too long for the column to its first and last book', () => {
+    const books = Array.from({ length: 40 }, (_, index) => `Book number ${index + 1}`);
+    const name = initialMilestoneName(books);
+    expect(name).toBe('Book number 1 – Book number 40 (40 books)');
+    expect(name.length).toBeLessThanOrEqual(255);
   });
 });

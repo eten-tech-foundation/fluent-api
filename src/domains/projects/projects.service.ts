@@ -114,6 +114,20 @@ export async function recordProjectAssignmentActivity(
   await touchProjectActivity(projectUnitId, tx);
 }
 
+const MILESTONE_NAME_MAX_LENGTH = 255;
+
+/**
+ * Name for the milestone created with the project. Milestones made through the milestone API
+ * always carry a name, and the project page shows it, so this one is named after its books
+ * instead of being left blank. A list too long for the column collapses to its first and last
+ * book.
+ */
+export function initialMilestoneName(bookNames: string[]): string {
+  const listed = bookNames.join(', ');
+  if (listed.length <= MILESTONE_NAME_MAX_LENGTH) return listed;
+  return `${bookNames[0]} – ${bookNames[bookNames.length - 1]} (${bookNames.length} books)`;
+}
+
 export async function createProject(
   requested: CreateProjectServiceInput
 ): Promise<Result<Project>> {
@@ -183,7 +197,11 @@ export async function createProject(
       if (!createInitialUnit) return ok(project);
 
       const projectUnit = await repo.insertProjectUnitRecord(
-        { projectId: project.id, status: projectUnitStatus },
+        {
+          projectId: project.id,
+          status: projectUnitStatus,
+          name: initialMilestoneName(await repo.getBookDisplayNames(bookId, tx)),
+        },
         tx
       );
 
