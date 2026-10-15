@@ -460,4 +460,17 @@ describe('initialMilestoneName', () => {
     expect(name).toBe('Book number 1 – Book number 40 (40 books)');
     expect(name.length).toBeLessThanOrEqual(255);
   });
+
+  it('shortens the first and last names when even the collapsed form would not fit', () => {
+    const books = ['A'.repeat(200), 'Mark', 'Luke', 'Z'.repeat(200)];
+    const name = initialMilestoneName(books);
+    expect(name.length).toBeLessThanOrEqual(255);
+    expect(name).toMatch(/^A+… – Z+… \(4 books\)$/);
+  });
+
+  it('shortens a single book name that does not fit', () => {
+    const name = initialMilestoneName(['B'.repeat(300)]);
+    expect(name).toHaveLength(255);
+    expect(name.endsWith('…')).toBe(true);
+  });
 });
