@@ -116,3 +116,14 @@ export const excludeProjectIdsQuerySchema = z
     description: 'Comma-separated list of project IDs to exclude',
     example: '97,98',
   });
+
+export const updatedAfterQuerySchema = z
+  .string()
+  .optional()
+  .transform((val) => (val ? new Date(val) : undefined))
+  .pipe(z.date().optional())
+  .openapi({
+    param: { name: 'updatedAfter', in: 'query', required: false },
+    description: 'Return only assignments updated after this ISO timestamp',
+    example: '2025-01-01T00:00:00.000Z',
+  });

@@ -8,14 +8,13 @@ import type { Permission } from '@/lib/permissions';
 import { getChapterAssignmentsByUserId } from '@/domains/projects/chapter-assignments/project-chapter-assignments.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getAllChapterAssignmentsByUserId } from '@/domains/users/chapter-assignments/users-chapter-assignments.service';
-import { getMilestonesByUserId } from '@/domains/users/milestones/user-milestones.service';
 import { getProjectsByUserId } from '@/domains/users/projects/user-projects.service';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
-import './self-lists.route';
+import './self-chapter-assignments.route';
 
 vi.mock('@/lib/auth', () => ({
   auth: {
@@ -51,10 +50,6 @@ vi.mock('@/domains/users/projects/user-projects.service', () => ({
   getProjectsByUserId: vi.fn(),
 }));
 
-vi.mock('@/domains/users/milestones/user-milestones.service', () => ({
-  getMilestonesByUserId: vi.fn(),
-}));
-
 vi.mock('@/domains/projects/chapter-assignments/project-chapter-assignments.service', () => ({
   getChapterAssignmentsByUserId: vi.fn(),
 }));
@@ -75,6 +70,45 @@ const APP_USER: UserResponse = {
   updatedAt: null,
   lastActiveOrgId: null,
 };
+
+const zeroCounts = Object.fromEntries(
+  [
+    'not_started',
+    'draft',
+    'peer_check',
+    'community_review',
+    'linguist_check',
+    'theological_check',
+    'consultant_check',
+    'complete',
+  ].map((status) => [status, 0])
+) as UserProjectResponse['chapterStatusCounts'];
+
+function project(id: number): UserProjectResponse {
+  return {
+    id,
+    name: 'Baka NT',
+    organization: 1,
+    isActive: true,
+    status: 'not_assigned',
+    createdBy: 1,
+    createdAt: null,
+    updatedAt: null,
+    metadata: {},
+    sourceBibleId: null,
+    pericopeSetId: null,
+    lastActivityAt: null,
+    sourceLanguageId: 1,
+    targetLanguageId: 2,
+    sourceLanguageName: 'English',
+    targetLanguageName: 'Baka',
+    sourceName: null,
+    lastChapterActivity: null,
+    chapterStatusCounts: zeroCounts,
+    milestoneCount: 1,
+    workflowConfig: [],
+  };
+}
 
 function chapter(projectId: number, chapterAssignmentId: number): UserChapterAssignmentResponse {
   return {
@@ -136,63 +170,32 @@ function asAuthenticatedUser(user: UserResponse = APP_USER, permissions: Permiss
   );
 }
 
-describe('get /self list routes', () => {
+describe('get /self/chapter-assignments', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns 401 when GET /self/projects is unauthenticated', async () => {
+  it('returns 401 when unauthenticated', async () => {
     vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
-    const res = await server.request('/self/projects', { method: 'GET' });
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
 
     expect(res.status).toBe(401);
     expect(getProjectsByUserId).not.toHaveBeenCalled();
+    expect(getAllChapterAssignmentsByUserId).not.toHaveBeenCalled();
+    expect(getChapterAssignmentsByUserId).not.toHaveBeenCalled();
   });
 
   it('returns 403 User account is inactive and does not call the service', async () => {
     asAuthenticatedUser({ ...APP_USER, status: 'inactive' });
 
-    const res = await server.request('/self/projects', { method: 'GET' });
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ message: 'User account is inactive' });
     expect(getProjectsByUserId).not.toHaveBeenCalled();
-    expect(getMilestonesByUserId).not.toHaveBeenCalled();
-    expect(getChapterAssignmentsByUserId).not.toHaveBeenCalled();
     expect(getAllChapterAssignmentsByUserId).not.toHaveBeenCalled();
-  });
-
-  it('returns 200 [] from /self/projects without project:view and calls the service with the session user', async () => {
-    asAuthenticatedUser();
-    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([]));
-
-    const res = await server.request('/self/projects', { method: 'GET' });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
-    expect(getProjectsByUserId).toHaveBeenCalledWith(1, 1, undefined);
-  });
-
-  it('forwards the optional role query to getProjectsByUserId', async () => {
-    asAuthenticatedUser();
-    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([]));
-
-    const res = await server.request('/self/projects?role=Project%20Observer', { method: 'GET' });
-
-    expect(res.status).toBe(200);
-    expect(getProjectsByUserId).toHaveBeenCalledWith(1, 1, 'Project Observer');
-  });
-
-  it('returns 200 [] from /self/milestones without project:view', async () => {
-    asAuthenticatedUser();
-    vi.mocked(getMilestonesByUserId).mockResolvedValue(ok([]));
-
-    const res = await server.request('/self/milestones', { method: 'GET' });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
-    expect(getMilestonesByUserId).toHaveBeenCalledWith(1, 1);
+    expect(getChapterAssignmentsByUserId).not.toHaveBeenCalled();
   });
 
   it('returns 200 { data: [] } from /self/chapter-assignments/all without project:view', async () => {
@@ -275,7 +278,7 @@ describe('get /self list routes', () => {
   it('keeps chapters only for projects the caller still belongs to', async () => {
     asAuthenticatedUser();
     const kept = chapter(2, 20);
-    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([{ id: 2 } as UserProjectResponse]));
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([project(2)]));
     vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
       ok({
         assignedChapters: [chapter(1, 10), kept],
@@ -289,13 +292,29 @@ describe('get /self list routes', () => {
     expect(await res.json()).toEqual({ assignedChapters: [kept], peerCheckChapters: [] });
   });
 
-  it('returns the projects service error status', async () => {
+  it('returns the projects error when both services fail', async () => {
     asAuthenticatedUser();
     vi.mocked(getProjectsByUserId).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+    vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
+      err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND)
+    );
 
-    const res = await server.request('/self/projects', { method: 'GET' });
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ message: 'An unexpected error occurred' });
+  });
+
+  it('returns the chapter-assignments error when projects succeed', async () => {
+    asAuthenticatedUser();
+    vi.mocked(getProjectsByUserId).mockResolvedValue(ok([project(2)]));
+    vi.mocked(getAllChapterAssignmentsByUserId).mockResolvedValue(
+      err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND)
+    );
+
+    const res = await server.request('/self/chapter-assignments', { method: 'GET' });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ message: 'Chapter assignment not found' });
   });
 });

@@ -16,6 +16,7 @@ import * as usersChapterAssignmentsService from './users-chapter-assignments.ser
 import {
   excludeProjectIdsQuerySchema,
   memberChapterAssignmentsResponseSchema,
+  updatedAfterQuerySchema,
   userChapterAssignmentsByUserResponseSchema,
 } from './users-chapter-assignments.types';
 
@@ -97,16 +98,7 @@ const getUserChapterAssignmentsRoute = createRoute({
     }),
     query: z.object({
       excludeProjectIds: excludeProjectIdsQuerySchema,
-      updatedAfter: z
-        .string()
-        .optional()
-        .transform((val) => (val ? new Date(val) : undefined))
-        .pipe(z.date().optional())
-        .openapi({
-          param: { name: 'updatedAfter', in: 'query', required: false },
-          description: 'Return only assignments updated after this ISO timestamp',
-          example: '2025-01-01T00:00:00.000Z',
-        }),
+      updatedAfter: updatedAfterQuerySchema,
     }),
   },
   responses: {
