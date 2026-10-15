@@ -212,21 +212,65 @@ async function seedSpecBibles(ctx: Ctx) {
       ? await upsertResource(spec.audioExternalId)
       : undefined;
 
-    let [bible] = await db
-      .select({
-        id: bibles.id,
-        hasAudio: bibles.hasAudio,
-        externalId: bibles.externalId,
-        audioResourceId: bibles.audioResourceId,
-      })
-      .from(bibles)
-      .where(eq(bibles.abbreviation, spec.abbreviation))
-      .limit(1);
+    // (provider, externalId) is the canonical upstream identity — resolve the
+    // holder first. A catalogue sync may already own it under a different
+    // abbreviation (e.g. QA's 'BSB-bba9f4' when 'BSB' itself is a different
+    // upstream row); stamping the same external_id on a second row violates
+    // idx_bibles_provider_external_id.
+    let bible:
+      | {
+          id: number;
+          hasAudio: boolean;
+          externalId: string | null;
+          audioResourceId: number | null;
+        }
+      | undefined;
+    if (spec.externalId) {
+      [bible] = await db
+        .select({
+          id: bibles.id,
+          hasAudio: bibles.hasAudio,
+          externalId: bibles.externalId,
+          audioResourceId: bibles.audioResourceId,
+        })
+        .from(bibles)
+        .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, spec.externalId)))
+        .limit(1);
+    }
     if (!bible) {
+      [bible] = await db
+        .select({
+          id: bibles.id,
+          hasAudio: bibles.hasAudio,
+          externalId: bibles.externalId,
+          audioResourceId: bibles.audioResourceId,
+        })
+        .from(bibles)
+        .where(eq(bibles.abbreviation, spec.abbreviation))
+        .limit(1);
+      // An abbreviation row claiming a *different* upstream identity is left
+      // untouched — the spec bible gets its own row instead.
+      if (bible?.externalId && spec.externalId && bible.externalId !== spec.externalId) {
+        bible = undefined;
+      }
+    }
+    if (!bible) {
+      let abbreviation = spec.abbreviation;
+      if (spec.externalId) {
+        const [taken] = await db
+          .select({ id: bibles.id })
+          .from(bibles)
+          .where(eq(bibles.abbreviation, spec.abbreviation))
+          .limit(1);
+        // Mirror the catalogue sync's collision-suffix convention so the new
+        // row reads the same way as sync-generated ones (and next run's holder
+        // lookup finds it by externalId).
+        if (taken) abbreviation = `${spec.abbreviation}-${spec.externalId.slice(0, 6)}`;
+      }
       [bible] = await db
         .insert(bibles)
         .values({
-          abbreviation: spec.abbreviation,
+          abbreviation,
           name: spec.name,
           languageId,
           externalId: spec.externalId,
@@ -239,13 +283,16 @@ async function seedSpecBibles(ctx: Ctx) {
           externalId: bibles.externalId,
           audioResourceId: bibles.audioResourceId,
         });
-      console.log(`  bible ${spec.abbreviation}`);
+      console.log(`  bible ${abbreviation}`);
     } else {
       // Spec-provided values win on reconcile; omitted spec values leave
-      // whatever the row already has.
-      const patch: { externalId?: string; audioResourceId?: number } = {};
+      // whatever the row already has. externalId is only ever claimed onto a
+      // row whose identity is NULL — a differing non-null one exited above.
+      const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
       if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
         patch.externalId = spec.externalId;
+      if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
+        patch.hasAudio = spec.hasAudio;
       if (audioResourceId !== undefined && bible.audioResourceId !== audioResourceId)
         patch.audioResourceId = audioResourceId;
       if (Object.keys(patch).length)

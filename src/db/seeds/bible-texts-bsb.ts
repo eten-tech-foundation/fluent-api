@@ -27,10 +27,21 @@ export function loadBsbJohn() {
 }
 
 export async function seedBsbBibleTexts(): Promise<void> {
-  const [bible] = await db
+  // Resolve by upstream identity first: the fixture was captured from DBL
+  // bba9f40183526463-01, and the row owning it may carry a suffixed
+  // abbreviation after a catalogue sync (e.g. QA's 'BSB-bba9f4') while the
+  // bare 'BSB' row names a different upstream bible entirely.
+  const [holder] = await db
     .select({ id: bibles.id, provider: bibles.provider, externalId: bibles.externalId })
     .from(bibles)
-    .where(eq(bibles.abbreviation, 'BSB'));
+    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, 'bba9f40183526463-01')))
+    .limit(1);
+  const [bible] = holder
+    ? [holder]
+    : await db
+        .select({ id: bibles.id, provider: bibles.provider, externalId: bibles.externalId })
+        .from(bibles)
+        .where(eq(bibles.abbreviation, 'BSB'));
   const [book] = await db.select({ id: books.id }).from(books).where(eq(books.code, 'JHN'));
   if (!bible || !book) throw new Error('BSB/JHN not found. Run seedBibles and seedBooks first.');
   if (bible.provider !== 'dbl' || bible.externalId !== 'bba9f40183526463-01')

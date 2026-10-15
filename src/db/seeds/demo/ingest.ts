@@ -78,11 +78,18 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
   const abbrevs = [...new Set(ctx.spec.projects.map((p) => p.sourceBible))];
   if (!abbrevs.length) return;
 
+  // Resolve externalIds through ctx.bibles — the engine's adopted rows. A bare
+  // abbreviation lookup can hit a different upstream row after a catalogue
+  // sync (QA's 'BSB' is 317e…; the adopted 'BSB-bba9f4' holds our bba9f…).
+  const bibleIds = abbrevs.map((a) => ctx.bibles.get(a)!);
   const bibleRows = await db
-    .select({ abbreviation: bibles.abbreviation, externalId: bibles.externalId })
+    .select({ id: bibles.id, externalId: bibles.externalId })
     .from(bibles)
-    .where(inArray(bibles.abbreviation, abbrevs));
-  const externalIds = new Map(bibleRows.map((r) => [r.abbreviation, r.externalId]));
+    .where(inArray(bibles.id, bibleIds));
+  const externalIdById = new Map(bibleRows.map((r) => [r.id, r.externalId]));
+  const externalIds = new Map(
+    abbrevs.map((a) => [a, externalIdById.get(ctx.bibles.get(a)!) ?? null])
+  );
   const noExternalId = abbrevs.filter((a) => !externalIds.get(a));
   if (noExternalId.length) {
     console.log(`  ingest jobs: skipping ${noExternalId.join(', ')} — no bibles.externalId`);
@@ -92,7 +99,6 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
   // NULL covers never-ingested *and* partially-ingested books (a worker that
   // died mid-book leaves rows but no stamp — those must re-plan), while the
   // stamp guarantees re-runs of the seed plan nothing.
-  const bibleIds = abbrevs.map((a) => ctx.bibles.get(a)!);
   const ingested = await db
     .select({ bibleId: bible_books.bibleId, bookId: bible_books.bookId })
     .from(bible_books)
