@@ -36,12 +36,9 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
     // Header order is grammar-enforced: \id, \h, the \toc block, then \mt1. A \toc
     // line after \mt1 is a parse error for usfm-grammar, not merely unconventional.
     //
-    // fluent-web#398: \mt1 is derived at render time from the short name (\toc2)
-    // rather than written on save, so an authored book_title survives a TOC edit
-    // instead of being overwritten; it still supplies \mt1 whenever no short name
-    // is set. \h likewise borrows the short name before falling back to the
-    // English display name, so a vernacular \toc2 is not paired with an English
-    // running header.
+    // fluent-web#398: each \toc field lands only on its own line. \h comes from the
+    // running header and \mt1 from the book title, each falling back to the display
+    // name, so editing the table of contents never changes either of them.
     //
     // Trimmed-truthy rather than `??` throughout: rows written by seeds or direct
     // SQL never passed through the schema's trim, and a blank value must not
@@ -53,7 +50,7 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
     const tocAbbreviation = book?.tocAbbreviation?.trim();
 
     yield `\\id ${bookCode}\n`;
-    yield `\\h ${runningHeader || tocShortName || bookName}\n`;
+    yield `\\h ${runningHeader || bookName}\n`;
 
     // Unlike \h and \mt1 the \toc fields have no display-name fallback: unset means
     // the line is omitted, not defaulted.
@@ -61,7 +58,7 @@ export function createUSFMStreamForBook(verses: VerseData[], book?: BookFields):
     if (tocShortName) yield `\\toc2 ${tocShortName}\n`;
     if (tocAbbreviation) yield `\\toc3 ${tocAbbreviation}\n`;
 
-    yield `\\mt1 ${tocShortName || bookTitle || bookName}\n`;
+    yield `\\mt1 ${bookTitle || bookName}\n`;
 
     let currentChapter: number | null = null;
 
