@@ -86,10 +86,30 @@ interface VerseRef {
   languageCode: string;
 }
 
+interface VerseRangeRef {
+  bookCode: string;
+  chapter: number;
+  startVerse: number;
+  endVerse: number;
+  languageCode: string;
+}
+
 interface ChapterRange {
   bookCode: string;
   startChapter: number;
   endChapter: number;
+}
+
+/** Preserve first-seen order; Aquifer may repeat content ids across verse associations. */
+function dedupeSearchHitsById(items: AquiferResourceSearchItem[]): AquiferResourceSearchItem[] {
+  const seen = new Set<number>();
+  const unique: AquiferResourceSearchItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    unique.push(item);
+  }
+  return unique;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -227,72 +247,97 @@ async function hydrateTextItems(
   });
 }
 
-async function searchVerseCollection(
-  ref: VerseRef,
-  resourceCollectionCode: string
-): Promise<Result<AquiferResourceSearchItem[]>> {
-  return searchAllResources({
+/**
+ * Treat a single verse as an inclusive one-verse range so single-verse routes
+ * share the same Aquifer search + dedupe path as pericope ranges.
+ */
+function asSingleVerseRange(ref: VerseRef): VerseRangeRef {
+  return {
     bookCode: ref.bookCode,
-    startChapter: ref.chapter,
-    endChapter: ref.chapter,
+    chapter: ref.chapter,
     startVerse: ref.verse,
     endVerse: ref.verse,
     languageCode: ref.languageCode,
+  };
+}
+
+/**
+ * One same-chapter Aquifer collection search for `[startVerse, endVerse]`.
+ * Dedupes by content id before hydrate so overlapping verse associations are not
+ * fetched twice. Propagates Aquifer failures (empty search → `ok([])`).
+ */
+async function searchVerseRangeCollection(
+  ref: VerseRangeRef,
+  resourceCollectionCode: string
+): Promise<Result<AquiferResourceSearchItem[]>> {
+  const search = await searchAllResources({
+    bookCode: ref.bookCode,
+    startChapter: ref.chapter,
+    endChapter: ref.chapter,
+    startVerse: ref.startVerse,
+    endVerse: ref.endVerse,
+    languageCode: ref.languageCode,
     resourceCollectionCode,
   });
+  if (!search.ok) return search;
+  return ok(dedupeSearchHitsById(search.data));
 }
 
 /**
- * Translation Notes for a single verse — empty `items` when Aquifer has none.
+ * Shared TN/TQ range loader: search+dedupe then TipTap hydrate.
+ * Empty Aquifer hits → `{ items: [] }`; total hydrate failure → upstream error (502).
  */
-export async function getTranslationNotes(
-  ref: VerseRef
+async function getTextResourcesForRange(
+  ref: VerseRangeRef,
+  resourceCollectionCode: string
 ): Promise<Result<TranslationNotesResponse>> {
-  const search = await searchVerseCollection(ref, AQUIFER_RESOURCE_COLLECTIONS.translationNotes);
+  const search = await searchVerseRangeCollection(ref, resourceCollectionCode);
   if (!search.ok) return search;
-
   const hydrated = await hydrateTextItems(search.data);
   if (!hydrated.ok) return hydrated;
-
   return ok({ items: hydrated.data });
 }
 
 /**
- * Translation Questions for a single verse — TipTap preserved (Q/A split is UI-side).
+ * Same-chapter TN range for mobile pericope units.
+ * One Aquifer search, content-id dedupe; empty `items` when none (not an error).
  */
-export async function getTranslationQuestions(
-  ref: VerseRef
+export async function getTranslationNotesForRange(
+  ref: VerseRangeRef
+): Promise<Result<TranslationNotesResponse>> {
+  return getTextResourcesForRange(ref, AQUIFER_RESOURCE_COLLECTIONS.translationNotes);
+}
+
+/**
+ * Same-chapter TQ range — TipTap preserved (Q/A split stays client-side).
+ * Empty `items` when none; Aquifer failures stay section-scoped.
+ */
+export async function getTranslationQuestionsForRange(
+  ref: VerseRangeRef
 ): Promise<Result<TranslationQuestionsResponse>> {
-  const search = await searchVerseCollection(
-    ref,
-    AQUIFER_RESOURCE_COLLECTIONS.translationQuestions
-  );
-  if (!search.ok) return search;
-
-  const hydrated = await hydrateTextItems(search.data);
-  if (!hydrated.ok) return hydrated;
-
-  return ok({ items: hydrated.data });
+  return getTextResourcesForRange(ref, AQUIFER_RESOURCE_COLLECTIONS.translationQuestions);
 }
 
 /**
- * Images & Maps for a single verse — hydrates details for URL / size.
+ * Same-chapter Images range — one Images search, dedupe, then asset URL hydrate.
+ * Skips hits without a resolvable url/href; empty `items` when none.
  */
-export async function getTranslationImages(
-  ref: VerseRef
+export async function getTranslationImagesForRange(
+  ref: VerseRangeRef
 ): Promise<Result<TranslationImagesResponse>> {
   const search = await searchAllResources({
     bookCode: ref.bookCode,
     startChapter: ref.chapter,
     endChapter: ref.chapter,
-    startVerse: ref.verse,
-    endVerse: ref.verse,
+    startVerse: ref.startVerse,
+    endVerse: ref.endVerse,
     languageCode: ref.languageCode,
     resourceType: 'Images',
   });
   if (!search.ok) return search;
 
-  const hydrated = await mapWithConcurrency(search.data, HYDRATE_CONCURRENCY, async (hit) => {
+  const uniqueHits = dedupeSearchHitsById(search.data);
+  const hydrated = await mapWithConcurrency(uniqueHits, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
     return ok({ hit, details: details.data });
@@ -303,7 +348,6 @@ export async function getTranslationImages(
   for (const { hit, details } of hydrated.data) {
     const asset = extractAquiferAsset(details.content);
     if (!asset) continue;
-
     items.push({
       id: hit.id,
       title: hit.localizedName || hit.name,
@@ -313,8 +357,28 @@ export async function getTranslationImages(
       size: asset.size,
     });
   }
-
   return ok({ items });
+}
+
+/** Single-verse TN — empty `items` when Aquifer has none. */
+export async function getTranslationNotes(
+  ref: VerseRef
+): Promise<Result<TranslationNotesResponse>> {
+  return getTranslationNotesForRange(asSingleVerseRange(ref));
+}
+
+/** Single-verse TQ — TipTap preserved (Q/A split is UI-side). */
+export async function getTranslationQuestions(
+  ref: VerseRef
+): Promise<Result<TranslationQuestionsResponse>> {
+  return getTranslationQuestionsForRange(asSingleVerseRange(ref));
+}
+
+/** Single-verse Images — hydrates details for URL / size. */
+export async function getTranslationImages(
+  ref: VerseRef
+): Promise<Result<TranslationImagesResponse>> {
+  return getTranslationImagesForRange(asSingleVerseRange(ref));
 }
 
 function buildManifestItem(params: {
