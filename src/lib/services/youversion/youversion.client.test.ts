@@ -312,12 +312,26 @@ describe('youversion.client', () => {
       }
     });
 
-    it('returns failure if chapter meta fetch fails', async () => {
+    it('returns no verses when the Bible has no such chapter', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         jsonResponse({ message: 'Chapter not found' }, 404)
       );
 
       const result = await getChapterText(1, 'GEN', 999);
+
+      expect(result).toEqual({
+        ok: true,
+        data: { bibleId: 1, bookId: 'GEN', chapterId: 999, verses: [] },
+      });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns failure if chapter meta fetch fails', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ message: 'Upstream error' }, 500)
+      );
+
+      const result = await getChapterText(1, 'GEN', 1);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {

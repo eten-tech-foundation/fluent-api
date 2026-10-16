@@ -406,5 +406,24 @@ describe('aquifer.client', () => {
         expect(result.data.chapters[0]?.verses[0]?.text).toBeNull();
       }
     });
+
+    it('keeps the upstream status when the Bible has no text for the book', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ statusCode: 404, message: 'Not Found' }, 404)
+      );
+
+      const result = await getBibleText({
+        aquiferBibleId: 101,
+        bookCode: 'DEU',
+        startChapter: 34,
+        endChapter: 34,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.httpStatus).toBe(404);
+      }
+    });
   });
 });
