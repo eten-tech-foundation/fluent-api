@@ -2,11 +2,13 @@
  * env-configs/qa.ts
  * ─────────────────────────────────────────────────────────────────────────────
  * Configuration for the QA / Staging environment (Azure Flexible Server).
- * Mirrors production quality — only a single Project Manager is seeded.
+ * Seeds the full deterministic demo world — 4 orgs, 18 users, 3 projects —
+ * where every account shares one committed password hash (`qaSpec`).
  *
  * HOW TO USE:
  *   npm run db:setup:qa            ← runs setup.ts with SETUP_ENV=qa
  *   npm run db:provision:qa        ← runs provision-db.ts with SETUP_ENV=qa
+ *   npm run db:seed:demo:qa        ← runs only the demo seed stage
  *
  * DB URLS:
  *   Fill in the actual Azure connection strings below.
@@ -14,6 +16,8 @@
  *   The `provision.bootstrapDatabaseUrl` is used by `provision-db.ts`
  *   (superuser — needed to create roles and set schema ownership).
  */
+import { qaSpec } from '@/db/seeds/demo/qa-spec';
+
 import type { EnvConfig } from './types';
 
 export const config: EnvConfig = {
@@ -25,25 +29,11 @@ export const config: EnvConfig = {
   // setup.ts will error if neither is set.
   databaseUrl: process.env.QA_DATABASE_URL ?? process.env.DATABASE_URL,
 
-  // Lazy getter — validation runs only when setup.ts accesses seedUsers.
-  // provision-db.ts imports this config for provision.* credentials but never
-  // reads seedUsers, so it can run cleanly without QA_PM_EMAIL / QA_PM_PASSWORD.
-  get seedUsers() {
-    const email = process.env.QA_PM_EMAIL;
-    const password = process.env.QA_PM_PASSWORD;
-    if (!email) throw new Error('Missing required env var: QA_PM_EMAIL');
-    if (!password) throw new Error('Missing required env var: QA_PM_PASSWORD');
-    return [
-      {
-        email,
-        password,
-        username: 'qapm',
-        role: 'project_manager' as const,
-      },
-    ];
-  },
+  // The whole QA world comes from the committed demo spec — no env-var
+  // credentials, no post-seed password steps.
+  demoSpec: qaSpec,
 
-  // Avoid printing passwords to CI / staging logs.
+  // Avoid printing credentials to CI / staging logs.
   printCredentials: false,
 
   // ── DB-level provisioning (used by provision-db.ts only) ─────────────────
