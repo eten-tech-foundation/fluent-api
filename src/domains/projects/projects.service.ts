@@ -116,8 +116,15 @@ export async function recordProjectAssignmentActivity(
 
 const MILESTONE_NAME_MAX_LENGTH = 255;
 
+// Lengths here are in code points, the way Postgres counts varchar characters. Cutting by UTF-16
+// code units could split a surrogate pair and store a lone surrogate.
+function characterCount(text: string): number {
+  return Array.from(text).length;
+}
+
 function truncateName(name: string, maxLength: number): string {
-  return name.length <= maxLength ? name : `${name.slice(0, maxLength - 1)}…`;
+  const characters = Array.from(name);
+  return characters.length <= maxLength ? name : `${characters.slice(0, maxLength - 1).join('')}…`;
 }
 
 /**
@@ -126,17 +133,17 @@ function truncateName(name: string, maxLength: number): string {
  * instead of being left blank. A list too long for the column collapses to its first and last
  * book, and either name is shortened if even that would not fit.
  */
-export function initialMilestoneName(bookNames: string[]): string {
+function buildInitialMilestoneName(bookNames: string[]): string {
   const listed = bookNames.join(', ');
-  if (listed.length <= MILESTONE_NAME_MAX_LENGTH) return listed;
+  if (characterCount(listed) <= MILESTONE_NAME_MAX_LENGTH) return listed;
   if (bookNames.length === 1) return truncateName(listed, MILESTONE_NAME_MAX_LENGTH);
 
   const separator = ' – ';
   const suffix = ` (${bookNames.length} books)`;
-  const room = MILESTONE_NAME_MAX_LENGTH - separator.length - suffix.length;
+  const room = MILESTONE_NAME_MAX_LENGTH - characterCount(separator) - characterCount(suffix);
   const firstRoom = Math.ceil(room / 2);
   const first = truncateName(bookNames[0], firstRoom);
-  const last = truncateName(bookNames[bookNames.length - 1], room - first.length);
+  const last = truncateName(bookNames[bookNames.length - 1], room - characterCount(first));
   return `${first}${separator}${last}${suffix}`;
 }
 
@@ -212,7 +219,7 @@ export async function createProject(
         {
           projectId: project.id,
           status: projectUnitStatus,
-          name: initialMilestoneName(await repo.getBookDisplayNames(bookId, tx)),
+          name: buildInitialMilestoneName(await repo.getBookDisplayNames(bookId, tx)),
         },
         tx
       );
