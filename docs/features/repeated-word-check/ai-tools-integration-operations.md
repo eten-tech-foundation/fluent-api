@@ -244,9 +244,8 @@ The fluent-api code in this PR is complete, but **exercising it end-to-end again
 >   The manual `curl` token capture below still works if you prefer it.
 > - **Seed the org + dev user first.** The fluent-api entrypoint auto-runs
 >   migrate/roles/rbac but **not** account provisioning, so on a clean stack run
->   `docker compose exec api npx tsx src/db/seeds/organizations.ts` then
->   `… src/db/seeds/dev-users.ts` (org before users) so a sign-in account exists. The
->   smoke script prints these exact commands if the dev user is missing.
+>   `docker compose exec api npm run db:seed` so a sign-in account exists. The
+>   smoke script prints this exact command if the dev user is missing.
 > - **The fluent-ai path prefix is now configurable** (`FLUENT_AI_API_PREFIX`, default
 >   empty — see §7.2 / §12.8). The live build serves at the root, so the default works
 >   out of the box; no `/api/v1` is needed.
