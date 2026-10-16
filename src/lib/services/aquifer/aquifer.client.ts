@@ -1,4 +1,4 @@
-import type { Result } from '@/lib/types';
+import type { AppError, Result } from '@/lib/types';
 
 import env from '@/env';
 import { logger } from '@/lib/logger';
@@ -55,11 +55,27 @@ function redactSecrets(text: string): string {
   return out;
 }
 
-function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok: false }> {
+/**
+ * `httpStatus` is set only when Aquifer answered with a non-2xx status, so a caller can tell a
+ * missing passage (404) from an outage. Other callers only read `code` and `message`.
+ */
+export interface AquiferHttpError extends AppError {
+  httpStatus?: number;
+}
+
+function aquiferError(
+  code: ErrorCode,
+  detail?: string,
+  httpStatus?: number
+): { ok: false; error: AquiferHttpError } {
   const base = ErrorMessages[code];
   return {
     ok: false,
-    error: { code, message: detail ? `${base}: ${redactSecrets(detail)}` : base },
+    error: {
+      code,
+      message: detail ? `${base}: ${redactSecrets(detail)}` : base,
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+    },
   };
 }
 
@@ -125,10 +141,10 @@ async function aquiferGet<T>(
   },
   query?: URLSearchParams,
   timeoutMs = DEFAULT_TIMEOUT_MS
-): Promise<Result<T>> {
+): Promise<Result<T, AquiferHttpError>> {
   const target = query && query.toString() ? `${path}?${query.toString()}` : path;
-  const fail = (detail: string) =>
-    aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `GET ${target} — ${detail}`);
+  const fail = (detail: string, httpStatus?: number) =>
+    aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `GET ${target} — ${detail}`, httpStatus);
 
   if (!isAquiferConfigured()) {
     return fail('AQUIFER_API_KEY is not configured');
@@ -177,7 +193,8 @@ async function aquiferGet<T>(
   if (!response.ok) {
     return fail(
       `Aquifer returned HTTP ${response.status} ${response.statusText} in ${elapsedMs}ms; ` +
-        `upstream body: ${bodySnippet(rawBody)}`
+        `upstream body: ${bodySnippet(rawBody)}`,
+      response.status
     );
   }
 
@@ -306,7 +323,7 @@ export async function getBibleText(params: {
   startChapter: number;
   endChapter: number;
   includeAudio?: boolean;
-}): Promise<Result<AquiferBibleTextResponse>> {
+}): Promise<Result<AquiferBibleTextResponse, AquiferHttpError>> {
   const query = new URLSearchParams({
     BookCode: params.bookCode,
     StartChapter: String(params.startChapter),

@@ -305,5 +305,33 @@ describe('aquifer-resources routes', () => {
       const data = await res.json();
       expect(data).toEqual(mockText);
     });
+
+    it('returns 404 when the Bible has no text for the book', async () => {
+      authenticateUserMock();
+      vi.mocked(aquiferClient.getBibleText).mockResolvedValue({
+        ok: false,
+        error: { ...err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE).error, httpStatus: 404 },
+      });
+
+      const res = await server.request(
+        '/aquifer/bibles/101/texts?bookCode=DEU&startChapter=34&endChapter=34'
+      );
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 502 Bad Gateway when Aquifer fails', async () => {
+      authenticateUserMock();
+      vi.mocked(aquiferClient.getBibleText).mockResolvedValue({
+        ok: false,
+        error: { ...err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE).error, httpStatus: 500 },
+      });
+
+      const res = await server.request(
+        '/aquifer/bibles/101/texts?bookCode=DEU&startChapter=34&endChapter=34'
+      );
+
+      expect(res.status).toBe(502);
+    });
   });
 });
