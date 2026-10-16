@@ -4,6 +4,7 @@ import '@/routes/index.route';
 import '@/routes/health.route';
 import '@/routes/config.route';
 import '@/routes/auth-doc.route';
+import '@/domains/users/users.active-org.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
 import '@/domains/projects/projects.route';
