@@ -35,6 +35,16 @@ Each domain is self-contained and follows a consistent internal structure:
 | `{domain}.policy.ts`     | Authorization and access control rules       |
 | `{domain}.middleware.ts` | Domain-specific request processing           |
 
+### Sub-Domain Leaves
+
+Domains split into nested leaf directories by resource (`users/projects/`, `projects/chapter-assignments/`, `organizations/users/`). The rules for leaves:
+
+- **Route-bearing leaves are resource-named.** A directory containing a `.route.ts` takes the name of the resource it serves, mirroring the URL path: `users/projects/user-projects.route.ts` serves `/users/{userId}/projects`. The path predicts the file location. Directories named for a _kind of work_ rather than a resource (`bibles/sync/`, `books/sync/`, `languages/import/`) hold services and helpers only — never routes.
+- **Leaves carry only the files they need.** For route-bearing leaves, the minimum is `{leaf}.route.ts`. Add `{leaf}.service.ts` when a handler composes more than one service call, and `{leaf}.types.ts` when the leaf owns schemas. Pure projections of another domain's data skip `.repository.ts` entirely — `users/projects/` delegates to `projectsService` instead (see `user-projects.service.ts`).
+- **Route handlers stay single-call.** Fan-out (`Promise.all`), joins, and filtering across service results belong in the leaf's service, not in `route.ts`.
+- **Shared helpers live at the domain parent.** Utilities used by several leaves sit one level up — e.g. `users/user-auth.middleware.ts` and `users/user.policy.ts` serve all of `users/*`.
+- **Leaf routes carry their own tag.** The dominant form is `'{Domain} - {Resource}'` (`'Self - Settings'`, `'Projects - Users'`, `'Chapter Assignments - Editor State'`); a bare resource name is acceptable when unambiguous (`'Bible Texts'`, `'Workflow Stages'`). Don't reuse the parent domain's tag for a distinct resource.
+
 ### Cross-Domain Relationships
 
 - **Internal**: Services interact with repositories within the same domain

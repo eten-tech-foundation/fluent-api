@@ -62,6 +62,10 @@ describe('gET /doc (OpenAPI document)', () => {
       // A representative registered path proves the walk actually completed rather
       // than short-circuiting on an empty document.
       expect(doc.paths['/self/settings']).toBeDefined();
+      expect(doc.paths['/self/projects']).toBeDefined();
+      expect(doc.paths['/self/milestones']).toBeDefined();
+      expect(doc.paths['/self/chapter-assignments/all']).toBeDefined();
+      expect(doc.paths['/self/chapter-assignments']).toBeDefined();
     }
   );
 });
