@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -433,11 +433,42 @@ async function seedSpecProjects(ctx: Ctx) {
       pmKeyFor(project) ?? orgManagerKey(ctx.spec, project.org) ?? globalActorKey(ctx.spec);
     const createdBy = creatorKey ? (ctx.users.get(creatorKey) ?? null) : null;
 
-    const [existing] = await db
+    // Reconcile by seed marker, not display name: projects are user-renamable,
+    // and a spec `name` edit must neither spawn a duplicate nor claim a
+    // user-created project that shares the name (same convention as the
+    // audio-demo seed's `metadata.seed` marker).
+    const seedTag = `demo:${project.key}`;
+    let [existing] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.name, project.name), eq(projects.organization, orgId)))
+      .where(and(eq(projects.organization, orgId), sql`${projects.metadata}->>'seed' = ${seedTag}`))
       .limit(1);
+    if (!existing) {
+      // Rows seeded before the marker existed carry it nowhere — adopt an
+      // unmarked (name, org) match once and stamp the marker so future
+      // reconciles key on it. A row marked for a *different* spec key is a
+      // name collision, not ours to adopt.
+      const [candidate] = await db
+        .select()
+        .from(projects)
+        .where(and(eq(projects.name, project.name), eq(projects.organization, orgId)))
+        .limit(1);
+      if (candidate) {
+        const marked = (candidate.metadata as Record<string, unknown> | null)?.seed;
+        if (marked == null) {
+          existing = candidate;
+          await db
+            .update(projects)
+            .set({
+              metadata: {
+                ...((candidate.metadata as Record<string, unknown>) ?? {}),
+                seed: seedTag,
+              },
+            })
+            .where(eq(projects.id, candidate.id));
+        }
+      }
+    }
 
     if (!existing) {
       const [row] = await db
@@ -451,6 +482,7 @@ async function seedSpecProjects(ctx: Ctx) {
           sourceBibleId,
           pericopeSetId,
           createdBy,
+          metadata: { seed: seedTag },
         })
         .returning({ id: projects.id });
       ctx.projects.set(project.key, row.id);
@@ -462,6 +494,9 @@ async function seedSpecProjects(ctx: Ctx) {
     ctx.projects.set(project.key, existing.id);
     await ensureWorkflowStages(existing.id);
     const drifted: Partial<typeof projects.$inferInsert> = {};
+    // Seed-owned row (marker matched): the spec name is a reconcilable
+    // attribute like any other — a spec rename updates the row in place.
+    if (existing.name !== project.name) drifted.name = project.name;
     if (existing.sourceBibleId !== sourceBibleId) drifted.sourceBibleId = sourceBibleId;
     if (existing.pericopeSetId !== pericopeSetId) drifted.pericopeSetId = pericopeSetId;
     if (existing.status !== 'active') drifted.status = 'active';
@@ -480,11 +515,41 @@ async function seedSpecMilestones(ctx: Ctx) {
   for (const project of ctx.spec.projects) {
     const projectId = ctx.projects.get(project.key)!;
     for (const milestone of project.milestones) {
-      const [existing] = await db
+      // Same seed-marker convention as projects above: key reconciles on the
+      // spec identity; a (projectId, name) match is adopted only when unmarked
+      // so a spec rename never duplicates a milestone with all its links.
+      const seedTag = `demo:${project.key}/${milestone.key}`;
+      let [existing] = await db
         .select()
         .from(project_units)
-        .where(and(eq(project_units.projectId, projectId), eq(project_units.name, milestone.name)))
+        .where(
+          and(
+            eq(project_units.projectId, projectId),
+            sql`${project_units.metadata}->>'seed' = ${seedTag}`
+          )
+        )
         .limit(1);
+      if (!existing) {
+        const [candidate] = await db
+          .select()
+          .from(project_units)
+          .where(
+            and(eq(project_units.projectId, projectId), eq(project_units.name, milestone.name))
+          )
+          .limit(1);
+        if (candidate && (candidate.metadata as Record<string, unknown> | null)?.seed == null) {
+          existing = candidate;
+          await db
+            .update(project_units)
+            .set({
+              metadata: {
+                ...((candidate.metadata as Record<string, unknown>) ?? {}),
+                seed: seedTag,
+              },
+            })
+            .where(eq(project_units.id, candidate.id));
+        }
+      }
 
       const want = {
         type: milestone.type ?? 'text',
@@ -495,7 +560,7 @@ async function seedSpecMilestones(ctx: Ctx) {
       if (!existing) {
         const [row] = await db
           .insert(project_units)
-          .values({ projectId, name: milestone.name, ...want })
+          .values({ projectId, name: milestone.name, metadata: { seed: seedTag }, ...want })
           .returning({ id: project_units.id });
         ctx.milestones.set(`${project.key}/${milestone.key}`, row.id);
         console.log(`  milestone ${milestone.name} (${project.name})`);
@@ -504,6 +569,7 @@ async function seedSpecMilestones(ctx: Ctx) {
 
       ctx.milestones.set(`${project.key}/${milestone.key}`, existing.id);
       const drifted: Partial<typeof project_units.$inferInsert> = {};
+      if (existing.name !== milestone.name) drifted.name = milestone.name;
       if (existing.type !== want.type) drifted.type = want.type;
       if (existing.status !== want.status) drifted.status = want.status;
       if (existing.connectivityProfile !== want.connectivityProfile) {

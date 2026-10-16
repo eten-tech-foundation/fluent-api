@@ -363,6 +363,9 @@ export const project_units = pgTable('project_units', {
   name: varchar('name', { length: 255 }).notNull().default(''),
   type: milestoneTypeEnum('type').notNull().default('text'),
   connectivityProfile: varchar('connectivity_profile', { length: 255 }),
+  // Seed bookkeeping (same convention as projects.metadata): the demo engine
+  // stores its spec key here so renames reconcile instead of duplicating.
+  metadata: jsonb('metadata').$type<Json>().notNull().default({}),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
