@@ -357,7 +357,7 @@ export async function insertProjectUnitRecord(
   unitData: {
     projectId: number;
     status: 'not_started' | 'in_progress' | 'completed';
-    name?: string;
+    name: string;
   },
   tx: DbTransaction
 ) {
@@ -365,7 +365,11 @@ export async function insertProjectUnitRecord(
   return projectUnit;
 }
 
-/** English display names of the given books, ordered by book ID like the project book list. */
+/**
+ * English display names of the given books, ordered by book ID like the project book list.
+ * Book IDs are in canonical order only because the books seed inserts Genesis to Revelation in
+ * that order. The schema does not enforce it, and a book that DBL sync adds later sorts last.
+ */
 export async function getBookDisplayNames(bookIds: number[], tx: DbTransaction): Promise<string[]> {
   if (bookIds.length === 0) return [];
   const rows = await tx

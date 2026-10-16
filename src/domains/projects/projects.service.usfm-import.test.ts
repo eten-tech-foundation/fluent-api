@@ -7,7 +7,7 @@ import { getQueue } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './projects.repository';
-import { createProject, initialMilestoneName } from './projects.service';
+import { createProject } from './projects.service';
 import { createProjectSchema } from './projects.types';
 import * as usfmImportService from './usfm-import.service';
 
@@ -446,31 +446,46 @@ describe('uSFM creation retry and milestone compatibility', () => {
   });
 });
 
-describe('initialMilestoneName', () => {
-  it('lists the books when they fit the column', () => {
-    expect(initialMilestoneName(['Mark'])).toBe('Mark');
-    expect(initialMilestoneName(['Genesis', 'Exodus', 'Leviticus'])).toBe(
+describe('the initial milestone name', () => {
+  async function initialMilestoneNameFor(bookNames: string[]) {
+    vi.mocked(repo.getBookDisplayNames).mockResolvedValue(bookNames);
+    expect(await createProject(BASE)).toEqual(ok({ id: 500 }));
+    return vi.mocked(repo.insertProjectUnitRecord).mock.lastCall?.[0].name ?? '';
+  }
+
+  it('lists the books when they fit the column', async () => {
+    expect(await initialMilestoneNameFor(['Mark'])).toBe('Mark');
+    expect(await initialMilestoneNameFor(['Genesis', 'Exodus', 'Leviticus'])).toBe(
       'Genesis, Exodus, Leviticus'
     );
   });
 
-  it('collapses a list too long for the column to its first and last book', () => {
+  it('collapses a list too long for the column to its first and last book', async () => {
     const books = Array.from({ length: 40 }, (_, index) => `Book number ${index + 1}`);
-    const name = initialMilestoneName(books);
+    const name = await initialMilestoneNameFor(books);
     expect(name).toBe('Book number 1 – Book number 40 (40 books)');
     expect(name.length).toBeLessThanOrEqual(255);
   });
 
-  it('shortens the first and last names when even the collapsed form would not fit', () => {
+  it('shortens the first and last names when even the collapsed form would not fit', async () => {
     const books = ['A'.repeat(200), 'Mark', 'Luke', 'Z'.repeat(200)];
-    const name = initialMilestoneName(books);
+    const name = await initialMilestoneNameFor(books);
     expect(name.length).toBeLessThanOrEqual(255);
     expect(name).toMatch(/^A+… – Z+… \(4 books\)$/);
   });
 
-  it('shortens a single book name that does not fit', () => {
-    const name = initialMilestoneName(['B'.repeat(300)]);
+  it('shortens a single book name that does not fit', async () => {
+    const name = await initialMilestoneNameFor(['B'.repeat(300)]);
     expect(name).toHaveLength(255);
     expect(name.endsWith('…')).toBe(true);
+  });
+
+  // 𝔸 and 𝔹 sit outside the Basic Multilingual Plane, so each is two UTF-16 code units. The odd
+  // leading character puts a code-unit cut in the middle of a pair.
+  it('counts characters rather than code units, so it never splits a surrogate pair', async () => {
+    expect(await initialMilestoneNameFor([`x${'𝔸'.repeat(300)}`])).toBe(`x${'𝔸'.repeat(253)}…`);
+    expect(
+      await initialMilestoneNameFor([`x${'𝔸'.repeat(200)}`, 'Mark', 'Luke', `y${'𝔹'.repeat(200)}`])
+    ).toBe(`x${'𝔸'.repeat(119)}… – y${'𝔹'.repeat(119)}… (4 books)`);
   });
 });

@@ -93,6 +93,9 @@ describe('the milestone created with a project', () => {
       { id: 19, code: 'PSA', eng_display_name: 'Psalms' },
       { id: 41, code: 'MRK', eng_display_name: 'Mark' },
       { id: 42, code: 'LUK', eng_display_name: 'Luke' },
+      // Names outside the Basic Multilingual Plane: two UTF-16 code units per character.
+      { id: 90, code: 'XAA', eng_display_name: '𝔸'.repeat(200) },
+      { id: 91, code: 'XBB', eng_display_name: '𝔹'.repeat(200) },
     ]);
     await database.insert(schema.bibles).values({
       id: 1,
@@ -105,6 +108,8 @@ describe('the milestone created with a project', () => {
       { bibleId: 1, bookId: 19 },
       { bibleId: 1, bookId: 41 },
       { bibleId: 1, bookId: 42 },
+      { bibleId: 1, bookId: 90 },
+      { bibleId: 1, bookId: 91 },
     ]);
   }, 30_000);
 
@@ -141,6 +146,17 @@ describe('the milestone created with a project', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(await milestoneNames(result.data.id)).toEqual(['Psalms']);
+  });
+
+  it('fills the column by characters, the way Postgres counts them', async () => {
+    const result = await createProject({ ...PROJECT, bibleId: 1, bookId: [90, 91] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // 255 characters, 495 UTF-16 code units.
+    expect(await milestoneNames(result.data.id)).toEqual([
+      `${'𝔸'.repeat(120)}… – ${'𝔹'.repeat(120)}… (2 books)`,
+    ]);
   });
 
   it('is not created for a project without books', async () => {
