@@ -8,7 +8,7 @@ description: Check a fluent-api branch against docs/guides/code-standards.md. Us
 The rules and their IDs live in `docs/guides/code-standards.md`; read it first. This skill is
 the procedure for applying them to a branch.
 
-1. **Verify.** Run `npm run verify`. Done when it exits 0. Fix each `FA-L*`/`FA-C1` failure
+1. **Verify.** Run `npm run verify`. Done when it exits 0. Fix each `FA-L*`/`FA-C*` failure
    in the code, using the doc's table. The baselines (`eslint-suppressions.json`,
    `knip-baseline.json`) only ever shrink: after fixing a grandfathered violation run
    `npm run lint:prune` or `npm run deadcode -- --update`, and never regenerate them to

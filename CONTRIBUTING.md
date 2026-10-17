@@ -222,7 +222,7 @@ refactor: simplify route error handling
 ### Before Opening a PR
 
 ```bash
-npm run verify   # lint, format check, typecheck, tests, dead code, build
+npm run verify   # lint, format check, typecheck, tests, dead code, docs structure, build
 ```
 
 Then walk the FA-R checklist in

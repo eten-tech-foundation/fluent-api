@@ -11,12 +11,13 @@ is wrong in the same PR.
 
 ## Before opening a PR
 
-1. `npm run verify` — lint, format, typecheck, tests, dead code, build. It must pass.
+1. `npm run verify` — lint, format, typecheck, tests, dead code, docs structure, build. It must pass.
 2. Walk the [FA-R checklist](#fa-r-review-checklist) against your diff
    (`git diff origin/main...`). Fix what applies; say in the PR body why any item you
    knowingly didn't follow is an exception.
-3. Draft PRs run the [Code standards CI job](../../.github/workflows/pre-merge.yml) too, so
-   check it before marking the PR ready.
+3. Draft PRs run the Code standards and Docs Structure Check
+   [CI jobs](../../.github/workflows/pre-merge.yml) too, so check them before marking the PR
+   ready.
 
 ## FA-L: lint rules
 
