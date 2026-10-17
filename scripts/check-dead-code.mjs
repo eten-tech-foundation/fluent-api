@@ -12,12 +12,12 @@ const BASELINE = 'knip-baseline.json';
 const update = process.argv.includes('--update');
 
 // knip loads every vitest config package.json references. vitest.db.config.ts and
-// vitest.live.config.ts throw when their env vars are unset (as in CI), so give them
-// placeholders. Nothing connects; knip only reads the configs' include patterns.
+// vitest.live.config.ts throw when their env vars are unset or empty (as in CI), so give
+// them placeholders. Nothing connects; knip only reads the configs' include patterns.
 const env = {
-  DATABASE_URL: 'postgres://localhost:5432/fluent',
-  AQUIFER_API_KEY: 'knip-placeholder',
   ...process.env,
+  DATABASE_URL: process.env.DATABASE_URL || 'postgres://localhost:5432/fluent',
+  AQUIFER_API_KEY: process.env.AQUIFER_API_KEY || 'knip-placeholder',
 };
 
 const report = JSON.parse(
