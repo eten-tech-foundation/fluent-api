@@ -129,9 +129,11 @@ queries next to its routes and services, and files stay at a readable length.
 
 Violations that existed when a rule was adopted are recorded, not fixed.
 
-- **Lint:** `eslint-suppressions.json` holds per-file, per-rule counts. A new violation fails
-  lint. Fixing a recorded one also fails, until you run `npm run lint:prune` and commit the
-  smaller file. The file only ever shrinks: never run `eslint --suppress-all` to make a new
+- **Lint:** `eslint-suppressions.json` holds a count per file and rule, not each violation's
+  location. A file can't gain violations of a rule, but swapping one recorded violation for a
+  new one in the same file passes, so reviewers still check new code in grandfathered files.
+  Fixing a recorded violation fails lint until you run `npm run lint:prune` and commit the
+  smaller file, so the counts only go down. Never run `eslint --suppress-all` to make a new
   violation pass.
 - **Dead code:** `knip-baseline.json` works the same way. `npm run deadcode -- --update`
   rewrites it, and only after you've removed dead code.
