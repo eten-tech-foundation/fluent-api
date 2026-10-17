@@ -11,9 +11,19 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const BASELINE = 'knip-baseline.json';
 const update = process.argv.includes('--update');
 
+// knip loads every vitest config package.json references. vitest.db.config.ts and
+// vitest.live.config.ts throw when their env vars are unset (as in CI), so give them
+// placeholders. Nothing connects; knip only reads the configs' include patterns.
+const env = {
+  DATABASE_URL: 'postgres://localhost:5432/fluent',
+  AQUIFER_API_KEY: 'knip-placeholder',
+  ...process.env,
+};
+
 const report = JSON.parse(
   execFileSync('npx', ['knip', '--reporter', 'json', '--no-exit-code'], {
     encoding: 'utf8',
+    env,
     maxBuffer: 64 * 1024 * 1024,
   })
 );
