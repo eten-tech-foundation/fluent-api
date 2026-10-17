@@ -255,7 +255,7 @@ Request
   │  ❌ 403 if check fails
   ▼
 [Layer 4] Domain Policy         — Record-level access check
-  │  ❌ 403/404 depending on domain convention
+  │  ❌ 403 if the policy denies (some older middlewares still 404; see guides/code-standards.md)
   ▼
 [Route Handler]
 ```
@@ -359,7 +359,7 @@ They are called after the coarse `requirePermission()` gate and always receive t
 | `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                 |
 | `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                 |
 
-Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check returns `404 Project not found` rather than `403` to avoid leaking project existence.
+Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check currently returns `404 Project not found`. That predates the 403 rule in [code-standards.md](guides/code-standards.md#follow-up-prs) (FA-R4) and is due to change to `403` in its own PR.
 
 ### UserPolicy
 
