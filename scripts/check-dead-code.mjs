@@ -1,0 +1,55 @@
+#!/usr/bin/env node
+// FA-C1: fails on dead code (unused files, exports, types, dependencies) that is not in
+// knip-baseline.json, and on baseline entries that no longer occur, so the baseline only
+// shrinks. Mirrors how eslint-suppressions.json works for lint rules.
+//
+//   npm run deadcode            check against the baseline
+//   npm run deadcode -- --update  rewrite the baseline (only after removing dead code)
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const BASELINE = 'knip-baseline.json';
+const update = process.argv.includes('--update');
+
+const report = JSON.parse(
+  execFileSync('npx', ['knip', '--reporter', 'json', '--no-exit-code'], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+);
+
+const current = new Set(report.files.map((file) => `files:${file}`));
+for (const issue of report.issues) {
+  for (const [kind, entries] of Object.entries(issue)) {
+    if (kind === 'file') continue;
+    const items = Array.isArray(entries) ? entries : Object.values(entries).flat();
+    for (const item of items) current.add(`${kind}:${issue.file}:${item.name}`);
+  }
+}
+
+if (update) {
+  writeFileSync(BASELINE, `${JSON.stringify([...current].sort(), null, 2)}\n`);
+  process.stdout.write(`Wrote ${current.size} entries to ${BASELINE}.\n`);
+  process.exit(0);
+}
+
+const baseline = new Set(JSON.parse(readFileSync(BASELINE, 'utf8')));
+const added = [...current].filter((key) => !baseline.has(key)).sort();
+const stale = [...baseline].filter((key) => !current.has(key)).sort();
+
+if (added.length > 0) {
+  process.stdout.write(
+    `FA-C1: new dead code (remove it, or export only what another module imports):\n${added
+      .map((key) => `  ${key}`)
+      .join('\n')}\n`
+  );
+}
+if (stale.length > 0) {
+  process.stdout.write(
+    `FA-C1: ${stale.length} baseline entries no longer occur. Run \`npm run deadcode -- --update\` and commit ${BASELINE}:\n${stale
+      .map((key) => `  ${key}`)
+      .join('\n')}\n`
+  );
+}
+if (added.length > 0 || stale.length > 0) process.exit(1);
+process.stdout.write(`No new dead code (${baseline.size} grandfathered in ${BASELINE}).\n`);
