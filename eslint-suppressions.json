@@ -40,7 +40,7 @@
     }
   },
   "src/domains/ai-suggestions/ai-suggestions.auth.middleware.ts": {
-    "no-restricted-syntax": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     }
   },
@@ -84,10 +84,10 @@
     }
   },
   "src/domains/ai-suggestions/ai-suggestions.service.ts": {
-    "max-lines": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     },
-    "no-restricted-syntax": {
+    "max-lines": {
       "count": 1
     }
   },
@@ -266,7 +266,7 @@
     }
   },
   "src/domains/languages/sync/dbl-language-sync.ts": {
-    "no-restricted-syntax": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     }
   },
@@ -287,10 +287,10 @@
     }
   },
   "src/domains/organizations/users/org-users.route.ts": {
-    "no-restricted-imports": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     },
-    "no-restricted-syntax": {
+    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -315,7 +315,7 @@
     }
   },
   "src/domains/playback-audio/playback-audio.service.ts": {
-    "no-restricted-syntax": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     }
   },
@@ -325,7 +325,7 @@
     }
   },
   "src/domains/projects/projects.repository.ts": {
-    "no-restricted-syntax": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     },
     "ts/no-explicit-any": {
@@ -558,7 +558,7 @@
     "fluent-standards/one-repository-per-directory": {
       "count": 1
     },
-    "no-restricted-syntax": {
+    "fluent-standards/repository-namespace-import": {
       "count": 1
     }
   },

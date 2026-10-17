@@ -4,8 +4,8 @@ import prettier from 'eslint-config-prettier';
 import fluentStandards from './eslint-rules/fluent-standards.mjs';
 
 // Rule IDs (FA-L*) refer to docs/guides/code-standards.md. Existing violations are
-// recorded in eslint-suppressions.json; only new ones fail. See that doc for how to
-// prune the file as violations are fixed.
+// recorded in eslint-suppressions.json as per-file, per-rule counts: a file can't gain
+// violations of a rule. See that doc for how to prune the file as violations are fixed.
 const STANDARDS = 'see docs/guides/code-standards.md';
 
 // antfu's own no-restricted-syntax entries. Redefining the rule for a file glob replaces
@@ -26,12 +26,6 @@ const HTTP_METHOD_CASE = [
     message: `FA-L13: write HTTP methods in all caps (GET, POST, PUT, PATCH, DELETE) — ${STANDARDS}.`,
   },
 ];
-
-const REPOSITORY_NAMESPACE_IMPORT = {
-  selector:
-    "ImportDeclaration[importKind!='type'][source.value=/^\\./][source.value=/\\.repository$/]:has(ImportSpecifier[importKind!='type'])",
-  message: `FA-L8: import your domain's repository as a namespace (\`import * as repo from './x.repository'\`) — ${STANDARDS}.`,
-};
 
 const ROUTE_RESTRICTED_SYNTAX = [
   {
@@ -104,13 +98,9 @@ export default antfu(
     rules: {
       'fluent-standards/no-cross-domain-repository': 'error',
       'fluent-standards/one-repository-per-directory': 'error',
+      'fluent-standards/repository-namespace-import': 'error',
       'ts/no-explicit-any': 'error',
-      'no-restricted-syntax': [
-        'error',
-        ...ANTFU_RESTRICTED_SYNTAX,
-        ...HTTP_METHOD_CASE,
-        REPOSITORY_NAMESPACE_IMPORT,
-      ],
+      'no-restricted-syntax': ['error', ...ANTFU_RESTRICTED_SYNTAX, ...HTTP_METHOD_CASE],
     },
   },
   {
@@ -121,15 +111,17 @@ export default antfu(
         {
           paths: [
             {
-              name: '@/db',
-              message: `FA-L3: routes reach the database through a service — ${STANDARDS}.`,
-            },
-            {
               name: 'drizzle-orm',
               message: `FA-L3: routes don't build queries; call a service — ${STANDARDS}.`,
             },
           ],
           patterns: [
+            {
+              // The database module by alias or relative path ('@/db', '../../db',
+              // '../db/index'). '@/db/schema' stays importable for its zod schemas.
+              regex: '^(?:@/db|(?:\\.{1,2}/)+db)(?:/index)?$',
+              message: `FA-L3: routes reach the database through a service — ${STANDARDS}.`,
+            },
             {
               group: ['**/*.repository'],
               message: `FA-L3: routes call services, not repositories — ${STANDARDS}.`,
@@ -141,7 +133,6 @@ export default antfu(
         'error',
         ...ANTFU_RESTRICTED_SYNTAX,
         ...HTTP_METHOD_CASE,
-        REPOSITORY_NAMESPACE_IMPORT,
         ...ROUTE_RESTRICTED_SYNTAX,
       ],
     },
@@ -153,7 +144,6 @@ export default antfu(
         'error',
         ...ANTFU_RESTRICTED_SYNTAX,
         ...HTTP_METHOD_CASE,
-        REPOSITORY_NAMESPACE_IMPORT,
         {
           selector: 'ThrowStatement',
           message: `FA-L9: services return Result instead of throwing. To roll a transaction back, return err() from runInTransaction (@/db/transaction) — ${STANDARDS}.`,

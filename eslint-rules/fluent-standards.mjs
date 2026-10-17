@@ -105,10 +105,50 @@ const oneRepositoryPerDirectory = {
   },
 };
 
+const repositoryNamespaceImport = {
+  meta: {
+    type: 'suggestion',
+    docs: { description: "Import your own domain's repository as a namespace" },
+    schema: [],
+    messages: {
+      named:
+        "FA-L8: import your domain's repository as a namespace (`import * as repo from '{{source}}'`); `import type { … }` is fine ({{standards}}).",
+    },
+  },
+  create(context) {
+    const file = context.filename;
+    if (TEST_FILE.test(file)) return {};
+    const srcRoot = srcRootOf(file);
+    if (!srcRoot) return {};
+    const ownDomain = domainOf(file, srcRoot);
+
+    return {
+      ImportDeclaration(node) {
+        if (node.importKind === 'type') return;
+        const source = node.source.value;
+        if (!/\.repository$/.test(source)) return;
+        const hasValueSpecifier = node.specifiers.some(
+          (specifier) => specifier.type === 'ImportSpecifier' && specifier.importKind !== 'type'
+        );
+        if (!hasValueSpecifier) return;
+        const target = resolveSpecifier(source, file, srcRoot);
+        // Another domain's repository is FA-L1's finding; report each import once.
+        if (!target || domainOf(`${target}.ts`, srcRoot) !== ownDomain) return;
+        context.report({
+          node,
+          messageId: 'named',
+          data: { source, standards: STANDARDS },
+        });
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: 'fluent-standards' },
   rules: {
     'no-cross-domain-repository': noCrossDomainRepository,
+    'repository-namespace-import': repositoryNamespaceImport,
     'one-repository-per-directory': oneRepositoryPerDirectory,
   },
 };
