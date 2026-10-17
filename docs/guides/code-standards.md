@@ -139,16 +139,16 @@ Violations that existed when a rule was adopted are recorded, not fixed.
 
 Each item is its own PR. None of them goes into an unrelated change as a drive-by.
 
-1. **HTTP method casing (FA-L13).** Uppercase the 30 grandfathered mangled methods
+1. **HTTP method casing (FA-L13), #414.** Uppercase the 30 grandfathered mangled methods
    (`pOST`, `gET`, …), mostly in `describe` titles, and run `npm run lint:prune`. The
    lowercase-title autofix produced them; `allowedPrefixes` now prevents that.
-2. **Transactions (FA-L9).** Move `milestones`, `projects` and `chapter-assignments`
+2. **Transactions (FA-L9), #415.** Move `milestones`, `projects` and `chapter-assignments`
    services onto `runInTransaction`. Replace `throw new Error('CODE')` and the
    `error.message === 'CODE'` matching in their `catch` blocks with `return err(...)`, then
    prune the FA-L9 suppressions.
-3. **403 on policy denial (FA-R4).** Some resource middlewares (e.g. `requireProjectAccess`,
+3. **403 on policy denial (FA-R4), #416.** Some resource middlewares (e.g. `requireProjectAccess`,
    `requireChapterAssignmentAccess`) return 404 when a policy denies access. Changing them
    to 403 is visible to clients: update the OpenAPI responses, `docs/permissions.md`, and
    tell the web and mobile clients.
-4. **Cross-domain repository access (FA-L1).** Add service functions to `user-roles` and
+4. **Cross-domain repository access (FA-L1), #417.** Add service functions to `user-roles` and
    `projects/workflow-stages` and move the auth middlewares and other callers onto them.
