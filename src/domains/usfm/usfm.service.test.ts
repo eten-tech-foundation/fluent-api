@@ -309,12 +309,12 @@ describe('createUSFMStreamForBook', () => {
     expect(usj.content).toContainEqual({
       type: 'para',
       marker: 'mt1',
-      content: ['Gênesis\n'],
+      content: ['O Primeiro Livro de Moisés\n'],
     });
 
     const roundTrip = new USFMParser(null, usj);
     expect(roundTrip.errors).toEqual([]);
-    expect(roundTrip.usfm).toContain('\\mt1 Gênesis\n');
+    expect(roundTrip.usfm).toContain('\\mt1 O Primeiro Livro de Moisés\n');
     expect(roundTrip.toUSJ()).toEqual(usj);
   });
 
@@ -340,35 +340,33 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toContain('\\toc3 Gn\n');
   });
 
-  it('\\mt1 prefers the short name without destroying the authored book title', async () => {
-    const withBoth = await renderUSFM(
+  it('keeps the authored \\h and \\mt1 when the toc fields are set', async () => {
+    // fluent-web#398 QA: the short name used to replace both lines, so a TOC edit
+    // overwrote the running header and the main title in every export.
+    const usfm = await renderUSFM(
       [verse({})],
-      book({ bookTitle: 'O Primeiro Livro de Moisés', tocShortName: 'Gênesis' })
+      book({
+        runningHeader: 'Gênesis',
+        bookTitle: 'O Primeiro Livro de Moisés',
+        tocLongName: 'Livro do Gênesis',
+        tocShortName: 'Gên',
+        tocAbbreviation: 'Gn',
+      })
     );
-    expect(withBoth).toContain('\\mt1 Gênesis\n');
 
-    // Clearing the short name reveals the preserved authored title again, rather than
-    // falling through to the display name: a TOC edit never rewrites book_title.
-    const shortCleared = await renderUSFM(
-      [verse({})],
-      book({ bookTitle: 'O Primeiro Livro de Moisés', tocShortName: null })
+    expect(usfm).toContain(
+      '\\h Gênesis\n\\toc1 Livro do Gênesis\n\\toc2 Gên\n\\toc3 Gn\n\\mt1 O Primeiro Livro de Moisés\n'
     );
-    expect(shortCleared).toContain('\\mt1 O Primeiro Livro de Moisés\n');
   });
 
-  it('\\h falls back to the short name before the display name', async () => {
-    // So a vernacular project does not export an English running header beside a
-    // vernacular \toc2.
-    const borrowed = await renderUSFM(
+  it('keeps the display name in \\h and \\mt1 when only the toc fields are set', async () => {
+    const usfm = await renderUSFM(
       [verse({})],
-      book({ runningHeader: null, tocShortName: 'Gênesis' })
+      book({ tocLongName: 'Livro do Gênesis', tocShortName: 'Gênesis', tocAbbreviation: 'Gn' })
     );
-    expect(borrowed).toContain('\\h Gênesis\n');
 
-    const authored = await renderUSFM(
-      [verse({})],
-      book({ runningHeader: 'Gênesis', tocShortName: 'Genesis' })
-    );
-    expect(authored).toContain('\\h Gênesis\n');
+    expect(usfm).toContain('\\h Genesis\n');
+    expect(usfm).toContain('\\toc2 Gênesis\n');
+    expect(usfm).toContain('\\mt1 Genesis\n');
   });
 });

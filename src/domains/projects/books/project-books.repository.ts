@@ -26,6 +26,7 @@ export async function getBooksByProjectId(projectId: number): Promise<Result<Pro
       .where(
         and(eq(project_units.projectId, projectId), isNull(project_unit_bible_books.deletedAt))
       )
+      // Book IDs are canonical only because the books seed inserts Genesis to Revelation in order.
       .orderBy(books.id);
 
     const mappedBooks: ProjectBook[] = projectBooks.map((book) => ({

@@ -389,8 +389,8 @@ export const project_unit_bible_books = pgTable(
     // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
     // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
     // have no display-name fallback — a null or blank value omits the line from the
-    // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
-    // which is how the dialog drives the main title without ever rewriting book_title.
+    // export entirely. Each one fills only its own line; \h and \mt come from the two
+    // columns above whatever the table of contents holds.
     tocLongName: varchar('toc_long_name'),
     tocShortName: varchar('toc_short_name'),
     tocAbbreviation: varchar('toc_abbreviation'),
