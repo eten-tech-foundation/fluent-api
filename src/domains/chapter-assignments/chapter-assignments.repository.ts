@@ -449,7 +449,6 @@ export async function flagClaimConflict(
     .where(
       and(
         eq(chapter_assignments.id, id),
-        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT),
         isNotNull(chapter_assignments.assignedUserId),
         ne(chapter_assignments.assignedUserId, claimConflictUserId)
       )

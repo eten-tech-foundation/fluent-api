@@ -428,13 +428,26 @@ export async function claimChapterAssignment(id: number, userId: number) {
         });
       }
 
-      // CAS miss after middleware snapshot: deleted, reassigned to caller as DRAFT,
-      // or no longer a rival DRAFT. Never return flagged ?? current (ghost 200).
+      // CAS miss: deleted, reassigned to the caller, or the row changed under us.
+      // Never return flagged ?? current (a 200 for a write that did not happen).
       const latest = await repo.findById(id, tx);
       if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
       if (latest.assignedUserId === userId && latest.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
         return ok({
           response: toChapterAssignmentResponse(latest),
+          shouldTriggerAi: false,
+        });
+      }
+      if (latest.assignedUserId === userId) {
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
+      if (latest.assignedUserId != null) {
+        return ok({
+          response: toChapterAssignmentResponse({
+            ...latest,
+            hasClaimConflict: true,
+            claimConflictUserId: userId,
+          }),
           shouldTriggerAi: false,
         });
       }

@@ -129,21 +129,25 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
     expect(row.claimConflictUserId).toBe(11);
   });
 
-  it('does not flag after transition to non-DRAFT (stale middleware authorize)', async () => {
+  it('flags a rival who has left DRAFT without changing assignee or status', async () => {
     await database
       .update(schema.chapter_assignments)
       .set({ status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK })
       .where(eq(schema.chapter_assignments.id, 1));
 
     const flagged = await database.transaction((tx) => repo.flagClaimConflict(1, 5, tx));
-    expect(flagged).toBeNull();
+    expect(flagged?.hasClaimConflict).toBe(true);
+    expect(flagged?.claimConflictUserId).toBe(5);
+    expect(flagged?.assignedUserId).toBe(7);
+    expect(flagged?.status).toBe(CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
 
     const [row] = await database
       .select()
       .from(schema.chapter_assignments)
       .where(eq(schema.chapter_assignments.id, 1));
-    expect(row.hasClaimConflict).toBe(false);
-    expect(row.claimConflictUserId).toBeNull();
+    expect(row.hasClaimConflict).toBe(true);
+    expect(row.claimConflictUserId).toBe(5);
+    expect(row.assignedUserId).toBe(7);
     expect(row.status).toBe(CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
   });
 

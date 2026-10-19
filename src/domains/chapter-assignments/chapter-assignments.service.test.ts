@@ -279,7 +279,7 @@ describe('claimChapterAssignment', () => {
     expect(repo.flagClaimConflict).not.toHaveBeenCalled();
   });
 
-  it('returns not found when flag CAS misses because the row left rival DRAFT', async () => {
+  it('returns a conflict-shaped response when the rival has left DRAFT', async () => {
     const priorRival = {
       ...baseRecord,
       assignedUserId: 7,
@@ -289,6 +289,8 @@ describe('claimChapterAssignment', () => {
       ...priorRival,
       status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
       peerCheckerId: 88,
+      hasClaimConflict: false,
+      claimConflictUserId: null,
     };
     vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
     vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(advanced);
@@ -296,11 +298,13 @@ describe('claimChapterAssignment', () => {
 
     const result = await claimChapterAssignment(1, 5);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.assignedUserId).toBe(7);
+      expect(result.data.status).toBe(CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+      expect(result.data.hasClaimConflict).toBe(true);
+      expect(result.data.claimConflictUserId).toBe(5);
     }
-    expect(advanced.hasClaimConflict).toBe(false);
   });
 
   it('returns 404 when CAS miss reveals PM assigned caller and advanced past DRAFT', async () => {

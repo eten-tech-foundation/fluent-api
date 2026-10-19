@@ -381,7 +381,6 @@ describe('chapter-assignments.repository claim helpers', () => {
       });
       expect(mockUpdateChain.where).toHaveBeenCalledWith([
         [chapter_assignments.id, 1],
-        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 5],
       ]);
@@ -407,13 +406,11 @@ describe('chapter-assignments.repository claim helpers', () => {
       // Rival-DRAFT CAS only — no latch on existing claimConflictUserId.
       expect(mockUpdateChain.where).toHaveBeenNthCalledWith(1, [
         [chapter_assignments.id, 1],
-        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 5],
       ]);
       expect(mockUpdateChain.where).toHaveBeenNthCalledWith(2, [
         [chapter_assignments.id, 1],
-        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.DRAFT],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 11],
       ]);

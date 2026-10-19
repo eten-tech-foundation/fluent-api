@@ -98,7 +98,7 @@ describe('chapterAssignmentPolicy.claim', () => {
     ).toBe(true);
   });
 
-  it('denies when another user holds a non-DRAFT assignment', () => {
+  it('allows a conflict-shaped claim when another user holds a non-DRAFT assignment', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
       ChapterAssignmentPolicy.claim(user, {
@@ -107,7 +107,7 @@ describe('chapterAssignmentPolicy.claim', () => {
         peerCheckerId: 88,
         status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('denies when the chapter is not in not_started status', () => {

@@ -151,13 +151,13 @@ export const ChapterAssignmentPolicy = {
       return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
     }
 
-    // Another user holds the draft (translator race, late offline reconnect, or
-    // PM assign with peer). Service flags durable hasClaimConflict (claimConflictUserId
-    // = this claimant; last-writer-wins on that scalar only) and returns 200 without
-    // overwriting assignedUserId — never 404 for these concurrency cases (#376).
-    // Non-DRAFT statuses remain denied (true auth/eligibility 404).
+    // Another user holds the chapter at any status (DRAFT race, late reconnect,
+    // PM assign, or a later workflow stage). Service returns the conflict-shaped
+    // 200 and records hasClaimConflict without overwriting assignedUserId (#376).
+    // Same-user non-DRAFT stays denied above. content:assign and missing
+    // content:update stay denied above — permissions are unchanged.
     if (assignment.assignedUserId != null) {
-      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
+      return true;
     }
 
     return (
