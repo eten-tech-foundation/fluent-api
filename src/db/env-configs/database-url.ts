@@ -16,5 +16,15 @@ export function applyDatabaseUrl(config: Pick<EnvConfig, 'databaseUrl'>): string
   const url = config.databaseUrl ?? process.env.DATABASE_URL;
   if (!url) return null;
   process.env.DATABASE_URL = url;
-  return url.replace(/:([^@]+)@/, ':****@');
+  return maskDatabaseUrl(url);
+}
+
+/** Masks the password component of a postgres URL for logging. */
+export function maskDatabaseUrl(url: string): string {
+  return url.replace(/(:\/\/[^:/@]+:)[^@]+@/, '$1****@');
+}
+
+/** Extracts the database name from a postgres URL (path segment, decoded). */
+export function databaseNameFromUrl(url: string): string {
+  return decodeURIComponent(new URL(url).pathname.slice(1));
 }
