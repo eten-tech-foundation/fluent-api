@@ -6,6 +6,8 @@ The editor queues the active and next pericope by their source identifiers. The 
 
 Groups with a nonempty source title may also queue a heading-only job, but only when the group's first source-backed verse is the first verse of that pericope in the selected set. A chapter that continues an earlier pericope gets verse suggestions without a duplicate title. Missing source text for the true first verse also suppresses titles until that verse arrives. A heading is omitted when the first target verse already has authored `markers.headings`, or when a title suggestion is cached. Title jobs use distinct singleton keys including the selected set and exact source range. Existing scripture job keys and payloads remain compatible.
 
+Jobs are queued in reading order, one at a time: each title ahead of its group's verses, the active group ahead of the next. pg-boss hands jobs out by creation time, and the AI trigger worker forwards each batch oldest first, one fluent-ai request per job, because fluent-ai runs jobs by the time it stores them and gives every job in one request the same time. The first-pericope runway queued at assignment, or when AI is switched on, includes that pericope's title ahead of its verses, since the editor's own request for the title comes after it.
+
 ## Chapter boundary
 
 Prefetch follows the existing verse-mode `queue-next` behavior from fluent-web#417: the active and next pericope are queued within the current chapter. When the active group is the last one in the chapter, no next-chapter request is made in advance. The editor queues that chapter's active and next groups when the translator enters it. Cross-chapter prefetch is not implemented by this change.

@@ -5,6 +5,9 @@ import { logger } from '@/lib/logger';
 import { getQueue } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import type { PericopeContext } from './ai-suggestions.types';
+
+import * as pericopeRepo from './ai-pericope.repository';
 import * as repo from './ai-suggestions.repository';
 import * as service from './ai-suggestions.service';
 
@@ -47,6 +50,10 @@ vi.mock('@/domains/pericopes/pericopes.service', () => ({
   getChapterPericopes: vi.fn(),
 }));
 
+vi.mock('./ai-pericope.repository', () => ({
+  resolvePericopes: vi.fn(),
+}));
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const UNIT = 7;
@@ -73,9 +80,41 @@ const send = vi.fn();
 const sentVerses = () =>
   send.mock.calls.map((call) => (call[1] as { verseStart: number }).verseStart);
 
+/** Every job handed to pgboss, in order, as 'title <pericope>' or 'verse <n>'. */
+const sentJobs = () =>
+  send.mock.calls.map(([, job]) =>
+    job.pericopeNumber ? `title ${job.pericopeNumber}` : `verse ${job.verseStart}`
+  );
+
 /** The verses a call asked to have checked, so a test can see the pericope decision itself. */
 const askedToCheck = () =>
   vi.mocked(repo.findVersesNeedingSuggestions).mock.calls.map((call) => call[4]);
+
+/** Genesis 1's first pericope as the pericope repository resolves it, titled unless told not. */
+function firstPericope({
+  sourceTitle = 'The Creation' as string | null,
+  startsPericope = true,
+} = {}): PericopeContext {
+  return {
+    pericopeSetId: 5,
+    isAiEnabled: true,
+    groups: [
+      {
+        pericopeNumber: '1',
+        sourceTitle,
+        startsPericope,
+        suggestion: null,
+        verses: [1, 2, 3].map((verseNumber) => ({
+          bibleTextId: 100 + verseNumber,
+          verseNumber,
+          content: null,
+          hasAuthoredHeading: false,
+          hasSuggestion: false,
+        })),
+      },
+    ],
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -85,6 +124,10 @@ beforeEach(() => {
   vi.mocked(repo.getChapterAssignmentAiStatus).mockResolvedValue(true);
   vi.mocked(repo.getProjectIdForProjectUnit).mockResolvedValue(PROJECT);
   vi.mocked(pericopesService.getChapterPericopes).mockResolvedValue(ok(PERICOPE_GROUPS));
+  // Like the fixture groups, the resolved first pericope has no source title unless a test says so.
+  vi.mocked(pericopeRepo.resolvePericopes).mockResolvedValue(
+    ok(firstPericope({ sourceTitle: null }))
+  );
   // By default nothing is drafted or suggested yet, so whatever is asked for is what goes out.
   vi.mocked(repo.findVersesNeedingSuggestions).mockImplementation(
     async (_u, _b, _c, _ch, verses) => verses
@@ -217,6 +260,43 @@ describe('handleChapterAssigned (#417)', () => {
 
     expect(askedToCheck()).toEqual([[1, 2, 3]]);
     expect(sentVerses()).toEqual([1, 2, 3]);
+  });
+
+  it("queues the first pericope's title ahead of its verses", async () => {
+    vi.mocked(pericopeRepo.resolvePericopes).mockResolvedValue(ok(firstPericope()));
+
+    await service.handleChapterAssigned(UNIT, BIBLE, 11, CHAPTER);
+
+    expect(pericopeRepo.resolvePericopes).toHaveBeenCalledWith({
+      projectUnitId: UNIT,
+      bibleId: BIBLE,
+      bookCode: 'GEN',
+      chapterNumber: CHAPTER,
+      pericopeNumbers: ['1'],
+    });
+    expect(sentJobs()).toEqual(['title 1', 'verse 1', 'verse 2', 'verse 3']);
+    expect(send.mock.calls[0][2]).toEqual({
+      singletonKey: `heading:${UNIT}:${BIBLE}:GEN:${CHAPTER}:1:3:5:1`,
+    });
+  });
+
+  it('leaves the title out when the chapter starts in the middle of a pericope', async () => {
+    vi.mocked(pericopeRepo.resolvePericopes).mockResolvedValue(
+      ok(firstPericope({ startsPericope: false }))
+    );
+
+    await service.handleChapterAssigned(UNIT, BIBLE, 11, CHAPTER);
+
+    expect(sentJobs()).toEqual(['verse 1', 'verse 2', 'verse 3']);
+  });
+
+  it('still queues the verses when the title cannot be resolved', async () => {
+    vi.mocked(pericopeRepo.resolvePericopes).mockResolvedValue(err(ErrorCode.INVALID_REFERENCE));
+
+    const result = await service.handleChapterAssigned(UNIT, BIBLE, 11, CHAPTER);
+
+    expect(result.ok).toBe(true);
+    expect(sentJobs()).toEqual(['verse 1', 'verse 2', 'verse 3']);
   });
 
   it('respects the AI toggle, which the assignment path never checked before', async () => {

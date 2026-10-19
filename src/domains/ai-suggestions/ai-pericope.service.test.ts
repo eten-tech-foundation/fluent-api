@@ -135,8 +135,33 @@ describe('pericope AI suggestions', () => {
       pericopeNumber: '4a',
       pericopeSetId: 5,
     });
-    expect(send.mock.calls[0][2].singletonKey).toBe('1:2:GEN:1:1');
-    expect(send.mock.calls[3][2].singletonKey).toBe('heading:1:2:GEN:1:1:5:5:4a');
+    expect(send.mock.calls[0][2].singletonKey).toBe('heading:1:2:GEN:1:1:5:5:4a');
+    expect(send.mock.calls[1][2].singletonKey).toBe('1:2:GEN:1:1');
+  });
+
+  it('queues each title ahead of its own verses, one job at a time', async () => {
+    context.groups[1].sourceTitle = 'The seventh day';
+    let created: (id: string) => void = () => {};
+    send.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          created = resolve;
+        })
+    );
+
+    const queued = queuePericopes(request);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    // pg-boss hands jobs out by creation time, so the next one waits until this one exists.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(send).toHaveBeenCalledTimes(1);
+    created('job');
+    expect((await queued).ok).toBe(true);
+
+    expect(
+      send.mock.calls.map(([, job]) =>
+        job.pericopeNumber ? `title ${job.pericopeNumber}` : `verse ${job.verseStart}`
+      )
+    ).toEqual(['title 4a', 'verse 1', 'verse 2', 'verse 5', 'title 4b', 'verse 7']);
   });
 
   it.each([false, true])(

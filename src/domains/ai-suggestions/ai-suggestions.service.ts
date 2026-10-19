@@ -11,11 +11,13 @@ import type {
   AiSuggestionItem,
   AiSuggestionsListResponse,
   GetAiSuggestionsQuery,
+  PericopeContext,
   PericopeRequest,
   PericopeSuggestionItem,
   PericopeSuggestionsResponse,
   PericopeUsageRequest,
   QueueNextVersesResponse,
+  ResolvedPericope,
   SuggestionContextRequest,
   SuggestionContextResponse,
   TrackUsageRequest,
@@ -125,6 +127,17 @@ export async function queueNextVerses(
   }
 }
 
+interface ChapterPericope {
+  pericopeNumber: string;
+  verseNumbers: number[];
+}
+
+/** The chapter a job belongs to; every job in one queue call shares it. */
+type QueueTarget = Pick<
+  AiSuggestionTriggerJob,
+  'projectUnitId' | 'bibleId' | 'bookCode' | 'chapterNumber'
+>;
+
 /**
  * The chapter's pericopes as verse-number groups, from the same source the pericope view reads,
  * so the queue and the translator can never disagree about where a pericope starts. An empty
@@ -135,14 +148,39 @@ async function chapterPericopeVerseGroups(
   projectUnitId: number,
   bookCode: string,
   chapterNumber: number
-): Promise<Result<number[][]>> {
+): Promise<Result<ChapterPericope[]>> {
   const projectId = await getProjectIdForProjectUnit(projectUnitId);
   if (projectId === null) return ok([]);
 
   const result = await pericopesService.getChapterPericopes(projectId, bookCode, chapterNumber);
   if (!result.ok) return result;
 
-  return ok(result.data.map((group) => group.verses.map((verse) => verse.verseNumber)));
+  return ok(
+    result.data.map((group) => ({
+      pericopeNumber: group.pericopeNumber,
+      verseNumbers: group.verses.map((verse) => verse.verseNumber),
+    }))
+  );
+}
+
+function verseJob(target: QueueTarget, verseNumber: number): AiSuggestionTriggerJob {
+  return { ...target, verseStart: verseNumber, verseEnd: verseNumber };
+}
+
+/** The group's heading-only job, or null when the group gets no generated title. */
+function titleJob(
+  target: QueueTarget,
+  context: PericopeContext,
+  group: ResolvedPericope
+): AiSuggestionTriggerJob | null {
+  if (!canSuggestPericopeTitle(context, group) || group.suggestion) return null;
+  return {
+    ...target,
+    verseStart: group.verses[0].verseNumber,
+    verseEnd: group.verses[group.verses.length - 1].verseNumber,
+    pericopeNumber: group.pericopeNumber,
+    pericopeSetId: context.pericopeSetId,
+  };
 }
 
 /**
@@ -163,6 +201,7 @@ async function queueFromVerse(
   const pericopesResult = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
   if (!pericopesResult.ok) return pericopesResult;
   const pericopes = pericopesResult.data;
+  const target = { projectUnitId, bibleId, bookCode, chapterNumber };
 
   if (pericopes.length === 0) {
     const nextVerses = await findNextUntranslatedVerses(
@@ -173,10 +212,10 @@ async function queueFromVerse(
       currentVerse,
       env.AI_DEFAULT_LOOKAHEAD
     );
-    return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, nextVerses);
+    return sendJobs(nextVerses.map((verse) => verseJob(target, verse)));
   }
 
-  const index = pericopes.findIndex((verses) => verses.includes(currentVerse));
+  const index = pericopes.findIndex((group) => group.verseNumbers.includes(currentVerse));
   if (index === -1) {
     logger.debug(
       { projectUnitId, bookCode, chapterNumber, currentVerse },
@@ -185,7 +224,7 @@ async function queueFromVerse(
     return ok(undefined);
   }
 
-  const wanted = pericopes.slice(index, index + 2).flat();
+  const wanted = pericopes.slice(index, index + 2).flatMap((group) => group.verseNumbers);
   const needing = await findVersesNeedingSuggestions(
     projectUnitId,
     bibleId,
@@ -193,13 +232,16 @@ async function queueFromVerse(
     chapterNumber,
     wanted
   );
-  return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, needing);
+  return sendJobs(needing.map((verse) => verseJob(target, verse)));
 }
 
 /**
  * The first pericope of a chapter, which is the only speculative queuing #417 allows: a
  * translator may not reach an assigned chapter for weeks, so one pericope of runway is all that
  * is spun up ahead of them. Without a pericope set, the initial count from #158.
+ *
+ * The runway includes the pericope's title, ahead of its verses. Pericope view asks for the title
+ * itself, but only after this has queued every verse, so the title used to come last (#394 QA).
  */
 async function queueFirstPericope(
   projectUnitId: number,
@@ -210,87 +252,97 @@ async function queueFirstPericope(
   const pericopesResult = await chapterPericopeVerseGroups(projectUnitId, bookCode, chapterNumber);
   if (!pericopesResult.ok) return pericopesResult;
   const pericopes = pericopesResult.data;
+  const target = { projectUnitId, bibleId, bookCode, chapterNumber };
 
-  const wanted =
-    pericopes.length === 0
-      ? await findNextUntranslatedVerses(
-          projectUnitId,
-          bibleId,
-          bookCode,
-          chapterNumber,
-          0,
-          env.AI_INITIAL_QUEUE_COUNT
-        )
-      : await findVersesNeedingSuggestions(
-          projectUnitId,
-          bibleId,
-          bookCode,
-          chapterNumber,
-          pericopes[0]
-        );
+  if (pericopes.length === 0) {
+    const verses = await findNextUntranslatedVerses(
+      projectUnitId,
+      bibleId,
+      bookCode,
+      chapterNumber,
+      0,
+      env.AI_INITIAL_QUEUE_COUNT
+    );
+    return sendJobs(verses.map((verse) => verseJob(target, verse)));
+  }
 
-  return sendVerseJobs(projectUnitId, bibleId, bookCode, chapterNumber, wanted);
+  const [first] = pericopes;
+  const [resolved, verses] = await Promise.all([
+    pericopeRepo.resolvePericopes({ ...target, pericopeNumbers: [first.pericopeNumber] }),
+    findVersesNeedingSuggestions(
+      projectUnitId,
+      bibleId,
+      bookCode,
+      chapterNumber,
+      first.verseNumbers
+    ),
+  ]);
+  // The title is optional: a pericope that cannot be resolved still gets its verses.
+  const title = resolved.ok ? titleJob(target, resolved.data, resolved.data.groups[0]) : null;
+
+  return sendJobs([...(title ? [title] : []), ...verses.map((verse) => verseJob(target, verse))]);
+}
+
+/** Verse keys are shared by every queue path; a title has its own identity. */
+function singletonKey(job: AiSuggestionTriggerJob): string {
+  const verseKey = `${job.projectUnitId}:${job.bibleId}:${job.bookCode}:${job.chapterNumber}:${job.verseStart}`;
+  return job.pericopeNumber === undefined
+    ? verseKey
+    : `heading:${verseKey}:${job.verseEnd}:${job.pericopeSetId}:${job.pericopeNumber}`;
 }
 
 /**
- * One job per verse, deduplicated per verse. The decision of *which* verses is pericope-level;
- * the job stays per-verse because that is the contract fluent-ai is known to handle, and it
- * lets a drafted verse in the middle of a pericope be left out without splitting the job.
+ * Queues jobs one at a time, in the order given, which is the order the worker generates them in:
+ * pg-boss hands jobs out by creation time. Sent all at once, a pericope's title and verses were
+ * created in whatever order their inserts committed, and the title often came last (#394 QA).
+ *
+ * Jobs stay one per verse because that is the contract fluent-ai is known to handle, and it lets a
+ * drafted verse in the middle of a pericope be left out without splitting the job. pgboss silently
+ * drops a send whose singletonKey is already pending or running, returning null instead of a job
+ * ID; that is deduplication, not a failure. A failed send does not stop the jobs after it.
  */
-async function sendVerseJobs(
-  projectUnitId: number,
-  bibleId: number,
-  bookCode: string,
-  chapterNumber: number,
-  verseNumbers: number[]
-): Promise<Result<void>> {
-  if (verseNumbers.length === 0) return ok(undefined);
+async function sendJobs(jobs: AiSuggestionTriggerJob[]): Promise<Result<void>> {
+  if (jobs.length === 0) return ok(undefined);
 
-  const jobs = verseNumbers.map((verseNumber) => ({
-    projectUnitId,
-    bibleId,
-    bookCode,
-    chapterNumber,
-    verseStart: verseNumber,
-    verseEnd: verseNumber,
-  }));
-
+  let accepted = 0;
+  let deduped = 0;
+  const failures: unknown[] = [];
   try {
     const boss = await getQueue();
-    const results = await Promise.all(
-      jobs.map((job) =>
-        boss.send(QUEUE_NAMES.AI_SUGGESTIONS, job, {
-          // Deduplication key scoped to the exact verse. pgboss silently drops
-          // a send() if a job with the same singletonKey is already pending or
-          // running, returning null instead of a job ID.
-          singletonKey: `${job.projectUnitId}:${job.bibleId}:${job.bookCode}:${job.chapterNumber}:${job.verseStart}`,
-        })
-      )
-    );
-
-    // pgboss returns null (not an error) when a singletonKey duplicate is
-    // rejected — that is the correct dedup behaviour. Log it at debug so
-    // operators can confirm the window is working as intended without any noise.
-    const accepted = results.filter((id) => id !== null).length;
-    const deduped = results.length - accepted;
-    logger.debug('AI suggestion jobs submitted to queue', {
-      total: results.length,
-      accepted,
-      deduped,
-      projectUnitId,
-      bookCode,
-      chapterNumber,
-    });
-
-    return ok(undefined);
+    for (const job of jobs) {
+      try {
+        const id = await boss.send(QUEUE_NAMES.AI_SUGGESTIONS, job, {
+          singletonKey: singletonKey(job),
+        });
+        if (id === null) deduped += 1;
+        else accepted += 1;
+      } catch (error) {
+        failures.push(error);
+      }
+    }
   } catch (error) {
+    failures.push(error);
+  }
+
+  const { projectUnitId, bookCode, chapterNumber } = jobs[0];
+  logger.debug('AI suggestion jobs submitted to queue', {
+    total: jobs.length,
+    accepted,
+    deduped,
+    failed: failures.length,
+    projectUnitId,
+    bookCode,
+    chapterNumber,
+  });
+  if (failures.length > 0) {
     logger.error({
-      cause: error,
+      cause: failures[0],
       message: 'Failed to enqueue AI suggestion jobs',
-      context: { jobCount: jobs.length },
+      context: { total: jobs.length, accepted, deduped, failed: failures.length },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+  return ok(undefined);
 }
 
 /**
@@ -521,67 +573,27 @@ export async function queuePericopes(
       env.AI_ACTIVATION_THRESHOLD_VERSES
     );
     if (!thresholdMet || !resolved.data.isAiEnabled) return ok({ queued: false, thresholdMet });
-    const jobs: AiSuggestionTriggerJob[] = [];
-    const base = {
+    const target = {
       projectUnitId: params.projectUnitId,
       bibleId: params.bibleId,
       bookCode: params.bookCode.toUpperCase(),
       chapterNumber: params.chapterNumber,
     };
+    // Reading order: each pericope's title ahead of its verses, the active pericope ahead of the
+    // next. Titles used to go last and could arrive after the next group's verses (#394 QA).
+    const jobs: AiSuggestionTriggerJob[] = [];
     for (const group of resolved.data.groups) {
+      const title = titleJob(target, resolved.data, group);
+      if (title) jobs.push(title);
       for (const verse of group.verses) {
         if (!verse.content?.trim() && !verse.hasSuggestion) {
-          jobs.push({ ...base, verseStart: verse.verseNumber, verseEnd: verse.verseNumber });
+          jobs.push(verseJob(target, verse.verseNumber));
         }
-      }
-      if (canSuggestPericopeTitle(resolved.data, group) && !group.suggestion) {
-        jobs.push({
-          ...base,
-          verseStart: group.verses[0].verseNumber,
-          verseEnd: group.verses[group.verses.length - 1].verseNumber,
-          pericopeNumber: group.pericopeNumber,
-          pericopeSetId: resolved.data.pericopeSetId,
-        });
       }
     }
     if (jobs.length === 0) return ok({ queued: false, thresholdMet });
-    const boss = await getQueue();
-    // Keep verse singleton keys identical to queue-next. Titles have their own identity.
-    const results = await Promise.allSettled(
-      jobs.map((job) => {
-        const verseKey = `${job.projectUnitId}:${job.bibleId}:${job.bookCode}:${job.chapterNumber}:${job.verseStart}`;
-        return boss.send(QUEUE_NAMES.AI_SUGGESTIONS, job, {
-          singletonKey:
-            job.pericopeNumber === undefined
-              ? verseKey
-              : `heading:${verseKey}:${job.verseEnd}:${job.pericopeSetId}:${job.pericopeNumber}`,
-        });
-      })
-    );
-    const accepted = results.filter(
-      (result) => result.status === 'fulfilled' && result.value !== null
-    ).length;
-    const deduped = results.filter(
-      (result) => result.status === 'fulfilled' && result.value === null
-    ).length;
-    const rejected = results.filter((result) => result.status === 'rejected');
-    logger.debug('Pericope AI suggestion jobs submitted to queue', {
-      total: results.length,
-      accepted,
-      deduped,
-      failed: rejected.length,
-      projectUnitId: params.projectUnitId,
-      bookCode: base.bookCode,
-      chapterNumber: params.chapterNumber,
-    });
-    if (rejected.length > 0) {
-      logger.error({
-        cause: rejected[0].reason,
-        message: 'Failed to enqueue some pericope AI suggestion jobs',
-        context: { total: results.length, accepted, deduped, failed: rejected.length },
-      });
-      return err(ErrorCode.INTERNAL_ERROR);
-    }
+    const sent = await sendJobs(jobs);
+    if (!sent.ok) return sent;
     return ok({ queued: true, thresholdMet });
   } catch (error) {
     logger.error(error);

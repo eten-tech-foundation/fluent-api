@@ -1,4 +1,4 @@
-import type { PgBoss } from 'pg-boss';
+import type { JobWithMetadata, PgBoss } from 'pg-boss';
 
 import type { AiSuggestionTriggerJob } from '@/lib/queue';
 
@@ -7,11 +7,6 @@ import { QUEUE_NAMES } from '@/lib/queue';
 import { triggerAiSuggestions } from '@/lib/services/fluent-ai/fluent-ai.client';
 
 import type { WorkerMetricsHooks } from './usfm-export.worker';
-
-interface JobPayload {
-  id: string;
-  data: AiSuggestionTriggerJob;
-}
 
 export async function registerAiTriggerWorker(
   boss: PgBoss,
@@ -26,16 +21,23 @@ export async function registerAiTriggerWorker(
     {
       batchSize: 5,
       pollingIntervalSeconds: 2,
+      // For createdOn: the batch is forwarded in queue order.
+      includeMetadata: true,
     },
-    async (jobs: JobPayload[]) => {
+    async (jobs: JobWithMetadata<AiSuggestionTriggerJob>[]) => {
       logger.info('Worker received AI trigger jobs', { count: jobs.length });
 
       if (metricsHooks.onBatchStart) metricsHooks.onBatchStart(jobs.length);
 
       const startTime = Date.now();
       try {
-        const payloads = jobs.map((j) => j.data);
-        await triggerAiSuggestions(payloads);
+        // pg-boss returns a batch in no particular order, and fluent-ai runs jobs in the order it
+        // stored them, giving everything in one request the same timestamp. So the jobs go oldest
+        // first, one request each, and a pericope's title still runs before its verses (#394 QA).
+        const ordered = [...jobs].sort((a, b) => a.createdOn.getTime() - b.createdOn.getTime());
+        for (const job of ordered) {
+          await triggerAiSuggestions([job.data]);
+        }
 
         logger.info('AI trigger batch completed', { jobCount: jobs.length });
         if (metricsHooks.onJobSuccess) {
