@@ -5,7 +5,6 @@ import type { UserProjectResponse } from '@/domains/users/projects/user-projects
 import type { UserResponse } from '@/domains/users/users.types';
 import type { Permission } from '@/lib/permissions';
 
-import { chapterStatusEnum } from '@/db/schema';
 import * as milestonesService from '@/domains/milestones/milestones.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getProjectsByUserId } from '@/domains/users/projects/user-projects.service';
@@ -69,7 +68,16 @@ const APP_USER: UserResponse = {
 };
 
 const zeroCounts = Object.fromEntries(
-  chapterStatusEnum.enumValues.map((status) => [status, 0])
+  [
+    'not_started',
+    'draft',
+    'peer_check',
+    'community_review',
+    'linguist_check',
+    'theological_check',
+    'consultant_check',
+    'complete',
+  ].map((status) => [status, 0])
 ) as UserProjectResponse['chapterStatusCounts'];
 
 function project(id: number): UserProjectResponse {

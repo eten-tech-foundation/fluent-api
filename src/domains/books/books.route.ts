@@ -5,6 +5,7 @@ import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { getHttpStatus } from '@/lib/types';
+import { updatedAfterQuerySchema, validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -39,10 +40,19 @@ const listBooksRoute = createRoute({
   method: 'get',
   path: '/books',
   middleware: [authenticateUser] as const,
+  request: {
+    query: z.object({
+      updatedAfter: updatedAfterQuerySchema,
+    }),
+  },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       bookResponseSchema.array().openapi('Books'),
       'The list of books'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      validationErrorSchema,
+      'Invalid updatedAfter query parameter'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -58,11 +68,12 @@ const listBooksRoute = createRoute({
     ),
   },
   summary: 'Get all books',
-  description: 'Returns a list of all books',
+  description:
+    'Returns a raw array of books (not a syncedAt envelope). When updatedAfter is provided, returns only books with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Do not use device wall-clock time.',
 });
-
 server.openapi(listBooksRoute, async (c) => {
-  const result = await booksService.getAllBooks();
+  const { updatedAfter } = c.req.valid('query');
+  const result = await booksService.getAllBooks(updatedAfter);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

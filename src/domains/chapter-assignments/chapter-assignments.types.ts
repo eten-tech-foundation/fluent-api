@@ -29,8 +29,9 @@ export const CHAPTER_ASSIGNMENT_STATUS = {
   COMPLETE: 'complete',
 } as const;
 
-export type ChapterAssignmentStatus =
+export type FixedChapterStatus =
   (typeof CHAPTER_ASSIGNMENT_STATUS)[keyof typeof CHAPTER_ASSIGNMENT_STATUS];
+export type ChapterAssignmentStatus = FixedChapterStatus | (string & {});
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
@@ -117,14 +118,7 @@ export const chapterAssignmentResponseSchema = z.object({
   chapterNumber: z.number().int(),
   assignedUserId: z.number().int().nullable().optional(),
   peerCheckerId: z.number().int().nullable().optional(),
-  status: z
-    .enum(
-      Object.values(CHAPTER_ASSIGNMENT_STATUS) as [
-        ChapterAssignmentStatus,
-        ...ChapterAssignmentStatus[],
-      ]
-    )
-    .optional(),
+  status: z.string().max(50).optional(),
   submittedTime: z.date().nullable().optional(),
   hasClaimConflict: z.boolean(),
   claimConflictUserId: z.number().int().nullable(),

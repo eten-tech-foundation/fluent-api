@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, gte, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -9,9 +9,12 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Language } from './languages.types';
 
-export async function getAll(): Promise<Result<Language[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Language[]>> {
   try {
-    return ok(await db.select().from(languages));
+    const rows = updatedAfter
+      ? await db.select().from(languages).where(gte(languages.updatedAt, updatedAfter))
+      : await db.select().from(languages);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to find all languages' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -57,8 +60,8 @@ export interface DblLanguageUpsertSummary {
  * Upserts languages keyed on `langCodeIso6393` (matches the DB's unique
  * constraint on that column): new codes are inserted as full rows; existing
  * codes only have NULL fields filled in from DBL via COALESCE — core data that
- * is already present in the database is never overwritten (though updatedAt is
- * touched on conflict).
+ * is already present in the database is never overwritten. `updatedAt` advances
+ * only when COALESCE fills at least one previously NULL tracked column.
  * Rows with no `langCodeIso6393` are never touched by this path.
  */
 export async function upsertFromDbl(
@@ -82,7 +85,14 @@ export async function upsertFromDbl(
               langName: sql`COALESCE(languages.lang_name, excluded.lang_name)`,
               langNameLocalized: sql`COALESCE(languages.lang_name_localized, excluded.lang_name_localized)`,
               scriptDirection: sql`COALESCE(languages.script_direction, excluded.script_direction)`,
-              updatedAt: sql`now()`,
+              updatedAt: sql`
+                CASE
+                  WHEN (languages.lang_name IS NULL AND excluded.lang_name IS NOT NULL)
+                    OR (languages.lang_name_localized IS NULL AND excluded.lang_name_localized IS NOT NULL)
+                    OR (languages.script_direction IS NULL AND excluded.script_direction IS NOT NULL)
+                  THEN now()
+                  ELSE languages.updated_at
+                END`,
             },
           })
           // xmax = 0 is unset on a freshly inserted row and set to the current

@@ -61,6 +61,7 @@ export const ErrorCode = {
   VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
   VERSE_AUDIO_TAKE_NOT_FOUND: 'VERSE_AUDIO_TAKE_NOT_FOUND',
   VERSE_AUDIO_VERSION_CONFLICT: 'VERSE_AUDIO_VERSION_CONFLICT',
+  VERSE_AUDIO_NOT_IN_CONFLICT: 'VERSE_AUDIO_NOT_IN_CONFLICT',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -71,6 +72,16 @@ export const ErrorCode = {
   USER_NOT_IN_ORGANIZATION: 'USER_NOT_IN_ORGANIZATION',
   USER_HAS_ASSIGNED_CONTENT: 'USER_HAS_ASSIGNED_CONTENT',
   CHAPTER_LIMIT_EXCEEDED: 'CHAPTER_LIMIT_EXCEEDED',
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 'WORKFLOW_STAGE_NOT_FOUND',
+  WORKFLOW_STAGE_LIMIT_REACHED: 'WORKFLOW_STAGE_LIMIT_REACHED',
+  WORKFLOW_STAGE_DUPLICATE_NAME: 'WORKFLOW_STAGE_DUPLICATE_NAME',
+  WORKFLOW_STAGE_FIXED: 'WORKFLOW_STAGE_FIXED',
+  WORKFLOW_STAGE_LOCKED: 'WORKFLOW_STAGE_LOCKED',
+  WORKFLOW_STAGE_INVALID_LIST: 'WORKFLOW_STAGE_INVALID_LIST',
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 'WORKFLOW_STAGE_COMPLETE_NOT_FOUND',
+  WORKFLOW_NOT_CONFIGURED: 'WORKFLOW_NOT_CONFIGURED',
+  WORKFLOW_PROJECT_NOT_FOUND: 'WORKFLOW_PROJECT_NOT_FOUND',
   INVALID_REFERENCE: 'INVALID_REFERENCE',
   INVALID_BIBLE_BOOKS: 'INVALID_BIBLE_BOOKS',
   USFM_INVALID: 'USFM_INVALID',
@@ -124,6 +135,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   VERSE_AUDIO_VERSION_CONFLICT:
     'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
+  VERSE_AUDIO_NOT_IN_CONFLICT:
+    "Verse audio is not in conflict; resolve is a no-op unless conflictStatus is 'conflict'",
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
   EMAIL_CONFLICT: 'Email is already in use',
@@ -149,6 +162,16 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL audio chapter not found',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 'Workflow stage not found',
+  WORKFLOW_STAGE_LIMIT_REACHED: 'Maximum number of configurable workflow stages reached',
+  WORKFLOW_STAGE_DUPLICATE_NAME: 'A stage with this name already exists',
+  WORKFLOW_STAGE_FIXED: 'Cannot modify a fixed workflow stage',
+  WORKFLOW_STAGE_LOCKED: 'Cannot modify a locked workflow stage',
+  WORKFLOW_STAGE_INVALID_LIST: 'Invalid stage list: all stages must be included exactly once',
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 'Complete stage not found in workflow',
+  WORKFLOW_NOT_CONFIGURED: 'Workflow stages not configured for this project',
+  WORKFLOW_PROJECT_NOT_FOUND: 'Project not found',
 };
 
 // ─── HTTP status map ──────────────────────────────────────────────────────────
@@ -198,8 +221,19 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   VERSE_AUDIO_NOT_FOUND: 404,
   VERSE_AUDIO_TAKE_NOT_FOUND: 404,
   VERSE_AUDIO_VERSION_CONFLICT: 409,
+  VERSE_AUDIO_NOT_IN_CONFLICT: 400,
   UNSUPPORTED_AUDIO_TYPE: 400,
   EMPTY_AUDIO_FILE: 400,
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 404,
+  WORKFLOW_STAGE_LIMIT_REACHED: 409,
+  WORKFLOW_STAGE_DUPLICATE_NAME: 409,
+  WORKFLOW_STAGE_FIXED: 400,
+  WORKFLOW_STAGE_LOCKED: 409,
+  WORKFLOW_STAGE_INVALID_LIST: 400,
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 500,
+  WORKFLOW_NOT_CONFIGURED: 404,
+  WORKFLOW_PROJECT_NOT_FOUND: 404,
 };
 
 export interface AppError {

@@ -20,6 +20,7 @@ import type {
 import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
 import * as usfmImportService from './usfm-import.service';
+import { seedDefaultStages } from './workflow-stages/workflow-stages.service';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
@@ -113,6 +114,39 @@ export async function recordProjectAssignmentActivity(
   await touchProjectActivity(projectUnitId, tx);
 }
 
+const MILESTONE_NAME_MAX_LENGTH = 255;
+
+// Lengths here are in code points, the way Postgres counts varchar characters. Cutting by UTF-16
+// code units could split a surrogate pair and store a lone surrogate.
+function characterCount(text: string): number {
+  return Array.from(text).length;
+}
+
+function truncateName(name: string, maxLength: number): string {
+  const characters = Array.from(name);
+  return characters.length <= maxLength ? name : `${characters.slice(0, maxLength - 1).join('')}…`;
+}
+
+/**
+ * Name for the milestone created with the project. Milestones made through the milestone API
+ * always carry a name, and the project page shows it, so this one is named after its books
+ * instead of being left blank. A list too long for the column collapses to its first and last
+ * book, and either name is shortened if even that would not fit.
+ */
+function buildInitialMilestoneName(bookNames: string[]): string {
+  const listed = bookNames.join(', ');
+  if (characterCount(listed) <= MILESTONE_NAME_MAX_LENGTH) return listed;
+  if (bookNames.length === 1) return truncateName(listed, MILESTONE_NAME_MAX_LENGTH);
+
+  const separator = ' – ';
+  const suffix = ` (${bookNames.length} books)`;
+  const room = MILESTONE_NAME_MAX_LENGTH - characterCount(separator) - characterCount(suffix);
+  const firstRoom = Math.ceil(room / 2);
+  const first = truncateName(bookNames[0], firstRoom);
+  const last = truncateName(bookNames[bookNames.length - 1], room - characterCount(first));
+  return `${first}${separator}${last}${suffix}`;
+}
+
 export async function createProject(
   requested: CreateProjectServiceInput
 ): Promise<Result<Project>> {
@@ -177,10 +211,16 @@ export async function createProject(
         tx
       );
 
+      await seedDefaultStages(project.id, tx);
+
       if (!createInitialUnit) return ok(project);
 
       const projectUnit = await repo.insertProjectUnitRecord(
-        { projectId: project.id, status: projectUnitStatus },
+        {
+          projectId: project.id,
+          status: projectUnitStatus,
+          name: buildInitialMilestoneName(await repo.getBookDisplayNames(bookId, tx)),
+        },
         tx
       );
 

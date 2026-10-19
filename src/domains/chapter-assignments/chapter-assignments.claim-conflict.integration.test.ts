@@ -29,7 +29,6 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
       generateDrizzleJson({}),
       generateDrizzleJson({
         chapter_assignments: schema.chapter_assignments,
-        chapterStatusEnum: schema.chapterStatusEnum,
         project_units: schema.project_units,
         milestoneTypeEnum: schema.milestoneTypeEnum,
         projectStatusEnum: schema.projectStatusEnum,
