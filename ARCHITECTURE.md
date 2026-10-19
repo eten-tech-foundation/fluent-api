@@ -472,7 +472,7 @@ export function requireChapterAssignmentAccess(action: ChapterAssignmentAction) 
 **Middleware Best Practices:**
 
 - Load resource context once — avoid N+1 queries in route handlers
-- Return **403 when a permission or policy check fails** and **404 only when the resource does not exist**. Some older middlewares still return 404 on a denied policy check; see [Follow-up PRs](docs/guides/code-standards.md#follow-up-prs)
+- Return **404 when the resource doesn't exist or the caller can't read it**, and **403 when the caller can read it but the action is denied** (or for an endpoint-level permission). A failed lookup returns the error's own status, never a blanket 404. See [403 or 404](docs/guides/code-standards.md#403-or-404); older middlewares that don't match yet are in [Follow-up PRs](docs/guides/code-standards.md#follow-up-prs)
 - Attach loaded resource to Hono context so handlers don't re-fetch
 - Keep policy evaluation logic minimal — delegate to policy functions
 

@@ -53,7 +53,7 @@ Each item comes from a recurring review comment.
 | FA-R1  | **Reuse before writing.** Search for an existing helper, schema or constant before adding one (`rg` for the concept, not just the name). A request schema or helper used by more than one file goes in `{domain}.types.ts` or a shared `lib/` module. Use domain constants (`CHAPTER_ASSIGNMENT_STATUS.DRAFT`, `QUEUE_NAMES.X`) instead of their string values. |
 | FA-R2  | **Routes return response schemas, never repository rows.** The service maps rows to the zod-inferred response type before they reach `c.json`.                                                                                                                                                                                                                  |
 | FA-R3  | **Contracts match behavior.** Declared OpenAPI responses cover every status the middleware chain can return (e.g. `authenticateUser` can 403). When behavior changes, update OpenAPI `description`s, test titles, doc comments and `docs/` in the same PR.                                                                                                      |
-| FA-R4  | **Authorization:** a permission or policy failure returns **403**; **404** means the resource doesn't exist. A new or changed policy method updates the table in `docs/permissions.md`.                                                                                                                                                                         |
+| FA-R4  | **Authorization:** 404 when the resource is missing or the caller can't read it; 403 when the caller can read it but the action is denied, or for an endpoint-level permission. A failed lookup returns its own status, never a blanket 404. See [403 or 404](#403-or-404). A new or changed policy method updates the table in `docs/permissions.md`.          |
 | FA-R5  | **Business rules live in services.** Repositories run queries; deciding eligibility, picking which record wins or gating on feature flags belongs in the service.                                                                                                                                                                                               |
 | FA-R6  | **State changes keep their audit trail.** Any write that changes chapter-assignment status or assignee also writes the matching history table, as every other writer does.                                                                                                                                                                                      |
 | FA-R7  | **Queries are deterministic and safe.** `.limit()` comes with an `orderBy`. User text going into `like`/`ilike` has `%`, `_` and `\` escaped. A nullable column used as a watermark filter can't silently exclude `NULL` rows.                                                                                                                                  |
@@ -71,6 +71,25 @@ Everything outside a domain calls its service, including middleware and shared
 infrastructure. That covers `user-roles` (grants, org membership) and
 `projects/workflow-stages`, which auth middleware used to read straight from the
 repository. Pass `tx` into the service function when the call joins a transaction.
+
+### 403 or 404
+
+Return 404 when the caller can't see the resource, so a denial and a missing record look
+the same; IDs are sequential, and a 403 tells a caller from another org that the ID exists.
+Return 403 when the caller can see the resource but not do this to it. This is GitHub's
+model for private repositories.
+
+| Situation                                                               | Status                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Resource doesn't exist                                                  | 404                                                                  |
+| Caller can't read the resource                                          | 404                                                                  |
+| Caller can read it, but the action (update, delete, claim, …) is denied | 403                                                                  |
+| Endpoint-level permission with no specific resource (list, create)      | 403                                                                  |
+| The lookup failed (database error)                                      | the error's own status via `getHttpStatus`, 500 for `INTERNAL_ERROR` |
+
+Clients rely on this: a sync client treats 404 as "gone", so it drops local data when a
+record is deleted or the user loses access. A 404 for a denied update tells it to delete a
+record the user can still read, and a 404 for a database error deletes data over a blip.
 
 ### Transactions
 
@@ -149,9 +168,13 @@ Each item is its own PR. None of them goes into an unrelated change as a drive-b
    services onto `runInTransaction`. Replace `throw new Error('CODE')` and the
    `error.message === 'CODE'` matching in their `catch` blocks with `return err(...)`, then
    prune the FA-L9 suppressions.
-3. **403 on policy denial (FA-R4), #416.** Some resource middlewares (e.g. `requireProjectAccess`,
-   `requireChapterAssignmentAccess`) return 404 when a policy denies access. Changing them
-   to 403 is visible to clients: update the OpenAPI responses, `docs/permissions.md`, and
-   tell the web and mobile clients.
+3. **403 for denied actions on a readable resource (FA-R4), #416.** Resource middlewares
+   return 404 for every denied action. Keep 404 when read is denied and return 403 when the
+   caller can read the resource but the action is denied; `ai-suggestions` returns 403 when
+   read is denied and moves to 404. Clients will see this change: update the OpenAPI
+   responses, `docs/permissions.md`, and tell the web and mobile clients.
 4. **Cross-domain repository access (FA-L1), #417.** Add service functions to `user-roles` and
    `projects/workflow-stages` and move the auth middlewares and other callers onto them.
+5. **404 on lookup errors (FA-R4), #419.** Some auth middlewares return 404 for any failed
+   lookup, including database errors, and for malformed IDs. Return the error's own status
+   and 400 for a malformed ID.
