@@ -45,13 +45,12 @@ export type BookDetailField = (typeof BOOK_DETAIL_FIELDS)[number];
 export const updateBookDetailsSchema = z
   .object({
     runningHeader: bookFieldSchema.optional().openapi({
-      description:
-        'USFM \\h running header. Empty or null falls back to \\toc2, then to the book display name.',
+      description: 'USFM \\h running header. Empty or null falls back to the book display name.',
       example: 'Gênesis',
     }),
     bookTitle: bookFieldSchema.optional().openapi({
       description:
-        'Legacy USFM \\mt book title. Not written by the fluent-web#398 metadata dialog and never displayed by it; it is preserved as-is and still supplies \\mt1 whenever tocShortName is null.',
+        'Legacy USFM \\mt book title, exported as \\mt1. Empty or null falls back to the book display name. Not written by the fluent-web#398 metadata dialog and never displayed by it.',
       example: 'O Primeiro Livro de Moisés',
     }),
     tocLongName: bookFieldSchema.optional().openapi({
@@ -59,8 +58,7 @@ export const updateBookDetailsSchema = z
       example: 'Gênesis',
     }),
     tocShortName: bookFieldSchema.optional().openapi({
-      description:
-        'USFM \\toc2 short book name. Also supplies the \\mt1 main title, and the \\h running header when that is unset. Null or empty omits the line.',
+      description: 'USFM \\toc2 short book name. Null or empty omits the line from the export.',
       example: 'Gênesis',
     }),
     tocAbbreviation: bookFieldSchema.optional().openapi({

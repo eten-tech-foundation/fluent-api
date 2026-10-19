@@ -1,9 +1,13 @@
 import { createRoute } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
-import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
+import {
+  inactiveAccountResponse,
+  internalErrorResponse,
+  unauthorizedResponse,
+} from '@/domains/self/self-responses';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -25,18 +29,9 @@ const getSelfSettingsRoute = createRoute({
       userSettingsResponseSchema,
       'The settings for the current user (settings is null when no row exists yet)'
     ),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
-      createMessageObjectSchema('Unauthorized'),
-      'Authentication required'
-    ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema(HttpStatusPhrases.FORBIDDEN),
-      'User account is inactive'
-    ),
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
-      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
-      'Internal server error'
-    ),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
+    [HttpStatusCodes.FORBIDDEN]: inactiveAccountResponse,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
   },
   summary: 'Get settings for current user',
   description: 'Returns the saved user-global settings blob for the current session user.',
@@ -80,18 +75,9 @@ const saveSelfSettingsRoute = createRoute({
       createMessageObjectSchema('Unprocessable Entity'),
       'Settings payload failed schema validation'
     ),
-    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
-      createMessageObjectSchema('Unauthorized'),
-      'Authentication required'
-    ),
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema(HttpStatusPhrases.FORBIDDEN),
-      'User account is inactive'
-    ),
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
-      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
-      'Internal server error'
-    ),
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
+    [HttpStatusCodes.FORBIDDEN]: inactiveAccountResponse,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
   },
   summary: 'Save settings for current user',
   description: 'Replaces the user-global settings blob for the current session user.',

@@ -1,4 +1,4 @@
-import { eq, ilike, or, sql } from 'drizzle-orm';
+import { eq, gte, ilike, or, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -10,9 +10,12 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { Bible, CreateBible, SourceSearchResponse, UpdateBible } from './bibles.types';
 
-export async function getAll(): Promise<Result<Bible[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Bible[]>> {
   try {
-    return ok(await db.select().from(bibles));
+    const rows = updatedAfter
+      ? await db.select().from(bibles).where(gte(bibles.updatedAt, updatedAfter))
+      : await db.select().from(bibles);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all bibles' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -228,7 +231,16 @@ export async function upsertFromDbl(
               abbreviation: sql`excluded.abbreviation`,
               languageId: sql`excluded.language_id`,
               hasAudio: sql`excluded.has_audio`,
-              updatedAt: sql`now()`,
+              // Advance watermark only when a tracked column actually changes.
+              updatedAt: sql`
+                CASE
+                  WHEN bibles.name IS DISTINCT FROM excluded.name
+                    OR bibles.abbreviation IS DISTINCT FROM excluded.abbreviation
+                    OR bibles.language_id IS DISTINCT FROM excluded.language_id
+                    OR bibles.has_audio IS DISTINCT FROM excluded.has_audio
+                  THEN now()
+                  ELSE bibles.updated_at
+                END`,
             },
           })
           .returning({ wasInsert: sql<boolean>`(xmax = 0)` });

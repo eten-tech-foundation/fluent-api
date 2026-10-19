@@ -48,8 +48,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   inserted.length = 0;
   const books = [
-    { id: 1, code: 'GEN', eng_display_name: 'Genesis' },
-    { id: 40, code: 'MAT', eng_display_name: 'Matthew' },
+    { id: 1, code: 'GEN', eng_display_name: 'Genesis', updatedAt: null },
+    { id: 40, code: 'MAT', eng_display_name: 'Matthew', updatedAt: null },
   ];
   vi.mocked(booksService.getAllBooks).mockResolvedValue(ok(books));
   vi.mocked(booksService.getBookById).mockImplementation(async (id) => {
