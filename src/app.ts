@@ -8,6 +8,7 @@ import '@/domains/users/users.active-org.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
 import '@/domains/projects/projects.route';
+import '@/domains/projects/usfm-validation.route';
 import '@/domains/projects/workflow-stages/workflow-stages.route';
 import '@/domains/milestones/milestones.route';
 import '@/domains/projects/chapter-assignments/project-chapter-assignments.route';

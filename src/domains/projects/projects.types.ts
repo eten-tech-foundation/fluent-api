@@ -46,6 +46,47 @@ export interface ParsedUsfmFile extends UsfmFileInput {
   verses: UsjVerseText[];
 }
 
+// The upload step's check (#418, #419): the same detection and parse as creation, nothing written.
+
+export const usfmFileToCheckSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  // Empty is allowed so an empty file gets its own USFM_INVALID verdict instead of failing the batch.
+  usfm: z.string(),
+});
+
+export const checkUsfmFilesSchema = z
+  .object({ files: z.array(usfmFileToCheckSchema).min(1) })
+  .openapi('UsfmFilesToCheck');
+
+export const USFM_FILE_PROBLEMS = [
+  'USFM_INVALID',
+  'USFM_BOOK_MISSING',
+  'USFM_BOOK_DUPLICATE',
+] as const;
+
+export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(true),
+    bookCode: z.string(),
+    bookName: z.string(),
+  }),
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(false),
+    error: z.enum(USFM_FILE_PROBLEMS),
+    message: z.string(),
+  }),
+]);
+
+export const usfmFileChecksSchema = z
+  .object({ files: z.array(usfmFileCheckSchema) })
+  .openapi('UsfmFileChecks');
+
+export type UsfmFileToCheck = z.infer<typeof usfmFileToCheckSchema>;
+export type UsfmFileProblem = (typeof USFM_FILE_PROBLEMS)[number];
+export type UsfmFileCheck = z.infer<typeof usfmFileCheckSchema>;
+
 export const createProjectSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({
