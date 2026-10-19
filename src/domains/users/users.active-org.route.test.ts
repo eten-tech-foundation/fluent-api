@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserResponse } from '@/domains/users/users.types';
+import type { Permission } from '@/lib/permissions';
+import type { Grant } from '@/lib/types';
+
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
+import { ok } from '@/lib/types';
 import { server } from '@/server/server';
 import '@/domains/users/users.active-org.route';
 
@@ -52,47 +57,58 @@ vi.mock('@/domains/user-roles/user-roles.repository', () => ({
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-const APP_USER = {
+const grant = (orgId: number | null): Grant => ({
+  orgId,
+  projectId: null,
+  permissions: new Set<Permission>(),
+});
+
+const APP_USER: UserResponse = {
   id: 42,
   email: 'tester@example.com',
   username: 'tester',
   firstName: 'Test',
   lastName: 'User',
   createdBy: null,
-  status: 'verified' as const,
+  status: 'verified',
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   lastActiveOrgId: 1,
 };
 
 function authenticateAs(
-  user: typeof APP_USER | null,
-  grants: Array<{ orgId: number | null; projectId: number | null; permissions: Set<string> }> = [
-    { orgId: 1, projectId: null, permissions: new Set() },
-    { orgId: 2, projectId: null, permissions: new Set() },
-  ]
+  user: UserResponse | null,
+  grants: Grant[] = [grant(1), grant(2)]
 ) {
   if (!user) {
-    vi.mocked(auth.api.getSession).mockResolvedValue(null as any);
+    vi.mocked(auth.api.getSession).mockResolvedValue(null);
     return;
   }
 
+  const now = new Date();
   vi.mocked(auth.api.getSession).mockResolvedValue({
     session: {
       id: 'session-xyz',
       userId: 'auth-user-42',
       token: 'mock-token',
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
       expiresAt: new Date(Date.now() + 1e9),
     },
-    user: { email: user.email, id: 'auth-user-42' },
-  } as any);
-
-  vi.mocked(getUserByEmail).mockResolvedValue({ ok: true, data: user as any });
-  vi.mocked(findGrantsByUserId).mockResolvedValue({
-    ok: true,
-    data: grants as any,
+    user: {
+      id: 'auth-user-42',
+      name: user.username,
+      email: user.email,
+      emailVerified: true,
+      banned: false,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    },
   });
+
+  vi.mocked(getUserByEmail).mockResolvedValue(ok(user));
+  vi.mocked(findGrantsByUserId).mockResolvedValue(ok(grants));
 }
 
 function patchActiveOrg(body: unknown) {
@@ -113,7 +129,7 @@ describe('pATCH /users/me/active-org', () => {
     mockTxUpdateWhere.mockResolvedValue([]);
   });
 
-  describe('authentication & User Status', () => {
+  describe('authentication & user status', () => {
     it('returns 401 when the caller is unauthenticated', async () => {
       authenticateAs(null);
 
@@ -125,7 +141,7 @@ describe('pATCH /users/me/active-org', () => {
     });
 
     it('returns 403 when the user account is inactive', async () => {
-      authenticateAs({ ...APP_USER, status: 'inactive' as never });
+      authenticateAs({ ...APP_USER, status: 'inactive' });
 
       const res = await patchActiveOrg({ orgId: 1 });
 
@@ -135,7 +151,7 @@ describe('pATCH /users/me/active-org', () => {
     });
   });
 
-  describe('request Validation', () => {
+  describe('request validation', () => {
     it('returns 400 when orgId is missing from the payload', async () => {
       authenticateAs(APP_USER);
 
@@ -153,10 +169,10 @@ describe('pATCH /users/me/active-org', () => {
     });
   });
 
-  describe('organization Membership Guard', () => {
+  describe('organization membership guard', () => {
     it('returns 403 when the user does not belong to the requested organization', async () => {
       // User only belongs to orgId: 1
-      authenticateAs(APP_USER, [{ orgId: 1, projectId: null, permissions: new Set() }]);
+      authenticateAs(APP_USER, [grant(1)]);
 
       const res = await patchActiveOrg({ orgId: 99 });
 
@@ -167,12 +183,9 @@ describe('pATCH /users/me/active-org', () => {
     });
   });
 
-  describe('successful Active Org Update', () => {
+  describe('successful active org update', () => {
     it('updates session activeOrgId and user lastActiveOrgId atomically and returns 200', async () => {
-      authenticateAs(APP_USER, [
-        { orgId: 1, projectId: null, permissions: new Set() },
-        { orgId: 2, projectId: null, permissions: new Set() },
-      ]);
+      authenticateAs(APP_USER, [grant(1), grant(2)]);
 
       const res = await patchActiveOrg({ orgId: 2 });
 
@@ -188,10 +201,7 @@ describe('pATCH /users/me/active-org', () => {
     });
 
     it('allows selecting any organization the user belongs to', async () => {
-      authenticateAs(APP_USER, [
-        { orgId: 10, projectId: null, permissions: new Set() },
-        { orgId: 20, projectId: null, permissions: new Set() },
-      ]);
+      authenticateAs(APP_USER, [grant(10), grant(20)]);
 
       const res = await patchActiveOrg({ orgId: 10 });
       expect(res.status).toBe(200);
