@@ -153,7 +153,7 @@ const uploadRangeVerseAudioRoute = createRoute({
       maxSize: MAX_AUDIO_BYTES,
       onError: (c) => c.json({ message: 'Audio file exceeds the 30 MB limit' }, 413),
     }),
-    requireVerseAudioAccess(VERSE_AUDIO_ACTIONS.EDIT, VERSE_AUDIO_ID_SOURCES.FORM),
+    requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.FORM),
   ] as const,
   request: {
     params: projectUnitIdParamSchema,
