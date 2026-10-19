@@ -76,10 +76,7 @@ const APP_USER: UserResponse = {
   lastActiveOrgId: 1,
 };
 
-function authenticateAs(
-  user: UserResponse | null,
-  grants: Grant[] = [grant(1), grant(2)]
-) {
+function authenticateAs(user: UserResponse | null, grants: Grant[] = [grant(1), grant(2)]) {
   if (!user) {
     vi.mocked(auth.api.getSession).mockResolvedValue(null);
     return;
