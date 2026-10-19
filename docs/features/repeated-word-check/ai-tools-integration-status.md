@@ -109,9 +109,8 @@ committed to this repo (per-machine secrets):
    standalone fluent-api.
 3. Seed the org + dev users so a sign-in account exists (the entrypoint auto-runs
    migrate/roles/rbac but **not** account provisioning):
-   `docker compose exec api npx tsx src/db/seeds/organizations.ts` then
-   `… src/db/seeds/dev-users.ts` (org before users). The smoke script prints these
-   exact commands if the dev user is missing.
+   `docker compose exec api npm run db:seed`. The smoke script prints this
+   exact command if the dev user is missing.
 4. Run `npm run smoke:repeated-words` (auto sign-in) — or pass `--token` / `--cookie`
    explicitly.
 
