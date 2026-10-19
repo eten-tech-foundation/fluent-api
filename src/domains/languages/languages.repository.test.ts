@@ -4,11 +4,11 @@ import { languages } from '@/db/schema';
 
 import type { DblLanguageUpsertInput } from './languages.repository';
 
-import { upsertFromDbl } from './languages.repository';
+import { getAll, upsertFromDbl } from './languages.repository';
 
 const { mockDb, mockTx } = vi.hoisted(() => {
   const mockTx = { insert: vi.fn() };
-  const mockDb = { transaction: vi.fn() };
+  const mockDb = { select: vi.fn(), transaction: vi.fn() };
   return { mockDb, mockTx };
 });
 
@@ -35,6 +35,33 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.transaction.mockImplementation(async (callback: (tx: typeof mockTx) => Promise<void>) => {
     await callback(mockTx);
+  });
+});
+
+describe('languages.getAll', () => {
+  it('returns all languages without a where clause when updatedAfter is omitted', async () => {
+    const rows = [{ id: 1, langName: 'English' }];
+    const fromFn = vi.fn().mockResolvedValue(rows);
+    mockDb.select.mockReturnValue({ from: fromFn });
+
+    const result = await getAll();
+
+    expect(result).toEqual({ ok: true, data: rows });
+    expect(fromFn).toHaveBeenCalled();
+    expect(fromFn).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it('applies updatedAfter filter via where when provided', async () => {
+    const rows: unknown[] = [];
+    const whereFn = vi.fn().mockResolvedValue(rows);
+    const fromFn = vi.fn().mockReturnValue({ where: whereFn });
+    mockDb.select.mockReturnValue({ from: fromFn });
+
+    const updatedAfter = new Date('2025-01-01T00:00:00.000Z');
+    const result = await getAll(updatedAfter);
+
+    expect(result).toEqual({ ok: true, data: [] });
+    expect(whereFn).toHaveBeenCalledOnce();
   });
 });
 
@@ -83,13 +110,18 @@ describe('upsertFromDbl', () => {
     }
   });
 
-  it('targets langCodeIso6393 as the conflict column', async () => {
+  it('targets langCodeIso6393 as the conflict column and sets conditional updatedAt', async () => {
     const { onConflictDoUpdateFn } = mockUpsertResult([{ wasInsert: true }]);
 
     await upsertFromDbl([sampleRow]);
 
     expect(onConflictDoUpdateFn).toHaveBeenCalledWith(
-      expect.objectContaining({ target: languages.langCodeIso6393 })
+      expect.objectContaining({
+        target: languages.langCodeIso6393,
+        set: expect.objectContaining({
+          updatedAt: expect.anything(),
+        }),
+      })
     );
   });
 

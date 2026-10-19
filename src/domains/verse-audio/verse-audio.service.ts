@@ -546,21 +546,10 @@ export async function uploadRecording(
         return promoted;
       }
       if (!promoted.data.applied) {
-        // Same-shape duplicate promote lost the CAS (often to /resolve). No new
-        // contender and no coverage rewrite — return current state without
-        // reopening conflict (see service test: resolve wins duplicate race).
-        return finishUploadResponse(
-          input.projectUnitId,
-          input.bibleTextId,
-          {
-            granularity: unit.granularity,
-            startChapter: unit.startChapter,
-            startVerse: unit.startVerse,
-            endChapter: unit.endChapter,
-            endVerse: unit.endVerse,
-          },
-          { scanCoverageConflicts: false }
-        );
+        // No new take was added on this path. A successful concurrent resolve
+        // may have won the CAS, so reopening its clean or resolved state would
+        // undo an explicit adjudication without introducing any new contender.
+        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
       }
       // activeTakeId-only promote (geometry unchanged) must not re-flag CLEAN.
       return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
@@ -628,7 +617,10 @@ export async function uploadRecording(
       return updated;
     }
     if (!updated.data.applied) {
-      // Newer state won the race — keep our take, flag conflict, don't clobber.
+      // Newer state won the race — keep our take, advance versionToken, and mark
+      // conflict without clobbering the winner's active take. If the winner was a
+      // concurrent resolve, markConflictPreservingActive preserves its 'resolved'
+      // status so the manager's adjudication is not undone.
       const marked = await repo.markConflictPreservingActive(unit.id);
       if (!marked.ok) {
         return marked;
@@ -644,6 +636,8 @@ export async function uploadRecording(
       return updated;
     }
     if (!updated.data.applied) {
+      // CAS miss on stale-base update: bump versionToken and mark conflict,
+      // preserving an intervening resolve if one settled the unit.
       const marked = await repo.markConflictPreservingActive(unit.id);
       if (!marked.ok) {
         return marked;
@@ -779,6 +773,14 @@ export async function resolveConflict(
     return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
   }
 
+  // Reject resolve on units that are not actively conflicted. Allowing it would
+  // silently stamp 'resolved' on a clean or already-resolved unit, which makes
+  // clients show "conflict resolved" when no conflict ever existed (or was
+  // already settled). The caller should reload and check conflictStatus first.
+  if (recording.data.conflictStatus !== VERSE_AUDIO_CONFLICT_STATUS.CONFLICT) {
+    return err(ErrorCode.VERSE_AUDIO_NOT_IN_CONFLICT);
+  }
+
   const updated = await repo.updateRecordingStateIfVersion(
     recording.data.id,
     recording.data.versionToken,
@@ -789,7 +791,7 @@ export async function resolveConflict(
       sizeBytes: take.data.sizeBytes,
       durationSeconds: take.data.durationSeconds,
       activeTakeId: take.data.id,
-      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+      conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
       versionToken: recording.data.versionToken + 1,
       ...shapeFromTake(take.data),
     }

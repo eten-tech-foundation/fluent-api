@@ -1,6 +1,6 @@
 {
-  "id": "ca89f296-202f-4194-bfd9-6ea641513c6c",
-  "prevId": "b77547ba-9590-4651-949a-0cd72657d8b7",
+  "id": "362faffe-16e3-4844-a202-18e2f79af637",
+  "prevId": "1cbba838-860e-4347-8780-b04a8167f30f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1485,6 +1485,20 @@
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {},
@@ -1532,8 +1546,7 @@
         },
         "status": {
           "name": "status",
-          "type": "chapter_status",
-          "typeSchema": "public",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1621,8 +1634,7 @@
         },
         "status": {
           "name": "status",
-          "type": "chapter_status",
-          "typeSchema": "public",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1722,8 +1734,7 @@
         },
         "status": {
           "name": "status",
-          "type": "chapter_status",
-          "typeSchema": "public",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1817,8 +1828,7 @@
         },
         "chapter_status": {
           "name": "chapter_status",
-          "type": "chapter_status",
-          "typeSchema": "public",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true,
           "default": "'not_started'"
@@ -2658,6 +2668,123 @@
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.project_workflow_stages": {
+      "name": "project_workflow_stages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "default_name": {
+          "name": "default_name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_fixed": {
+          "name": "is_fixed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uq_workflow_default_name": {
+          "name": "uq_workflow_default_name",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "default_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "uq_workflow_position": {
+          "name": "uq_workflow_position",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "position",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "project_workflow_stages_project_id_projects_id_fk": {
+          "name": "project_workflow_stages_project_id_projects_id_fk",
+          "tableFrom": "project_workflow_stages",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3631,38 +3758,6 @@
           "notNull": true,
           "default": "'clean'"
         },
-        "granularity": {
-          "name": "granularity",
-          "type": "verse_audio_granularity",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'verse'"
-        },
-        "start_chapter": {
-          "name": "start_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_verse": {
-          "name": "start_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_chapter": {
-          "name": "end_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_verse": {
-          "name": "end_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "active_take_id": {
           "name": "active_take_id",
           "type": "integer",
@@ -3702,21 +3797,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_verse_audio_recordings_project_unit": {
-          "name": "idx_verse_audio_recordings_project_unit",
-          "columns": [
-            {
-              "expression": "project_unit_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3827,38 +3907,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "granularity": {
-          "name": "granularity",
-          "type": "verse_audio_granularity",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'verse'"
-        },
-        "start_chapter": {
-          "name": "start_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_verse": {
-          "name": "start_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_chapter": {
-          "name": "end_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_verse": {
-          "name": "end_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -3959,20 +4007,6 @@
       "schema": "public",
       "values": ["dbl"]
     },
-    "public.chapter_status": {
-      "name": "chapter_status",
-      "schema": "public",
-      "values": [
-        "not_started",
-        "draft",
-        "peer_check",
-        "community_review",
-        "linguist_check",
-        "theological_check",
-        "consultant_check",
-        "complete"
-      ]
-    },
     "public.milestone_type": {
       "name": "milestone_type",
       "schema": "public",
@@ -4011,12 +4045,7 @@
     "public.verse_audio_conflict_status": {
       "name": "verse_audio_conflict_status",
       "schema": "public",
-      "values": ["clean", "conflict"]
-    },
-    "public.verse_audio_granularity": {
-      "name": "verse_audio_granularity",
-      "schema": "public",
-      "values": ["verse", "pericope"]
+      "values": ["clean", "conflict", "resolved"]
     }
   },
   "schemas": {},

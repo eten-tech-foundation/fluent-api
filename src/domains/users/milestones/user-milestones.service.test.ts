@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MilestoneSummaryRow } from '@/domains/milestones/milestones.types';
 import type { UserProjectResponse } from '@/domains/users/projects/user-projects.types';
 
-import { chapterStatusEnum } from '@/db/schema';
 import * as milestonesService from '@/domains/milestones/milestones.service';
 import { getProjectsByUserId } from '@/domains/users/projects/user-projects.service';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -19,7 +18,16 @@ vi.mock('@/domains/milestones/milestones.service', () => ({
 }));
 
 const zeroCounts = Object.fromEntries(
-  chapterStatusEnum.enumValues.map((status) => [status, 0])
+  [
+    'not_started',
+    'draft',
+    'peer_check',
+    'community_review',
+    'linguist_check',
+    'theological_check',
+    'consultant_check',
+    'complete',
+  ].map((status) => [status, 0])
 ) as UserProjectResponse['chapterStatusCounts'];
 
 function project(id: number): UserProjectResponse {

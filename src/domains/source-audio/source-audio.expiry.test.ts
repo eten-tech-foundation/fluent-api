@@ -58,7 +58,7 @@ describe('dBL expiry presence', () => {
       })
     );
     vi.mocked(getBookByCode).mockResolvedValue(
-      ok({ id: 43, code: 'JHN', eng_display_name: 'John' })
+      ok({ id: 43, code: 'JHN', eng_display_name: 'John', updatedAt: null })
     );
     vi.mocked(dblClient.getBible).mockResolvedValue(
       ok(

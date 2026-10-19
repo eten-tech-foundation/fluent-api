@@ -243,8 +243,36 @@
     {
       "idx": 34,
       "version": "7",
-      "when": 1791835658773,
-      "tag": "0037_add_verse_audio_range_metadata",
+      "when": 1791286548662,
+      "tag": "0034_verse_audio_conflict_status_resolved",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791958111324,
+      "tag": "0035_add_dynamic_workflow_stages",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791958111325,
+      "tag": "0036_add_books_timestamps",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791958111326,
+      "tag": "0037_bump_bibles_on_provider_resource_license",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792429850384,
+      "tag": "0038_add_verse_audio_range_metadata",
       "breakpoints": true
     }
   ]

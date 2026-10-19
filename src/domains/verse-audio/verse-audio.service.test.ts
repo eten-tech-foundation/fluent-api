@@ -1501,6 +1501,28 @@ describe('verse-audio service', () => {
       expect(storageRepo.getByIds).not.toHaveBeenCalled();
     });
 
+    it('excludes resolved recordings from hasConflict rollup', async () => {
+      const resolved = {
+        ...record,
+        id: 2,
+        bibleTextId: 3402,
+        verseNumber: 4,
+        conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
+      };
+      vi.mocked(repo.listByChapter).mockResolvedValue(ok([record, resolved]));
+      vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(
+        ok([take, { ...take, id: 20, recordingId: 2 }])
+      );
+
+      const result = await listChapterRecordings(12, 9, 1, 3);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(2);
+        expect(result.data.hasConflict).toBe(false);
+      }
+    });
+
     it('batches a single getByIds for legacy takes across the chapter', async () => {
       const legacyA = { ...record, storageObjectId: 55 };
       const legacyB = {
@@ -1558,7 +1580,7 @@ describe('verse-audio service', () => {
   });
 
   describe('resolveConflict', () => {
-    it('sets the chosen take active and clears conflict', async () => {
+    it('sets the chosen take active and marks the conflict resolved', async () => {
       const other = { ...take, id: 11, uploadedBy: 9, contentHash: 'other' };
       vi.mocked(repo.get)
         .mockResolvedValueOnce(
@@ -1568,7 +1590,7 @@ describe('verse-audio service', () => {
           ok({
             ...record,
             versionToken: 2,
-            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
             activeTakeId: 11,
           })
         );
@@ -1579,7 +1601,7 @@ describe('verse-audio service', () => {
           record: {
             ...record,
             versionToken: 2,
-            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+            conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED,
             activeTakeId: 11,
           },
         })
@@ -1597,7 +1619,7 @@ describe('verse-audio service', () => {
         1,
         expect.objectContaining({
           activeTakeId: 11,
-          conflictStatus: 'clean',
+          conflictStatus: 'resolved',
           versionToken: 2,
           storageObjectId: other.storageObjectId,
           granularity: other.granularity,
@@ -1609,7 +1631,7 @@ describe('verse-audio service', () => {
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data.conflictStatus).toBe('clean');
+        expect(result.data.conflictStatus).toBe('resolved');
         expect(result.data.activeTakeId).toBe(11);
       }
     });
@@ -1643,6 +1665,38 @@ describe('verse-audio service', () => {
       });
 
       expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND));
+    });
+
+    it('rejects resolve when the unit is clean (never conflicted)', async () => {
+      vi.mocked(repo.get).mockResolvedValue(
+        ok({ ...record, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN })
+      );
+      vi.mocked(repo.getTakeById).mockResolvedValue(ok(take));
+
+      const result = await resolveConflict({
+        projectUnitId: 12,
+        bibleTextId: 3401,
+        takeId: 10,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_IN_CONFLICT));
+      expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
+    });
+
+    it('rejects resolve when the unit is already resolved', async () => {
+      vi.mocked(repo.get).mockResolvedValue(
+        ok({ ...record, conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.RESOLVED })
+      );
+      vi.mocked(repo.getTakeById).mockResolvedValue(ok(take));
+
+      const result = await resolveConflict({
+        projectUnitId: 12,
+        bibleTextId: 3401,
+        takeId: 10,
+      });
+
+      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_IN_CONFLICT));
+      expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
     });
   });
 

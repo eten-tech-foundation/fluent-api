@@ -1,6 +1,9 @@
+import type { Context } from 'hono';
+
 import { createMiddleware } from 'hono/factory';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 
+import type { AppPolicyUser, User } from '@/lib/types';
 import type { AppEnv } from '@/server/context.types';
 
 import { ChapterAssignmentPolicy } from '@/domains/chapter-assignments/chapter-assignments.policy';
@@ -8,88 +11,172 @@ import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter
 import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
 import { ErrorMessages, getHttpStatus } from '@/lib/types';
 
-import type { VerseAudioAction, VerseAudioIdSource } from './verse-audio.types';
+import type { VerseAudioIdSource } from './verse-audio.types';
 
-import { VERSE_AUDIO_ACTIONS, VERSE_AUDIO_ID_SOURCES } from './verse-audio.types';
+import { VERSE_AUDIO_ID_SOURCES } from './verse-audio.types';
 
 // Forbidden access is masked as 404 (existence non-disclosure), matching
 // translated-verse-auth.middleware.ts.
 const NOT_FOUND_MESSAGE = ErrorMessages.VERSE_AUDIO_NOT_FOUND;
 
-/**
- * Resolves the parent project (READ) or chapter assignment (EDIT) for a verse
- * audio route and evaluates the matching policy. IDs come from path params,
- * the query string, or (EDIT + FORM only) the multipart body — the latter is
- * used solely by PUT /verse-audio/{projectUnitId}/range.
- */
-export function requireVerseAudioAccess(action: VerseAudioAction, source: VerseAudioIdSource) {
+interface VerseAudioAuthInputs {
+  user: User;
+  policyUser: AppPolicyUser;
+  projectUnitId: number;
+}
+
+function validateMiddlewareInputs(
+  c: Context<AppEnv>,
+  source: VerseAudioIdSource
+): VerseAudioAuthInputs | undefined {
+  const user = c.get('user')!;
+  const policyUser = { id: user.id, grants: user.grants };
+
+  const projectUnitId =
+    source === VERSE_AUDIO_ID_SOURCES.QUERY
+      ? Number(c.req.query('projectUnitId'))
+      : Number(c.req.param('projectUnitId'));
+
+  if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+    return undefined;
+  }
+
+  return { user, policyUser, projectUnitId };
+}
+
+async function parseBibleTextId(
+  c: Context<AppEnv>,
+  source: VerseAudioIdSource
+): Promise<number | undefined> {
+  const raw =
+    source === VERSE_AUDIO_ID_SOURCES.FORM
+      ? (await c.req.parseBody()).bibleTextId
+      : c.req.param('bibleTextId');
+  const bibleTextId = Number(raw);
+  return Number.isInteger(bibleTextId) && bibleTextId > 0 ? bibleTextId : undefined;
+}
+
+// The assignment lookup also proves the verse belongs to this unit
+// (INVALID_REFERENCE → 400) and returns PolicyChapterAssignment including projectId.
+// Membership check uses assignmentResult.data.projectId once the assignment lookup succeeds.
+async function loadAssignmentAuthContext(
+  projectUnitId: number,
+  bibleTextId: number,
+  userId: number
+) {
+  const assignmentResult = await chapterAssignmentService.getAssignmentForVerse(
+    projectUnitId,
+    bibleTextId
+  );
+
+  const isProjectMember = assignmentResult.ok
+    ? await resolveIsProjectMember(assignmentResult.data.projectId, userId)
+    : false;
+
+  return { assignmentResult, isProjectMember };
+}
+
+export function requireReadVerseAudioAccess(source: VerseAudioIdSource) {
   return createMiddleware<AppEnv>(async (c, next) => {
-    const user = c.get('user')!;
-    const policyUser = { id: user.id, grants: user.grants };
-
-    const projectUnitId =
-      source === VERSE_AUDIO_ID_SOURCES.QUERY
-        ? Number(c.req.query('projectUnitId'))
-        : Number(c.req.param('projectUnitId'));
-
-    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+    const validInputs = validateMiddlewareInputs(c, source);
+    if (!validInputs) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
-    if (action === VERSE_AUDIO_ACTIONS.READ) {
-      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      if (!unitResult.ok) {
-        return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
-      }
+    const { user, policyUser, projectUnitId } = validInputs;
 
-      const projectResult = await projectService.getProjectById(unitResult.data.projectId);
-      if (!projectResult.ok) {
-        return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
-      }
+    const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
+    if (!unitResult.ok) {
+      return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+    const projectResult = await projectService.getProjectById(unitResult.data.projectId);
+    if (!projectResult.ok) {
+      return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
-        return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
-      }
+    const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
 
-      c.set('project', projectResult.data);
-      c.set('projectAuthContext', { isProjectMember });
-    } else {
-      let bibleTextId: number;
-      if (source === VERSE_AUDIO_ID_SOURCES.FORM) {
-        const body = await c.req.parseBody();
-        bibleTextId = Number(body.bibleTextId);
-      } else {
-        bibleTextId = Number(c.req.param('bibleTextId'));
-      }
+    if (!ProjectPolicy.read(policyUser, projectResult.data, isProjectMember)) {
+      return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
+    }
 
-      if (!Number.isInteger(bibleTextId) || bibleTextId <= 0) {
-        return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
-      }
+    c.set('project', projectResult.data);
+    c.set('projectAuthContext', { isProjectMember });
 
-      // Also proves the verse belongs to this unit (INVALID_REFERENCE → 400).
-      const assignmentResult = await chapterAssignmentService.getAssignmentForVerse(
-        projectUnitId,
-        bibleTextId
+    return next();
+  });
+}
+
+export function requireResolveVerseAudioConflictAccess(source: VerseAudioIdSource) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const validInputs = validateMiddlewareInputs(c, source);
+    if (!validInputs) {
+      return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
+    }
+
+    const { user, policyUser, projectUnitId } = validInputs;
+
+    const bibleTextId = await parseBibleTextId(c, source);
+    if (bibleTextId === undefined) {
+      return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
+    }
+
+    const { assignmentResult } = await loadAssignmentAuthContext(
+      projectUnitId,
+      bibleTextId,
+      user.id
+    );
+    if (!assignmentResult.ok) {
+      return c.json(
+        { message: assignmentResult.error.message },
+        getHttpStatus(assignmentResult.error) as never
       );
-      if (!assignmentResult.ok) {
-        return c.json(
-          { message: assignmentResult.error.message },
-          getHttpStatus(assignmentResult.error) as never
-        );
-      }
+    }
 
-      const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      const isProjectMember = unitResult.ok
-        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
-        : false;
+    const allowed = ChapterAssignmentPolicy.resolveAudioConflict(policyUser, assignmentResult.data);
 
-      if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember)) {
-        return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
-      }
+    if (!allowed) {
+      return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
+    }
+
+    return next();
+  });
+}
+
+export function requireEditVerseAudioAccess(source: VerseAudioIdSource) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const validInputs = validateMiddlewareInputs(c, source);
+    if (!validInputs) {
+      return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
+    }
+
+    const { user, policyUser, projectUnitId } = validInputs;
+
+    const bibleTextId = await parseBibleTextId(c, source);
+    if (bibleTextId === undefined) {
+      return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
+    }
+
+    const { assignmentResult, isProjectMember } = await loadAssignmentAuthContext(
+      projectUnitId,
+      bibleTextId,
+      user.id
+    );
+    if (!assignmentResult.ok) {
+      return c.json(
+        { message: assignmentResult.error.message },
+        getHttpStatus(assignmentResult.error) as never
+      );
+    }
+
+    const stages = await getWorkflowStagesByProjectId(assignmentResult.data.projectId);
+
+    if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)) {
+      return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 
     return next();
