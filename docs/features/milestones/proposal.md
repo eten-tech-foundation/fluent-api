@@ -56,7 +56,7 @@ The `projectUnitId` is deeply embedded throughout the system:
 - Fetching translated verses (`/translated-verses?projectUnitId=X`)
 - Fetching/saving AI suggestions
 - USFM export (`/project-units/:id/usfm`)
-- Repeated-words checks (sent as `project_id` to the Greek Room service)
+- Repeated-words checks (sent as `project_unit_id`; fluent-api resolves the owning project for the Greek Room service — see [#420](https://github.com/eten-tech-foundation/fluent-api/issues/420))
 - Chapter assignment queries
 - The `ProjectItem` object passed to the translation editor
 

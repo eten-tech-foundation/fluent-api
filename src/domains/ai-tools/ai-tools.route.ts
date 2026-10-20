@@ -35,7 +35,7 @@ const repeatedWordsRoute = createRoute({
   request: {
     body: jsonContent(
       RepeatedWordsRequestSchema,
-      'Verses to scan for repeated words, forwarded verbatim to fluent-ai'
+      'Verses to scan for repeated words, plus the project unit (milestone) they belong to'
     ),
   },
   responses: {
@@ -49,7 +49,7 @@ const repeatedWordsRoute = createRoute({
     ),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
-      'Invalid request body'
+      'Invalid request body (including a missing project_unit_id)'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -59,18 +59,27 @@ const repeatedWordsRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Missing AI_TOOLS_USE permission'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'Unknown project unit, or the caller cannot read its project'
+    ),
     [HttpStatusCodes.BAD_GATEWAY]: jsonContent(errorResponseSchema, 'Upstream fluent-ai error'),
   },
   summary: 'Run the Greek-Room repeated-words check',
   description:
-    'Proxies a repeated-words check to fluent-ai. The request body is forwarded verbatim ' +
-    '(decision D8) and the full ToolJobResponse envelope is returned on success (decision D9). ' +
+    'Proxies a repeated-words check to fluent-ai. fluent-api resolves `project_unit_id` to its ' +
+    'owning project, authorizes against it, and builds the upstream payload with that ' +
+    "project's id and name (decision D8, amended by #420); `lang_code`, `lang_name` and " +
+    '`verses` are forwarded as sent. The full ToolJobResponse envelope is returned on ' +
+    'success (decision D9). ' +
     'Returns 200 for terminal statuses (completed/failed/cancelled) and 202 for queued/running.',
 });
 
 server.openapi(repeatedWordsRoute, async (c) => {
   const body = c.req.valid('json');
-  const result = await callRepeatedWords(body);
+  // Set by requireAiToolsAccess — the project resolved from body.project_unit_id.
+  const project = c.get('project')!;
+  const result = await callRepeatedWords(body, project);
 
   if (!result.ok) {
     return c.json(

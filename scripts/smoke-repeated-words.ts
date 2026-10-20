@@ -36,6 +36,12 @@
  *   That creates "Fluent Dev" plus pm@fluent.local and t@fluent.local. If you
  *   skip this step, sign-in returns 401 and the script prints the same hint.
  *
+ *   The request identifies a project unit (milestone) via `project_unit_id`;
+ *   fluent-api resolves it to the owning project and authorizes against it
+ *   (#420). The signed-in user must be able to read that project, otherwise
+ *   the endpoint answers 404. Defaults to unit 1; override with
+ *   --project-unit-id (or FLUENT_API_PROJECT_UNIT_ID).
+ *
  * Because the fluent-api endpoint is guarded by a BetterAuth session +
  * AI_TOOLS_USE permission, the script needs a session credential. There are
  * three ways to supply one, in priority order:
@@ -83,18 +89,17 @@ interface VerseInput {
 interface SampleRequest {
   lang_code: string;
   lang_name: string;
-  project_id: string | number;
-  project_name: string;
+  project_unit_id: number;
   verses: VerseInput[];
 }
 
-// Must stay in sync with fluent-ai/tests/api/v1/test_greek_room.py so that
-// "what passes in pytest" and "what this script sends" agree.
-const SAMPLE_REQUEST: SampleRequest = {
+// The verses must stay in sync with fluent-ai/tests/api/v1/test_greek_room.py
+// so that "what passes in pytest" and "what this script sends" agree.
+// `project_unit_id` is filled in from the CLI (fluent-api derives fluent-ai's
+// project_id / project_name from it server-side).
+const SAMPLE_REQUEST: Omit<SampleRequest, 'project_unit_id'> = {
   lang_code: 'eng',
   lang_name: 'English',
-  project_id: 'smoke-test',
-  project_name: 'Smoke Test',
   verses: [
     { snt_id: 'GEN 1:1', text: 'In in the beginning God created the heavens.' },
     { snt_id: 'JHN 3:3', text: 'Truly, truly, I say unto thee.' },
@@ -125,6 +130,7 @@ interface CliArgs {
   signinOrigin: string;
   timeoutMs: number;
   raw: boolean;
+  projectUnitId: number;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -139,6 +145,7 @@ function parseArgs(argv: string[]): CliArgs {
     ).replace(/\/$/, ''),
     timeoutMs: 30_000,
     raw: false,
+    projectUnitId: Number(process.env.FLUENT_API_PROJECT_UNIT_ID ?? 1),
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -168,12 +175,15 @@ function parseArgs(argv: string[]): CliArgs {
       case '--raw':
         args.raw = true;
         break;
+      case '--project-unit-id':
+        args.projectUnitId = Number(argv[++i]);
+        break;
       case '-h':
       case '--help':
         console.error(
           'Usage: npm run smoke:repeated-words -- [--url <base>] [--token <bearer>] ' +
             '[--cookie <header>] [--signin-email <email>] [--signin-password <pw>] ' +
-            '[--origin <url>] [--timeout <seconds>] [--raw]\n\n' +
+            '[--origin <url>] [--timeout <seconds>] [--project-unit-id <id>] [--raw]\n\n' +
             'With no --token/--cookie, the script auto-signs-in (default ' +
             `${DEFAULT_SIGNIN_EMAIL}) and uses the captured bearer token. The ` +
             `sign-in Origin header defaults to ${DEFAULT_SIGNIN_ORIGIN} (the dev ` +
@@ -185,6 +195,11 @@ function parseArgs(argv: string[]): CliArgs {
         console.error(`error: unknown argument: ${arg}`);
         process.exit(2);
     }
+  }
+
+  if (!Number.isInteger(args.projectUnitId) || args.projectUnitId <= 0) {
+    console.error('error: --project-unit-id must be a positive integer');
+    process.exit(2);
   }
 
   // A pre-supplied token (flag or env) takes precedence over auto sign-in.
@@ -440,7 +455,10 @@ async function main(): Promise<number> {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify(SAMPLE_REQUEST),
+      body: JSON.stringify({
+        ...SAMPLE_REQUEST,
+        project_unit_id: args.projectUnitId,
+      } satisfies SampleRequest),
       signal: controller.signal,
     });
     status = response.status;
