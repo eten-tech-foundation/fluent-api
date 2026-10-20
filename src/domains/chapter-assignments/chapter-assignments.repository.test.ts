@@ -140,6 +140,15 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
       expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
     });
+
+    it('filters strictly on conflict status so clean and resolved recordings are excluded', () => {
+      const fragment = repo.hasConflictRollupSql();
+      const text = sqlText(fragment);
+
+      expect(text).toMatch(/var\.conflict_status\s*=\s*conflict/);
+      expect(text).not.toContain('resolved');
+      expect(text).not.toContain('clean');
+    });
   });
 
   it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
@@ -327,7 +336,13 @@ describe('chapter-assignments.repository claim helpers', () => {
       };
       mockUpdateChain.returning.mockResolvedValueOnce([record]);
 
-      const result = await repo.submitPeerCheckIfEligible(1, 7, submittedTime, mockTx());
+      const result = await repo.submitPeerCheckIfEligible(
+        1,
+        7,
+        'community_review',
+        submittedTime,
+        mockTx()
+      );
 
       expect(result).toEqual(record);
       expect(mockUpdateChain.set).toHaveBeenCalledWith({
@@ -340,7 +355,13 @@ describe('chapter-assignments.repository claim helpers', () => {
     it('returns null when another submitter already won the race', async () => {
       mockUpdateChain.returning.mockResolvedValueOnce([]);
 
-      const result = await repo.submitPeerCheckIfEligible(1, 7, new Date(), mockTx());
+      const result = await repo.submitPeerCheckIfEligible(
+        1,
+        7,
+        'community_review',
+        new Date(),
+        mockTx()
+      );
 
       expect(result).toBeNull();
     });
@@ -354,7 +375,7 @@ describe('chapter-assignments.repository claim helpers', () => {
         },
       ]);
 
-      await repo.submitPeerCheckIfEligible(1, 7, new Date(), mockTx());
+      await repo.submitPeerCheckIfEligible(1, 7, 'community_review', new Date(), mockTx());
 
       expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 7);
       expect(mockUpdateChain.where).toHaveBeenCalledWith([

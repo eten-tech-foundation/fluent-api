@@ -6,6 +6,7 @@ import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertBiblesSchema, patchBiblesSchema } from '@/db/schema';
 import { getHttpStatus } from '@/lib/types';
+import { updatedAfterQuerySchema, validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser, requireSuperAdmin } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -62,10 +63,19 @@ const listBiblesRoute = createRoute({
   method: 'get',
   path: '/bibles',
   middleware: [authenticateUser] as const,
+  request: {
+    query: z.object({
+      updatedAfter: updatedAfterQuerySchema,
+    }),
+  },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       bibleResponseSchema.array().openapi('Bibles'),
       'The list of bibles'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      validationErrorSchema,
+      'Invalid updatedAfter query parameter'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
@@ -81,11 +91,13 @@ const listBiblesRoute = createRoute({
     ),
   },
   summary: 'Get all bibles',
-  description: 'Returns a list of all bibles',
+  description:
+    'Returns a raw array of bibles (not a syncedAt envelope). When updatedAfter is provided, returns only bibles with updatedAt >= that timestamp. Each item includes server updatedAt for the next cursor; empty arrays must not advance the client cursor. Provider-resource license/display INSERT or UPDATE bumps linked bibles.updatedAt via a database trigger; selectedRecordingKey changes advance via the bible row write ($onUpdate). Do not use device wall-clock time.',
 });
 
 server.openapi(listBiblesRoute, async (c) => {
-  const result = await bibleService.getAllBibles();
+  const { updatedAfter } = c.req.valid('query');
+  const result = await bibleService.getAllBibles(updatedAfter);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
