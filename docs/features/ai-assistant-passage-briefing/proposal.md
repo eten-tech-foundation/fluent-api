@@ -19,8 +19,8 @@ Keep the first implementation deliberately concrete:
 
 - Fluent API authorizes the project request, resolves the canonical source-Bible passage, calls
   BT Servant directly, normalizes its stream, and owns the disposable completed-artifact cache.
-- Fluent Web requests the briefing only while the Assistant pane is open, renders safe Markdown and
-  exactly three inline suggested-question widgets, isolates stale navigation results, and touches at
+- Fluent Web requests the briefing only while the Assistant pane is open, safely renders recognized
+  inline suggested-question macros as controls, isolates stale navigation results, and touches at
   most the next pericope after the current result completes.
 - Do not introduce a reusable AI-backend interface from this single implementation. A second real
   backend should supply the evidence for any shared boundary.
@@ -73,6 +73,12 @@ after a source change but does not grant permission to transmit the source.
 Staging inventory exposed both English and Hindi resources; inventory alone does not establish
 coverage, approval, or quality. Controlled English/English, Hindi/Hindi, and Hindi-output/
 English-resource runs all completed and preserved exactly three widget macros.
+
+Exactly three questions is the requested prompt/inventory shape and the observed controlled-sample
+shape, not transport-level output validation. A receipt-consistent safe Markdown completion remains
+readable and cacheable when macros are missing or malformed; Web activates each complete recognized
+macro and leaves malformed or unknown syntax inert. The displayed question controls do not submit a
+follow-up in this slice—freeform/thread interaction remains #406 scope.
 
 Observed runs separated resource and output language as intended:
 
@@ -154,8 +160,9 @@ lookup. A content hash cannot substitute for that authorization check.
 - Approve the grounding-resource subset and citation/attribution rubric.
 - Decide whether dynamically translated approved English resources retain their approval/confidence
   and whether the UI needs a translation disclosure.
-- Review the two-short-paragraph/two-observation shape and the deeper-research role of exactly three
-  question buttons in the real narrow pane.
+- Review the requested two-short-paragraph shape (including one or two high-value observations) and
+  the proposed deeper-research role of three currently non-submitting question buttons in the real
+  narrow pane.
 - Decide whether Assistant output language later gets a project-manager default/restriction. If so,
   use a narrow merge-safe project metadata mutation; do not overwrite unrelated metadata or misuse
   global/user Settings.
