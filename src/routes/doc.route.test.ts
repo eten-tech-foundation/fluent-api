@@ -66,6 +66,31 @@ describe('gET /doc (OpenAPI document)', () => {
       expect(doc.paths['/self/milestones']).toBeDefined();
       expect(doc.paths['/self/chapter-assignments/all']).toBeDefined();
       expect(doc.paths['/self/chapter-assignments']).toBeDefined();
+      const languages = doc.paths['/projects/{projectId}/assistant/languages']?.get;
+      const briefing = doc.paths['/projects/{projectId}/assistant/briefing']?.post;
+      expect(languages).toBeDefined();
+      expect(briefing).toBeDefined();
+      expect(Object.keys(languages.responses).sort()).toEqual([
+        '200',
+        '400',
+        '401',
+        '403',
+        '404',
+        '500',
+        '503',
+      ]);
+      expect(Object.keys(briefing.responses).sort()).toEqual([
+        '200',
+        '400',
+        '401',
+        '403',
+        '404',
+        '413',
+        '500',
+        '503',
+      ]);
+      expect(briefing.responses['200'].content['text/event-stream']).toBeDefined();
+      expect(briefing.requestBody.required).toBe(true);
     }
   );
 });
