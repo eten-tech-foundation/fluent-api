@@ -48,7 +48,7 @@ describe.skipIf(!connectionString)(
       await sql`CREATE SCHEMA pgboss`;
       process.env.DATABASE_URL = connectionString!;
       const { findCompletedBriefing, publishCompletedBriefing } = await import(
-        '@/domains/assistant/assistant.cache.repository'
+        '@/domains/assistant/cache/assistant-cache.repository'
       );
       const artifact = {
         cacheKey: 'd'.repeat(64),

@@ -127,7 +127,7 @@ export class BtServantClient {
       let accumulated = '';
       let outputBytes = 0;
       idle = setTimeout(abortForDeadline, this.options.idleMs);
-      for await (const bytes of response.body as any) {
+      for await (const bytes of response.body as unknown as AsyncIterable<Uint8Array>) {
         if (subscriberCancelled) return;
         if (deadlineExpired) {
           terminal = true;
@@ -162,7 +162,7 @@ export class BtServantClient {
             .map((line) => line.slice(5).trimStart())
             .join('\n');
           if (!data) continue;
-          let event: any;
+          let event: unknown;
           try {
             event = JSON.parse(data);
           } catch {
@@ -170,34 +170,44 @@ export class BtServantClient {
             yield failure('malformed_upstream_response', false);
             return;
           }
-          if (!event || typeof event !== 'object' || typeof event.type !== 'string') {
+          if (!event || typeof event !== 'object' || !('type' in event)) {
             terminal = true;
             yield failure('malformed_upstream_response', false);
             return;
           }
-          const isValidActivity = VALID_ACTIVITY_EVENTS.has(event.type);
+          const eventRecord = event as Record<string, unknown>;
+          if (typeof eventRecord.type !== 'string') {
+            terminal = true;
+            yield failure('malformed_upstream_response', false);
+            return;
+          }
+          const isValidActivity = VALID_ACTIVITY_EVENTS.has(eventRecord.type);
           if (isValidActivity) {
             clearTimeout(idle);
             idle = setTimeout(abortForDeadline, this.options.idleMs);
           }
-          if (event.type === 'progress' && typeof event.text === 'string') {
-            outputBytes += Buffer.byteLength(event.text);
+          if (eventRecord.type === 'progress' && typeof eventRecord.text === 'string') {
+            outputBytes += Buffer.byteLength(eventRecord.text);
             if (outputBytes > this.options.maxOutputBytes) {
               terminal = true;
               controller.abort();
               yield failure('context_too_large', false);
               return;
             }
-            accumulated += event.text;
+            accumulated += eventRecord.text;
             if (subscriberCancelled) return;
             if (deadlineExpired) {
               terminal = true;
               yield failure('timed_out', true);
               return;
             }
-            yield { type: 'briefing_delta', delta: event.text };
-          } else if (event.type === 'complete') {
-            const responses = event.response?.responses;
+            yield { type: 'briefing_delta', delta: eventRecord.text };
+          } else if (eventRecord.type === 'complete') {
+            const responseRecord =
+              eventRecord.response && typeof eventRecord.response === 'object'
+                ? (eventRecord.response as Record<string, unknown>)
+                : undefined;
+            const responses = responseRecord?.responses;
             const final =
               Array.isArray(responses) && responses.every((value) => typeof value === 'string')
                 ? responses.join('\n')
@@ -228,7 +238,7 @@ export class BtServantClient {
               yield { type: 'briefing_complete', markdown: accumulated };
             }
             return;
-          } else if (event.type === 'error') {
+          } else if (eventRecord.type === 'error') {
             terminal = true;
             yield failure('temporarily_unavailable', true);
             return;

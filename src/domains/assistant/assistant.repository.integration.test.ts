@@ -1,3 +1,4 @@
+/* eslint-disable ts/no-explicit-any -- The fluent Drizzle query mock must implement several query-builder stages through one recursive test double. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';

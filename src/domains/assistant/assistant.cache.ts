@@ -6,7 +6,7 @@ import type { PassageContext } from './assistant.repository';
 
 import { SUGGESTED_QUESTION_MACRO, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 
-export interface BriefingCacheIdentityInput {
+interface BriefingCacheIdentityInput {
   operationVersion: string;
   profileVersion: string;
   resourcePolicyVersion: string;

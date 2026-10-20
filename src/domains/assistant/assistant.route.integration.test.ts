@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- Cache lifecycle cases intentionally share the route's auth mocks. */
+/* eslint-disable max-lines, ts/no-explicit-any -- Vitest constructor/auth mocks expose overloaded framework types that cannot be represented faithfully. */
 import { Buffer } from 'node:buffer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,10 +11,14 @@ import { ok } from '@/lib/types';
 import { server } from '@/server/server';
 
 import { resetInFlightBriefingsForTests, shutdownInFlightBriefings } from './assistant.cache';
-import { findCompletedBriefing, publishCompletedBriefing } from './assistant.cache.repository';
 import { BtServantClient } from './assistant.client';
 import { loadAssistantConfig } from './assistant.config';
-import { findProjectSourceLanguage, resolveCanonicalPassage } from './assistant.repository';
+import {
+  findCompletedBriefing,
+  findProjectSourceLanguage,
+  publishCompletedBriefing,
+  resolveCanonicalPassage,
+} from './assistant.service';
 import './assistant.route';
 
 vi.mock('@/lib/auth', () => ({
@@ -41,9 +45,12 @@ vi.mock('./assistant.config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./assistant.config')>();
   return { ...actual, loadAssistantConfig: vi.fn() };
 });
-vi.mock('./assistant.repository', () => ({
+vi.mock('./assistant.service', () => ({
   findProjectSourceLanguage: vi.fn(async () => 'eng'),
   resolveCanonicalPassage: vi.fn(),
+  findCompletedBriefing: vi.fn(async () => null),
+  publishCompletedBriefing: vi.fn(async () => true),
+  requestExpiredBriefingCleanup: vi.fn(),
 }));
 vi.mock('./assistant.client', () => ({
   BtServantClient: vi.fn(function (this: any) {
@@ -53,12 +60,6 @@ vi.mock('./assistant.client', () => ({
     });
   }),
 }));
-vi.mock('./assistant.cache.repository', () => ({
-  findCompletedBriefing: vi.fn(async () => null),
-  publishCompletedBriefing: vi.fn(async () => true),
-  requestExpiredBriefingCleanup: vi.fn(),
-}));
-
 const user = {
   id: 17,
   email: 'assistant@example.test',

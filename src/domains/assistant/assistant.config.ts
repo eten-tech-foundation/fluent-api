@@ -32,7 +32,7 @@ const DEFAULTS = {
   maxFrameBytes: 1_048_576,
 } as const;
 
-export interface AssistantEnvInput {
+interface AssistantEnvInput {
   BT_SERVANT_BASE_URL?: string;
   BT_SERVANT_ENGINE_KEY?: string;
   BT_SERVANT_ORG?: string;
@@ -50,8 +50,8 @@ export interface AssistantEnvInput {
 }
 
 export type AssistantLanguage = z.infer<typeof languageSchema>;
-export type AssistantLanguages = z.infer<typeof languagesSchema>;
-export type GroundingChoice = 'configured' | 'output_language' | 'english';
+type AssistantLanguages = z.infer<typeof languagesSchema>;
+type GroundingChoice = 'configured' | 'output_language' | 'english';
 
 export function validateAssistantLanguages(raw: unknown): AssistantLanguages | null {
   const parsed = languagesSchema.safeParse(raw);
