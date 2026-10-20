@@ -1,6 +1,6 @@
 # AI licence classification pass
 
-> **Status: DRAFT** — not yet filed. Board: Fluent (#4) → `In Progress (Product)`.
+> **Status: FILED** — GitHub: [fluent-api#429](https://github.com/eten-tech-foundation/fluent-api/issues/429). Board: Fluent (#4) → `In Progress (Product)`.
 > Suggested labels: `enhancement`, `ready-for-human` · QA path: `DevQA` · Priority: P1
 
 **Parent feature:** [`tts-licence-ingestion`](../plan.md) — Ticket API-3, Phase 2.

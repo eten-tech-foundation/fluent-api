@@ -1,6 +1,6 @@
 # DBL sync writes text-Bible licence facts
 
-> **Status: DRAFT** — not yet filed. Board: Fluent (#4) → `In Progress (Product)`.
+> **Status: FILED** — GitHub: [fluent-api#427](https://github.com/eten-tech-foundation/fluent-api/issues/427). Board: Fluent (#4) → `In Progress (Product)`.
 > Suggested labels: `enhancement`, `ready-for-agent` · QA path: `DevQA` · Priority: P0
 
 **Parent feature:** [`tts-licence-ingestion`](../plan.md) — Ticket API-1, Phase 1.

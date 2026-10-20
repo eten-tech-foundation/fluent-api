@@ -1,6 +1,6 @@
 # Licence classifications + derived status (deny-by-default)
 
-> **Status: DRAFT** — not yet filed. Board: Fluent (#4) → `In Progress (Product)`.
+> **Status: FILED** — GitHub: [fluent-api#430](https://github.com/eten-tech-foundation/fluent-api/issues/430). Board: Fluent (#4) → `In Progress (Product)`.
 > Suggested labels: `enhancement`, `ready-for-agent` · QA path: `DevQA` · Priority: P1
 
 **Parent feature:** [`tts-licence-ingestion`](../plan.md) — Ticket API-4, Phase 2.
