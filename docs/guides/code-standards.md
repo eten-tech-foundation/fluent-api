@@ -178,3 +178,6 @@ Each item is its own PR. None of them goes into an unrelated change as a drive-b
 5. **404 on lookup errors (FA-R4), #419.** Some auth middlewares return 404 for any failed
    lookup, including database errors, and for malformed IDs. Return the error's own status
    and 400 for a malformed ID.
+6. **Active-org route (FA-L3), #425.** `PATCH /users/me/active-org` runs its own transaction
+   in the route. Move it into the users service on `runInTransaction`, and mock the service
+   instead of `@/db` in its test.
