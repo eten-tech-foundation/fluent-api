@@ -54,15 +54,13 @@ export async function resolveCanonicalPassage(input: {
     .from(projects)
     .innerJoin(bibles, eq(bibles.id, projects.sourceBibleId))
     .innerJoin(languages, eq(languages.id, projects.sourceLanguage))
-    .where(eq(projects.id, input.projectId))
-    .limit(1);
+    .where(eq(projects.id, input.projectId));
   if (!project?.sourceBibleId || !project.sourceLanguageCode) return null;
 
   const [book] = await db
     .select({ id: books.id, code: books.code })
     .from(books)
-    .where(eq(books.code, input.bookCode.toUpperCase()))
-    .limit(1);
+    .where(eq(books.code, input.bookCode.toUpperCase()));
   if (!book) return null;
 
   if (project.pericopeSetId) {
@@ -161,7 +159,6 @@ export async function findProjectSourceLanguage(projectId: number): Promise<stri
     .select({ code: languages.langCodeIso6393 })
     .from(projects)
     .innerJoin(languages, eq(languages.id, projects.sourceLanguage))
-    .where(eq(projects.id, projectId))
-    .limit(1);
+    .where(eq(projects.id, projectId));
   return row?.code ?? null;
 }
