@@ -26,3 +26,30 @@ The continuous Azure WebJob under `App_Data/jobs/continuous/worker/` that runs
 deployment package and resolves its dependencies from the app's own
 `node_modules` — it does not carry a separate copy.
 _Avoid_: "background service", "daemon" — it is a WebJob in the same deploy.
+
+**TTS licence status**:
+Whether text-to-speech may be generated from a Bible's text: _allowed_,
+_forbidden_, or _unknown_. A fact about the published Bible, not a grant to a
+user or organization. Only _allowed_ permits synthesis.
+_Avoid_: "TTS permission", "TTS access" — those mean the user-level `TTS_USE`.
+
+**Unknown (licence status)**:
+Nobody has decided yet. Treated exactly like _forbidden_ for synthesis, and it
+is what "flagged for review" means. New or unrecognised licences land here
+(deny-by-default).
+_Avoid_: "pending", "unreviewed", or "flagged" as a separate state.
+
+**Licence notice**:
+The provider's free-text copyright statement for a Bible (DBL's `copyright`).
+This is the "license" that is captured and classified; DBL has no structured
+licence field.
+_Avoid_: "license type", "license code".
+
+**All rights reserved**:
+A licence notice that reserves all rights. Always _forbidden_ — the one hard
+rule.
+
+**Licence fence**:
+The single place in the web client that reads a Bible's TTS licence status
+and refuses to request synthesis unless it is _allowed_. It bars synthesis
+only; recorded audio is unaffected.
