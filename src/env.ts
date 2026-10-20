@@ -248,6 +248,10 @@ const EnvBaseSchema = z.object({
   // publish-vs-enforce split (D5) is unchanged — this only says "the UI may
   // render the listen controls in this environment".
   EN_FEATURE_SOURCE_AUDIO: envBool().optional(),
+  // Assistant — publishes the unfinished Assistant UI only when an operator
+  // explicitly enables it. BT Servant wiring alone must not light up the UI.
+  // The browser's local /debug override remains a separate client-side concern.
+  EN_FEATURE_ASSISTANT: envBool().optional(),
 });
 
 const R2_BUCKET_KEYS = ['R2_EXPORTS_BUCKET', 'R2_AUDIO_BUCKET'] as const;
