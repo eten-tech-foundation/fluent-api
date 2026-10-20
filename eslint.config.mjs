@@ -166,8 +166,9 @@ export default antfu(
         ...ANTFU_RESTRICTED_SYNTAX,
         ...HTTP_METHOD_CASE,
         {
+          // Same specifiers as FA-L3. esquery regexes can't contain '/', so \x2F stands in for it.
           selector:
-            "CallExpression[callee.object.name='vi'][callee.property.name='mock'][arguments.0.value='@/db']",
+            "CallExpression[callee.object.name='vi'][callee.property.name=/^(?:mock|doMock)$/][arguments.0.value=/^(?:@\\x2Fdb|(?:\\.{1,2}\\x2F)+db)(?:\\x2Findex)?$/]",
           message: `FA-L7: unit tests mock the repository, not @/db. Tests that need real SQL are *.integration.test.ts with PGlite — ${STANDARDS}.`,
         },
       ],

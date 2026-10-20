@@ -738,6 +738,9 @@
     }
   },
   "src/workers/ingest-bible-text.worker.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
     "ts/no-explicit-any": {
       "count": 21
     }
