@@ -44,6 +44,7 @@
   "exports:src/domains/translated-verses/translated-verses.service.ts:createTranslatedVerse",
   "exports:src/domains/translated-verses/translated-verses.service.ts:updateTranslatedVerse",
   "exports:src/domains/translation-resources/translation-resources.service.ts:AQUIFER_RESOURCE_COLLECTIONS",
+  "exports:src/domains/translation-resources/translation-resources.types.ts:MAX_VERSE_RANGE_SPAN",
   "exports:src/domains/translation-resources/translation-resources.types.ts:prepareOfflineResourceKindSchema",
   "exports:src/domains/translation-resources/translation-resources.types.ts:prepareOfflineResourceTierSchema",
   "exports:src/domains/translation-resources/translation-resources.types.ts:tipTapContentSchema",

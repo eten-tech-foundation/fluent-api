@@ -161,7 +161,7 @@ Violations that existed when a rule was adopted are recorded, not fixed.
 
 Each item is its own PR. None of them goes into an unrelated change as a drive-by.
 
-1. **HTTP method casing (FA-L13), #414.** Uppercase the 30 grandfathered mangled methods
+1. **HTTP method casing (FA-L13), #414.** Uppercase the 33 grandfathered mangled methods
    (`pOST`, `gET`, …), mostly in `describe` titles, and run `npm run lint:prune`. The
    lowercase-title autofix produced them; `allowedPrefixes` now prevents that.
 2. **Transactions (FA-L9), #415.** Move `milestones`, `projects` and `chapter-assignments`

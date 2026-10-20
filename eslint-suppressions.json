@@ -101,7 +101,7 @@
       "count": 2
     },
     "ts/no-explicit-any": {
-      "count": 10
+      "count": 8
     }
   },
   "src/domains/ai-tools/tts.route.test.ts": {
@@ -440,6 +440,14 @@
       "count": 1
     }
   },
+  "src/domains/translation-resources/translation-resources.range.test.ts": {
+    "no-restricted-syntax": {
+      "count": 4
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
   "src/domains/translation-resources/translation-resources.test-fixtures.ts": {
     "ts/no-explicit-any": {
       "count": 4
@@ -489,6 +497,16 @@
       "count": 1
     }
   },
+  "src/domains/users/users.active-org.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/domains/users/users.active-org.route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
   "src/domains/users/users.repository.ts": {
     "ts/no-explicit-any": {
       "count": 2
@@ -498,11 +516,8 @@
     "fluent-standards/no-cross-domain-repository": {
       "count": 1
     },
-    "max-lines": {
-      "count": 1
-    },
     "no-restricted-imports": {
-      "count": 3
+      "count": 1
     }
   },
   "src/domains/users/users.service.test.ts": {
