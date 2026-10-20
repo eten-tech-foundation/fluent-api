@@ -154,8 +154,9 @@ Violations that existed when a rule was adopted are recorded, not fixed.
   Fixing a recorded violation fails lint until you run `npm run lint:prune` and commit the
   smaller file, so the counts only go down. Never run `eslint --suppress-all` to make a new
   violation pass.
-- **Dead code:** `knip-baseline.json` works the same way. `npm run deadcode -- --update`
-  rewrites it, and only after you've removed dead code.
+- **Dead code:** `knip-baseline.json` works the same way. After removing dead code, run
+  `npm run deadcode -- --update` to drop the entries that no longer occur; it refuses to run
+  while there is new dead code, so it can't add entries.
 
 ## Follow-up PRs
 

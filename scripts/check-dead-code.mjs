@@ -4,7 +4,7 @@
 // shrinks. Mirrors how eslint-suppressions.json works for lint rules.
 //
 //   npm run deadcode            check against the baseline
-//   npm run deadcode -- --update  rewrite the baseline (only after removing dead code)
+//   npm run deadcode -- --update  drop entries that no longer occur (refuses to add new ones)
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -37,15 +37,15 @@ for (const issue of report.issues) {
   }
 }
 
-if (update) {
-  writeFileSync(BASELINE, `${JSON.stringify([...current].sort(), null, 2)}\n`);
-  process.stdout.write(`Wrote ${current.size} entries to ${BASELINE}.\n`);
-  process.exit(0);
-}
-
 const baseline = new Set(JSON.parse(readFileSync(BASELINE, 'utf8')));
 const added = [...current].filter((key) => !baseline.has(key)).sort();
 const stale = [...baseline].filter((key) => !current.has(key)).sort();
+
+if (update && added.length === 0) {
+  writeFileSync(BASELINE, `${JSON.stringify([...current].sort(), null, 2)}\n`);
+  process.stdout.write(`Removed ${stale.length} entries; ${current.size} remain in ${BASELINE}.\n`);
+  process.exit(0);
+}
 
 if (added.length > 0) {
   process.stdout.write(
