@@ -44,7 +44,7 @@ function saveEditorState(activeLeftTab: 'resources' | 'checks' | 'assistant') {
   });
 }
 
-describe('pUT /chapter-assignments/:chapterAssignmentId/editor-state', () => {
+describe('PUT /chapter-assignments/:chapterAssignmentId/editor-state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

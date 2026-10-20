@@ -2,6 +2,7 @@ import { z } from '@hono/zod-openapi';
 import { streamSSE } from 'hono/streaming';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
+import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
 import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
@@ -19,11 +20,6 @@ import {
   installOrJoinBriefing,
   removeInFlightBriefing,
 } from './assistant.cache';
-import {
-  findCompletedBriefing,
-  publishCompletedBriefing,
-  requestExpiredBriefingCleanup,
-} from './assistant.cache.repository';
 import { BtServantClient } from './assistant.client';
 import {
   loadAssistantConfig,
@@ -32,7 +28,13 @@ import {
   selectOutputLanguage,
 } from './assistant.config';
 import { btUserId, buildBriefingPrompt, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
-import { findProjectSourceLanguage, resolveCanonicalPassage } from './assistant.repository';
+import {
+  findCompletedBriefing,
+  findProjectSourceLanguage,
+  publishCompletedBriefing,
+  requestExpiredBriefingCleanup,
+  resolveCanonicalPassage,
+} from './assistant.service';
 
 const requestSchema = z.object({
   bookCode: z.string().min(3).max(50),
@@ -50,7 +52,11 @@ const guards = [
 
 server.get('/projects/:projectId/assistant/languages', ...guards, async (c) => {
   const config = loadAssistantConfig();
-  if (!config) return c.json({ code: 'temporarily_unavailable', retryable: true }, 503);
+  if (!config)
+    return c.json(
+      { code: 'temporarily_unavailable', retryable: true },
+      HttpStatusCodes.SERVICE_UNAVAILABLE
+    );
   const sourceLanguage = await findProjectSourceLanguage(Number(c.req.param('projectId')));
   const persisted = c.req.query('selected');
   return c.json({
@@ -141,21 +147,28 @@ async function produceSharedBriefing(input: {
 
 server.post('/projects/:projectId/assistant/briefing', ...guards, async (c) => {
   const config = loadAssistantConfig();
-  if (!config) return c.json({ code: 'temporarily_unavailable', retryable: true }, 503);
+  if (!config)
+    return c.json(
+      { code: 'temporarily_unavailable', retryable: true },
+      HttpStatusCodes.SERVICE_UNAVAILABLE
+    );
   const parsed = requestSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) return c.json({ code: 'invalid_request', retryable: false }, 400);
+  if (!parsed.success)
+    return c.json({ code: 'invalid_request', retryable: false }, HttpStatusCodes.BAD_REQUEST);
   if (!Object.hasOwn(config.languages, parsed.data.outputLanguage))
-    return c.json({ code: 'unsupported_language', retryable: false }, 400);
+    return c.json({ code: 'unsupported_language', retryable: false }, HttpStatusCodes.BAD_REQUEST);
   const language = config.languages[parsed.data.outputLanguage];
   const grounding = resolveGrounding(language, parsed.data.grounding);
-  if (!grounding) return c.json({ code: 'unsupported_language', retryable: false }, 400);
+  if (!grounding)
+    return c.json({ code: 'unsupported_language', retryable: false }, HttpStatusCodes.BAD_REQUEST);
   const passage = await resolveCanonicalPassage({
     projectId: Number(c.req.param('projectId')),
     bookCode: parsed.data.bookCode,
     chapter: parsed.data.chapter,
     activeVerse: parsed.data.activeVerse,
   });
-  if (!passage) return c.json({ code: 'invalid_request', retryable: false }, 400);
+  if (!passage)
+    return c.json({ code: 'invalid_request', retryable: false }, HttpStatusCodes.BAD_REQUEST);
   const prompt = buildBriefingPrompt({
     operationVersion: config.operationVersion,
     language,
@@ -166,7 +179,10 @@ server.post('/projects/:projectId/assistant/briefing', ...guards, async (c) => {
     verses: passage.verses,
   });
   if (Buffer.byteLength(prompt) > config.budgets.maxInputBytes)
-    return c.json({ code: 'context_too_large', retryable: false }, 413);
+    return c.json(
+      { code: 'context_too_large', retryable: false },
+      HttpStatusCodes.REQUEST_TOO_LONG
+    );
 
   const user = c.get('user')!;
   const attemptId = crypto.randomUUID();

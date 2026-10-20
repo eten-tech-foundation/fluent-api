@@ -114,7 +114,7 @@ it('force-destroys TLS sockets across repeated stalled postgres.js pool retireme
 
   try {
     const { assistantCacheOpenTransportCountForTests, findCompletedBriefing } = await import(
-      './assistant.cache.repository'
+      './cache/assistant-cache.repository'
     );
     for (let generation = 0; generation < 3; generation++) {
       const started = Date.now();
@@ -187,7 +187,7 @@ it('prunes transports after repeated ordinary postgres.js TLS disconnects', asyn
       assistantCacheOpenTransportCountForTests,
       assistantCachePoolGenerationForTests,
       findCompletedBriefing,
-    } = await import('./assistant.cache.repository');
+    } = await import('./cache/assistant-cache.repository');
     const poolGeneration = assistantCachePoolGenerationForTests();
     for (let connection = 0; connection < 3; connection++) {
       let failure: unknown;

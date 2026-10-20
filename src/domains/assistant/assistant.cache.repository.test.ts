@@ -10,7 +10,7 @@ import {
   cleanupExpiredBriefings,
   findCompletedBriefing,
   publishCompletedBriefing,
-} from './assistant.cache.repository';
+} from './cache/assistant-cache.repository';
 
 const databaseState = vi.hoisted(() => ({
   client: undefined as PGlite | undefined,

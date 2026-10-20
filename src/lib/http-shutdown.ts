@@ -1,11 +1,11 @@
-export const HTTP_DRAIN_TIMEOUT_MS = 5_000;
+const HTTP_DRAIN_TIMEOUT_MS = 5_000;
 
 interface ClosableHttpServer {
   close: (callback: (error?: Error) => void) => unknown;
   closeAllConnections?: () => void;
 }
 
-export type HttpDrainOutcome = 'drained' | 'forced';
+type HttpDrainOutcome = 'drained' | 'forced';
 
 /** Stops listener admission immediately and force-closes if active responses miss the deadline. */
 export function closeHttpServer(
