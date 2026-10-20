@@ -21,6 +21,8 @@ const VERSION_PATTERN = /^[a-z0-9][\w.-]{0,63}$/i;
 
 const DEFAULTS = {
   operationVersion: 'passage-briefing-v1',
+  profileVersion: 'fluent-profile-v1',
+  resourcePolicyVersion: 'fluent-resource-policy-v1',
   cacheEpoch: '1',
   connectMs: 10_000,
   idleMs: 45_000,
@@ -36,6 +38,8 @@ export interface AssistantEnvInput {
   BT_SERVANT_ORG?: string;
   ASSISTANT_LANGUAGES_JSON?: string;
   ASSISTANT_OPERATION_VERSION?: string;
+  ASSISTANT_PROFILE_VERSION?: string;
+  ASSISTANT_RESOURCE_POLICY_VERSION?: string;
   ASSISTANT_CACHE_EPOCH?: string;
   ASSISTANT_CONNECT_TIMEOUT_MS?: string;
   ASSISTANT_IDLE_TIMEOUT_MS?: string;
@@ -101,6 +105,8 @@ export function parseAssistantConfig(input: AssistantEnvInput) {
     BT_SERVANT_ORG: normalize(input.BT_SERVANT_ORG),
     ASSISTANT_LANGUAGES_JSON: normalize(input.ASSISTANT_LANGUAGES_JSON),
     ASSISTANT_OPERATION_VERSION: normalize(input.ASSISTANT_OPERATION_VERSION),
+    ASSISTANT_PROFILE_VERSION: normalize(input.ASSISTANT_PROFILE_VERSION),
+    ASSISTANT_RESOURCE_POLICY_VERSION: normalize(input.ASSISTANT_RESOURCE_POLICY_VERSION),
     ASSISTANT_CACHE_EPOCH: normalize(input.ASSISTANT_CACHE_EPOCH),
     ASSISTANT_CONNECT_TIMEOUT_MS: normalize(input.ASSISTANT_CONNECT_TIMEOUT_MS),
     ASSISTANT_IDLE_TIMEOUT_MS: normalize(input.ASSISTANT_IDLE_TIMEOUT_MS),
@@ -159,14 +165,25 @@ export function parseAssistantConfig(input: AssistantEnvInput) {
     return null;
   if (connectMs! > totalMs! || idleMs! > totalMs!) return null;
   const operationVersion = trimmed.ASSISTANT_OPERATION_VERSION ?? DEFAULTS.operationVersion;
+  const profileVersion = trimmed.ASSISTANT_PROFILE_VERSION ?? DEFAULTS.profileVersion;
+  const resourcePolicyVersion =
+    trimmed.ASSISTANT_RESOURCE_POLICY_VERSION ?? DEFAULTS.resourcePolicyVersion;
   const cacheEpoch = trimmed.ASSISTANT_CACHE_EPOCH ?? DEFAULTS.cacheEpoch;
-  if (!VERSION_PATTERN.test(operationVersion) || !VERSION_PATTERN.test(cacheEpoch)) return null;
+  if (
+    !VERSION_PATTERN.test(operationVersion) ||
+    !VERSION_PATTERN.test(profileVersion) ||
+    !VERSION_PATTERN.test(resourcePolicyVersion) ||
+    !VERSION_PATTERN.test(cacheEpoch)
+  )
+    return null;
   return {
     baseUrl: baseUrl.toString().replace(/\/$/, ''),
     engineKey: trimmed.BT_SERVANT_ENGINE_KEY,
     org: trimmed.BT_SERVANT_ORG,
     languages,
     operationVersion,
+    profileVersion,
+    resourcePolicyVersion,
     cacheEpoch,
     budgets: {
       connectMs: connectMs!,

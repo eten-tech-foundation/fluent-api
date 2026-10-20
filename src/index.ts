@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
+import { shutdownInFlightBriefings } from '@/domains/assistant/assistant.cache';
 import { reclaimOrphanedStorageObjects } from '@/domains/verse-audio/verse-audio.service';
 import env from '@/env';
 import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-storage';
 import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
 import { startDeadLetterMonitor } from '@/lib/dead-letter-queues';
+import { stopHttpAdmissionAndDrain } from '@/lib/http-shutdown';
 import { logger } from '@/lib/logger';
 import { initializeQueueWithRetry, stopQueue } from '@/lib/queue';
 
@@ -83,11 +85,16 @@ async function startServer() {
         // stopDeadLetterMonitor may be unset if shutdown arrives mid-init.
         const monitorStopped = stopDeadLetterMonitor?.() ?? Promise.resolve();
 
-        server.close(() => {
-          logger.info('HTTP server closed');
-        });
+        // Stop shared BT work and settle attached SSE subscribers before closing the listener.
+        const httpStopped = stopHttpAdmissionAndDrain(server, shutdownInFlightBriefings).then(
+          (outcome) => {
+            if (outcome === 'forced')
+              logger.warn('HTTP drain deadline reached; connections closed');
+            else logger.info('HTTP server closed');
+          }
+        );
 
-        await monitorStopped;
+        await Promise.all([monitorStopped, httpStopped]);
         await stopQueue();
 
         logger.info('Shutdown completed');

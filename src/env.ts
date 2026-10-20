@@ -197,6 +197,8 @@ const EnvBaseSchema = z.object({
   BT_SERVANT_ORG: optionalAssistantValue,
   ASSISTANT_LANGUAGES_JSON: optionalAssistantValue,
   ASSISTANT_OPERATION_VERSION: optionalAssistantValue,
+  ASSISTANT_PROFILE_VERSION: optionalAssistantValue,
+  ASSISTANT_RESOURCE_POLICY_VERSION: optionalAssistantValue,
   ASSISTANT_CACHE_EPOCH: optionalAssistantValue,
   ASSISTANT_CONNECT_TIMEOUT_MS: optionalAssistantValue,
   ASSISTANT_IDLE_TIMEOUT_MS: optionalAssistantValue,

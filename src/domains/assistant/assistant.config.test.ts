@@ -45,6 +45,8 @@ function config(languages = validateAssistantLanguages(rawLanguages)!) {
     org: 'fluent',
     languages,
     operationVersion: 'v1',
+    profileVersion: 'profile-v1',
+    resourcePolicyVersion: 'resources-v1',
     cacheEpoch: '1',
     budgets: {
       connectMs: 1,
@@ -92,6 +94,8 @@ describe('assistant language configuration', () => {
     expect(parseAssistantConfig(wiredEnv)).toMatchObject({
       baseUrl: 'https://bt.example.test',
       operationVersion: 'passage-briefing-v1',
+      profileVersion: 'fluent-profile-v1',
+      resourcePolicyVersion: 'fluent-resource-policy-v1',
       cacheEpoch: '1',
       budgets: {
         connectMs: 10_000,
@@ -110,6 +114,12 @@ describe('assistant language configuration', () => {
     }
     expect(
       parseAssistantConfig({ ...wiredEnv, ASSISTANT_OPERATION_VERSION: 'invalid version' })
+    ).toBeNull();
+    expect(
+      parseAssistantConfig({ ...wiredEnv, ASSISTANT_PROFILE_VERSION: 'invalid version' })
+    ).toBeNull();
+    expect(
+      parseAssistantConfig({ ...wiredEnv, ASSISTANT_RESOURCE_POLICY_VERSION: 'invalid version' })
     ).toBeNull();
     expect(parseAssistantConfig({ ...wiredEnv, BT_SERVANT_ORG: 'invalid org' })).toBeNull();
     expect(parseAssistantConfig({ ...wiredEnv, ASSISTANT_TOTAL_TIMEOUT_MS: '5000' })).toBeNull();
