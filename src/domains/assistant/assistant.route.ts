@@ -47,7 +47,12 @@ const languagesSchema = z.object({
   defaultLanguage: z.string(),
   englishFallback: z.literal('en'),
 });
-const messageError = jsonContent(createMessageObjectSchema('Error'), 'Request failed');
+const messageErrorSchema = createMessageObjectSchema('Error');
+const messageError = jsonContent(messageErrorSchema, 'Request failed');
+const badRequest = jsonContent(
+  z.union([assistantErrorSchema, messageErrorSchema]),
+  'Invalid path, request body, or language'
+);
 const assistantUnavailable = jsonContent(
   assistantErrorSchema,
   'Assistant is not configured or temporarily unavailable'
@@ -69,7 +74,7 @@ const languagesRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(languagesSchema, 'Public language choices and default'),
-    [HttpStatusCodes.BAD_REQUEST]: messageError,
+    [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
     [HttpStatusCodes.FORBIDDEN]: messageError,
     [HttpStatusCodes.NOT_FOUND]: messageError,
@@ -121,7 +126,7 @@ const briefingRoute = createRoute({
       content: { 'text/event-stream': { schema: z.string() } },
       description: 'briefing_started, briefing_delta, and one terminal briefing event',
     },
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(assistantErrorSchema, 'Invalid request or language'),
+    [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
     [HttpStatusCodes.FORBIDDEN]: messageError,
     [HttpStatusCodes.NOT_FOUND]: messageError,

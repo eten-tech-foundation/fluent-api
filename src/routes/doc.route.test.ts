@@ -91,6 +91,8 @@ describe('gET /doc (OpenAPI document)', () => {
       ]);
       expect(briefing.responses['200'].content['text/event-stream']).toBeDefined();
       expect(briefing.requestBody.required).toBe(true);
+      expect(languages.responses['400'].content['application/json'].schema.anyOf).toHaveLength(2);
+      expect(briefing.responses['400'].content['application/json'].schema.anyOf).toHaveLength(2);
     }
   );
 });

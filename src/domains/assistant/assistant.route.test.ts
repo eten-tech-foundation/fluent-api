@@ -175,6 +175,17 @@ describe('assistant briefing route', () => {
     expect(resolveCanonicalPassage).not.toHaveBeenCalled();
   });
 
+  it('serves both documented 400 envelopes from guards and request validation', async () => {
+    authenticate();
+    const invalidProject = await post(validBody, { projectId: 0 });
+    expect(invalidProject.status).toBe(400);
+    expect(await invalidProject.json()).toEqual({ message: 'Missing project ID' });
+
+    const invalidBody = await post({ bookCode: 'MAT' });
+    expect(invalidBody.status).toBe(400);
+    expect(await invalidBody.json()).toEqual({ code: 'invalid_request', retryable: false });
+  });
+
   it('normalizes unavailable, unsupported-language, and invalid-reference failures', async () => {
     authenticate();
     vi.mocked(loadAssistantConfig).mockReturnValueOnce(null);
