@@ -1,10 +1,11 @@
-/* eslint-disable max-lines, ts/no-explicit-any -- Vitest constructor/auth mocks expose overloaded framework types that cannot be represented faithfully. */
+/* eslint-disable max-lines -- Cache lifecycle cases intentionally share the route's transport mocks. */
+import type { Context, Next } from 'hono';
+
 import { Buffer } from 'node:buffer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
-import { getUserByEmail } from '@/domains/users/users.service';
-import { auth } from '@/lib/auth';
+import type { AppBindings, User } from '@/lib/types';
+
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ok } from '@/lib/types';
@@ -13,30 +14,23 @@ import { server } from '@/server/server';
 import { resetInFlightBriefingsForTests, shutdownInFlightBriefings } from './assistant.cache';
 import { BtServantClient } from './assistant.client';
 import { loadAssistantConfig } from './assistant.config';
+import { findProjectSourceLanguage, resolveCanonicalPassage } from './assistant.repository';
 import {
   findCompletedBriefing,
-  findProjectSourceLanguage,
   publishCompletedBriefing,
-  resolveCanonicalPassage,
-} from './assistant.service';
+} from './cache/assistant-cache.repository';
 import './assistant.route';
 
-vi.mock('@/lib/auth', () => ({
-  auth: { api: { getSession: vi.fn() }, handler: vi.fn() },
+const authState = vi.hoisted(() => ({ user: undefined as User | undefined }));
+vi.mock('@/middlewares/authenticate', () => ({
+  authenticate: vi.fn(async (c: Context<AppBindings>, next: Next) => {
+    if (authState.user) c.set('user', authState.user);
+    await next();
+  }),
 }));
-vi.mock('@/db', () => {
-  const query: any = {
-    from: vi.fn(() => query),
-    where: vi.fn(() => query),
-    limit: vi.fn(async () => [{ activeOrgId: 1 }]),
-  };
-  return { db: { select: vi.fn(() => query), update: vi.fn(() => query) } };
-});
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
-vi.mock('@/domains/users/users.service', () => ({ getUserByEmail: vi.fn() }));
-vi.mock('@/domains/user-roles/user-roles.repository', () => ({ findGrantsByUserId: vi.fn() }));
 vi.mock('@/domains/projects/projects.service', () => ({ getProjectById: vi.fn() }));
 vi.mock('@/domains/projects/users/project-users.service', () => ({
   resolveIsProjectMember: vi.fn(async () => false),
@@ -45,26 +39,35 @@ vi.mock('./assistant.config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./assistant.config')>();
   return { ...actual, loadAssistantConfig: vi.fn() };
 });
-vi.mock('./assistant.service', () => ({
+vi.mock('./assistant.repository', () => ({
   findProjectSourceLanguage: vi.fn(async () => 'eng'),
   resolveCanonicalPassage: vi.fn(),
+}));
+vi.mock('./cache/assistant-cache.repository', () => ({
   findCompletedBriefing: vi.fn(async () => null),
   publishCompletedBriefing: vi.fn(async () => true),
   requestExpiredBriefingCleanup: vi.fn(),
 }));
+interface MockBtInstance {
+  stream: ReturnType<typeof vi.fn>;
+}
+type BtClientFactory = (
+  options: ConstructorParameters<typeof BtServantClient>[0]
+) => BtServantClient;
 vi.mock('./assistant.client', () => ({
-  BtServantClient: vi.fn(function (this: any) {
+  BtServantClient: vi.fn(function (this: MockBtInstance) {
     this.stream = vi.fn(async function* () {
       yield { type: 'briefing_delta', delta: 'brief' };
       yield { type: 'briefing_complete', markdown: 'brief' };
     });
   }),
 }));
-const user = {
+const user: User = {
   id: 17,
   email: 'assistant@example.test',
   status: 'verified' as const,
   lastActiveOrgId: 1,
+  grants: [],
 };
 const project = { id: 7, organization: 1, name: 'Project' };
 const config = {
@@ -107,20 +110,14 @@ const config = {
 };
 
 function authenticate(canReadProject = true, projectId = 7) {
-  vi.mocked(auth.api.getSession as any).mockResolvedValue({
-    session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 10_000) },
-    user: { email: user.email },
-  });
-  vi.mocked(getUserByEmail as any).mockResolvedValue(ok(user));
-  vi.mocked(findGrantsByUserId as any).mockResolvedValue(
-    ok([
-      {
-        orgId: 1,
-        projectId: canReadProject ? projectId : projectId + 1,
-        permissions: new Set([PERMISSIONS.PROJECT_VIEW]),
-      },
-    ])
-  );
+  user.grants = [
+    {
+      orgId: 1,
+      projectId: canReadProject ? projectId : projectId + 1,
+      permissions: new Set([PERMISSIONS.PROJECT_VIEW]),
+    },
+  ];
+  authState.user = user;
 }
 
 function post(
@@ -140,13 +137,14 @@ const validBody = { bookCode: 'MAT', chapter: 4, activeVerse: 25, outputLanguage
 describe('assistant briefing route', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    authState.user = undefined;
     resetInFlightBriefingsForTests();
-    vi.mocked(BtServantClient).mockImplementation(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* () {
         yield { type: 'briefing_delta', delta: 'brief' };
         yield { type: 'briefing_complete', markdown: 'brief' };
       });
-    } as any);
+    } as unknown as BtClientFactory);
     vi.mocked(findCompletedBriefing).mockResolvedValue(null);
     vi.mocked(publishCompletedBriefing).mockResolvedValue(true);
     user.id = 17;
@@ -158,13 +156,14 @@ describe('assistant briefing route', () => {
       verses: [{ bookCode: 'MAT', chapter: 4, verse: 25, text: 'server source' }],
     });
     const projects = await import('@/domains/projects/projects.service');
-    vi.mocked(projects.getProjectById as any).mockImplementation(async (id: number) =>
-      ok({ ...project, id })
+    vi.mocked(projects.getProjectById).mockImplementation(
+      async (id: number) =>
+        ok({ ...project, id }) as Awaited<ReturnType<typeof projects.getProjectById>>
     );
   });
 
   it('requires authentication before resolving project or source context', async () => {
-    vi.mocked(auth.api.getSession as any).mockResolvedValue(null);
+    authState.user = undefined;
     expect((await post(validBody)).status).toBe(401);
     expect(resolveCanonicalPassage).not.toHaveBeenCalled();
     expect(findCompletedBriefing).not.toHaveBeenCalled();
@@ -222,7 +221,7 @@ describe('assistant briefing route', () => {
     expect(body).toContain('event: briefing_complete');
     expect(body).toContain('"cacheHit":false');
 
-    const instance = vi.mocked(BtServantClient).mock.instances[0] as any;
+    const instance = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
     expect(instance.stream).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'fluent_17',
@@ -247,7 +246,7 @@ describe('assistant briefing route', () => {
   it('accepts the exact input limit and rejects one-byte overflow before BT access', async () => {
     authenticate();
     await post(validBody);
-    const first = vi.mocked(BtServantClient).mock.instances[0] as any;
+    const first = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
     const bytes = Buffer.byteLength(first.stream.mock.calls[0][0].message);
 
     config.budgets.maxInputBytes = bytes;
@@ -271,7 +270,9 @@ describe('assistant briefing route', () => {
 
     const messages = vi
       .mocked(BtServantClient)
-      .mock.instances.map((instance: any) => instance.stream.mock.calls[0][0].message);
+      .mock.instances.map(
+        (instance) => (instance as unknown as MockBtInstance).stream.mock.calls[0][0].message
+      );
     expect(messages[0]).toContain('Required grounding resource language code: "hi"');
     expect(messages[0]).toContain('Supplemental grounding guidance');
     expect(messages[1]).toContain('Required grounding resource language code: "en"');
@@ -309,20 +310,20 @@ describe('assistant briefing route', () => {
     expect(body).toContain('"cacheHit":false');
     expect(findCompletedBriefing).not.toHaveBeenCalled();
     expect(publishCompletedBriefing).not.toHaveBeenCalled();
-    const instance = vi.mocked(BtServantClient).mock.instances[0] as any;
+    const instance = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
     expect(instance.stream).toHaveBeenCalledWith(expect.any(Object), expect.any(AbortSignal));
   });
 
   it('aborts a private ignore_cache producer when its request disconnects', async () => {
     authenticate();
     let upstreamSignal!: AbortSignal;
-    vi.mocked(BtServantClient).mockImplementationOnce(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementationOnce(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* (_request, signal: AbortSignal) {
         upstreamSignal = signal;
         yield { type: 'briefing_delta', delta: 'private' };
         await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve()));
       });
-    } as any);
+    } as unknown as BtClientFactory);
     const request = new AbortController();
     const response = await post({ ...validBody, ignore_cache: true }, { signal: request.signal });
     const reader = response.body!.getReader();
@@ -344,12 +345,12 @@ describe('assistant briefing route', () => {
 
   it('does not publish a failed or interrupted upstream result', async () => {
     authenticate();
-    vi.mocked(BtServantClient).mockImplementationOnce(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementationOnce(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* () {
         yield { type: 'briefing_delta', delta: 'partial' };
         yield { type: 'briefing_error', code: 'timed_out', retryable: true };
       });
-    } as any);
+    } as unknown as BtClientFactory);
 
     const body = await (await post(validBody)).text();
     expect(body).toContain('"delta":"partial"');
@@ -392,12 +393,12 @@ describe('assistant briefing route', () => {
     'caches safe completed Markdown when suggested-question macros are %s',
     async (_kind, text) => {
       authenticate();
-      vi.mocked(BtServantClient).mockImplementationOnce(function (this: any) {
+      vi.mocked(BtServantClient).mockImplementationOnce(function (this: MockBtInstance) {
         this.stream = vi.fn(async function* () {
           yield { type: 'briefing_delta', delta: text };
           yield { type: 'briefing_complete', markdown: text };
         });
-      } as any);
+      } as unknown as BtClientFactory);
       const body = await (await post(validBody)).text();
       expect(body).toContain('event: briefing_complete');
       expect(publishCompletedBriefing).toHaveBeenCalledWith(
@@ -445,14 +446,14 @@ describe('assistant briefing route', () => {
       release = resolve;
     });
     let upstreamStarts = 0;
-    vi.mocked(BtServantClient).mockImplementation(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* () {
         upstreamStarts++;
         yield { type: 'briefing_delta', delta: 'shared' };
         await gate;
         yield { type: 'briefing_complete', markdown: 'shared' };
       });
-    } as any);
+    } as unknown as BtClientFactory);
 
     const responses = await Promise.all([post(validBody), post(validBody)]);
     await vi.waitFor(() => expect(upstreamStarts).toBe(1));
@@ -466,9 +467,10 @@ describe('assistant briefing route', () => {
       .mocked(logger.info)
       .mock.calls.filter((call) => call[1] === 'Assistant briefing finished');
     expect(finished).toHaveLength(2);
-    expect(new Set(finished.map((call) => (call[0] as any).attemptId)).size).toBe(2);
-    expect(finished.every((call) => (call[0] as any).outcome === 'briefing_complete')).toBe(true);
-    expect(finished.every((call) => Number.isFinite((call[0] as any).durationMs))).toBe(true);
+    const outcomes = finished.map((call) => call[0] as unknown as Record<string, unknown>);
+    expect(new Set(outcomes.map((entry) => entry.attemptId)).size).toBe(2);
+    expect(outcomes.every((entry) => entry.outcome === 'briefing_complete')).toBe(true);
+    expect(outcomes.every((entry) => Number.isFinite(entry.durationMs))).toBe(true);
   });
 
   it('lets the last subscriber detach while the shared producer completes and writes', async () => {
@@ -478,14 +480,14 @@ describe('assistant briefing route', () => {
       release = resolve;
     });
     let upstreamSignal!: AbortSignal;
-    vi.mocked(BtServantClient).mockImplementationOnce(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementationOnce(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* (_request, signal: AbortSignal) {
         upstreamSignal = signal;
         yield { type: 'briefing_delta', delta: 'retained' };
         await gate;
         yield { type: 'briefing_complete', markdown: 'retained' };
       });
-    } as any);
+    } as unknown as BtClientFactory);
     const request = new AbortController();
     const response = await post(validBody, { signal: request.signal });
     await response.body!.getReader().read();
@@ -499,7 +501,7 @@ describe('assistant briefing route', () => {
         .mocked(logger.info)
         .mock.calls.filter((call) => call[1] === 'Assistant briefing finished');
       expect(finished).toHaveLength(1);
-      expect((finished[0][0] as any).outcome).toBe('detached');
+      expect((finished[0][0] as unknown as Record<string, unknown>).outcome).toBe('detached');
     });
   });
 
@@ -509,13 +511,13 @@ describe('assistant briefing route', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    vi.mocked(BtServantClient).mockImplementation(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* () {
         yield { type: 'briefing_delta', delta: 'joined' };
         await gate;
         yield { type: 'briefing_complete', markdown: 'joined' };
       });
-    } as any);
+    } as unknown as BtClientFactory);
     const detachedRequest = new AbortController();
     const [detached, remaining] = await Promise.all([
       post(validBody, { signal: detachedRequest.signal }),
@@ -531,23 +533,22 @@ describe('assistant briefing route', () => {
       const finished = vi
         .mocked(logger.info)
         .mock.calls.filter((call) => call[1] === 'Assistant briefing finished');
-      expect(finished.map((call) => (call[0] as any).outcome).sort()).toEqual([
-        'briefing_complete',
-        'detached',
-      ]);
+      expect(
+        finished.map((call) => (call[0] as unknown as Record<string, unknown>).outcome).sort()
+      ).toEqual(['briefing_complete', 'detached']);
     });
   });
 
   it('aborts and settles one terminal per attached subscriber on controlled shutdown', async () => {
     authenticate();
     let upstreamSignal!: AbortSignal;
-    vi.mocked(BtServantClient).mockImplementation(function (this: any) {
+    vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* (_request, signal: AbortSignal) {
         upstreamSignal = signal;
         yield { type: 'briefing_delta', delta: 'partial' };
         await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve()));
       });
-    } as any);
+    } as unknown as BtClientFactory);
     const responses = await Promise.all([post(validBody), post(validBody)]);
     await vi.waitFor(() => expect(upstreamSignal).toBeInstanceOf(AbortSignal));
     await shutdownInFlightBriefings();
@@ -608,7 +609,8 @@ describe('assistant briefing route', () => {
     const upstreamCalls = vi
       .mocked(BtServantClient)
       .mock.instances.reduce(
-        (total, instance: any) => total + instance.stream.mock.calls.length,
+        (total, instance) =>
+          total + (instance as unknown as MockBtInstance).stream.mock.calls.length,
         0
       );
     expect(upstreamCalls).toBe(1);
@@ -638,7 +640,8 @@ describe('assistant briefing route', () => {
     const upstreamCalls = vi
       .mocked(BtServantClient)
       .mock.instances.reduce(
-        (total, instance: any) => total + instance.stream.mock.calls.length,
+        (total, instance) =>
+          total + (instance as unknown as MockBtInstance).stream.mock.calls.length,
         0
       );
     expect(upstreamCalls).toBe(1);
