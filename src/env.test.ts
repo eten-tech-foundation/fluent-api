@@ -85,3 +85,25 @@ describe('optional assistant wiring', () => {
     expect(result.data?.BT_SERVANT_ENGINE_KEY).toBeUndefined();
   });
 });
+
+describe('assistant feature flag', () => {
+  it.each([
+    ['true', true],
+    ['false', false],
+  ])('parses %s as %s', (raw, expected) => {
+    const result = EnvSchema.safeParse({ ...baseEnv, EN_FEATURE_ASSISTANT: raw });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.EN_FEATURE_ASSISTANT).toBe(expected);
+  });
+
+  it('leaves an unset or blank flag undefined for the off-by-default registry', () => {
+    const unset = EnvSchema.safeParse(baseEnv);
+    const blank = EnvSchema.safeParse({ ...baseEnv, EN_FEATURE_ASSISTANT: ' ' });
+
+    expect(unset.success).toBe(true);
+    expect(unset.data?.EN_FEATURE_ASSISTANT).toBeUndefined();
+    expect(blank.success).toBe(true);
+    expect(blank.data?.EN_FEATURE_ASSISTANT).toBeUndefined();
+  });
+});
