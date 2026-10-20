@@ -8,6 +8,7 @@ import { bibles, chapter_assignments } from '@/db/schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 import { ErrorCode } from '@/lib/types';
 
+import * as progressRepo from './chapter-assignments.progress.repository';
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
@@ -129,7 +130,7 @@ describe('chapter-assignments.repository claim helpers', () => {
 
   describe('hasConflictRollupSql', () => {
     it('correlates verse bible to the assignment bible so other-Bible conflicts are excluded', () => {
-      const fragment = repo.hasConflictRollupSql();
+      const fragment = progressRepo.hasConflictRollupSql();
       const text = sqlText(fragment);
 
       expect(text).toContain('bt.bible_id');
@@ -142,7 +143,7 @@ describe('chapter-assignments.repository claim helpers', () => {
     });
 
     it('filters strictly on conflict status so clean and resolved recordings are excluded', () => {
-      const fragment = repo.hasConflictRollupSql();
+      const fragment = progressRepo.hasConflictRollupSql();
       const text = sqlText(fragment);
 
       expect(text).toMatch(/var\.conflict_status\s*=\s*conflict/);
@@ -155,7 +156,10 @@ describe('chapter-assignments.repository claim helpers', () => {
     const chain = buildProgressSelectChain([]);
     mockDbSelect.mockReturnValue(chain);
 
-    expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
+    expect(await progressRepo.findAssignmentsProgress({ projectId: 3 })).toEqual({
+      ok: true,
+      data: [],
+    });
     expect(db.select).toHaveBeenCalledWith(
       expect.objectContaining({
         ttsLicenseStatus: expect.anything(),
@@ -177,7 +181,7 @@ describe('chapter-assignments.repository claim helpers', () => {
     });
     mockDbSelect.mockReturnValue(chain);
 
-    const result = await repo.findAssignmentsProgress({ projectId: 3 });
+    const result = await progressRepo.findAssignmentsProgress({ projectId: 3 });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
@@ -264,7 +268,7 @@ describe('chapter-assignments.repository claim helpers', () => {
         return buildProgressSelectChain(rows) as any;
       });
 
-      const result = await repo.findAssignmentsProgress({ projectId: 3 });
+      const result = await progressRepo.findAssignmentsProgress({ projectId: 3 });
 
       expect(selection?.hasConflict).toBeDefined();
       expect(sqlText(selection!.hasConflict as SQL)).toContain('bt.bible_id');
