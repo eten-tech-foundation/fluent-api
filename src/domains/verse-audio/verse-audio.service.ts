@@ -4,12 +4,10 @@ import { createHash } from 'node:crypto';
 
 import type { Result } from '@/lib/types';
 
-import env from '@/env';
 import {
   audioBlobName,
   audioBucket,
   deleteVerseAudio,
-  generateAudioDownloadUrl,
   uploadVerseAudio,
 } from '@/lib/audio-storage';
 import { logger } from '@/lib/logger';
@@ -18,188 +16,21 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type {
   ResolveConflictInput,
   UploadRecordingInput,
-  VerseAudioRecord,
   VerseAudioTakeRecord,
-  VerseAudioTakeWithUrl,
   VerseAudioWithUrl,
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
+import {
+  buildRecordingResponses,
+  fallbackBlobKey,
+  loadUnitResponse,
+} from './verse-audio.responses';
 import { ALLOWED_AUDIO_CONTENT_TYPES, VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
-
-/** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
-const LEGACY_CONTENT_HASH_PREFIX = 'legacy-';
 
 function contentHashOf(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
-}
-
-function toIso(date: Date): string {
-  return date.toISOString();
-}
-
-function isLegacyContentHash(contentHash: string): boolean {
-  return contentHash.startsWith(LEGACY_CONTENT_HASH_PREFIX);
-}
-
-/** Pre-hash object key (`unit-{id}/text-{id}`) used before contentHash entered the path. */
-function legacyBlobName(projectUnitId: number, bibleTextId: number): string {
-  return `unit-${projectUnitId}/text-${bibleTextId}`;
-}
-
-function fallbackBlobKey(projectUnitId: number, bibleTextId: number, contentHash: string): string {
-  return isLegacyContentHash(contentHash)
-    ? legacyBlobName(projectUnitId, bibleTextId)
-    : audioBlobName(projectUnitId, bibleTextId, contentHash);
-}
-
-async function storageKeysById(ids: number[]): Promise<Map<number, string>> {
-  const map = new Map<number, string>();
-  if (ids.length === 0) {
-    return map;
-  }
-
-  const result = await storageRepo.getByIds(ids);
-  if (!result.ok) {
-    return map;
-  }
-  for (const row of result.data) {
-    map.set(row.id, row.key);
-  }
-  return map;
-}
-
-/**
- * Modern takes use a deterministic hash-keyed blob name — no DB round trip.
- * Legacy backfill rows still need storage_objects.key (old path without hash).
- */
-function resolveDownloadUrl(
-  storageObjectId: number | null,
-  contentHash: string,
-  projectUnitId: number,
-  bibleTextId: number,
-  keysById: Map<number, string>
-): Promise<string> {
-  if (isLegacyContentHash(contentHash) && storageObjectId !== null) {
-    const key = keysById.get(storageObjectId);
-    if (key) {
-      return generateAudioDownloadUrl(key);
-    }
-  }
-  return generateAudioDownloadUrl(fallbackBlobKey(projectUnitId, bibleTextId, contentHash));
-}
-
-function collectLegacyStorageObjectIds(
-  entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
-): number[] {
-  const ids = new Set<number>();
-  for (const { record, takes } of entries) {
-    for (const take of takes) {
-      if (isLegacyContentHash(take.contentHash) && take.storageObjectId !== null) {
-        ids.add(take.storageObjectId);
-      }
-    }
-
-    const active = takes.find((t) => t.id === record.activeTakeId) ?? takes[takes.length - 1];
-    const activeIsLegacy = active ? isLegacyContentHash(active.contentHash) : true;
-    if (activeIsLegacy && record.storageObjectId !== null) {
-      ids.add(record.storageObjectId);
-    }
-  }
-  return [...ids];
-}
-
-async function takeWithUrl(
-  take: VerseAudioTakeRecord,
-  projectUnitId: number,
-  bibleTextId: number,
-  keysById: Map<number, string>
-): Promise<VerseAudioTakeWithUrl> {
-  return {
-    id: take.id,
-    uploadedBy: take.uploadedBy,
-    contentType: take.contentType,
-    sizeBytes: take.sizeBytes,
-    durationSeconds: take.durationSeconds,
-    contentHash: take.contentHash,
-    downloadUrl: await resolveDownloadUrl(
-      take.storageObjectId,
-      take.contentHash,
-      projectUnitId,
-      bibleTextId,
-      keysById
-    ),
-    createdAt: toIso(take.createdAt),
-    updatedAt: toIso(take.updatedAt),
-  };
-}
-
-async function withTakesAndUrl(
-  record: VerseAudioRecord,
-  takes: VerseAudioTakeRecord[],
-  keysById: Map<number, string>
-): Promise<VerseAudioWithUrl> {
-  const takeViews = await Promise.all(
-    takes.map((take) => takeWithUrl(take, record.projectUnitId, record.bibleTextId, keysById))
-  );
-
-  const active =
-    takeViews.find((t) => t.id === record.activeTakeId) ?? takeViews[takeViews.length - 1];
-
-  const activeHash = active?.contentHash ?? `${LEGACY_CONTENT_HASH_PREFIX}missing`;
-
-  return {
-    id: record.id,
-    projectUnitId: record.projectUnitId,
-    bibleTextId: record.bibleTextId,
-    uploadedBy: record.uploadedBy,
-    contentType: record.contentType,
-    sizeBytes: record.sizeBytes,
-    durationSeconds: record.durationSeconds,
-    versionToken: record.versionToken,
-    conflictStatus: record.conflictStatus,
-    activeTakeId: record.activeTakeId,
-    verseNumber: record.verseNumber,
-    downloadUrl: await resolveDownloadUrl(
-      record.storageObjectId,
-      activeHash,
-      record.projectUnitId,
-      record.bibleTextId,
-      keysById
-    ),
-    takes: takeViews,
-    createdAt: toIso(record.createdAt),
-    updatedAt: toIso(record.updatedAt),
-  };
-}
-
-async function buildRecordingResponses(
-  entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
-): Promise<VerseAudioWithUrl[]> {
-  const keysById = await storageKeysById(collectLegacyStorageObjectIds(entries));
-  return Promise.all(entries.map(({ record, takes }) => withTakesAndUrl(record, takes, keysById)));
-}
-
-async function loadUnitResponse(
-  projectUnitId: number,
-  bibleTextId: number
-): Promise<Result<VerseAudioWithUrl>> {
-  const recording = await repo.get(projectUnitId, bibleTextId);
-  if (!recording.ok) {
-    return recording;
-  }
-
-  const takes = await repo.listTakesForRecording(recording.data.id);
-  if (!takes.ok) {
-    return takes;
-  }
-
-  const [response] = await buildRecordingResponses([{ record: recording.data, takes: takes.data }]);
-  if (!response) {
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-  return ok(response);
 }
 
 async function storeTakeBytes(
@@ -594,57 +425,4 @@ export async function deleteRecording(
   return ok(undefined);
 }
 
-/**
- * Deletes objects nothing references any more and stamps their rows.
- *
- * Runs in two independent phases. First it drops superseded takes on settled
- * clean units: hash-keyed blobs are per-take, so without this a verse re-recorded
- * ten times would keep ten objects forever. Conflicted units are left intact
- * until resolve. That phase only deletes take rows — the objects they freed fall
- * to the orphan pass on a later sweep, which is what keeps a concurrent
- * re-upload of the same bytes from having its revived row stamped deleted.
- *
- * The orphan pass is the counterpart to the cascade: dropping a project unit
- * cascades its recordings away, but Postgres cannot touch a bucket, so without
- * this the audio would sit there forever. Runs on an interval from the server
- * entrypoint.
- */
-export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
-  // Independent of the orphan pass below: a persistent failure here must not
-  // starve reclamation of objects left behind by deleted project units.
-  const pruned = await repo.pruneSupersededTakes(env.AUDIO_TAKE_RETENTION_MS);
-  if (!pruned.ok) {
-    logger.error({
-      message: 'Superseded take prune failed; continuing to the orphan sweep',
-      context: { code: pruned.error.code },
-    });
-  } else if (pruned.data > 0) {
-    logger.info('Pruned superseded verse audio takes', { pruned: pruned.data });
-  }
-
-  let reclaimed = 0;
-  const orphans = await storageRepo.findOrphans(env.AUDIO_RECLAIM_GRACE_MS);
-  if (!orphans.ok) {
-    return orphans;
-  }
-
-  for (const orphan of orphans.data) {
-    // The candidate list is only a hint. Lock and revalidate immediately before
-    // touching the bucket so an upload cannot gain a live reference between the
-    // database check and object deletion.
-    const result = await storageRepo.reclaimOrphanIfUnreferenced(
-      orphan.id,
-      env.AUDIO_RECLAIM_GRACE_MS,
-      async (locked) => deleteVerseAudio(locked.key)
-    );
-    if (!result.ok || !result.data) {
-      continue;
-    }
-    reclaimed++;
-  }
-
-  if (reclaimed > 0) {
-    logger.info('Reclaimed orphaned verse audio objects', { reclaimed });
-  }
-  return ok(reclaimed);
-}
+export { reclaimOrphanedStorageObjects } from './verse-audio.reclaim.service';
