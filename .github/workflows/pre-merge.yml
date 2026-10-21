@@ -6,12 +6,19 @@ on:
     branches: [main]
 
 jobs:
-  validate:
+  # Runs on drafts too, so code-standards violations (docs/guides/code-standards.md)
+  # surface while a PR is still being written rather than when review is requested.
+  standards:
+    name: Code standards
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js version
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -31,6 +38,31 @@ jobs:
 
       - name: Type check
         run: npm run typecheck
+
+      - name: Dead code check
+        run: npm run deadcode
+
+  validate:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js version
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+        env:
+          CXXFLAGS: '-std=c++20'
 
       - name: Run tests
         run: npm run test
@@ -85,7 +117,6 @@ jobs:
     name: Docs Structure Check
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -1,0 +1,753 @@
+{
+  "scripts/smoke-repeated-words.ts": {
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/db/scripts/backfill-hierarchy.ts": {
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/db/scripts/cleanup-legacy-provisioning.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/db/scripts/merge-project-group.ts": {
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/db/seeds/audio-demo.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/db/seeds/audio-seeds.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-suggestions/ai-pericope.repository.integration.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-suggestions/ai-pericope.repository.ts": {
+    "fluent-standards/one-repository-per-directory": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.auth.middleware.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.internal.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    },
+    "ts/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.internal.route.ts": {
+    "no-restricted-syntax": {
+      "count": 6
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.repository.ts": {
+    "fluent-standards/one-repository-per-directory": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 7
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.route.ts": {
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/ai-suggestions/ai-suggestions.service.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/domains/ai-tools/ai-tools-auth.middleware.ts": {
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/domains/ai-tools/ai-tools.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 8
+    }
+  },
+  "src/domains/ai-tools/tts.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 4
+    }
+  },
+  "src/domains/aquifer-resources/aquifer-resources.test.ts": {
+    "no-restricted-syntax": {
+      "count": 9
+    },
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/bible-provider-resources/bible-provider-resources.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/bibles/bible-audio/bible-audio.service.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 16
+    }
+  },
+  "src/domains/bibles/bible-audio/bible-audio.service.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/bibles/bibles.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/bibles/bibles.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/bibles/sync/dbl-bible-sync.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/book-details/book-details.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/book-details/book-details.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/books/books.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/books/books.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/books/sync/dbl-book-sync.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/books/sync/dbl-book-sync.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignment-auth.middleware.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.policy.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.repository.ts": {
+    "max-lines": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    },
+    "ts/no-explicit-any": {
+      "count": 9
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/chapter-assignments/chapter-assignments.service.ts": {
+    "max-lines": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/domains/languages/import/enrich-localized-names.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/languages/import/import-ethnologue.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/languages/languages.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/languages/languages.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/languages/sync/dbl-language-sync.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    }
+  },
+  "src/domains/milestones/milestones.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 15
+    }
+  },
+  "src/domains/milestones/milestones.service.ts": {
+    "no-restricted-syntax": {
+      "count": 8
+    },
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/domains/organizations/users/org-users.route.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "src/domains/organizations/users/org-users.service.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/pericopes/pericopes.test.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/domains/playback-audio/playback-audio.dbl-reference.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/playback-audio/playback-audio.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/playback-audio/playback-audio.service.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    }
+  },
+  "src/domains/projects/chapter-assignments/project-chapter-assignments.service.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/projects/projects.repository.ts": {
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/projects/projects.route.ts": {
+    "no-restricted-imports": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/projects/projects.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 8
+    }
+  },
+  "src/domains/projects/projects.service.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/domains/projects/projects.service.usfm-import.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/projects/users/project-users.repository.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/projects/users/project-users.service.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "src/domains/projects/workflow-stages/workflow-stages.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/domains/projects/workflow-stages/workflow-stages.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/self/chapter-assignments/self-chapter-assignments.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/self/milestones/self-milestones.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/self/projects/self-projects.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/self/settings/self-settings.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    },
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/domains/source-audio/source-audio.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "src/domains/source-audio/source-audio.service.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/domains/source-audio/source-audio.service.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/translated-verses/translated-verse-auth.middleware.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/translated-verses/translated-verses.repository.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/translated-verses/translated-verses.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/translation-resources/translation-resources.range.test.ts": {
+    "no-restricted-syntax": {
+      "count": 4
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/translation-resources/translation-resources.test-fixtures.ts": {
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/translation-resources/translation-resources.test.ts": {
+    "no-restricted-syntax": {
+      "count": 5
+    },
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/domains/user-roles/user-roles.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/domains/user-roles/user-roles.service.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/users/chapter-assignments/users-chapter-assignments.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/users/milestones/user-milestones.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/users/user-auth.middleware.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/users/user-auth.middleware.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/users/users.active-org.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/domains/users/users.active-org.route.ts": {
+    "no-restricted-imports": {
+      "count": 2
+    }
+  },
+  "src/domains/users/users.repository.ts": {
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/domains/users/users.route.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    },
+    "no-restricted-imports": {
+      "count": 1
+    }
+  },
+  "src/domains/users/users.service.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 22
+    }
+  },
+  "src/domains/users/users.service.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 2
+    }
+  },
+  "src/domains/verse-audio/storage-objects.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/storage-objects.repository.ts": {
+    "fluent-standards/one-repository-per-directory": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio-auth.middleware.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio-takes.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio-takes.repository.ts": {
+    "fluent-standards/one-repository-per-directory": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio.repository.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 6
+    }
+  },
+  "src/domains/verse-audio/verse-audio.repository.ts": {
+    "fluent-standards/one-repository-per-directory": {
+      "count": 1
+    },
+    "fluent-standards/repository-namespace-import": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 10
+    }
+  },
+  "src/domains/verse-audio/verse-audio.route.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/domains/verse-audio/verse-audio.service.test.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/domains/verse-audio/verse-audio.service.ts": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/domains/youversion/youversion.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/env.ts": {
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/lib/auth.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 7
+    }
+  },
+  "src/lib/db-retry.ts": {
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/lib/logger.ts": {
+    "eslint-comments/require-description": {
+      "count": 3
+    },
+    "ts/no-explicit-any": {
+      "count": 20
+    }
+  },
+  "src/lib/queue.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/lib/services/dbl/dbl.client.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/lib/services/dbl/dbl.types.ts": {
+    "eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/lib/services/permissions/authorize.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/lib/types.ts": {
+    "eslint-comments/require-description": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/lib/types/usfm-grammar.d.ts": {
+    "ts/no-explicit-any": {
+      "count": 9
+    }
+  },
+  "src/middlewares/authenticate.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 20
+    }
+  },
+  "src/middlewares/authenticate.ts": {
+    "fluent-standards/no-cross-domain-repository": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/middlewares/rate-limit.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/middlewares/role-auth.ts": {
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/routes/auth-doc.route.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/routes/config.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/routes/doc.route.test.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    },
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/server/server.test.ts": {
+    "no-restricted-syntax": {
+      "count": 4
+    },
+    "ts/no-explicit-any": {
+      "count": 7
+    }
+  },
+  "src/server/server.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/test/utils/test-helpers.ts": {
+    "ts/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/workers/dbl-sync.worker.test.ts": {
+    "ts/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/workers/ingest-bible-text.worker.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    },
+    "ts/no-explicit-any": {
+      "count": 21
+    }
+  },
+  "src/workers/usfm-export.worker.ts": {
+    "ts/no-explicit-any": {
+      "count": 1
+    }
+  }
+}

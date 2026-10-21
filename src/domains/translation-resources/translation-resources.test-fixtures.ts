@@ -27,6 +27,12 @@ export const NOTES_PATH = '/projects/10/translation-resources/notes/MRK/14/1?lan
 export const QUESTIONS_PATH =
   '/projects/10/translation-resources/questions/MRK/14/1?languageCode=eng';
 export const IMAGES_PATH = '/projects/10/translation-resources/images/MRK/14/1?languageCode=eng';
+export const NOTES_RANGE_PATH =
+  '/projects/10/translation-resources/notes/MRK/1?languageCode=eng&startVerse=1&endVerse=8';
+export const QUESTIONS_RANGE_PATH =
+  '/projects/10/translation-resources/questions/MRK/1?languageCode=eng&startVerse=1&endVerse=8';
+export const IMAGES_RANGE_PATH =
+  '/projects/10/translation-resources/images/MRK/1?languageCode=eng&startVerse=1&endVerse=8';
 export const MANIFEST_PATH =
   '/projects/10/translation-resources/manifest?languageCode=eng&bookCode=MRK&startChapter=14&endChapter=14';
 
