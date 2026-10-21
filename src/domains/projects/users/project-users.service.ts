@@ -59,7 +59,7 @@ export async function updateProjectUserRole(
   if (!userResult.ok) return err(ErrorCode.INTERNAL_ERROR);
   if (userResult.data.length === 0) return err(ErrorCode.USER_NOT_FOUND);
 
-  const result = await repo.updateProjectUserRole(createdBy, projectId, userId, roleId, roleName);
+  const result = await repo.updateProjectUserRole(projectId, userId, roleId, roleName, createdBy);
   if (!result.ok) return result;
 
   const targetUser = userResult.data[0];

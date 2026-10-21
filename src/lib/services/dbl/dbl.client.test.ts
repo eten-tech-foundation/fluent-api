@@ -153,6 +153,31 @@ describe('createDblClient', () => {
     }
   });
 
+  it('returns a typed absence only for a missing audio chapter', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ error: 'not found' }, 404));
+    const client = createDblClient(configuredConfig());
+
+    const result = await client.getAudioChapter('audio-bible', 'JHN.3');
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: ErrorCode.DBL_AUDIO_CHAPTER_NOT_FOUND,
+        message: 'DBL audio chapter not found',
+      },
+    });
+  });
+
+  it('keeps audio-chapter authentication failures distinct from absence', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ error: 'bad key' }, 401));
+    const client = createDblClient(configuredConfig());
+
+    const result = await client.getAudioChapter('audio-bible', 'JHN.3');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.DBL_SERVICE_UNAVAILABLE);
+  });
+
   it('logs the HTTP status and body on a non-2xx response, so 401s and 404s stay distinguishable in logs', async () => {
     const { logger } = await import('@/lib/logger');
     const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as any);

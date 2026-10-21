@@ -20,8 +20,8 @@ import type {
 import * as projectRepo from '../projects.repository';
 import * as repo from './project-chapter-assignments.repository';
 
-export async function getProjectChapterAssignments(projectId: number) {
-  const result = await repo.getByProject(projectId);
+export async function getProjectChapterAssignments(projectId: number, milestoneId?: number) {
+  const result = await repo.getByProject(projectId, milestoneId);
   if (!result.ok) return result;
   return ok(result.data.map(toChapterAssignmentResponse));
 }
@@ -44,6 +44,9 @@ function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo
     bookNameEng: info.bookNameEng,
     chapterNumber: info.chapterNumber,
     bibleId: info.bibleId,
+    ttsLicenseStatus: info.ttsLicenseStatus,
+    textBibleKey: info.textBibleKey,
+    selectedRecordingKey: info.selectedRecordingKey,
     bookId: info.bookId,
     bookCode: info.bookCode,
     sourceLangCode: info.sourceLangCode ?? '',

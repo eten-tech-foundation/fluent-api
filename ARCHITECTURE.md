@@ -1,6 +1,8 @@
 # Architecture Overview
 
 This document describes the high-level architecture and design patterns used in the Fluent API.
+The enforceable rules distilled from it, with IDs, linting and the pre-PR checklist, are in
+[docs/guides/code-standards.md](docs/guides/code-standards.md).
 
 ## Architectural Style
 
@@ -35,11 +37,22 @@ Each domain is self-contained and follows a consistent internal structure:
 | `{domain}.policy.ts`     | Authorization and access control rules       |
 | `{domain}.middleware.ts` | Domain-specific request processing           |
 
+### Sub-Domain Leaves
+
+Domains split into nested leaf directories by resource (`users/projects/`, `projects/chapter-assignments/`, `organizations/users/`). The rules for leaves:
+
+- **Route-bearing leaves are resource-named.** A directory containing a `.route.ts` takes the name of the resource it serves, mirroring the URL path: `users/projects/user-projects.route.ts` serves `/users/{userId}/projects`. The path predicts the file location. Directories named for a _kind of work_ rather than a resource (`bibles/sync/`, `books/sync/`, `languages/import/`) hold services and helpers only — never routes.
+- **One repository per directory.** A domain or leaf has at most one `.repository.ts`. A resource with its own queries gets its own leaf, which keeps queries next to the routes that use them and files at a readable length.
+- **Leaves carry only the files they need.** For route-bearing leaves, the minimum is `{leaf}.route.ts`. Add `{leaf}.service.ts` when a handler composes more than one service call, and `{leaf}.types.ts` when the leaf owns schemas. Pure projections of another domain's data skip `.repository.ts` entirely — `users/projects/` delegates to `projectsService` instead (see `user-projects.service.ts`).
+- **Route handlers stay single-call.** Fan-out (`Promise.all`), joins, and filtering across service results belong in the leaf's service, not in `route.ts`.
+- **Shared helpers live at the domain parent.** Utilities used by several leaves sit one level up — e.g. `users/user-auth.middleware.ts` and `users/user.policy.ts` serve all of `users/*`.
+- **Leaf routes carry their own tag.** The dominant form is `'{Domain} - {Resource}'` (`'Self - Settings'`, `'Projects - Users'`, `'Chapter Assignments - Editor State'`); a bare resource name is acceptable when unambiguous (`'Bible Texts'`, `'Workflow Stages'`). Don't reuse the parent domain's tag for a distinct resource.
+
 ### Cross-Domain Relationships
 
 - **Internal**: Services interact with repositories within the same domain
 - **Cross-Domain**: Domain services expose public functions for other domains to call
-- **Avoid**: Repositories should not be accessed directly from outside their domain
+- **Never**: Repositories are not accessed from outside their domain — not from another domain's service, and not from middleware, workers or `src/middlewares`. Shared lookups such as grants and org membership (`user-roles`) and workflow stages go through those domains' services.
 
 ## Layer Responsibilities
 
@@ -91,6 +104,11 @@ type Result<T> = { ok: true; data: T } | { ok: false; error: ErrorCode };
 
 Services return `Result<T>` instead of throwing exceptions, forcing callers to handle both success and failure cases explicitly.
 
+To roll a transaction back on a business failure, return `err()` from
+`runInTransaction` (`src/db/transaction.ts`) instead of throwing from a `db.transaction`
+callback. It rolls back and hands the error back as the Result unchanged; see
+[Transactions](docs/guides/code-standards.md#transactions).
+
 ## Technology Stack
 
 - **Framework**: [Hono](https://hono.dev/) - Lightweight web framework
@@ -111,6 +129,12 @@ Services return `Result<T>` instead of throwing exceptions, forcing callers to h
 ## Type Organization
 
 Types are distributed across files based on their scope and usage. Follow these guidelines to maintain consistency:
+
+### `interface` vs `type`
+
+Use `interface` for object shapes (enforced by `ts/consistent-type-definitions`) and `type`
+for unions, intersections, mapped and conditional types, function types and aliases. Types
+for runtime-validated data come from the schema: `type X = z.infer<typeof xSchema>`.
 
 ### `{domain}.types.ts` — The Central Type Registry
 
@@ -311,7 +335,7 @@ describe('createUser', () => {
 });
 ```
 
-### Testing Guidelines
+### Service and Mocked Route Testing Guidelines
 
 | Do                                                            | Don't                                            |
 | ------------------------------------------------------------- | ------------------------------------------------ |
@@ -320,6 +344,26 @@ describe('createUser', () => {
 | Assert on `result.ok`, `result.data`, `result.error`          | Assert on thrown exceptions                      |
 | Verify repository functions are called with correct arguments | Test implementation details like SQL queries     |
 | Use `vi.mocked()` for type-safe mocks                         | Use `any` type casts for mocks                   |
+
+### Database-Backed Integration Tests
+
+Use `*.integration.test.ts` for tests that execute repository SQL against a real
+PostgreSQL engine. PGlite provides an isolated, in-memory PostgreSQL instance for
+portable query and route tests; these run in the normal Vitest suite without an
+external database. Route tests with mocked repositories keep the `*.test.ts` suffix.
+
+For this pattern, replacing the `@/db` module export with a real Drizzle PGlite
+connection is allowed. Do not stub Drizzle's query methods or the repository under
+test. Auth and unrelated service boundaries may use type-safe `vi.mocked()` mocks,
+with complete fixtures instead of `any` casts. Build the fixture DDL from the
+production Drizzle schema, including constraints and indexes, seed the relevant
+rows, and close the PGlite instance in `afterAll`.
+
+Assert observable query/response behavior such as cross-chapter grouping,
+null sections, isolation, and ordering. PGlite is not a production performance
+benchmark or a replacement for migration tests against PostgreSQL. When measuring
+query plans, report the data shape and database engine rather than imposing a
+machine-specific timing threshold on tests.
 
 ### Cross-Domain Testing
 
@@ -412,11 +456,10 @@ export function requireChapterAssignmentAccess(action: ChapterAssignmentAction) 
     };
 
     // Evaluate policy
-    const allowed = ChapterAssignmentPolicy[(policyUser, policyResource)];
+    const allowed = ChapterAssignmentPolicy[action](policyUser, policyResource);
 
     if (!allowed) {
-      // Return 404 (not 403) to prevent resource enumeration
-      return c.json({ message: 'Not found' }, HttpStatusCodes.NOT_FOUND);
+      return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
     }
 
     // Attach resource to context for handler use
@@ -429,7 +472,7 @@ export function requireChapterAssignmentAccess(action: ChapterAssignmentAction) 
 **Middleware Best Practices:**
 
 - Load resource context once — avoid N+1 queries in route handlers
-- Use **404 for authorization failures** (not 403) to prevent information leakage
+- Return **404 when the resource doesn't exist or the caller can't read it**, and **403 when the caller can read it but the action is denied** (or for an endpoint-level permission). A failed lookup returns the error's own status, never a blanket 404. See [403 or 404](docs/guides/code-standards.md#403-or-404); older middlewares that don't match yet are in [Follow-up PRs](docs/guides/code-standards.md#follow-up-prs)
 - Attach loaded resource to Hono context so handlers don't re-fetch
 - Keep policy evaluation logic minimal — delegate to policy functions
 
@@ -438,16 +481,18 @@ export function requireChapterAssignmentAccess(action: ChapterAssignmentAction) 
 ```typescript
 const updateRoute = createRoute({
   method: 'put',
-  path: '/chapter-assignments/:chapterAssignmentId',
+  path: '/chapter-assignments/{chapterAssignmentId}',
   middleware: [
     authenticateUser,
     requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.UPDATE),
   ] as const,
-  handler: async (c) => {
-    // Resource already loaded and authorized by middleware
-    const assignment = c.get('chapterAssignment');
-    // ... handle update
-  },
+  // ...request and responses
+});
+
+server.openapi(updateRoute, async (c) => {
+  // Resource already loaded and authorized by middleware
+  const assignment = c.get('chapterAssignment');
+  // ... handle update
 });
 ```
 
@@ -458,7 +503,7 @@ const updateRoute = createRoute({
 | Can user X do action Y on resource Z?  | Policy     | `ChapterAssignmentPolicy.edit(user, assignment)`   |
 | Load resource with auth context        | Service    | `service.getWithAuthContext(id, userId, roleName)` |
 | Extract user from JWT, validate params | Middleware | `requireChapterAssignmentAccess(action)`           |
-| HTTP response (401, 404, etc.)         | Middleware | `c.json({ message }, status)`                      |
+| HTTP response (401, 403, 404)          | Middleware | `c.json({ message }, status)`                      |
 | Tenant isolation check                 | Policy     | `user.organization === resource.organizationId`    |
 
 ## Adding a New Domain

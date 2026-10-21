@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Json } from 'drizzle-zod';
 
@@ -24,6 +23,12 @@ import { createSchemaFactory } from 'drizzle-zod';
 export const userStatusEnum = pgEnum('user_status', ['invited', 'verified', 'inactive']);
 export const scriptDirectionEnum = pgEnum('script_direction', ['ltr', 'rtl']);
 export const bibleProviderEnum = pgEnum('bible_provider', ['dbl']);
+// Publication license, global to the Bible (not a tenant/user grant). TTS_USE is the RBAC axis.
+export const ttsLicenseStatusEnum = pgEnum('tts_license_status', [
+  'allowed',
+  'forbidden',
+  'unknown',
+]);
 export const projectStatusEnum = pgEnum('project_status', [
   'not_started',
   'in_progress',
@@ -33,20 +38,13 @@ export const projectAssignmentStatusEnum = pgEnum('project_assignment_status', [
   'active',
   'not_assigned',
 ]);
-export const chapterStatusEnum = pgEnum('chapter_status', [
-  'not_started',
-  'draft',
-  'peer_check',
-  'community_review',
-  'linguist_check',
-  'theological_check',
-  'consultant_check',
-  'complete',
-]);
+export const milestoneTypeEnum = pgEnum('milestone_type', ['text', 'audio']);
+
 export const assignmentRoleEnum = pgEnum('assignment_role', ['drafter', 'peer_checker']);
 export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status', [
   'clean',
   'conflict',
+  'resolved',
 ]);
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
@@ -190,6 +188,52 @@ export const pericope_sets = pgTable('pericope_sets', {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const resourceProviderEnum = pgEnum('resource_provider', ['dbl', 'aquifer', 'youversion']);
+export const bible_provider_resources = pgTable(
+  'bible_provider_resources',
+  {
+    id: serial('id').primaryKey(),
+    provider: resourceProviderEnum('provider').notNull(),
+    externalId: varchar('external_id', { length: 255 }).notNull(),
+    ttsLicenseStatus: ttsLicenseStatusEnum('tts_license_status').notNull().default('unknown'),
+    licenseNotice: text('license_notice'),
+    // Optional label for human diagnostics and curation; never identity or policy.
+    displayName: text('display_name'),
+  },
+  (table) => [
+    uniqueIndex('idx_bible_provider_resources_identity').on(table.provider, table.externalId),
+  ]
+);
+
+export const bibles = pgTable(
+  'bibles',
+  {
+    id: serial('id').primaryKey(),
+    languageId: integer('language_id')
+      .notNull()
+      .references(() => languages.id),
+    name: varchar('name', { length: 255 }).notNull().unique(),
+    abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
+    provider: bibleProviderEnum('provider').notNull().default('dbl'),
+    externalId: varchar('external_id', { length: 255 }),
+    hasAudio: boolean('has_audio').notNull().default(false),
+    audioResourceId: integer('audio_resource_id').references(() => bible_provider_resources.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // DBL identity: a given provider + externalId pair maps to exactly one row.
+    // Partial: only rows with a non-null externalId are covered (seed data has none).
+    uniqueIndex('idx_bibles_provider_external_id')
+      .on(table.provider, table.externalId)
+      .where(sql`${table.externalId} IS NOT NULL`),
+  ]
+);
+
 export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
@@ -210,34 +254,31 @@ export const projects = pgTable('projects', {
     .defaultNow()
     .$onUpdate(() => new Date()),
   metadata: jsonb('metadata').$type<Json>().notNull().default({}),
+  sourceBibleId: integer('source_bible_id').references(() => bibles.id),
   // Nullable — existing projects have no pericope set; new projects may select one
   pericopeSetId: integer('pericope_set_id').references(() => pericope_sets.id),
   lastActivityAt: timestamp('last_activity_at'),
 });
 
-export const bibles = pgTable(
-  'bibles',
+export const project_workflow_stages = pgTable(
+  'project_workflow_stages',
   {
     id: serial('id').primaryKey(),
-    languageId: integer('language_id')
+    projectId: integer('project_id')
       .notNull()
-      .references(() => languages.id),
-    name: varchar('name', { length: 255 }).notNull().unique(),
-    abbreviation: varchar('abbreviation', { length: 50 }).notNull().unique(),
-    provider: bibleProviderEnum('provider').notNull().default('dbl'),
-    externalId: varchar('external_id', { length: 255 }),
-    hasAudio: boolean('has_audio').notNull().default(false),
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    defaultName: varchar('default_name', { length: 50 }).notNull(),
+    displayName: varchar('display_name', { length: 30 }).notNull(),
+    position: integer('position').notNull(),
+    isFixed: boolean('is_fixed').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    // DBL identity: a given provider + externalId pair maps to exactly one row.
-    // Partial: only rows with a non-null externalId are covered (seed data has none).
-    uniqueIndex('idx_bibles_provider_external_id')
-      .on(table.provider, table.externalId)
-      .where(sql`${table.externalId} IS NOT NULL`),
+    uniqueIndex('uq_workflow_default_name').on(table.projectId, table.defaultName),
+    uniqueIndex('uq_workflow_position').on(table.projectId, table.position),
   ]
 );
 
@@ -245,6 +286,10 @@ export const books = pgTable('books', {
   id: serial('id').primaryKey(),
   code: varchar('code', { length: 50 }).notNull().unique(),
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
 
 export const pericope_verses = pgTable(
@@ -299,6 +344,8 @@ export const bible_books = pgTable(
     bookId: integer('book_id')
       .notNull()
       .references(() => books.id),
+    // Set only after the full source book is ingested, never from partial verse presence.
+    textIngestedAt: timestamp('text_ingested_at'),
     hasAudio: boolean('has_audio').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
@@ -313,6 +360,9 @@ export const project_units = pgTable('project_units', {
   projectId: integer('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull().default(''),
+  type: milestoneTypeEnum('type').notNull().default('text'),
+  connectivityProfile: varchar('connectivity_profile', { length: 255 }),
   status: projectStatusEnum('status').notNull().default('not_started'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
@@ -320,33 +370,38 @@ export const project_units = pgTable('project_units', {
     .$onUpdate(() => new Date()),
 });
 
-export const project_unit_bible_books = pgTable('project_unit_bible_books', {
-  projectUnitId: integer('project_unit_id')
-    .notNull()
-    .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-  bibleId: integer('bible_id')
-    .notNull()
-    .references(() => bibles.id),
-  bookId: integer('book_id')
-    .notNull()
-    .references(() => books.id),
-  // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
-  // Null falls back to the book's display name in the export, as before.
-  runningHeader: varchar('running_header'),
-  bookTitle: varchar('book_title'),
-  // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
-  // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
-  // have no display-name fallback — a null or blank value omits the line from the
-  // export entirely. \toc2 additionally supplies \mt (and \h when that is unset),
-  // which is how the dialog drives the main title without ever rewriting book_title.
-  tocLongName: varchar('toc_long_name'),
-  tocShortName: varchar('toc_short_name'),
-  tocAbbreviation: varchar('toc_abbreviation'),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const project_unit_bible_books = pgTable(
+  'project_unit_bible_books',
+  {
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    // Book-level USFM fields a translator authors once per book (#263; fluent-web#398).
+    // Null falls back to the book's display name in the export, as before.
+    runningHeader: varchar('running_header'),
+    bookTitle: varchar('book_title'),
+    // Table-of-contents fields edited by the project-metadata dialog (fluent-web#398):
+    // \toc1 long name, \toc2 short name, \toc3 abbreviation. Unlike \h and \mt these
+    // have no display-name fallback — a null or blank value omits the line from the
+    // export entirely. Each one fills only its own line; \h and \mt come from the two
+    // columns above whatever the table of contents holds.
+    tocLongName: varchar('toc_long_name'),
+    tocShortName: varchar('toc_short_name'),
+    tocAbbreviation: varchar('toc_abbreviation'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => [primaryKey({ columns: [table.projectUnitId, table.bookId] })]
+);
 
 export const bible_texts = pgTable(
   'bible_texts',
@@ -390,6 +445,8 @@ export const bible_texts = pgTable(
 // paragraph the editor can legitimately author round-trips; introduction markers
 // (`ip`, `io1`, …) are absent because they precede \c 1 and cannot open inside a
 // verse.
+export const USFM_SEMANTIC_DIVISION_MARKERS = ['sd', 'sd1', 'sd2', 'sd3', 'sd4'] as const;
+
 // prettier-ignore
 export const USFM_PARAGRAPH_MARKERS = [
   // Prose
@@ -400,7 +457,7 @@ export const USFM_PARAGRAPH_MARKERS = [
   // Lists
   'lh', 'li', 'li1', 'li2', 'li3', 'li4', 'lf', 'lim', 'lim1', 'lim2', 'lim3', 'lim4',
   // Headings and titles, which open a paragraph of their own before the verse
-  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', 'sd', 'sd1', 'sd2', 'sd3', 'sd4',
+  's', 's1', 's2', 's3', 's4', 'sr', 'r', 'd', 'sp', ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms', 'ms1', 'ms2', 'ms3', 'mr', 'cd', 'cl',
   // Tables and explicit page breaks
   'tr', 'pb',
@@ -426,11 +483,7 @@ export const USFM_HEADING_MARKERS = [
   'r',
   'd',
   'sp',
-  'sd',
-  'sd1',
-  'sd2',
-  'sd3',
-  'sd4',
+  ...USFM_SEMANTIC_DIVISION_MARKERS,
   'ms',
   'ms1',
   'ms2',
@@ -440,22 +493,31 @@ export const USFM_HEADING_MARKERS = [
   'cl',
 ] as const;
 
+const usfmSemanticDivisionMarkerSet = new Set<string>(USFM_SEMANTIC_DIVISION_MARKERS);
+
 /**
  * One heading block emitted before the verse. `text` is the heading's own words, which no
  * paragraph record can hold: a paragraph entry is a marker plus an offset into the *verse's*
  * text, and a heading belongs to no verse (fluent-web#397).
  */
-const verseHeadingSchema = z.object({
-  marker: z.enum(USFM_HEADING_MARKERS),
-  text: z
-    .string()
-    .trim()
-    .min(1)
-    // The value is written straight into the USFM stream, so it can carry neither a marker
-    // escape nor a line break.
-    .max(300)
-    .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks'),
-});
+export const verseHeadingTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  // The value is written straight into the USFM stream, so it can carry neither a marker
+  // escape nor a line break.
+  .max(300)
+  .regex(/^[^\\\n\r\u2028\u2029]+$/, 'must not contain backslashes or line breaks');
+
+export const verseHeadingSchema = z
+  .object({
+    marker: z.enum(USFM_HEADING_MARKERS),
+    text: verseHeadingTextSchema,
+  })
+  .refine(({ marker }) => !usfmSemanticDivisionMarkerSet.has(marker), {
+    path: ['marker'],
+    message: 'semantic division markers cannot carry heading text',
+  });
 
 export const verseMarkersSchema = z
   .object({
@@ -644,7 +706,7 @@ export const chapter_assignments = pgTable(
     chapterNumber: integer('chapter_number').notNull(),
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     peerCheckerId: integer('peer_checker_id').references(() => users.id),
-    status: chapterStatusEnum('chapter_status').notNull().default('not_started'),
+    status: varchar('chapter_status', { length: 50 }).notNull().default('not_started'),
     hasClaimConflict: boolean('has_claim_conflict').default(false).notNull(),
     claimConflictUserId: integer('claim_conflict_user_id').references(() => users.id),
     isAiEnabled: boolean('is_ai_enabled').default(false).notNull(),
@@ -667,6 +729,32 @@ export const chapter_assignments = pgTable(
   ]
 );
 
+/**
+ * A USFM file imported to create a book in a project unit, kept verbatim (#419). This is the
+ * passthrough store: every tag in the file survives here whether or not Fluent renders it, which
+ * a parsed form cannot promise (usfm-grammar drops the text after an unknown \z tag, for one).
+ * The editable rows in translated_verses are derived from it, and only once the source bible's
+ * text exists to attach them to; until then materialized_at stays null and the text-ingestion
+ * worker finishes the job.
+ */
+export const project_unit_usfm_imports = pgTable(
+  'project_unit_usfm_imports',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    fileName: varchar('file_name', { length: 255 }).notNull(),
+    usfm: text('usfm').notNull(),
+    materializedAt: timestamp('materialized_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('uq_usfm_import_per_unit_book').on(table.projectUnitId, table.bookId)]
+);
+
 export const chapter_assignment_snapshots = pgTable(
   'chapter_assignment_snapshots',
   {
@@ -674,7 +762,7 @@ export const chapter_assignment_snapshots = pgTable(
     chapterAssignmentId: integer('chapter_assignment_id')
       .notNull()
       .references(() => chapter_assignments.id, { onDelete: 'cascade' }),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     assignedUserId: integer('assigned_user_id').references(() => users.id),
     content: json('content').$type<Json>().notNull(),
     createdAt: timestamp('created_at').defaultNow(),
@@ -696,7 +784,7 @@ export const chapter_assignment_assigned_user_history = pgTable(
       .notNull()
       .references(() => users.id),
     role: assignmentRoleEnum('role').notNull(),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [
@@ -712,7 +800,7 @@ export const chapter_assignment_status_history = pgTable(
     chapterAssignmentId: integer('chapter_assignment_id')
       .notNull()
       .references(() => chapter_assignments.id, { onDelete: 'cascade' }),
-    status: chapterStatusEnum('status').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [index('idx_ca_status_history_assignment').on(table.chapterAssignmentId)]
@@ -935,6 +1023,61 @@ export const ai_suggestion_usage_log = pgTable(
   ]
 );
 
+// Suggestions never modify translated_verses or its authored markers. The set
+// identity keeps cached titles separate when a project changes pericope sets.
+export const ai_pericope_suggestions = pgTable(
+  'ai_pericope_suggestions',
+  {
+    id: serial('id').primaryKey(),
+    projectUnitId: integer('project_unit_id')
+      .notNull()
+      .references(() => project_units.id, { onDelete: 'cascade' }),
+    bibleId: integer('bible_id')
+      .notNull()
+      .references(() => bibles.id),
+    bibleTextId: integer('bible_text_id')
+      .notNull()
+      .references(() => bible_texts.id, { onDelete: 'cascade' }),
+    pericopeSetId: integer('pericope_set_id')
+      .notNull()
+      .references(() => pericope_sets.id, { onDelete: 'cascade' }),
+    bookId: integer('book_id')
+      .notNull()
+      .references(() => books.id),
+    chapterNumber: integer('chapter_number').notNull(),
+    pericopeNumber: varchar('pericope_number', { length: 100 }).notNull(),
+    suggestedText: varchar('suggested_text', { length: 300 }).notNull(),
+    modelInfo: varchar('model_info', { length: 100 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_ai_pericope_suggestion').on(
+      table.projectUnitId,
+      table.bibleId,
+      table.pericopeSetId,
+      table.bookId,
+      table.chapterNumber,
+      table.pericopeNumber
+    ),
+  ]
+);
+
+export const ai_pericope_suggestion_usage = pgTable(
+  'ai_pericope_suggestion_usage',
+  {
+    id: serial('id').primaryKey(),
+    suggestionId: integer('suggestion_id')
+      .notNull()
+      .references(() => ai_pericope_suggestions.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    wasUsed: boolean('was_used').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('uq_ai_pericope_usage_user').on(table.suggestionId, table.userId)]
+);
+
 const { createInsertSchema, createSelectSchema } = createSchemaFactory({
   zodInstance: z,
 });
@@ -948,6 +1091,7 @@ export const selectBiblesSchema = createSelectSchema(bibles);
 export const selectBooksSchema = createSelectSchema(books);
 export const selectBibleBooksSchema = createSelectSchema(bible_books);
 export const selectProjectUnitsSchema = createSelectSchema(project_units);
+export const selectProjectWorkflowStagesSchema = createSelectSchema(project_workflow_stages);
 export const selectProjectUnitBibleBooksSchema = createSelectSchema(project_unit_bible_books);
 export const selectBibleTextsSchema = createSelectSchema(bible_texts);
 export const selectTranslatedVersesSchema = createSelectSchema(translated_verses);
@@ -1037,11 +1181,33 @@ export const insertProjectsSchema = createInsertSchema(projects, {
 
 export const insertProjectUnitsSchema = createInsertSchema(project_units, {
   projectId: (schema) => schema.int(),
+  name: (schema) => schema.min(1).max(255),
+  type: z.enum(['text', 'audio']).default('text'),
   status: z.enum(['not_started', 'in_progress', 'completed']).default('not_started'),
 })
   .required({
     projectId: true,
+    name: true,
     status: true,
+  })
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+export const insertProjectWorkflowStagesSchema = createInsertSchema(project_workflow_stages, {
+  projectId: (schema) => schema.int(),
+  defaultName: (schema) => schema.min(1).max(50),
+  displayName: (schema) => schema.min(1).max(30),
+  position: (schema) => schema.int(),
+  isFixed: (schema) => schema.default(false),
+})
+  .required({
+    projectId: true,
+    defaultName: true,
+    displayName: true,
+    position: true,
   })
   .omit({
     id: true,
@@ -1086,6 +1252,7 @@ export const insertBibleBooksSchema = createInsertSchema(bible_books)
     bookId: true,
   })
   .omit({
+    textIngestedAt: true,
     createdAt: true,
     updatedAt: true,
   });
@@ -1306,6 +1473,7 @@ export const patchProjectsSchema = insertProjectsSchema.partial();
 export const patchBiblesSchema = insertBiblesSchema.partial();
 export const patchBibleBooksSchema = insertBibleBooksSchema.partial();
 export const patchProjectUnitsSchema = insertProjectUnitsSchema.partial();
+export const patchProjectWorkflowStagesSchema = insertProjectWorkflowStagesSchema.partial();
 export const patchProjectUnitBibleBooksSchema = insertProjectUnitBibleBooksSchema.partial();
 export const patchBibleTextsSchema = insertBibleTextsSchema.partial();
 export const patchTranslatedVersesSchema = insertTranslatedVersesBaseSchema.partial();
@@ -1327,6 +1495,10 @@ export const patchAiSuggestionUsageLogSchema = insertAiSuggestionUsageLogSchema.
 export const patchProjectsClientSchema = patchProjectsSchema.omit({
   organization: true,
   createdBy: true,
+  sourceBibleId: true,
 });
 
 export const patchUsersClientSchema = patchUsersSchema;
+
+export type ProjectWorkflowStage = z.infer<typeof selectProjectWorkflowStagesSchema>;
+export type InsertProjectWorkflowStage = z.infer<typeof insertProjectWorkflowStagesSchema>;

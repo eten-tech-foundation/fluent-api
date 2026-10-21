@@ -57,9 +57,9 @@ export function createServer() {
         return null;
       },
       credentials: true,
-      // Expose set-auth-token so clients can read the Bearer token from the
-      // BetterAuth bearer() plugin response header after sign-in.
-      exposeHeaders: ['set-auth-token'],
+      // Clients read the session token after sign-in, ETag for conditional sync,
+      // and Retry-After to follow the TTS admission backoff in the browser.
+      exposeHeaders: ['set-auth-token', 'ETag', 'Retry-After'],
     })
   );
 

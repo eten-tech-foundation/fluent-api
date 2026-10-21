@@ -2,6 +2,11 @@ import { z } from '@hono/zod-openapi';
 
 import type { insertBiblesSchema, patchBiblesSchema, selectBiblesSchema } from '@/db/schema';
 
+import { ttsLicenseStatusEnum } from '@/db/schema';
+
+export const ttsLicenseStatusSchema = z.enum(ttsLicenseStatusEnum.enumValues);
+export type TtsLicenseStatus = z.infer<typeof ttsLicenseStatusSchema>;
+
 // ─── DB-derived types ─────────────────────────────────────────────
 
 export type Bible = z.infer<typeof selectBiblesSchema>;
@@ -15,6 +20,13 @@ export const bibleResponseSchema = z.object({
   languageId: z.number().int(),
   hasAudio: z.boolean(),
   provider: z.string(),
+  ttsLicenseStatus: ttsLicenseStatusSchema.optional(),
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
+  updatedAt: z.string().datetime().nullable().openapi({
+    description:
+      'Server watermark for this bible row (advanced when the bible row changes, when a linked provider-resource license/display column is inserted or changed via DB trigger, or when audioResourceId changes via $onUpdate). Clients must use max(updatedAt) across a successful non-empty list as the next updatedAfter cursor; empty lists must not advance the cursor. Device wall-clock cursors can skip rows.',
+  }),
 });
 
 export type BibleResponse = z.infer<typeof bibleResponseSchema>;

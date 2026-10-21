@@ -209,8 +209,12 @@ const submitChapterAssignmentRoute = createRoute({
 
 server.openapi(submitChapterAssignmentRoute, async (c) => {
   const { chapterAssignmentId } = c.req.valid('param');
+  const user = c.get('user')!;
 
-  const result = await chapterAssignmentService.submitChapterAssignment(chapterAssignmentId);
+  const result = await chapterAssignmentService.submitChapterAssignment(
+    chapterAssignmentId,
+    user.id
+  );
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
 
   if (result.error.code === ErrorCode.INVALID_STATUS_TRANSITION) {

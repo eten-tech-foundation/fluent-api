@@ -1,7 +1,8 @@
 # Builds the deployable package once, for one git ref.
 #
-# Both deploy paths call this: `post-merge-deploy.yml` on a push to main or a
-# tag, and `promote-to-prod.yml` on a tag being promoted. It used to be copied
+# Every deploy path calls this: `post-merge-deploy.yml` on a push to main,
+# `cut-release.yml` and `deploy-to-qa.yml` on a tag, and `promote-to-prod.yml`
+# on a tag being promoted. It used to be copied
 # verbatim into each of them, which is worse than untidy -- two copies of a
 # build step drift, and a drifted build means production ships something QA
 # never built.

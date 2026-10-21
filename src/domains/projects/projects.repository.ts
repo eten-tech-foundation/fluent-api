@@ -1,14 +1,16 @@
-import { and, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
   bible_books,
+  books,
   chapter_assignments,
-  chapterStatusEnum,
   project_unit_bible_books,
+  project_unit_usfm_imports,
   project_units,
+  project_workflow_stages,
   projects,
   roles,
   user_roles,
@@ -28,31 +30,95 @@ import type {
 } from './projects.types';
 
 import { baseJoinQuery } from './projects.query-builder';
+import { DEFAULT_WORKFLOW } from './workflow-stages/workflow-stages.constants';
+import { getLockedDefaultNamesByProjectIds } from './workflow-stages/workflow-stages.repository';
 
-const formatLabel = (str: string) =>
-  str
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-
-const WORKFLOW_DEFINITION: WorkflowStep[] = chapterStatusEnum.enumValues.map((status) => ({
-  id: status,
-  label: formatLabel(status),
+const WORKFLOW_DEFINITION: WorkflowStep[] = DEFAULT_WORKFLOW.map((stage) => ({
+  id: stage.defaultName,
+  label: stage.displayName,
+  isLocked: false,
 }));
 
 // NOTE: mapper lives here because it is tightly coupled to the raw join shape from baseJoinQuery.
-export function mapToProjectWithLanguages(rawProject: RawProjectRow): ProjectWithLanguageNames {
-  const { counts, ...rest } = rawProject;
-  const defaultCounts = chapterStatusEnum.enumValues.reduce((acc, status) => {
-    acc[status] = 0;
-    return acc;
-  }, {} as ChapterStatusCounts);
-
+export function mapToProjectWithLanguages(
+  rawProject: RawProjectRow,
+  stages: WorkflowStep[] = WORKFLOW_DEFINITION,
+  defaultCounts: ChapterStatusCounts = Object.fromEntries(
+    DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0])
+  )
+): ProjectWithLanguageNames {
+  const { counts, milestoneCount, ...rest } = rawProject;
   return {
     ...rest,
     chapterStatusCounts: { ...defaultCounts, ...(counts || {}) },
-    workflowConfig: WORKFLOW_DEFINITION,
+    milestoneCount: milestoneCount ?? 0,
+    workflowConfig: stages,
   };
+}
+
+export async function populateWorkflowStages(
+  projects: ProjectWithLanguageNames[]
+): Promise<ProjectWithLanguageNames[]> {
+  if (projects.length === 0) return projects;
+  const projectIds = projects.map((p) => p.id);
+  const stages = await db
+    .select()
+    .from(project_workflow_stages)
+    .where(inArray(project_workflow_stages.projectId, projectIds))
+    .orderBy(project_workflow_stages.position);
+
+  // Load lock state in one batch query.
+  const lockedByProject = await getLockedDefaultNamesByProjectIds(projectIds);
+
+  const stagesByProject = new Map<number, WorkflowStep[]>();
+  // Also track the default status-count map per project from its own stages.
+  const defaultCountsByProject = new Map<number, ChapterStatusCounts>();
+
+  for (const stage of stages) {
+    if (!stagesByProject.has(stage.projectId)) {
+      stagesByProject.set(stage.projectId, []);
+      defaultCountsByProject.set(stage.projectId, {});
+    }
+    const lockedNames = lockedByProject.get(stage.projectId) ?? [];
+    stagesByProject.get(stage.projectId)!.push({
+      id: stage.defaultName,
+      label: stage.displayName,
+      stageId: stage.id,
+      position: stage.position,
+      isFixed: stage.isFixed,
+      isLocked: lockedNames.includes(stage.defaultName),
+    });
+    // Zero-fill from the project's own stage list.
+    defaultCountsByProject.get(stage.projectId)![stage.defaultName] = 0;
+  }
+
+  return projects.map((p) => {
+    const workflowConfig = stagesByProject.get(p.id) ?? WORKFLOW_DEFINITION;
+    const defaultCounts =
+      defaultCountsByProject.get(p.id) ??
+      Object.fromEntries(DEFAULT_WORKFLOW.map((s) => [s.defaultName, 0]));
+
+    const allowedStageIds = new Set(workflowConfig.map((s) => s.id));
+    const mergedCounts: ChapterStatusCounts = { ...defaultCounts };
+    if (p.chapterStatusCounts) {
+      for (const [k, v] of Object.entries(p.chapterStatusCounts)) {
+        if (allowedStageIds.has(k)) {
+          mergedCounts[k] = v;
+        } else if (v > 0) {
+          logger.warn(
+            { projectId: p.id, status: k, count: v },
+            'Project chapterStatusCounts contains non-zero count for status not in workflow stages; dropping from response'
+          );
+        }
+      }
+    }
+
+    return {
+      ...p,
+      workflowConfig,
+      chapterStatusCounts: mergedCounts,
+    };
+  });
 }
 
 // Repository functions
@@ -62,7 +128,7 @@ export async function getByOrganization(
 ): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
     const rawProjects = await baseJoinQuery().where(eq(projects.organization, organizationId));
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rawProjects.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({
       cause: error,
@@ -76,7 +142,7 @@ export async function getByOrganization(
 export async function getAllProjects(): Promise<Result<ProjectWithLanguageNames[]>> {
   try {
     const rawProjects = await baseJoinQuery();
-    return ok(rawProjects.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rawProjects.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all projects' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -93,7 +159,7 @@ export async function findByOrgIdsOrProjectIds(
     if (orgIds.length) conditions.push(inArray(projects.organization, orgIds));
     if (projectIds.length) conditions.push(inArray(projects.id, projectIds));
     const rows = await baseJoinQuery().where(or(...conditions));
-    return ok(rows.map(mapToProjectWithLanguages));
+    return ok(await populateWorkflowStages(rows.map((p) => mapToProjectWithLanguages(p))));
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to find projects for user' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -151,7 +217,9 @@ export async function getByUserId(
     for (const row of rawProjects) {
       if (!seen.has(row.id)) seen.set(row.id, row);
     }
-    return ok([...seen.values()].map(mapToProjectWithLanguages));
+    return ok(
+      await populateWorkflowStages([...seen.values()].map((p) => mapToProjectWithLanguages(p)))
+    );
   } catch (error) {
     logger.error({
       cause: error,
@@ -166,19 +234,12 @@ export async function getById(id: number): Promise<Result<ProjectWithLanguageNam
   try {
     const rawProjects = await baseJoinQuery().where(eq(projects.id, id)).limit(1);
     if (rawProjects.length === 0) return err(ErrorCode.PROJECT_NOT_FOUND);
-    return ok(mapToProjectWithLanguages(rawProjects[0]));
+    const populated = await populateWorkflowStages([mapToProjectWithLanguages(rawProjects[0])]);
+    return ok(populated[0]);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get project by ID', context: { id } });
     return err(ErrorCode.INTERNAL_ERROR);
   }
-}
-
-export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
-  const rows = await db
-    .select({ bookId: bible_books.bookId })
-    .from(bible_books)
-    .where(eq(bible_books.bibleId, bibleId));
-  return rows.map((r) => r.bookId);
 }
 
 export async function insertProjectRecord(
@@ -187,23 +248,6 @@ export async function insertProjectRecord(
 ): Promise<Project> {
   const [project] = await tx.insert(projects).values(projectData).returning();
   return project;
-}
-
-export async function insertProjectUnitRecord(
-  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
-  tx: DbTransaction
-) {
-  const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
-  return projectUnit;
-}
-
-export async function insertBibleBookLinks(
-  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
-  tx: DbTransaction
-) {
-  if (bibleBookEntries.length > 0) {
-    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
-  }
 }
 
 export async function updateProjectRecord(
@@ -219,17 +263,10 @@ export async function updateProjectRecord(
   return updated;
 }
 
-export async function updateProjectUnitStatusByProjectId(
-  projectId: number,
-  status: 'not_started' | 'in_progress' | 'completed',
-  tx: DbTransaction
-) {
-  await tx.update(project_units).set({ status }).where(eq(project_units.projectId, projectId));
-}
-
-export async function remove(id: number): Promise<Result<void>> {
+export async function remove(id: number, tx?: DbTransaction): Promise<Result<void>> {
   try {
-    const [deleted] = await db
+    const conn = tx ?? db;
+    const [deleted] = await conn
       .delete(projects)
       .where(eq(projects.id, id))
       .returning({ id: projects.id });
@@ -287,4 +324,171 @@ export async function findAssignmentIdsNotInProject(
 
   const validIds = new Set(rows.map((r) => r.id));
   return chapterAssignmentIds.filter((id) => !validIds.has(id));
+}
+
+export async function countUnitsByProjectId(
+  projectId: number,
+  tx?: DbTransaction
+): Promise<number> {
+  const conn = tx ?? db;
+  const rows = await conn
+    .select({ count: sql<number>`count(*)::int` })
+    .from(project_units)
+    .where(eq(project_units.projectId, projectId));
+  return rows[0].count;
+}
+
+export async function lockProjectById(id: number, tx: DbTransaction): Promise<boolean> {
+  // Use a raw SQL query since Drizzle doesn't have a first-class FOR UPDATE yet without trickery
+  const res = await tx.execute(sql`SELECT id FROM ${projects} WHERE id = ${id} FOR UPDATE`);
+  if (Array.isArray(res)) return res.length > 0;
+  return ((res as any).rows?.length ?? 0) > 0;
+}
+
+export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
+  const rows = await db
+    .select({ bookId: bible_books.bookId })
+    .from(bible_books)
+    .where(eq(bible_books.bibleId, bibleId));
+  return rows.map((r) => r.bookId);
+}
+
+export async function insertProjectUnitRecord(
+  unitData: {
+    projectId: number;
+    status: 'not_started' | 'in_progress' | 'completed';
+    name: string;
+  },
+  tx: DbTransaction
+) {
+  const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
+  return projectUnit;
+}
+
+/**
+ * English display names of the given books, ordered by book ID like the project book list.
+ * Book IDs are in canonical order only because the books seed inserts Genesis to Revelation in
+ * that order. The schema does not enforce it, and a book that DBL sync adds later sorts last.
+ */
+export async function getBookDisplayNames(bookIds: number[], tx: DbTransaction): Promise<string[]> {
+  if (bookIds.length === 0) return [];
+  const rows = await tx
+    .select({ name: books.eng_display_name })
+    .from(books)
+    .where(inArray(books.id, bookIds))
+    .orderBy(asc(books.id));
+  return rows.map((row) => row.name);
+}
+
+export async function insertBibleBookLinks(
+  bibleBookEntries: { projectUnitId: number; bibleId: number; bookId: number }[],
+  tx: DbTransaction
+) {
+  if (bibleBookEntries.length > 0) {
+    await tx.insert(project_unit_bible_books).values(bibleBookEntries);
+  }
+}
+
+// ─── Imported USFM (#419) ─────────────────────────────────────────────────────
+
+export async function insertUsfmImports(
+  rows: { projectUnitId: number; bookId: number; fileName: string; usfm: string }[],
+  tx: DbTransaction
+) {
+  if (rows.length > 0) {
+    await tx.insert(project_unit_usfm_imports).values(rows);
+  }
+}
+
+/** Imports whose verses have not been attached to source text yet, for the given books. */
+export async function getPendingUsfmImports(projectUnitId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .where(
+      and(
+        eq(project_unit_usfm_imports.projectUnitId, projectUnitId),
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+/**
+ * The same pending imports, for every project unit waiting on these books of this Bible rather
+ * than for one project. A completed book finishes all of them at once, so a project whose own
+ * ingestion job never ran is not left waiting on it forever. The join keeps a project unit that
+ * imported the same book against a different Bible out: its verses belong to that Bible's text.
+ */
+export async function getPendingUsfmImportsForBible(bibleId: number, bookIds: number[]) {
+  if (bookIds.length === 0) return [];
+  return db
+    .select({
+      id: project_unit_usfm_imports.id,
+      projectUnitId: project_unit_usfm_imports.projectUnitId,
+      bookId: project_unit_usfm_imports.bookId,
+      usfm: project_unit_usfm_imports.usfm,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId),
+        eq(project_unit_bible_books.bibleId, bibleId)
+      )
+    )
+    .where(
+      and(
+        inArray(project_unit_usfm_imports.bookId, bookIds),
+        isNull(project_unit_usfm_imports.materializedAt)
+      )
+    );
+}
+
+export async function markUsfmImportMaterialized(
+  id: number,
+  executor: DbTransaction | typeof db = db
+) {
+  await executor
+    .update(project_unit_usfm_imports)
+    .set({ materializedAt: new Date() })
+    .where(eq(project_unit_usfm_imports.id, id));
+}
+
+/** Pending rows are durable retry intents, even when their original queue send failed. */
+export async function getUsfmImportsReadyForMaterialization() {
+  return db
+    .selectDistinct({
+      bibleId: project_unit_bible_books.bibleId,
+      bookId: project_unit_usfm_imports.bookId,
+    })
+    .from(project_unit_usfm_imports)
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, project_unit_usfm_imports.projectUnitId),
+        eq(project_unit_bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .innerJoin(
+      bible_books,
+      and(
+        eq(bible_books.bibleId, project_unit_bible_books.bibleId),
+        eq(bible_books.bookId, project_unit_usfm_imports.bookId)
+      )
+    )
+    .where(
+      and(
+        isNull(project_unit_usfm_imports.materializedAt),
+        isNull(project_unit_bible_books.deletedAt),
+        isNotNull(bible_books.textIngestedAt)
+      )
+    );
 }

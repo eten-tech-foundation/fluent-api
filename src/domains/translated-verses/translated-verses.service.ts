@@ -1,9 +1,11 @@
+import type { DbTransaction, Result } from '@/lib/types';
+
 import { db } from '@/db';
 import { verseMarkersSchema } from '@/db/schema';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
-import { ok } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   CreateTranslatedVerseInput,
@@ -102,4 +104,21 @@ export async function listTranslatedVerses(filters: TranslatedVersesFilters = {}
   const result = await translatedVersesRepo.list(filters);
   if (!result.ok) return result;
   return ok(result.data.map(toTranslatedVerseResponse));
+}
+
+export async function importTranslatedVerses(
+  rows: CreateTranslatedVerseInput[],
+  tx?: DbTransaction
+): Promise<Result<void>> {
+  try {
+    await translatedVersesRepo.insertMissing(rows, tx);
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to import translated verses',
+      context: { rowCount: rows.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

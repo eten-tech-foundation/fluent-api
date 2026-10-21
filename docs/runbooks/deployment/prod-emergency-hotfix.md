@@ -35,10 +35,14 @@ If production is broken and there is no pending QA cycle, you must branch direct
 > [!WARNING]
 > **Tag format must be exactly `vYY.MM.SERIAL`** (e.g. `v26.07.2`, not `v26.7.2`). The deploy workflow validates this with a strict regex and will reject malformed tags.
 
-6. **The tag push deploys to QA, not production.** Watch the `deploy-qa` job in
-   **Post-merge-deploy**. It takes a few minutes and it is what earns the tag
-   the QA deployment record that the next step requires -- even in an
-   emergency, this is the fast path, not an obstacle.
+6. **Deploy to QA and check it**, even under time pressure -- it is one
+   workflow run and it is what makes step 7 a normal promotion rather than a
+   bypass. Actions → **Deploy to QA** → **Run workflow**, selecting the
+   **tag** in the ref picker.
+   _(Note: If the older tag you branched from predates the `deploy-to-qa.yml`
+   workflow, you will need to either add the workflow before creating the
+   deployable tag, or explicitly use `skip_qa_check` and record that QA was
+   bypassed.)_
 
 7. Run **Promote to Production** with the new tag and get the `Production`
    reviewer to approve.
@@ -46,8 +50,8 @@ If production is broken and there is no pending QA cycle, you must branch direct
 > [!CAUTION]
 > **`skip_qa_check` exists only for when the QA deploy itself cannot run** --
 > QA is down, or its own deploy is what's broken. It logs a warning naming you,
-> and it still requires the production reviewer's approval. If `deploy-qa` is
-> merely slow, wait for it. Using the bypass ships code that nothing has run.
+> and it still requires the production reviewer's approval. If **Deploy to QA**
+> is merely slow, wait for it. Using the bypass ships code that nothing has run.
 
 > [!IMPORTANT]
 > Open a Pull Request from `hotfix/<YY.MM.NEXT>` back to `main` so the fix is recorded in the main line of development and doesn't get lost in future releases.

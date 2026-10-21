@@ -1,7 +1,7 @@
 {
   "name": "fluent-api",
   "type": "module",
-  "version": "1.0.0",
+  "version": "26.10.00",
   "license": "MIT",
   "engines": {
     "node": ">=24.14.0"
@@ -12,9 +12,11 @@
     "start": "node ./dist/src/index.js",
     "worker": "node ./dist/src/workers/standalone-worker.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
     "test": "cross-env NODE_ENV=test vitest",
+    "test:live": "cross-env NODE_ENV=test vitest run --config vitest.live.config.ts",
+    "test:db": "cross-env NODE_ENV=test vitest run --config vitest.db.config.ts",
     "build": "tsc && tsc-alias",
     "build:webjob": "npm run build && node scripts/setup-webjob.js",
     "deploy:prepare": "npm run build:webjob && cd wwwroot && zip -r ../deploy.zip . && cd ..",
@@ -42,11 +44,17 @@
     "db:import:languages": "npx tsx src/db/scripts/import-ethnologue-languages.ts",
     "db:import:language-names": "npx tsx src/db/scripts/enrich-language-names.ts",
     "db:migrate": "drizzle-kit migrate",
+    "queue:migrate-policy": "tsx src/db/scripts/migrate-worker-queue-policy.ts",
     "db:generate": "drizzle-kit generate --name",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
     "db:sync:dbl": "npx tsx src/db/scripts/sync-dbl-catalogue.ts",
-    "db:seed:pericope-sets": "npx tsx src/db/seeds/pericope-sets.ts"
+    "db:seed:pericope-sets": "npx tsx src/db/seeds/pericope-sets.ts",
+    "db:backfill:milestones": "npx tsx src/db/scripts/backfill-hierarchy.ts",
+    "db:consolidate:projects": "npx tsx src/db/scripts/consolidation-migration.ts",
+    "lint:prune": "eslint . --prune-suppressions",
+    "deadcode": "node scripts/check-dead-code.mjs",
+    "verify": "npm run precheck && npm run deadcode && ./scripts/check-docs-structure.sh && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1098.0",
@@ -69,6 +77,7 @@
     "hono": "4.13.5",
     "hono-pino": "0.8.0",
     "mailgun.js": "12.0.3",
+    "nanoid": "^6.0.2",
     "pg-boss": "12.1.1",
     "pino": "9.7.0",
     "postgres": "3.4.7",
@@ -78,6 +87,7 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "4.18.0",
+    "@electric-sql/pglite": "0.5.8",
     "@types/archiver": "6.0.3",
     "@types/node": "24.1.0",
     "cross-env": "7.0.3",
@@ -86,6 +96,7 @@
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-format": "1.0.1",
     "husky": "9.1.7",
+    "knip": "5.88.1",
     "pino-pretty": "13.0.0",
     "prettier": "3.6.2",
     "tsc-alias": "1.8.16",

@@ -7,7 +7,7 @@ export interface SeedUser {
   email: string;
   password: string;
   username: string;
-  role: 'project_manager' | 'project_translator' | 'org_member';
+  role: 'project_manager' | 'project_translator' | 'org_member' | 'super_admin' | 'org_manager';
 }
 
 /**

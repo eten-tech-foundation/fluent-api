@@ -25,6 +25,10 @@ export const PERMISSIONS = {
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
 
+  // ── Organizations ───────────────────────────────────────────────────
+  ORG_VIEW: 'org:view',
+  ORG_CREATE: 'org:create',
+
   // ── Membership / role assignment ────────────────────────────────────
   MEMBERSHIP_REVOKE: 'membership:revoke',
   ROLE_ASSIGN_PROJECT: 'role:assign:project',
@@ -39,6 +43,20 @@ export const PERMISSIONS = {
   // Decision D10 / §9.3. Approved in review:
   // https://github.com/eten-tech-foundation/fluent-api/pull/173#discussion_r3343633722
   AI_TOOLS_USE: 'content:update',
+
+  // ── Source TTS ──────────────────────────────────────────────────────
+  // "Can have the source text read aloud." Follows the AI_TOOLS_USE pattern
+  // above (an intentional alias, documented at call sites, not yet its own RBAC
+  // row) but deliberately aliases PROJECT_VIEW, not CONTENT_UPDATE: listening to
+  // the SOURCE text reveals nothing the user cannot already read on screen, so
+  // hearing follows seeing. Gating it on content:update would wrongly deny a
+  // reviewer or observer who can legitimately view the passage.
+  //
+  // Proposal decision T13 / §11.1. NOTE: unlike AI_TOOLS_USE this alias has not
+  // yet been confirmed in review — if a reviewer wants TTS restricted to users
+  // who can edit, change the value here to 'content:update' and no call site
+  // that imports TTS_USE needs to change.
+  TTS_USE: 'project:view',
 
   // ── Users ───────────────────────────────────────────────────────────
   USER_VIEW: 'user:view',

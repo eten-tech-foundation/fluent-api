@@ -20,6 +20,8 @@ import {
   translationImagesResponseSchema,
   translationNotesResponseSchema,
   translationQuestionsResponseSchema,
+  verseRangeQuerySchema,
+  verseRangeResourceParamSchema,
   verseResourceParamSchema,
 } from './translation-resources.types';
 
@@ -177,6 +179,144 @@ server.openapi(getImagesRoute, async (c) => {
     bookCode,
     chapter,
     verse,
+    languageCode,
+  });
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return aquiferErrorResponse(c, result.error);
+});
+
+// ─── GET .../notes/{bookCode}/{chapter}?startVerse&endVerse&languageCode
+
+const getNotesRangeRoute = createRoute({
+  tags: ['Translation Resources'],
+  method: 'get',
+  path: '/projects/{projectId}/translation-resources/notes/{bookCode}/{chapter}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
+  summary: 'Get Translation Notes for a verse range',
+  description:
+    'Proxies Aquifer UWTranslationNotes for a same-chapter inclusive verse range (one Aquifer search; items deduped by content id). Returns an empty items array when none exist. Aquifer failures are section-scoped (502). Cross-chapter ranges are not supported.',
+  request: {
+    params: verseRangeResourceParamSchema,
+    query: verseRangeQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      translationNotesResponseSchema,
+      'Translation Notes for the verse range'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
+    [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
+    [HttpStatusCodes.BAD_GATEWAY]: badGatewayResponse,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
+  },
+});
+
+server.openapi(getNotesRangeRoute, async (c) => {
+  const { bookCode, chapter } = c.req.valid('param');
+  const { languageCode, startVerse, endVerse } = c.req.valid('query');
+  const result = await translationResourcesService.getTranslationNotesForRange({
+    bookCode,
+    chapter,
+    startVerse,
+    endVerse,
+    languageCode,
+  });
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return aquiferErrorResponse(c, result.error);
+});
+
+// ─── GET .../questions/{bookCode}/{chapter}?startVerse&endVerse&languageCode
+
+const getQuestionsRangeRoute = createRoute({
+  tags: ['Translation Resources'],
+  method: 'get',
+  path: '/projects/{projectId}/translation-resources/questions/{bookCode}/{chapter}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
+  summary: 'Get Translation Questions for a verse range',
+  description:
+    'Proxies Aquifer UWTranslationQuestions for a same-chapter inclusive verse range (one Aquifer search; items deduped by content id). TipTap content is preserved; Q/A splitting remains a client concern. Empty items when none exist.',
+  request: {
+    params: verseRangeResourceParamSchema,
+    query: verseRangeQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      translationQuestionsResponseSchema,
+      'Translation Questions for the verse range'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
+    [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
+    [HttpStatusCodes.BAD_GATEWAY]: badGatewayResponse,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
+  },
+});
+
+server.openapi(getQuestionsRangeRoute, async (c) => {
+  const { bookCode, chapter } = c.req.valid('param');
+  const { languageCode, startVerse, endVerse } = c.req.valid('query');
+  const result = await translationResourcesService.getTranslationQuestionsForRange({
+    bookCode,
+    chapter,
+    startVerse,
+    endVerse,
+    languageCode,
+  });
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return aquiferErrorResponse(c, result.error);
+});
+
+// ─── GET .../images/{bookCode}/{chapter}?startVerse&endVerse&languageCode
+
+const getImagesRangeRoute = createRoute({
+  tags: ['Translation Resources'],
+  method: 'get',
+  path: '/projects/{projectId}/translation-resources/images/{bookCode}/{chapter}',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.PROJECT_VIEW),
+    requireProjectAccess(PROJECT_ACTIONS.READ, 'projectId'),
+  ] as const,
+  summary: 'Get Images & Maps for a verse range',
+  description:
+    'Proxies Aquifer Images for a same-chapter inclusive verse range (one Aquifer search; items deduped by content id) and hydrates asset URLs from resource details. Empty items when none exist.',
+  request: {
+    params: verseRangeResourceParamSchema,
+    query: verseRangeQuerySchema,
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      translationImagesResponseSchema,
+      'Images & Maps for the verse range'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
+    [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
+    [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
+    [HttpStatusCodes.NOT_FOUND]: notFoundResponse,
+    [HttpStatusCodes.BAD_GATEWAY]: badGatewayResponse,
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
+  },
+});
+
+server.openapi(getImagesRangeRoute, async (c) => {
+  const { bookCode, chapter } = c.req.valid('param');
+  const { languageCode, startVerse, endVerse } = c.req.valid('query');
+  const result = await translationResourcesService.getTranslationImagesForRange({
+    bookCode,
+    chapter,
+    startVerse,
+    endVerse,
     languageCode,
   });
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
