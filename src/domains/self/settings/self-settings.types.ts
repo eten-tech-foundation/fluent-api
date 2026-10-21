@@ -21,7 +21,7 @@ export const SETTINGS_CAPABILITIES = {
   displayMode: true,
 } as const;
 
-export const settingsCapabilitiesSchema = z
+const settingsCapabilitiesSchema = z
   .object({
     partialMerge: z.literal(true),
     displayMode: z.literal(true),
