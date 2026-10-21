@@ -8,6 +8,7 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode } from '@/lib/types';
 import { server } from '@/server/server';
 
+import * as rangeAudioService from './verse-audio.range.service';
 import * as verseAudioService from './verse-audio.service';
 import './verse-audio.range.route';
 import './verse-audio.route';
@@ -83,12 +84,15 @@ vi.mock('@/domains/chapter-assignments/chapter-assignments.service', () => ({
 
 vi.mock('./verse-audio.service', () => ({
   uploadRecording: vi.fn(),
-  uploadRangeRecording: vi.fn(),
   getRecording: vi.fn(),
   getCurrentVersionToken: vi.fn(),
   listChapterRecordings: vi.fn(),
   resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
+}));
+
+vi.mock('./verse-audio.range.service', () => ({
+  uploadRangeRecording: vi.fn(),
 }));
 
 const APP_USER = {
@@ -211,7 +215,7 @@ describe('verse-audio routes', () => {
 
     beforeEach(() => {
       asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
-      (verseAudioService.uploadRangeRecording as any).mockResolvedValue({
+      (rangeAudioService.uploadRangeRecording as any).mockResolvedValue({
         ok: true,
         data: {
           id: 1,
@@ -231,14 +235,14 @@ describe('verse-audio routes', () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
       const res = await rangeUpload();
       expect(res.status).toBe(401);
-      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
     });
 
     it('returns 200 and forwards range fields on happy path', async () => {
       const res = await rangeUpload({ baseVersionToken: '2' });
 
       expect(res.status).toBe(200);
-      expect(verseAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+      expect(rangeAudioService.uploadRangeRecording).toHaveBeenCalledWith(
         expect.objectContaining({
           projectUnitId: 1,
           bibleTextId: 10,
@@ -267,17 +271,17 @@ describe('verse-audio routes', () => {
       const res = await server.request('/verse-audio/1/range', { method: 'PUT', body: form });
 
       expect(res.status).toBe(400);
-      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
     });
 
     it('returns 400 when range bounds are not positive integers', async () => {
       const res = await rangeUpload({ startChapter: '0' });
       expect(res.status).toBe(400);
-      expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
     });
 
     it('maps service VALIDATION_ERROR to 422', async () => {
-      vi.mocked(verseAudioService.uploadRangeRecording).mockResolvedValue(
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
         err(ErrorCode.VALIDATION_ERROR)
       );
 
@@ -287,7 +291,7 @@ describe('verse-audio routes', () => {
     });
 
     it('maps INVALID_REFERENCE (anchor mismatch) to 400', async () => {
-      vi.mocked(verseAudioService.uploadRangeRecording).mockResolvedValue(
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
         err(ErrorCode.INVALID_REFERENCE)
       );
 

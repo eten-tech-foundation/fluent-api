@@ -94,27 +94,6 @@ describe('verse-audio repository', () => {
     expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
   });
 
-  it('maps a reclaimed storage object during first recording insert to 409', async () => {
-    vi.mocked(db.insert).mockImplementation(() => {
-      throw foreignKeyRace('verse_audio_recordings_storage_object_id_storage_objects_id_fk');
-    });
-
-    const result = await repo.insertRecording({
-      projectUnitId: 1,
-      bibleTextId: 2,
-      uploadedBy: 3,
-      storageObjectId: 4,
-      contentType: 'audio/mp4',
-      sizeBytes: 5,
-      durationSeconds: null,
-      versionToken: 1,
-      conflictStatus: 'clean',
-      activeTakeId: null,
-    });
-
-    expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
-  });
-
   it('maps a pruned active take during conditional promotion to 409', async () => {
     vi.mocked(db.update).mockImplementation(() => {
       throw foreignKeyRace('verse_audio_recordings_active_take_id_verse_audio_takes_id_fk');

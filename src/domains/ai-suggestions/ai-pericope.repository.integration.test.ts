@@ -1,4 +1,3 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +7,7 @@ import * as schema from '@/db/schema';
 import type { PericopeSuggestionItem, PericopeUsageRequest } from './ai-suggestions.types';
 
 import { resolvePericopes } from './ai-pericope.repository';
+import { setupPericopeIntegrationTest } from './ai-pericope.test-fixtures';
 import { logAiSuggestionUsage } from './ai-suggestions.repository';
 import { saveAiSuggestions, trackPericopeUsage } from './ai-suggestions.service';
 
@@ -55,126 +55,15 @@ describe('pericope repository with real PostgreSQL queries', () => {
   });
 
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        ai_pericope_suggestion_usage: schema.ai_pericope_suggestion_usage,
-        ai_pericope_suggestions: schema.ai_pericope_suggestions,
-        ai_suggestions: schema.ai_suggestions,
-        ai_suggestion_usage_log: schema.ai_suggestion_usage_log,
-        bible_texts: schema.bible_texts,
-        books: schema.books,
-        chapter_assignments: schema.chapter_assignments,
-        pericope_verses: schema.pericope_verses,
-        pericope_sets: schema.pericope_sets,
-        project_unit_bible_books: schema.project_unit_bible_books,
-        project_units: schema.project_units,
-        projects: schema.projects,
-        translated_verses: schema.translated_verses,
-        users: schema.users,
-        organizations: schema.organizations,
-        languages: schema.languages,
-        bibles: schema.bibles,
-        bible_provider_resources: schema.bible_provider_resources,
-        authUser: schema.authUser,
-        authSession: schema.authSession,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        milestoneTypeEnum: schema.milestoneTypeEnum,
-        projectStatusEnum: schema.projectStatusEnum,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        userStatusEnum: schema.userStatusEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
-    const suffix = Date.now().toString();
-    const [org] = await db
-      .insert(schema.organizations)
-      .values({ name: `Pericope test ${suffix}` })
-      .returning();
-    const [language] = await db
-      .insert(schema.languages)
-      .values({ langName: `Test ${suffix}` })
-      .returning();
-    const [user] = await db
-      .insert(schema.users)
-      .values({ username: `pericope-${suffix}`, email: `${suffix}@example.test` })
-      .returning();
-    userId = user.id;
-    const sets = await db
-      .insert(schema.pericope_sets)
-      .values([{ name: `FIA-${suffix}` }, { name: `FCBH-${suffix}` }])
-      .returning();
-    pericopeSetId = sets[0].id;
-    otherSetId = sets[1].id;
-    const [project] = await db
-      .insert(schema.projects)
-      .values({
-        name: 'Pericope test',
-        sourceLanguage: language.id,
-        targetLanguage: language.id,
-        organization: org.id,
-        pericopeSetId,
-      })
-      .returning();
-    projectId = project.id;
-    const [unit] = await db.insert(schema.project_units).values({ projectId }).returning();
-    projectUnitId = unit.id;
-    const [bible] = await db
-      .insert(schema.bibles)
-      .values({ languageId: language.id, name: `Source ${suffix}`, abbreviation: `s-${suffix}` })
-      .returning();
-    bibleId = bible.id;
-    await db
-      .insert(schema.books)
-      .values({ code: 'GEN', eng_display_name: 'Genesis' })
-      .onConflictDoNothing();
-    const [book] = await db.select().from(schema.books).where(eq(schema.books.code, 'GEN'));
-    bookId = book.id;
-    await db.insert(schema.project_unit_bible_books).values({ projectUnitId, bibleId, bookId });
-    await db
-      .insert(schema.chapter_assignments)
-      .values({ projectUnitId, bibleId, bookId, chapterNumber: 1, isAiEnabled: true });
-    const texts = await db
-      .insert(schema.bible_texts)
-      .values(
-        [1, 2, 3, 4].map((verseNumber) => ({
-          bibleId,
-          bookId,
-          chapterNumber: 1,
-          verseNumber,
-          text: `Source ${verseNumber}`,
-        }))
-      )
-      .returning();
-    bibleTextIds = texts.map((text) => text.id);
-    await db.insert(schema.pericope_verses).values(
-      [pericopeSetId, otherSetId].flatMap((setId) =>
-        [1, 2, 3, 4].map((verseNumber) => ({
-          pericopeSetId: setId,
-          bookId,
-          chapterNumber: 1,
-          verseNumber,
-          section: setId === pericopeSetId ? null : verseNumber < 4 ? 1 : 2,
-          pericopeNumber: setId === otherSetId || verseNumber < 4 ? '4a' : '4b',
-          pericopeTitle: setId === pericopeSetId && verseNumber < 4 ? 'Creation' : null,
-        }))
-      )
-    );
-    await db.insert(schema.translated_verses).values([
-      { projectUnitId, bibleTextId: bibleTextIds[1], content: '' },
-      {
-        projectUnitId,
-        bibleTextId: bibleTextIds[2],
-        content: 'Already translated',
-        markers: { headings: [{ marker: 's', text: 'An authored heading' }] },
-      },
-    ]);
-    await db
-      .insert(schema.ai_suggestions)
-      .values({ projectUnitId, bibleTextId: bibleTextIds[3], suggestedText: 'Cached scripture' });
+    const fixture = await setupPericopeIntegrationTest(client, db);
+    projectUnitId = fixture.projectUnitId;
+    projectId = fixture.projectId;
+    bibleId = fixture.bibleId;
+    bookId = fixture.bookId;
+    pericopeSetId = fixture.pericopeSetId;
+    otherSetId = fixture.otherSetId;
+    userId = fixture.userId;
+    bibleTextIds = fixture.bibleTextIds;
   }, 30_000);
   afterAll(async () => {
     await client.close();

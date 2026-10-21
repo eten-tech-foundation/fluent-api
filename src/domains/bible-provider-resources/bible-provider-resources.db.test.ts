@@ -8,7 +8,7 @@ import { bible_provider_resources, bibles, projects } from '@/db/schema';
 import { AUDIO_DEMO_SEED, seedAudioDemo } from '@/db/seeds/audio-demo';
 import { seedBibles } from '@/db/seeds/bibles';
 import { BIBLE_PROVIDER_PREFIXES } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
-import { findAssignmentsProgress } from '@/domains/chapter-assignments/chapter-assignments.repository';
+import { findAssignmentsProgress } from '@/domains/chapter-assignments/progress/chapter-assignments-progress.repository';
 import { auth } from '@/lib/auth';
 import { server } from '@/server/server';
 import '@/domains/playback-audio/playback-audio.route';

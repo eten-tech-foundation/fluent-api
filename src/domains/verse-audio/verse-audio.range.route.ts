@@ -10,6 +10,7 @@ import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
 import { requireEditVerseAudioAccess } from './verse-audio-auth.middleware';
+import * as rangeAudioService from './verse-audio.range.service';
 import {
   baseVersionTokenFormField,
   commonErrorResponses,
@@ -19,7 +20,6 @@ import {
   respondVerseAudioError,
   STORAGE_UNAVAILABLE_BODY,
 } from './verse-audio.route-shared';
-import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
   VERSE_AUDIO_ID_SOURCES,
@@ -161,7 +161,7 @@ server.openapi(uploadRangeVerseAudioRoute, async (c) => {
 
   const data = Buffer.from(await file.arrayBuffer());
 
-  const result = await verseAudioService.uploadRangeRecording({
+  const result = await rangeAudioService.uploadRangeRecording({
     projectUnitId,
     bibleTextId,
     uploadedBy: user.id,

@@ -192,12 +192,14 @@ function mediaFallbackExt(mediaType: AquiferResourceMediaType): string {
  * Map items with a fixed concurrency pool. Individual mapper failures are
  * skipped so one bad Aquifer content id cannot drop the rest of the section.
  * If every item fails, the first failure is returned so the route can 502
- * instead of looking like an empty collection.
+ * instead of looking like an empty collection. Offline manifests require every
+ * item, so their mapper opts into returning the first failure even after successes.
  */
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  mapper: (item: T) => Promise<Result<R>>
+  mapper: (item: T) => Promise<Result<R>>,
+  failurePolicy: 'skip' | 'fail' = 'skip'
 ): Promise<Result<R[]>> {
   if (items.length === 0) return ok([]);
 
@@ -224,7 +226,7 @@ async function mapWithConcurrency<T, R>(
     else firstFailure ??= slot;
   }
 
-  if (successes.length === 0 && firstFailure) return firstFailure;
+  if (firstFailure && (failurePolicy === 'fail' || successes.length === 0)) return firstFailure;
   return ok(successes);
 }
 
@@ -464,11 +466,16 @@ export async function getPrepareOfflineManifest(params: {
     }
     const capped = search.data.slice(0, MAX_MANIFEST_ITEMS_PER_CONFIG);
 
-    const hydrated = await mapWithConcurrency(capped, HYDRATE_CONCURRENCY, async (searchItem) => {
-      const details = await getResource(searchItem.id);
-      if (!details.ok) return details;
-      return ok({ searchItem, details: details.data });
-    });
+    const hydrated = await mapWithConcurrency(
+      capped,
+      HYDRATE_CONCURRENCY,
+      async (searchItem) => {
+        const details = await getResource(searchItem.id);
+        if (!details.ok) return details;
+        return ok({ searchItem, details: details.data });
+      },
+      'fail'
+    );
     if (!hydrated.ok) return hydrated;
 
     for (const { searchItem, details } of hydrated.data) {

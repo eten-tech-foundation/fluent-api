@@ -12,7 +12,6 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
 import type {
-  ChapterAssignmentProgressInfo,
   ChapterAssignmentRecord,
   ChapterAssignmentResponse,
   ChapterAssignmentStatus,
@@ -21,6 +20,11 @@ import type {
 } from './chapter-assignments.types';
 
 import * as repo from './chapter-assignments.repository';
+import {
+  applyAutoTransition,
+  recordStatusChange,
+  recordUserAssignmentChanges,
+} from './chapter-assignments.transitions';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export function toChapterAssignmentResponse(
@@ -55,18 +59,7 @@ export function getChapterAssignmentWithAuthContext(
   return repo.findByIdWithAuthContext(id, userId);
 }
 
-export function getAssignmentsProgress(
-  filters: {
-    projectId?: number;
-    orgId?: number;
-    assignedUserId?: number;
-    peerCheckerId?: number;
-    status?: ChapterAssignmentStatus;
-  },
-  tx?: DbTransaction
-): Promise<Result<ChapterAssignmentProgressInfo[]>> {
-  return repo.findAssignmentsProgress(filters, tx);
-}
+export { getAssignmentsProgress } from './progress/chapter-assignments-progress.service';
 
 export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number) {
   return repo.findForVerse(projectUnitId, bibleTextId);
@@ -163,15 +156,15 @@ async function createChapterAssignmentForProjectUnitInTransaction(
     bibleId: c.bibleId,
     bookId: c.bookId,
     chapterNumber: c.chapterNumber,
-    assignedUserId: null as null,
-    peerCheckerId: null as null,
+    assignedUserId: null,
+    peerCheckerId: null,
   }));
 
   const inserted = await repo.insertMany(records, tx);
   if (inserted.length > 0) {
     const historyRecords = inserted.map((a) => ({
       chapterAssignmentId: a.id,
-      status: 'not_started' as ChapterAssignmentStatus,
+      status: CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED,
     }));
     await repo.insertManyStatusHistory(tx, historyRecords);
   }
@@ -203,11 +196,11 @@ export async function createChapterAssignmentForProjectUnit(
         );
 
     return ok(inserted);
-  } catch (error: any) {
+  } catch (error) {
     logger.error({
       cause: error,
-      message: `Failed to create chapter assignments for project unit: ${error?.message || String(error)}`,
-      stack: error?.stack,
+      message: `Failed to create chapter assignments for project unit: ${error instanceof Error ? error.message : String(error)}`,
+      stack: error instanceof Error ? error.stack : undefined,
       context: { projectUnitId, bibleId, bookIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -459,70 +452,6 @@ export async function claimChapterAssignment(id: number, userId: number) {
   }
 }
 
-function applyAutoTransition(
-  current: ChapterAssignmentRecord,
-  data: UpdateChapterAssignmentRequestData
-): UpdateChapterAssignmentRequestData {
-  const hasUserAssignment = data.assignedUserId !== undefined || data.peerCheckerId !== undefined;
-  const shouldAutoTransitionToDraft =
-    current.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED && hasUserAssignment && !data.status;
-
-  return {
-    ...data,
-    ...(shouldAutoTransitionToDraft && { status: CHAPTER_ASSIGNMENT_STATUS.DRAFT }),
-  };
-}
-
-async function recordStatusChange(
-  tx: DbTransaction,
-  current: ChapterAssignmentRecord,
-  updated: ChapterAssignmentRecord
-) {
-  if (updated.status !== current.status) {
-    await repo.insertStatusHistory(tx, updated.id, updated.status as ChapterAssignmentStatus);
-  }
-}
-
-async function recordUserAssignmentChanges(
-  tx: DbTransaction,
-  current: ChapterAssignmentRecord,
-  updated: ChapterAssignmentRecord,
-  data: UpdateChapterAssignmentRequestData
-): Promise<boolean> {
-  let shouldTriggerAi = false;
-
-  if (
-    data.assignedUserId !== undefined &&
-    data.assignedUserId !== current.assignedUserId &&
-    updated.assignedUserId
-  ) {
-    await repo.insertUserAssignmentHistory(
-      tx,
-      updated.id,
-      updated.assignedUserId,
-      'drafter',
-      updated.status as ChapterAssignmentStatus
-    );
-    shouldTriggerAi = true;
-  }
-
-  if (
-    data.peerCheckerId !== undefined &&
-    data.peerCheckerId !== current.peerCheckerId &&
-    updated.peerCheckerId
-  ) {
-    await repo.insertUserAssignmentHistory(
-      tx,
-      updated.id,
-      updated.peerCheckerId,
-      'peer_checker',
-      updated.status as ChapterAssignmentStatus
-    );
-  }
-
-  return shouldTriggerAi;
-}
-
 export async function updateChapterAssignmentAiStatus(
   assignmentId: number,
   isAiEnabled: boolean
@@ -575,8 +504,8 @@ export async function updateChapterAssignmentAiStatus(
     }
 
     return ok(undefined);
-  } catch (error: any) {
-    if (error.message === ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND) {
+  } catch (error) {
+    if (error instanceof Error && error.message === ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND) {
       return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     }
     logger.error({
