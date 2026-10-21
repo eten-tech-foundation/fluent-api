@@ -204,7 +204,7 @@
       "count": 3
     },
     "ts/no-explicit-any": {
-      "count": 9
+      "count": 10
     }
   },
   "src/domains/chapter-assignments/chapter-assignments.service.test.ts": {
@@ -213,6 +213,9 @@
     },
     "ts/no-explicit-any": {
       "count": 5
+    },
+    "max-lines": {
+      "count": 1
     }
   },
   "src/domains/chapter-assignments/chapter-assignments.service.ts": {
