@@ -255,7 +255,8 @@ Request
   │  ❌ 403 if check fails
   ▼
 [Layer 4] Domain Policy         — Record-level access check
-  │  ❌ 403/404 depending on domain convention
+  │  ❌ 404 if the caller can't read the record; 403 if it can read it but the action is denied
+  │     (see guides/code-standards.md#403-or-404)
   ▼
 [Route Handler]
 ```
@@ -359,7 +360,7 @@ They are called after the coarse `requirePermission()` gate and always receive t
 | `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                 |
 | `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                 |
 
-Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check returns `404 Project not found` rather than `403` to avoid leaking project existence.
+Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check currently returns `404 Project not found` for every action. Under [FA-R4](guides/code-standards.md#403-or-404), `read` keeps the 404 and `update`/`delete` return `403` when the caller can read the project; that change is in its own PR (see [Follow-up PRs](guides/code-standards.md#follow-up-prs)).
 
 ### UserPolicy
 

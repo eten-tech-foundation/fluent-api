@@ -60,7 +60,7 @@ on:
         description: Number of health check attempts
         required: false
         type: number
-        default: 10
+        default: 20
       verify_interval:
         description: Seconds between health check attempts
         required: false
@@ -139,6 +139,13 @@ jobs:
       # version. Azure serves the OLD app on / for a while after a deploy, so a
       # 200 there proves only that something is up; matching the version proves
       # the deploy actually landed.
+      #
+      # Attempts that get a fast version-mismatch response burn an attempt in
+      # ~interval seconds, while attempts that time out take max-time + interval
+      # -- so a HEALTHY old version answering during the swap exhausts the
+      # budget in far less wall-clock time than a dead site would. Size the
+      # budget for the fast-response case: observed package-mount + container
+      # swap on the Basic B1 apps takes ~2.5 min after OneDeploy returns.
       - name: Verify deployment
         env:
           URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}

@@ -12,8 +12,8 @@
     "start": "node ./dist/src/index.js",
     "worker": "node ./dist/src/workers/standalone-worker.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
     "test": "cross-env NODE_ENV=test vitest",
     "test:live": "cross-env NODE_ENV=test vitest run --config vitest.live.config.ts",
     "test:db": "cross-env NODE_ENV=test vitest run --config vitest.db.config.ts",
@@ -51,7 +51,10 @@
     "db:sync:dbl": "npx tsx src/db/scripts/sync-dbl-catalogue.ts",
     "db:seed:pericope-sets": "npx tsx src/db/seeds/pericope-sets.ts",
     "db:backfill:milestones": "npx tsx src/db/scripts/backfill-hierarchy.ts",
-    "db:consolidate:projects": "npx tsx src/db/scripts/consolidation-migration.ts"
+    "db:consolidate:projects": "npx tsx src/db/scripts/consolidation-migration.ts",
+    "lint:prune": "eslint . --prune-suppressions",
+    "deadcode": "node scripts/check-dead-code.mjs",
+    "verify": "npm run precheck && npm run deadcode && ./scripts/check-docs-structure.sh && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1098.0",
@@ -93,6 +96,7 @@
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-format": "1.0.1",
     "husky": "9.1.7",
+    "knip": "5.88.1",
     "pino-pretty": "13.0.0",
     "prettier": "3.6.2",
     "tsc-alias": "1.8.16",
