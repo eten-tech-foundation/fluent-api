@@ -54,10 +54,7 @@ export async function savePericopeSuggestion(
   return ok(undefined);
 }
 
-export async function logPericopeUsage(
-  userId: number,
-  data: PericopeUsageRequest
-): Promise<Result<void>> {
+async function logPericopeUsage(userId: number, data: PericopeUsageRequest): Promise<Result<void>> {
   const verse = await pericopeRepo.findPericopeVerse(data.bibleTextId);
   if (!verse) return err(ErrorCode.INVALID_REFERENCE);
   const saved = await pericopeRepo.findSavedPericopeSets(data, verse);

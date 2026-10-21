@@ -7,7 +7,7 @@ import type { db } from '@/db';
 
 import * as schema from '@/db/schema';
 
-export interface PericopeIntegrationFixture {
+interface PericopeIntegrationFixture {
   bibleId: number;
   bibleTextIds: number[];
   bookId: number;
