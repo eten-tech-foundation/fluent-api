@@ -411,6 +411,27 @@ describe('translation-resources routes', () => {
   });
 
   describe('gET manifest', () => {
+    it('returns 502 when one manifest resource fails to hydrate (#432)', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = Array.from({ length: 100 }, (_, index) => ({
+        ...searchHit,
+        id: index + 1,
+      }));
+      vi.mocked(aquiferClient.searchAllResources)
+        .mockResolvedValueOnce(ok(hits))
+        .mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.getResource).mockImplementation(async (id) =>
+        id === 100 ? err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE) : ok({ ...textDetails, id })
+      );
+
+      const res = await server.request(MANIFEST_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
+      expect(aquiferClient.getResource).toHaveBeenCalledTimes(100);
+    });
+
     it('returns empty manifest when Aquifer has no resources', async () => {
       asAuthenticatedUser();
       asProjectMember();

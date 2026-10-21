@@ -27,7 +27,7 @@ Expose fluent-ai's Greek-Room _Repeated Words_ check through fluent-api as the f
 
 3. **Envelope pass-through** — fluent-api forwards `ToolJobResponse[T]` from fluent-ai to fluent-web verbatim (`status`, `job_id`, `result`, `error`, timestamps). Same hook code handles sync `completed` today and `queued → polled → completed` tomorrow. Polling lives in the browser via TanStack Query's `refetchInterval`, not on fluent-api.
 
-4. **No request enrichment** — body forwarded to fluent-ai verbatim, including `lang_code`, `project_id`, `verses[]`. Avoids coupling fluent-api to fluent-ai's input schema.
+4. **No request enrichment** — body forwarded to fluent-ai verbatim, including `lang_code`, `project_id`, `verses[]`. Avoids coupling fluent-api to fluent-ai's input schema. _Amended by [#420](https://github.com/eten-tech-foundation/fluent-api/issues/420): the client now sends `project_unit_id`, and fluent-api resolves the project and fills fluent-ai's `project_id`/`project_name` itself — see suggestion §8.1._
 
 5. **Reuse existing fluent-api substrate** — BetterAuth session + `requirePermission` for caller auth; a single shared `FLUENT_AI_KEY` (env-driven) for the fluent-api → fluent-ai hop; `Result<T>` + `getHttpStatus` for errors (two new codes: `AI_SERVICE_UNAVAILABLE` and `AI_TOOL_EXECUTION_FAILED`, both → 502); fluent-platform's existing compose network for service discovery (`http://ai:8200`).
 

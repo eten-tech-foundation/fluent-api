@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProjectWithLanguageNames } from '@/domains/projects/projects.types';
+
 import * as projectsService from '@/domains/projects/projects.service';
 import * as projectUsersService from '@/domains/projects/users/project-users.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
@@ -49,6 +51,7 @@ vi.mock('@/domains/user-roles/user-roles.repository', () => ({
 
 vi.mock('@/domains/projects/projects.service', () => ({
   getProjectById: vi.fn(),
+  getProjectIdByUnitId: vi.fn(),
 }));
 
 vi.mock('@/domains/projects/users/project-users.service', () => ({
@@ -61,13 +64,24 @@ vi.mock('./ai-tools.service', () => ({
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
+// Deliberately a NON-identity mapping (unit 8 → project 4). The original suite
+// used `project_id: 1`, the one id where a project_units.id happens to equal its
+// projects.id, which is exactly how the #420 mix-up went unnoticed.
+const PROJECT_UNIT_ID = 8;
+const PROJECT_ID = 4;
+
 const VALID_BODY = {
   lang_code: 'eng',
   lang_name: 'English',
-  project_id: 1,
-  project_name: 'Test Project',
+  project_unit_id: PROJECT_UNIT_ID,
   verses: [{ snt_id: 'GEN 1:1', text: 'In in the beginning' }],
 };
+
+const PROJECT = {
+  id: PROJECT_ID,
+  name: 'Test Project',
+  organization: 1,
+} as ProjectWithLanguageNames;
 
 const APP_USER = {
   id: 1,
@@ -117,14 +131,25 @@ function asAuthenticatedUser(granted: boolean, isMember = true, projectOk = true
       : [],
   });
 
+  const getProjectIdByUnitId = vi.mocked(projectsService.getProjectIdByUnitId);
   const getProjectById = vi.mocked(projectsService.getProjectById);
   const resolveIsProjectMember = vi.mocked(projectUsersService.resolveIsProjectMember);
 
+  getProjectIdByUnitId.mockImplementation(async (projectUnitId) =>
+    projectUnitId === PROJECT_UNIT_ID
+      ? { ok: true, data: { projectId: PROJECT_ID } }
+      : {
+          ok: false,
+          error: { code: ErrorCode.PROJECT_UNIT_NOT_FOUND, message: 'Project unit not found' },
+        }
+  );
+
   if (projectOk) {
-    getProjectById.mockResolvedValue({
-      ok: true,
-      data: { id: 1, name: 'Test Project', organization: 1 } as any,
-    });
+    getProjectById.mockImplementation(async (id) =>
+      id === PROJECT_ID
+        ? { ok: true, data: PROJECT }
+        : { ok: false, error: { code: ErrorCode.PROJECT_NOT_FOUND, message: 'Project not found' } }
+    );
   } else {
     getProjectById.mockResolvedValue({
       ok: false,
@@ -172,6 +197,52 @@ describe('pOST /ai/tools/greek-room/repeated-words', () => {
     const res = await postRepeatedWords(VALID_BODY);
 
     expect(res.status).toBe(404);
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
+  it('authorizes against the project that owns the unit, not the raw project_unit_id', async () => {
+    asAuthenticatedUser(true);
+    vi.mocked(callRepeatedWords).mockResolvedValue({ ok: true, data: buildEnvelope() as never });
+
+    const res = await postRepeatedWords(VALID_BODY);
+
+    expect(res.status).toBe(200);
+    expect(projectsService.getProjectIdByUnitId).toHaveBeenCalledWith(PROJECT_UNIT_ID);
+    expect(projectsService.getProjectById).toHaveBeenCalledWith(PROJECT_ID);
+    expect(projectsService.getProjectById).not.toHaveBeenCalledWith(PROJECT_UNIT_ID);
+    expect(projectUsersService.resolveIsProjectMember).toHaveBeenCalledWith(
+      PROJECT_ID,
+      APP_USER.id
+    );
+  });
+
+  it('returns 404 when the project unit does not exist', async () => {
+    asAuthenticatedUser(true);
+
+    const res = await postRepeatedWords({ ...VALID_BODY, project_unit_id: 999 });
+
+    expect(res.status).toBe(404);
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the caller is not a member of the resolved project', async () => {
+    asAuthenticatedUser(true, false);
+    // Grants are scoped to project 1, so only membership could admit the
+    // caller to project 4; with no membership the policy must deny.
+
+    const res = await postRepeatedWords(VALID_BODY);
+
+    expect(res.status).toBe(404);
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when project_unit_id is missing', async () => {
+    asAuthenticatedUser(true);
+    const { project_unit_id: _omit, ...body } = VALID_BODY;
+
+    const res = await postRepeatedWords(body);
+
+    expect(res.status).toBe(400);
     expect(callRepeatedWords).not.toHaveBeenCalled();
   });
 
@@ -237,13 +308,16 @@ describe('pOST /ai/tools/greek-room/repeated-words', () => {
     expect(json.code).toBe(ErrorCode.AI_SERVICE_UNAVAILABLE);
   });
 
-  it('forwards the request body verbatim (no enrichment)', async () => {
+  it('hands the service the validated body and the resolved project', async () => {
     asAuthenticatedUser(true);
-    (callRepeatedWords as any).mockResolvedValue({ ok: true, data: buildEnvelope() });
+    vi.mocked(callRepeatedWords).mockResolvedValue({ ok: true, data: buildEnvelope() as never });
 
     await postRepeatedWords(VALID_BODY);
 
     expect(callRepeatedWords).toHaveBeenCalledOnce();
-    expect(callRepeatedWords).toHaveBeenCalledWith(VALID_BODY);
+    expect(callRepeatedWords).toHaveBeenCalledWith(
+      VALID_BODY,
+      expect.objectContaining({ id: PROJECT_ID, name: 'Test Project' })
+    );
   });
 });

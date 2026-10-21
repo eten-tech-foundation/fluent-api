@@ -10,4 +10,5 @@ in fluent-platform for the full rationale.
 - `runbooks/` — operational procedures (deploys, rollbacks, hotfixes).
 - `guides/` — how-to and reference guides not tied to a single feature.
 - `tasks/` — standalone dated work items with no parent feature.
+- `adr/` — numbered architecture decision records; see `agents/domain.md`.
 - Loose files at the root of `docs/` — repo-wide reference docs.

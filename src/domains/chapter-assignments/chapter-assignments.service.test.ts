@@ -315,9 +315,15 @@ describe('claimChapterAssignment', () => {
       hasClaimConflict: false,
       claimConflictUserId: null,
     };
+    const conflictRecord = {
+      ...advanced,
+      hasClaimConflict: true,
+      claimConflictUserId: 5,
+    };
     vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
-    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(advanced);
-    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival);
+    // flagClaimConflict is status-agnostic — a PEER_CHECK rival still persists.
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(conflictRecord);
 
     const result = await claimChapterAssignment(1, 5);
 
@@ -328,6 +334,59 @@ describe('claimChapterAssignment', () => {
       expect(result.data.hasClaimConflict).toBe(true);
       expect(result.data.claimConflictUserId).toBe(5);
     }
+    expect(repo.flagClaimConflict).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries flagClaimConflict after a CAS miss when a rival assignee is still visible', async () => {
+    const priorRival = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const stillRival = {
+      ...priorRival,
+      status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+      peerCheckerId: 88,
+    };
+    const conflictRecord = {
+      ...stillRival,
+      hasClaimConflict: true,
+      claimConflictUserId: 5,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(stillRival);
+    vi.mocked(repo.flagClaimConflict)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(conflictRecord);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.hasClaimConflict).toBe(true);
+      expect(result.data.claimConflictUserId).toBe(5);
+    }
+    expect(repo.flagClaimConflict).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 404 when flagClaimConflict still misses after retry', async () => {
+    const priorRival = {
+      ...baseRecord,
+      assignedUserId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    const stillRival = { ...priorRival, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
+    vi.mocked(repo.findById).mockResolvedValueOnce(priorRival).mockResolvedValueOnce(stillRival);
+    vi.mocked(repo.flagClaimConflict).mockResolvedValue(null);
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+    expect(repo.flagClaimConflict).toHaveBeenCalledTimes(2);
   });
 
   it('returns 404 when CAS miss reveals PM assigned caller and advanced past DRAFT', async () => {
