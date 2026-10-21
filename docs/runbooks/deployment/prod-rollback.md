@@ -1,11 +1,48 @@
 # Production Rollback
 
-If you need to roll back production to a previous version, **do not just re-run the `post-merge-deploy.yml` workflow against an old tag**.
+Rolling back is a **Promote to Production** run against the previous tag. That
+workflow exists for this: it checks the old tag out by commit, rebuilds it, and
+verifies `/health` reports the version you asked for.
 
-Re-running the workflow unconditionally runs the `migrate-prod` step, which will attempt to run database migrations. If the bad release included database schema changes, simply deploying the old application code against the new schema will likely cause errors.
+> [!IMPORTANT]
+> Rolling back the code does **not** roll back the schema. `npm run db:migrate`
+> applies pending migrations; it never removes applied ones. Deploying an older
+> tag is a no-op for the database and leaves the newer schema in place, with
+> older code running against it.
 
-## To Rollback Safely:
+## Before you roll back
 
-1. **Verify Database Compatibility:** Determine if the bad release included any database migrations. If it did, you must either write a downward migration (and deploy forward) or manually intervene in the database.
-2. If there are no schema changes or downward migrations are safe, the recommended way to roll back is to deploy forward. Cut a hotfix (see `prod-emergency-hotfix.md`) that reverts the bad commit, and push a new tag.
-3. If you must deploy the exact old artifact manually, use Azure Portal to swap to a previous deployment slot (if configured) or download the old artifact and deploy it directly via Azure CLI.
+Determine whether the bad release included a migration:
+
+```bash
+# Example: git diff --stat v26.07.1..v26.07.2 -- src/db/migrations
+git diff --stat <GOOD_TAG>..<BAD_TAG> -- src/db/migrations
+```
+
+- **No migrations.** Roll back directly, below.
+- **Additive migrations** (new nullable column, new table). Usually safe: the
+  old code ignores what it doesn't know about. Roll back, then plan the schema
+  cleanup separately.
+- **Destructive or incompatible migrations** (dropped or renamed column,
+  tightened constraint, changed type). **Do not roll back.** The old code will
+  fail against the new schema. Roll forward instead: cut a hotfix that reverts
+  the bad commit (see [`prod-emergency-hotfix.md`](prod-emergency-hotfix.md)),
+  or write a compensating migration.
+
+## To roll back
+
+1. Identify the last good tag:
+   ```bash
+   git tag -l "v*" | sort -V | tail -5
+   ```
+2. Run **Promote to Production** with that tag. It already has a successful QA
+   deployment from when it was first released, so the QA check passes and
+   `skip_qa_check` is not needed.
+3. Approve the `Production` environment gate.
+4. Verify:
+   ```bash
+   curl -s https://fluent-server-prod.azurewebsites.net/health | jq .version
+   ```
+5. Open a follow-up to fix forward. A rollback leaves `main` ahead of
+   production, and the next release cut will ship the bad commit again unless
+   it is reverted.

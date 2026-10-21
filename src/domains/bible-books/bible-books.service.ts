@@ -1,4 +1,7 @@
-import { ok } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
+
+import { logger } from '@/lib/logger';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   BibleBook,
@@ -14,6 +17,7 @@ function toDetailResponse(record: BibleBookWithDetails): BibleBookDetailResponse
   return {
     bibleId: record.bibleId,
     bookId: record.bookId,
+    hasAudio: record.hasAudio,
     createdAt: record.createdAt ? record.createdAt.toISOString() : null,
     updatedAt: record.updatedAt ? record.updatedAt.toISOString() : null,
     book: {
@@ -32,6 +36,7 @@ function toResponse(record: BibleBook): BibleBookResponse {
   return {
     bibleId: record.bibleId,
     bookId: record.bookId,
+    hasAudio: record.hasAudio,
     createdAt: record.createdAt ? record.createdAt.toISOString() : null,
     updatedAt: record.updatedAt ? record.updatedAt.toISOString() : null,
   };
@@ -57,4 +62,21 @@ export async function createBibleBook(input: CreateBibleBookInput) {
 
 export function deleteBibleBook(bibleId: number, bookId: number) {
   return repo.remove(bibleId, bookId);
+}
+
+export async function isBibleBookTextIngested(
+  bibleId: number,
+  bookId: number,
+  tx?: DbTransaction
+): Promise<Result<boolean>> {
+  try {
+    return ok(await repo.isTextIngested(bibleId, bookId, tx));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to check source book ingestion',
+      context: { bibleId, bookId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

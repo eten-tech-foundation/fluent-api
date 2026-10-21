@@ -2,6 +2,7 @@ import { z } from '@hono/zod-openapi';
 
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
 
+import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
 import { chapterAssignmentResponseSchema as sharedAssignmentSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── Shared response schemas ──────────────────────────────────────────────────
@@ -17,6 +18,12 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   assignmentId: z.number(),
   projectUnitId: z.number(),
   bibleId: z.number(),
+  // The source Bible's audio license. The PM "open chapter" path builds its
+  // ProjectItem from this response, so the drafting page needs the license
+  // here too — not only on the user-assignments endpoint.
+  ttsLicenseStatus: ttsLicenseStatusSchema,
+  textBibleKey: z.string().nullable(),
+  selectedRecordingKey: z.string().nullable(),
   bookId: z.number(),
   bookCode: z.string(),
   sourceLangCode: z.string(),
@@ -36,6 +43,7 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
   isAiEnabled: z.boolean(),
+  hasConflict: z.boolean(),
 });
 
 // ─── Assign-all input ─────────────────────────────────────────────────────────

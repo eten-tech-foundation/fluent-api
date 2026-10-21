@@ -1,18 +1,26 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 
 import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { bible_texts, pericope_sets } from '@/db/schema';
+import { bible_books, bible_texts, pericope_sets } from '@/db/schema';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getQueue, QUEUE_NAMES } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { CreateProjectServiceInput, Project, UpdateProjectInput } from './projects.types';
+import type {
+  CreateProjectServiceInput,
+  ParsedUsfmFile,
+  Project,
+  UpdateProjectInput,
+} from './projects.types';
 
+import * as projectChapterAssignmentsRepo from './chapter-assignments/project-chapter-assignments.repository';
 import * as repo from './projects.repository';
+import * as usfmImportService from './usfm-import.service';
+import { seedDefaultStages } from './workflow-stages/workflow-stages.service';
 
 export function getProjectsByOrganization(organizationId: number) {
   return repo.getByOrganization(organizationId);
@@ -50,8 +58,25 @@ export function getProjectById(id: number) {
   return repo.getById(id);
 }
 
-export function deleteProject(id: number) {
-  return repo.remove(id);
+export function lockProjectById(id: number, tx: DbTransaction) {
+  return repo.lockProjectById(id, tx);
+}
+
+export async function deleteProject(
+  id: number,
+  options?: { cascadeUnits?: boolean }
+): Promise<Result<void>> {
+  if (options?.cascadeUnits) return repo.remove(id);
+
+  return db.transaction(async (tx) => {
+    const exists = await repo.lockProjectById(id, tx);
+    if (!exists) return err(ErrorCode.PROJECT_NOT_FOUND);
+
+    const count = await repo.countUnitsByProjectId(id, tx);
+    if (count > 0) return err(ErrorCode.PROJECT_HAS_MILESTONES);
+
+    return repo.remove(id, tx);
+  });
 }
 
 export function getProjectIdByUnitId(projectUnitId: number) {
@@ -76,9 +101,80 @@ export async function touchProjectActivity(
   await repo.touchLastActivity(result.data.projectId, tx);
 }
 
-export async function createProject(input: CreateProjectServiceInput): Promise<Result<Project>> {
+/** Activate a not_assigned project and bump lastActivityAt when a chapter is first assigned. */
+export async function recordProjectAssignmentActivity(
+  projectUnitId: number,
+  tx: DbTransaction
+): Promise<void> {
+  const projectIds = await projectChapterAssignmentsRepo.findNotAssignedProjectIds(
+    [projectUnitId],
+    tx
+  );
+  await projectChapterAssignmentsRepo.activateProjects(projectIds, tx);
+  await touchProjectActivity(projectUnitId, tx);
+}
+
+const MILESTONE_NAME_MAX_LENGTH = 255;
+
+// Lengths here are in code points, the way Postgres counts varchar characters. Cutting by UTF-16
+// code units could split a surrogate pair and store a lone surrogate.
+function characterCount(text: string): number {
+  return Array.from(text).length;
+}
+
+function truncateName(name: string, maxLength: number): string {
+  const characters = Array.from(name);
+  return characters.length <= maxLength ? name : `${characters.slice(0, maxLength - 1).join('')}…`;
+}
+
+/**
+ * Name for the milestone created with the project. Milestones made through the milestone API
+ * always carry a name, and the project page shows it, so this one is named after its books
+ * instead of being left blank. A list too long for the column collapses to its first and last
+ * book, and either name is shortened if even that would not fit.
+ */
+function buildInitialMilestoneName(bookNames: string[]): string {
+  const listed = bookNames.join(', ');
+  if (characterCount(listed) <= MILESTONE_NAME_MAX_LENGTH) return listed;
+  if (bookNames.length === 1) return truncateName(listed, MILESTONE_NAME_MAX_LENGTH);
+
+  const separator = ' – ';
+  const suffix = ` (${bookNames.length} books)`;
+  const room = MILESTONE_NAME_MAX_LENGTH - characterCount(separator) - characterCount(suffix);
+  const firstRoom = Math.ceil(room / 2);
+  const first = truncateName(bookNames[0], firstRoom);
+  const last = truncateName(bookNames[bookNames.length - 1], room - characterCount(first));
+  return `${first}${separator}${last}${suffix}`;
+}
+
+export async function createProject(
+  requested: CreateProjectServiceInput
+): Promise<Result<Project>> {
+  // Create-from-existing-data (#419): every file is parsed before anything is written, and the
+  // books the files carry replace whatever the client listed, since the files are the authority.
+  let importedFiles: ParsedUsfmFile[] | null = null;
+  const bibleId = requested.sourceBibleId ?? requested.bibleId;
+  if (
+    bibleId === undefined ||
+    (requested.bibleId != null &&
+      requested.sourceBibleId != null &&
+      requested.bibleId !== requested.sourceBibleId)
+  ) {
+    return err(ErrorCode.VALIDATION_ERROR);
+  }
+  let input = { ...requested, bibleId, sourceBibleId: bibleId, bookId: requested.bookId ?? [] };
+  // Current clients create milestones separately. Only imports and explicit legacy book
+  // requests keep the initial-unit creation used before milestones were introduced.
+  const createInitialUnit = requested.usfmFiles?.length || requested.bookId?.length;
   try {
-    const validBookIds = await repo.getValidBookIdsForBible(input.bibleId);
+    if (requested.usfmFiles?.length) {
+      const parsed = await usfmImportService.parseUsfmFiles(requested.usfmFiles);
+      if (!parsed.ok) return parsed;
+      importedFiles = parsed.data;
+      input = { ...input, bookId: importedFiles.map((file) => file.bookId) };
+    }
+
+    const validBookIds = createInitialUnit ? await repo.getValidBookIdsForBible(input.bibleId) : [];
     const hasInvalidBooks = input.bookId.some((id) => !validBookIds.includes(id));
 
     if (hasInvalidBooks) {
@@ -100,16 +196,31 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
       }
     }
 
+    let createdProjectUnitId: number | null = null;
     const result = await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus = 'not_started', ...projectData } = input;
+      const {
+        bibleId,
+        bookId,
+        projectUnitStatus = 'not_started',
+        usfmFiles: _usfmFiles,
+        ...projectData
+      } = input;
 
       const project = await repo.insertProjectRecord(
         { ...projectData, status: 'not_assigned' },
         tx
       );
 
+      await seedDefaultStages(project.id, tx);
+
+      if (!createInitialUnit) return ok(project);
+
       const projectUnit = await repo.insertProjectUnitRecord(
-        { projectId: project.id, status: projectUnitStatus },
+        {
+          projectId: project.id,
+          status: projectUnitStatus,
+          name: buildInitialMilestoneName(await repo.getBookDisplayNames(bookId, tx)),
+        },
         tx
       );
 
@@ -132,19 +243,37 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
       }
 
-      return ok(project);
-    });
+      if (importedFiles) {
+        await repo.insertUsfmImports(
+          importedFiles.map((file) => ({
+            projectUnitId: projectUnit.id,
+            bookId: file.bookId,
+            fileName: file.fileName,
+            usfm: file.usfm,
+          })),
+          tx
+        );
+        createdProjectUnitId = projectUnit.id;
+      }
 
-    // Enqueue the on-demand text ingestion job
-    if (result.ok) {
+      // Enqueue the on-demand text ingestion job. Inside the transaction because an import
+      // whose job was never queued would sit pending forever with only a log line as evidence:
+      // rolling the creation back lets the caller retry instead of owning a project whose
+      // verses can never arrive.
       try {
-        const queue = await getQueue();
-
-        // Detect which books have already been ingested for this Bible
-        const ingestedBooks = await db
-          .selectDistinct({ bookId: bible_texts.bookId })
-          .from(bible_texts)
-          .where(eq(bible_texts.bibleId, input.bibleId));
+        // Imported verses need a complete source book, including when another project is
+        // still ingesting it. Preserve the existing queue policy for blank projects.
+        const ingestedBooks = importedFiles
+          ? await db
+              .select({ bookId: bible_books.bookId })
+              .from(bible_books)
+              .where(
+                and(eq(bible_books.bibleId, input.bibleId), isNotNull(bible_books.textIngestedAt))
+              )
+          : await db
+              .selectDistinct({ bookId: bible_texts.bookId })
+              .from(bible_texts)
+              .where(eq(bible_texts.bibleId, input.bibleId));
         const ingestedBookIds = ingestedBooks.map((r) => r.bookId);
 
         // Get all available books for this Bible
@@ -153,7 +282,7 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
           logger.warn('No valid books found for Bible, skipping text ingestion', {
             bibleId: input.bibleId,
           });
-          return result;
+          return ok(project);
         }
         const dbBooks = await db.query.books.findMany({
           where: (books, { inArray }) => inArray(books.id, validBookIds),
@@ -172,17 +301,18 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
 
         // Enqueue priority ingestion for the exact requested books
         if (priorityBookCodes.length > 0) {
+          const queue = await getQueue();
           await queue.send(
             QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
             {
-              projectId: result.data.id,
+              projectId: project.id,
               bibleId: input.bibleId,
               bookCodes: priorityBookCodes,
             },
             { priority: 10 }
           );
           logger.info('Enqueued text ingestion job for requested books', {
-            projectId: result.data.id,
+            projectId: project.id,
             bookCodes: priorityBookCodes,
           });
         }
@@ -203,6 +333,59 @@ export async function createProject(input: CreateProjectServiceInput): Promise<R
         // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
+        // #419: only an import depends on the job to ever produce its verses. A blank project
+        // keeps the pre-existing behaviour of being created anyway.
+        if (importedFiles) throw error;
+      }
+
+      return ok(project);
+    });
+
+    // Decide ingestion first so completion racing with this request cannot leave an import
+    // pending without its own job. Completed books are materialized here; the worker handles
+    // the rest. Never fail a committed project creation because materialization failed.
+    if (result.ok && importedFiles && createdProjectUnitId !== null) {
+      const materialized = await usfmImportService.materializePendingUsfmImports(
+        createdProjectUnitId,
+        input.bibleId,
+        importedFiles.map((file) => file.bookId),
+        importedFiles
+      );
+      if (materialized.ok) {
+        logger.info('Imported USFM materialised at project creation', {
+          projectId: result.data.id,
+          ...materialized.data,
+        });
+      } else {
+        logger.error({
+          message: 'Failed to materialise imported USFM at project creation',
+          context: {
+            projectId: result.data.id,
+            projectUnitId: createdProjectUnitId,
+            error: materialized.error,
+          },
+        });
+        // Completed source books have no ingestion job to revisit this import.
+        // Retry each book independently; successful inserts are idempotent.
+        for (const file of importedFiles) {
+          try {
+            const queue = await getQueue();
+            await queue.send(
+              QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
+              { bibleId: input.bibleId, bookId: file.bookId },
+              { singletonKey: `${input.bibleId}:${file.bookId}` }
+            );
+          } catch (error) {
+            // The pending import is also a durable intent: the worker's recurring
+            // recovery sweep rediscovers it once the queue becomes available.
+            logger.error('Failed to queue USFM materialisation retry', {
+              projectId: result.data.id,
+              bibleId: input.bibleId,
+              bookId: file.bookId,
+              error,
+            });
+          }
+        }
       }
     }
 
@@ -238,16 +421,10 @@ export async function updateProject(
     }
 
     return await db.transaction(async (tx) => {
-      const { bibleId, bookId, projectUnitStatus, ...projectData } = input;
-
-      const updatedProject = await repo.updateProjectRecord(id, projectData, tx);
+      const updatedProject = await repo.updateProjectRecord(id, input, tx);
 
       if (!updatedProject) {
         return err(ErrorCode.PROJECT_NOT_FOUND);
-      }
-
-      if (projectUnitStatus !== undefined) {
-        await repo.updateProjectUnitStatusByProjectId(id, projectUnitStatus, tx);
       }
 
       return ok(updatedProject);

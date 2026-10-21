@@ -1,16 +1,24 @@
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { ChapterAssignmentStatus } from '@/domains/chapter-assignments/chapter-assignments.types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
+  bible_texts,
   chapter_assignments,
   project_units,
   projects,
   roles,
+  translated_verses,
   user_roles,
   users,
 } from '@/db/schema';
+import {
+  insertStatusHistory,
+  insertUserAssignmentHistory,
+} from '@/domains/chapter-assignments/chapter-assignments.repository';
+import { CHAPTER_ASSIGNMENT_STATUS } from '@/domains/chapter-assignments/chapter-assignments.types';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { handleConstraintError } from '@/lib/db-errors';
@@ -179,10 +187,136 @@ export async function addProjectUsers(
   }
 }
 
+async function clearUserAssignmentsAndRecordHistory(
+  tx: DbTransaction,
+  unitIds: number[],
+  userId: number
+): Promise<void> {
+  if (unitIds.length === 0) return;
+
+  const affectedAssignments = await tx
+    .select({
+      id: chapter_assignments.id,
+      bibleId: chapter_assignments.bibleId,
+      bookId: chapter_assignments.bookId,
+      chapterNumber: chapter_assignments.chapterNumber,
+      projectUnitId: chapter_assignments.projectUnitId,
+      status: chapter_assignments.status,
+      assignedUserId: chapter_assignments.assignedUserId,
+      peerCheckerId: chapter_assignments.peerCheckerId,
+    })
+    .from(chapter_assignments)
+    .where(
+      and(
+        inArray(chapter_assignments.projectUnitId, unitIds),
+        or(
+          eq(chapter_assignments.assignedUserId, userId),
+          eq(chapter_assignments.peerCheckerId, userId)
+        )
+      )
+    );
+
+  if (affectedAssignments.length === 0) return;
+
+  await tx
+    .update(chapter_assignments)
+    .set({
+      assignedUserId: null,
+      status: sql`CASE 
+        WHEN EXISTS (
+          SELECT 1 FROM ${translated_verses} tv 
+          JOIN ${bible_texts} bt ON tv.bible_text_id = bt.id 
+          WHERE bt.bible_id = ${chapter_assignments.bibleId} 
+            AND bt.book_id = ${chapter_assignments.bookId} 
+            AND bt.chapter_number = ${chapter_assignments.chapterNumber} 
+            AND tv.project_unit_id = ${chapter_assignments.projectUnitId} 
+            AND tv.content != ''
+        ) THEN ${chapter_assignments.status}
+        ELSE ${CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED}
+      END`,
+    })
+    .where(
+      and(
+        inArray(chapter_assignments.projectUnitId, unitIds),
+        eq(chapter_assignments.assignedUserId, userId),
+        inArray(chapter_assignments.status, [
+          CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED,
+          CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+        ])
+      )
+    );
+
+  await tx
+    .update(chapter_assignments)
+    .set({
+      peerCheckerId: null,
+    })
+    .where(
+      and(
+        inArray(chapter_assignments.projectUnitId, unitIds),
+        eq(chapter_assignments.peerCheckerId, userId),
+        inArray(chapter_assignments.status, [
+          CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED,
+          CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+          CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+        ])
+      )
+    );
+
+  for (const ca of affectedAssignments) {
+    const isDrafterRemovable =
+      ca.assignedUserId === userId &&
+      (ca.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED ||
+        ca.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT);
+
+    const isCheckerRemovable =
+      ca.peerCheckerId === userId &&
+      (ca.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED ||
+        ca.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT ||
+        ca.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+
+    if (isDrafterRemovable) {
+      const [hasContentRow] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(translated_verses)
+        .innerJoin(bible_texts, eq(translated_verses.bibleTextId, bible_texts.id))
+        .where(
+          and(
+            eq(bible_texts.bibleId, ca.bibleId),
+            eq(bible_texts.bookId, ca.bookId),
+            eq(bible_texts.chapterNumber, ca.chapterNumber),
+            eq(translated_verses.projectUnitId, ca.projectUnitId),
+            sql`${translated_verses.content} != ''`
+          )
+        );
+
+      const hasContent = Number(hasContentRow?.count ?? 0) > 0;
+      const resultingStatus = hasContent
+        ? (ca.status as ChapterAssignmentStatus)
+        : (CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED as ChapterAssignmentStatus);
+
+      await insertUserAssignmentHistory(tx, ca.id, userId, 'drafter', resultingStatus);
+
+      if (resultingStatus !== ca.status) {
+        await insertStatusHistory(tx, ca.id, resultingStatus);
+      }
+    }
+
+    if (isCheckerRemovable) {
+      await insertUserAssignmentHistory(
+        tx,
+        ca.id,
+        userId,
+        'peer_checker',
+        ca.status as ChapterAssignmentStatus
+      );
+    }
+  }
+}
+
 export async function removeProjectUser(projectId: number, userId: number): Promise<Result<void>> {
   try {
     return await db.transaction(async (tx) => {
-      // 1. Delete the project-scoped grant first.
       const deleted = await tx
         .delete(user_roles)
         .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
@@ -190,29 +324,13 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
 
       if (deleted.length === 0) return err(ErrorCode.USER_NOT_IN_PROJECT);
 
-      // 2. Find all chapter_assignment IDs in this project where the user is assigned.
-      const affectedIds = await tx
-        .select({ id: chapter_assignments.id })
-        .from(chapter_assignments)
-        .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-        .where(
-          and(
-            eq(project_units.projectId, projectId),
-            sql`(${chapter_assignments.assignedUserId} = ${userId} OR ${chapter_assignments.peerCheckerId} = ${userId})`
-          )
-        );
+      const unitRows = await tx
+        .select({ id: project_units.id })
+        .from(project_units)
+        .where(eq(project_units.projectId, projectId));
 
-      // 3. Null out the user's drafter / peer-checker columns on those assignments.
-      if (affectedIds.length > 0) {
-        const ids = affectedIds.map((r) => r.id);
-        await tx
-          .update(chapter_assignments)
-          .set({
-            assignedUserId: sql`CASE WHEN ${chapter_assignments.assignedUserId} = ${userId} THEN NULL ELSE ${chapter_assignments.assignedUserId} END`,
-            peerCheckerId: sql`CASE WHEN ${chapter_assignments.peerCheckerId} = ${userId} THEN NULL ELSE ${chapter_assignments.peerCheckerId} END`,
-          })
-          .where(inArray(chapter_assignments.id, ids));
-      }
+      const unitIds = unitRows.map((u) => u.id);
+      await clearUserAssignmentsAndRecordHistory(tx, unitIds, userId);
 
       return ok(undefined);
     });
@@ -262,11 +380,11 @@ export async function getProjectUserRole(
 }
 
 export async function updateProjectUserRole(
-  createdBy: number | null,
   projectId: number,
   userId: number,
   roleId: number,
-  roleName: string
+  roleName: string,
+  createdBy: number | null
 ): Promise<
   Result<{
     projectId: number;
@@ -288,70 +406,86 @@ export async function updateProjectUserRole(
       return err(ErrorCode.NOT_FOUND);
     }
 
-    const [updated] = await db
-      .update(user_roles)
-      .set({ roleId })
-      .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-      .returning({
-        projectId: user_roles.projectId,
-        userId: user_roles.userId,
-        roleId: user_roles.roleId,
-        createdAt: user_roles.createdAt,
-      });
+    return await db.transaction(async (tx) => {
+      const clearObserverAssignments = async () => {
+        if (roleId !== poId) return;
+        const unitRows = await tx
+          .select({ id: project_units.id })
+          .from(project_units)
+          .where(eq(project_units.projectId, projectId));
 
-    if (updated) {
-      return ok({ ...updated, roleName } as any);
-    }
+        const unitIds = unitRows.map((u) => u.id);
+        await clearUserAssignmentsAndRecordHistory(tx, unitIds, userId);
+      };
 
-    // If no project-pinned row exists, check if the user is a member of the project
-    const [project] = await db
-      .select({ organization: projects.organization })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
-
-    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
-
-    const isMember = await resolveIsProjectMember(projectId, userId);
-    if (!isMember) {
-      return err(ErrorCode.USER_NOT_IN_PROJECT);
-    }
-
-    // Insert project-pinned grant row for this user
-    const [inserted] = await db
-      .insert(user_roles)
-      .values({
-        userId,
-        orgId: project.organization,
-        projectId,
-        roleId,
-        createdBy,
-      })
-      .onConflictDoNothing()
-      .returning({
-        projectId: user_roles.projectId,
-        userId: user_roles.userId,
-        roleId: user_roles.roleId,
-        createdAt: user_roles.createdAt,
-      });
-
-    if (!inserted) {
-      const [existingRow] = await db
-        .select({
+      const [updated] = await tx
+        .update(user_roles)
+        .set({ roleId })
+        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        .returning({
           projectId: user_roles.projectId,
           userId: user_roles.userId,
           roleId: user_roles.roleId,
           createdAt: user_roles.createdAt,
-        })
-        .from(user_roles)
-        .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+        });
+
+      if (updated) {
+        await clearObserverAssignments();
+        return ok({ ...updated, roleName } as any);
+      }
+
+      // If no project-pinned row exists, check if the user is a member of the project
+      const [project] = await tx
+        .select({ organization: projects.organization })
+        .from(projects)
+        .where(eq(projects.id, projectId))
         .limit(1);
 
-      if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
-      return ok({ ...existingRow, roleName } as any);
-    }
+      if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
 
-    return ok({ ...inserted, roleName } as any);
+      const isMember = await resolveIsProjectMember(projectId, userId);
+      if (!isMember) {
+        return err(ErrorCode.USER_NOT_IN_PROJECT);
+      }
+
+      // Insert project-pinned grant row for this user
+      const [inserted] = await tx
+        .insert(user_roles)
+        .values({
+          userId,
+          orgId: project.organization,
+          projectId,
+          roleId,
+          createdBy,
+        })
+        .onConflictDoNothing()
+        .returning({
+          projectId: user_roles.projectId,
+          userId: user_roles.userId,
+          roleId: user_roles.roleId,
+          createdAt: user_roles.createdAt,
+        });
+
+      if (!inserted) {
+        const [existingRow] = await tx
+          .select({
+            projectId: user_roles.projectId,
+            userId: user_roles.userId,
+            roleId: user_roles.roleId,
+            createdAt: user_roles.createdAt,
+          })
+          .from(user_roles)
+          .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
+          .limit(1);
+
+        if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
+        await clearObserverAssignments();
+        return ok({ ...existingRow, roleName } as any);
+      }
+
+      await clearObserverAssignments();
+      return ok({ ...inserted, roleName } as any);
+    });
   } catch (error) {
     logger.error({
       cause: error,

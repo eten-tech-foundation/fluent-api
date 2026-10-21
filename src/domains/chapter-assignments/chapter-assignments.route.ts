@@ -209,14 +209,64 @@ const submitChapterAssignmentRoute = createRoute({
 
 server.openapi(submitChapterAssignmentRoute, async (c) => {
   const { chapterAssignmentId } = c.req.valid('param');
+  const user = c.get('user')!;
 
-  const result = await chapterAssignmentService.submitChapterAssignment(chapterAssignmentId);
+  const result = await chapterAssignmentService.submitChapterAssignment(
+    chapterAssignmentId,
+    user.id
+  );
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
 
   if (result.error.code === ErrorCode.INVALID_STATUS_TRANSITION) {
     return c.json({ message: result.error.message }, HttpStatusCodes.BAD_REQUEST);
   }
 
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── POST /chapter-assignments/:chapterAssignmentId/claim ────────────────────
+
+const claimChapterAssignmentRoute = createRoute({
+  tags: ['Chapter Assignments'],
+  method: 'post',
+  path: '/chapter-assignments/{chapterAssignmentId}/claim',
+  middleware: [
+    authenticateUser,
+    requireChapterAssignmentAccess(CHAPTER_ASSIGNMENT_ACTIONS.CLAIM),
+  ] as const,
+  request: { params: chapterAssignmentIdParam },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      chapterAssignmentResponseSchema,
+      'Claim result (clean or conflicted)'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'Chapter assignment not found'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+  summary: 'Translator self-claim on first recording',
+  description:
+    'Translator claims an unassigned chapter. Idempotent for the same user. If another user already claimed/was assigned concurrently, marks a durable claim conflict instead of rejecting or overwriting (fluent-mobile#268/#271).',
+});
+
+server.openapi(claimChapterAssignmentRoute, async (c) => {
+  const { chapterAssignmentId } = c.req.valid('param');
+  const user = c.get('user')!;
+
+  const result = await chapterAssignmentService.claimChapterAssignment(
+    chapterAssignmentId,
+    user.id
+  );
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });
 

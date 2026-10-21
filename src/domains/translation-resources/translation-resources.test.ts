@@ -2,14 +2,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
-import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
-import { getUserByEmail } from '@/domains/users/users.service';
 import { auth } from '@/lib/auth';
-import { PERMISSIONS } from '@/lib/permissions';
 import * as aquiferClient from '@/lib/services/aquifer/aquifer.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 import '@/domains/translation-resources/translation-resources.route';
+
+import {
+  asAuthenticatedUser,
+  asProjectMember,
+  IMAGES_PATH,
+  imageSearchHit,
+  MANIFEST_PATH,
+  MOCK_PROJECT,
+  NOTES_PATH,
+  QUESTIONS_PATH,
+  searchHit,
+  textDetails,
+} from './translation-resources.test-fixtures';
 
 vi.mock('@/lib/auth', () => ({
   auth: {
@@ -54,89 +64,6 @@ vi.mock('@/lib/services/aquifer/aquifer.client', () => ({
   searchAllResources: vi.fn(),
   getResource: vi.fn(),
 }));
-
-const APP_USER = {
-  id: 1,
-  email: 'translator@example.com',
-  role: 5,
-  roleName: 'Translator',
-  organization: 1,
-  status: 'verified' as 'verified' | 'inactive',
-};
-
-const MOCK_PROJECT = {
-  id: 10,
-  name: 'Test Project',
-  organization: 1,
-};
-
-const NOTES_PATH = '/projects/10/translation-resources/notes/MRK/14/1?languageCode=eng';
-const QUESTIONS_PATH = '/projects/10/translation-resources/questions/MRK/14/1?languageCode=eng';
-const IMAGES_PATH = '/projects/10/translation-resources/images/MRK/14/1?languageCode=eng';
-const MANIFEST_PATH =
-  '/projects/10/translation-resources/manifest?languageCode=eng&bookCode=MRK&startChapter=14&endChapter=14';
-
-function asAuthenticatedUser(overrides: Partial<typeof APP_USER> = {}, grantedPermission = true) {
-  const user = { ...APP_USER, ...overrides };
-  (auth.api.getSession as any).mockResolvedValue({
-    session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
-    user: { email: user.email },
-  });
-  (getUserByEmail as any).mockResolvedValue(ok(user));
-  // orgId/projectId intentionally don't match MOCK_PROJECT: this grant satisfies the
-  // route-level requirePermission gate without blanket-authorizing project access, so
-  // ProjectPolicy.read still falls through to the isProjectMember check in tests below.
-  (findGrantsByUserId as any).mockResolvedValue(
-    ok(
-      grantedPermission
-        ? [{ orgId: 999, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }]
-        : []
-    )
-  );
-}
-
-function asProjectMember() {
-  vi.mocked(getProjectById).mockResolvedValue(ok(MOCK_PROJECT as any));
-  vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
-}
-
-const searchHit = {
-  id: 101,
-  name: 'faith',
-  localizedName: 'Faith',
-  mediaType: 'Text' as const,
-  languageCode: 'eng',
-  grouping: {
-    type: 'Guide' as const,
-    name: 'Translation Notes',
-    collectionTitle: 'Translation Notes',
-    collectionCode: 'UWTranslationNotes',
-  },
-};
-
-const textDetails = {
-  id: 101,
-  referenceId: 101,
-  name: 'faith',
-  localizedName: 'Faith',
-  content: [{ tiptap: { type: 'doc', content: [{ type: 'paragraph' }] } }],
-  grouping: { type: 'Guide' as const, name: 'Guide', mediaType: 'Text' },
-  language: { id: 1, code: 'eng', displayName: 'English', scriptDirection: 'LTR' },
-};
-
-function imageSearchHit(id: number) {
-  return {
-    ...searchHit,
-    id,
-    mediaType: 'Image' as const,
-    grouping: {
-      type: 'Images' as const,
-      name: 'Images',
-      collectionTitle: 'Images',
-      collectionCode: 'Images',
-    },
-  };
-}
 
 describe('translation-resources routes', () => {
   beforeEach(() => {
@@ -484,6 +411,27 @@ describe('translation-resources routes', () => {
   });
 
   describe('gET manifest', () => {
+    it('returns 502 when one manifest resource fails to hydrate (#432)', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = Array.from({ length: 100 }, (_, index) => ({
+        ...searchHit,
+        id: index + 1,
+      }));
+      vi.mocked(aquiferClient.searchAllResources)
+        .mockResolvedValueOnce(ok(hits))
+        .mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.getResource).mockImplementation(async (id) =>
+        id === 100 ? err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE) : ok({ ...textDetails, id })
+      );
+
+      const res = await server.request(MANIFEST_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
+      expect(aquiferClient.getResource).toHaveBeenCalledTimes(100);
+    });
+
     it('returns empty manifest when Aquifer has no resources', async () => {
       asAuthenticatedUser();
       asProjectMember();

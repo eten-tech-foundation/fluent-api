@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, notInArray } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -83,9 +83,12 @@ const NEW_TESTAMENT_CODES = [
   'REV',
 ];
 
-export async function getAll(): Promise<Result<Book[]>> {
+export async function getAll(updatedAfter?: Date): Promise<Result<Book[]>> {
   try {
-    return ok(await db.select().from(books));
+    const rows = updatedAfter
+      ? await db.select().from(books).where(gte(books.updatedAt, updatedAfter))
+      : await db.select().from(books);
+    return ok(rows);
   } catch (error) {
     logger.error({ cause: error, message: 'Failed to get all books' });
     return err(ErrorCode.INTERNAL_ERROR);
@@ -144,9 +147,11 @@ export interface DblBookUpsertInput {
 }
 
 /**
- * Upserts books using `onConflictDoNothing` to preserve the first-seen English
- * display name, preventing localized names from non-English Bibles from overwriting
- * the canonical name (e.g. "Génesis" replacing "Genesis").
+ * Upserts books while preserving the first-seen English display name (conflict
+ * path does not overwrite `eng_display_name`), preventing localized names from
+ * non-English Bibles from replacing the canonical name (e.g. "Génesis" → "Genesis").
+ * Existing codes are left unchanged (no no-op `updatedAt` stamp) so incremental
+ * `/books?updatedAfter=` sync is not forced into a full dump after every sync.
  *
  * Also links the inserted/existing books to the specified `bibleId` in the
  * `bible_books` junction table.
@@ -159,8 +164,8 @@ export async function upsertFromDbl(
 
   try {
     await db.transaction(async (tx) => {
-      // 1. Bulk insert books, ignoring conflicts to preserve existing names
-      await tx.insert(books).values(rows).onConflictDoNothing();
+      // 1. Insert new books only; existing codes keep their watermark.
+      await tx.insert(books).values(rows).onConflictDoNothing({ target: books.code });
 
       // 2. Fetch all book IDs for the codes we just processed
       const codes = rows.map((r) => r.code);
@@ -186,6 +191,79 @@ export async function upsertFromDbl(
       cause: error,
       message: 'Failed to upsert books from DBL',
       context: { bibleId, rowCount: rows.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * Updates `has_audio` on `bible_books` rows for a given Bible.
+ *
+ * Sets `has_audio = true` for books whose code is in `audioBookCodes`,
+ * and `has_audio = false` for all other books of that Bible.
+ */
+export async function updateAudioAvailability(
+  bibleId: number,
+  audioBookCodes: string[]
+): Promise<Result<{ updated: number }>> {
+  try {
+    let updated = 0;
+
+    await db.transaction(async (tx) => {
+      // Resolve book codes to IDs
+      const audioBookRows =
+        audioBookCodes.length > 0
+          ? await tx
+              .select({ id: books.id })
+              .from(books)
+              .where(
+                inArray(
+                  books.code,
+                  audioBookCodes.map((c) => c.toUpperCase())
+                )
+              )
+          : [];
+      const audioBookIds = audioBookRows.map((b) => b.id);
+
+      // Turn audio ON for books that should have it but currently don't
+      if (audioBookIds.length > 0) {
+        const turnedOn = await tx
+          .update(bible_books)
+          .set({ hasAudio: true })
+          .where(
+            and(
+              eq(bible_books.bibleId, bibleId),
+              eq(bible_books.hasAudio, false),
+              inArray(bible_books.bookId, audioBookIds)
+            )
+          )
+          .returning({ bookId: bible_books.bookId });
+        updated += turnedOn.length;
+      }
+
+      // Turn audio OFF for books that shouldn't have it but currently do
+      const turnedOff = await tx
+        .update(bible_books)
+        .set({ hasAudio: false })
+        .where(
+          audioBookIds.length > 0
+            ? and(
+                eq(bible_books.bibleId, bibleId),
+                eq(bible_books.hasAudio, true),
+                notInArray(bible_books.bookId, audioBookIds)
+              )
+            : and(eq(bible_books.bibleId, bibleId), eq(bible_books.hasAudio, true))
+        )
+        .returning({ bookId: bible_books.bookId });
+      updated += turnedOff.length;
+    });
+
+    return ok({ updated });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to update audio availability',
+      context: { bibleId, audioBookCodeCount: audioBookCodes.length },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

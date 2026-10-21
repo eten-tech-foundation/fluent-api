@@ -49,6 +49,7 @@ export const ErrorCode = {
   // Resource not found — one per domain entity so routes can do
   // `code === ErrorCode.BIBLE_NOT_FOUND` instead of message string matching
   PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
+  PROJECT_HAS_MILESTONES: 'PROJECT_HAS_MILESTONES',
   PROJECT_UNIT_NOT_FOUND: 'PROJECT_UNIT_NOT_FOUND',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_NOT_IN_PROJECT: 'USER_NOT_IN_PROJECT',
@@ -58,6 +59,9 @@ export const ErrorCode = {
   BIBLE_BOOK_NOT_FOUND: 'BIBLE_BOOK_NOT_FOUND',
   TRANSLATED_VERSE_NOT_FOUND: 'TRANSLATED_VERSE_NOT_FOUND',
   VERSE_AUDIO_NOT_FOUND: 'VERSE_AUDIO_NOT_FOUND',
+  VERSE_AUDIO_TAKE_NOT_FOUND: 'VERSE_AUDIO_TAKE_NOT_FOUND',
+  VERSE_AUDIO_VERSION_CONFLICT: 'VERSE_AUDIO_VERSION_CONFLICT',
+  VERSE_AUDIO_NOT_IN_CONFLICT: 'VERSE_AUDIO_NOT_IN_CONFLICT',
   // Conflict / duplicate
   USERNAME_CONFLICT: 'USERNAME_CONFLICT',
   EMAIL_CONFLICT: 'EMAIL_CONFLICT',
@@ -68,8 +72,21 @@ export const ErrorCode = {
   USER_NOT_IN_ORGANIZATION: 'USER_NOT_IN_ORGANIZATION',
   USER_HAS_ASSIGNED_CONTENT: 'USER_HAS_ASSIGNED_CONTENT',
   CHAPTER_LIMIT_EXCEEDED: 'CHAPTER_LIMIT_EXCEEDED',
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 'WORKFLOW_STAGE_NOT_FOUND',
+  WORKFLOW_STAGE_LIMIT_REACHED: 'WORKFLOW_STAGE_LIMIT_REACHED',
+  WORKFLOW_STAGE_DUPLICATE_NAME: 'WORKFLOW_STAGE_DUPLICATE_NAME',
+  WORKFLOW_STAGE_FIXED: 'WORKFLOW_STAGE_FIXED',
+  WORKFLOW_STAGE_LOCKED: 'WORKFLOW_STAGE_LOCKED',
+  WORKFLOW_STAGE_INVALID_LIST: 'WORKFLOW_STAGE_INVALID_LIST',
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 'WORKFLOW_STAGE_COMPLETE_NOT_FOUND',
+  WORKFLOW_NOT_CONFIGURED: 'WORKFLOW_NOT_CONFIGURED',
+  WORKFLOW_PROJECT_NOT_FOUND: 'WORKFLOW_PROJECT_NOT_FOUND',
   INVALID_REFERENCE: 'INVALID_REFERENCE',
   INVALID_BIBLE_BOOKS: 'INVALID_BIBLE_BOOKS',
+  USFM_INVALID: 'USFM_INVALID',
+  USFM_BOOK_MISMATCH: 'USFM_BOOK_MISMATCH',
+  USFM_BOOK_MISSING: 'USFM_BOOK_MISSING',
   UNSUPPORTED_AUDIO_TYPE: 'UNSUPPORTED_AUDIO_TYPE',
   EMPTY_AUDIO_FILE: 'EMPTY_AUDIO_FILE',
   // External service errors
@@ -80,9 +97,12 @@ export const ErrorCode = {
   AI_TOOL_EXECUTION_FAILED: 'AI_TOOL_EXECUTION_FAILED',
   // Aquifer (translation resources) upstream errors → HTTP 502
   AQUIFER_SERVICE_UNAVAILABLE: 'AQUIFER_SERVICE_UNAVAILABLE',
+  // YouVersion (Bible text for the Reference column) upstream errors → HTTP 502
+  YOUVERSION_SERVICE_UNAVAILABLE: 'YOUVERSION_SERVICE_UNAVAILABLE',
   // DBL upstream errors
   DBL_SERVICE_UNAVAILABLE: 'DBL_SERVICE_UNAVAILABLE',
   DBL_NOT_CONFIGURED: 'DBL_NOT_CONFIGURED',
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL_AUDIO_CHAPTER_NOT_FOUND',
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
@@ -101,6 +121,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   UNAUTHORIZED: 'Authentication required',
   FORBIDDEN: 'You do not have permission to perform this action',
   PROJECT_NOT_FOUND: 'Project not found',
+  PROJECT_HAS_MILESTONES: 'Project cannot be deleted because it contains milestones',
   PROJECT_UNIT_NOT_FOUND: 'Project unit not found',
   USER_NOT_FOUND: 'User not found',
   USER_NOT_IN_PROJECT: 'User not found in project',
@@ -110,7 +131,12 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   BIBLE_BOOK_NOT_FOUND: 'Bible book not found',
   TRANSLATED_VERSE_NOT_FOUND: 'Translated verse not found',
   VERSE_AUDIO_NOT_FOUND: 'Verse audio recording not found',
+  VERSE_AUDIO_TAKE_NOT_FOUND: 'Verse audio take not found',
+  VERSE_AUDIO_VERSION_CONFLICT:
+    'Verse audio changed concurrently; use currentVersionToken from this response as baseVersionToken and retry',
   UNSUPPORTED_AUDIO_TYPE: 'Unsupported audio content type',
+  VERSE_AUDIO_NOT_IN_CONFLICT:
+    "Verse audio is not in conflict; resolve is a no-op unless conflictStatus is 'conflict'",
   EMPTY_AUDIO_FILE: 'Audio file is empty',
   USERNAME_CONFLICT: 'Username is already taken',
   EMAIL_CONFLICT: 'Email is already in use',
@@ -122,15 +148,30 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   CHAPTER_LIMIT_EXCEEDED: 'Chapter assignment limit exceeded',
   INVALID_REFERENCE: 'Invalid reference',
   INVALID_BIBLE_BOOKS: 'One or more requested books do not belong to the specified Bible',
+  USFM_INVALID: 'File is not valid USFM',
+  USFM_BOOK_MISMATCH: 'USFM book code is invalid or does not match the uploaded file',
+  USFM_BOOK_MISSING: 'Missing book data',
   AUTH_ERROR: 'Authentication service error',
   EMAIL_SERVICE_ERROR: 'Email service error',
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
   AI_TOOL_EXECUTION_FAILED: 'AI tool execution failed',
   AQUIFER_SERVICE_UNAVAILABLE: 'Aquifer service is unavailable',
+  YOUVERSION_SERVICE_UNAVAILABLE: 'YouVersion service is unavailable',
   DBL_SERVICE_UNAVAILABLE: 'DBL API is unavailable',
   DBL_NOT_CONFIGURED: 'DBL API key is not configured',
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL audio chapter not found',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 'Workflow stage not found',
+  WORKFLOW_STAGE_LIMIT_REACHED: 'Maximum number of configurable workflow stages reached',
+  WORKFLOW_STAGE_DUPLICATE_NAME: 'A stage with this name already exists',
+  WORKFLOW_STAGE_FIXED: 'Cannot modify a fixed workflow stage',
+  WORKFLOW_STAGE_LOCKED: 'Cannot modify a locked workflow stage',
+  WORKFLOW_STAGE_INVALID_LIST: 'Invalid stage list: all stages must be included exactly once',
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 'Complete stage not found in workflow',
+  WORKFLOW_NOT_CONFIGURED: 'Workflow stages not configured for this project',
+  WORKFLOW_PROJECT_NOT_FOUND: 'Project not found',
 };
 
 // ─── HTTP status map ──────────────────────────────────────────────────────────
@@ -143,8 +184,10 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   AI_SERVICE_UNAVAILABLE: 502,
   AI_TOOL_EXECUTION_FAILED: 502,
   AQUIFER_SERVICE_UNAVAILABLE: 502,
+  YOUVERSION_SERVICE_UNAVAILABLE: 502,
   DBL_SERVICE_UNAVAILABLE: 502,
   DBL_NOT_CONFIGURED: 503,
+  DBL_AUDIO_CHAPTER_NOT_FOUND: 404,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
   UNAUTHORIZED: 401,
@@ -161,6 +204,10 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   CHAPTER_LIMIT_EXCEEDED: 400,
   INVALID_REFERENCE: 400,
   INVALID_BIBLE_BOOKS: 400,
+  USFM_INVALID: 400,
+  USFM_BOOK_MISMATCH: 400,
+  USFM_BOOK_MISSING: 400,
+  PROJECT_HAS_MILESTONES: 409,
   NOT_FOUND: 404,
   PROJECT_NOT_FOUND: 404,
   PROJECT_UNIT_NOT_FOUND: 404,
@@ -172,8 +219,21 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   BIBLE_BOOK_NOT_FOUND: 404,
   TRANSLATED_VERSE_NOT_FOUND: 404,
   VERSE_AUDIO_NOT_FOUND: 404,
+  VERSE_AUDIO_TAKE_NOT_FOUND: 404,
+  VERSE_AUDIO_VERSION_CONFLICT: 409,
+  VERSE_AUDIO_NOT_IN_CONFLICT: 400,
   UNSUPPORTED_AUDIO_TYPE: 400,
   EMPTY_AUDIO_FILE: 400,
+  // Workflow stage errors
+  WORKFLOW_STAGE_NOT_FOUND: 404,
+  WORKFLOW_STAGE_LIMIT_REACHED: 409,
+  WORKFLOW_STAGE_DUPLICATE_NAME: 409,
+  WORKFLOW_STAGE_FIXED: 400,
+  WORKFLOW_STAGE_LOCKED: 409,
+  WORKFLOW_STAGE_INVALID_LIST: 400,
+  WORKFLOW_STAGE_COMPLETE_NOT_FOUND: 500,
+  WORKFLOW_NOT_CONFIGURED: 404,
+  WORKFLOW_PROJECT_NOT_FOUND: 404,
 };
 
 export interface AppError {

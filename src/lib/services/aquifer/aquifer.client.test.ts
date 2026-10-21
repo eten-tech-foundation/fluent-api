@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import env from '@/env';
 import { ErrorCode } from '@/lib/types';
 
-import { getResource, searchAllResources, searchResources } from './aquifer.client';
+import {
+  getBibles,
+  getBibleText,
+  getResource,
+  searchAllResources,
+  searchResources,
+} from './aquifer.client';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -83,6 +89,30 @@ describe('aquifer.client', () => {
       });
       // Bodyless GET: sending Content-Type makes Aquifer 400 on the empty body.
       expect(init?.headers).not.toHaveProperty('Content-Type');
+    });
+
+    it('rejects a non-HTTPS base URL before sending the API key', async () => {
+      const originalUrl = env.AQUIFER_API_URL;
+      env.AQUIFER_API_URL = 'http://aquifer.example.test';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      try {
+        const result = await searchResources({
+          bookCode: 'MRK',
+          startChapter: 1,
+          endChapter: 1,
+          languageCode: 'eng',
+        });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+          expect(result.error.message).toContain('must use HTTPS');
+        }
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        env.AQUIFER_API_URL = originalUrl;
+      }
     });
 
     it('maps a non-2xx response to AQUIFER_SERVICE_UNAVAILABLE', async () => {
@@ -280,6 +310,101 @@ describe('aquifer.client', () => {
         expect(result.data).toHaveLength(1);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getBibles', () => {
+    it('returns bibles for a language code', async () => {
+      const body = [{ id: 1, name: 'BSB', abbreviation: 'BSB', hasAudio: true }];
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(body));
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data[0]?.abbreviation).toBe('BSB');
+      }
+    });
+
+    it('skips malformed catalogue entries without hiding valid bibles', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse([
+          { id: 'bad-id', name: 'Malformed', abbreviation: 'BAD' },
+          { id: 2, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true },
+        ])
+      );
+
+      const result = await getBibles('eng');
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toEqual([
+          { id: 2, name: 'Berean Standard Bible', abbreviation: 'BSB', hasAudio: true },
+        ]);
+      }
+    });
+  });
+
+  describe('getBibleText', () => {
+    it('requests audio data by default', async () => {
+      const body = {
+        bibleId: 1,
+        bibleName: 'BSB',
+        bibleAbbreviation: 'BSB',
+        bookName: 'Mark',
+        bookCode: 'MRK',
+        chapters: [
+          {
+            number: 14,
+            audio: { mp3: { url: 'https://cdn.example/a.mp3', size: 100 } },
+            verses: [{ number: 1, text: 'Hello' }],
+          },
+        ],
+      };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(body));
+
+      const result = await getBibleText({
+        aquiferBibleId: 1,
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      });
+
+      expect(result.ok).toBe(true);
+      const [url] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('shouldReturnAudioData=true');
+    });
+
+    it('accepts null verse text and audio without provider-reported size', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({
+          bibleId: 1,
+          bibleName: 'BSB',
+          bibleAbbreviation: 'BSB',
+          bookName: 'Mark',
+          bookCode: 'MRK',
+          chapters: [
+            {
+              number: 14,
+              audio: { mp3: { url: 'https://cdn.example/a.mp3' } },
+              verses: [{ number: 1, text: null }],
+            },
+          ],
+        })
+      );
+
+      const result = await getBibleText({
+        aquiferBibleId: 1,
+        bookCode: 'MRK',
+        startChapter: 14,
+        endChapter: 14,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.chapters[0]?.audio?.mp3?.size).toBeUndefined();
+        expect(result.data.chapters[0]?.verses[0]?.text).toBeNull();
+      }
     });
   });
 });

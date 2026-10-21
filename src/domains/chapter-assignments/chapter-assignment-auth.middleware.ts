@@ -4,6 +4,7 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 import type { Result } from '@/lib/types';
 import type { AppEnv } from '@/server/context.types';
 
+import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
 import { getHttpStatus } from '@/lib/types';
 
 import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
@@ -44,7 +45,13 @@ export function requireChapterAssignmentAccess(
       assignedUserId: ctx.assignedUserId,
       peerCheckerId: ctx.peerCheckerId,
       status: ctx.status,
+      updatedAt: ctx.updatedAt,
     };
+
+    const needsStages =
+      action === CHAPTER_ASSIGNMENT_ACTIONS.SUBMIT ||
+      action === CHAPTER_ASSIGNMENT_ACTIONS.IS_PARTICIPANT;
+    const stages = needsStages ? await getWorkflowStagesByProjectId(ctx.projectId) : [];
 
     let allowed = false;
     switch (action) {
@@ -57,7 +64,12 @@ export function requireChapterAssignmentAccess(
         break;
 
       case CHAPTER_ASSIGNMENT_ACTIONS.SUBMIT:
-        allowed = ChapterAssignmentPolicy.submit(policyUser, policyAssignment, ctx.isProjectMember);
+        allowed = ChapterAssignmentPolicy.submit(
+          policyUser,
+          policyAssignment,
+          ctx.isProjectMember,
+          stages
+        );
         break;
 
       case CHAPTER_ASSIGNMENT_ACTIONS.DELETE:
@@ -72,8 +84,13 @@ export function requireChapterAssignmentAccess(
         allowed = ChapterAssignmentPolicy.isParticipant(
           policyUser,
           policyAssignment,
-          ctx.isProjectMember
+          ctx.isProjectMember,
+          stages
         );
+        break;
+
+      case CHAPTER_ASSIGNMENT_ACTIONS.CLAIM:
+        allowed = ChapterAssignmentPolicy.claim(policyUser, policyAssignment);
         break;
     }
 

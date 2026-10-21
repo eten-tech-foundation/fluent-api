@@ -1,11 +1,13 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
+import type { Provider } from '@/domains/bible-provider-resources/bible-provider-resources.types';
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
 import type { VerseData } from '@/lib/usfm-converter';
 
 import { db } from '@/db';
 import {
+  bible_provider_resources,
   bible_texts,
   bibles,
   books,
@@ -14,12 +16,15 @@ import {
   chapter_assignment_status_history,
   chapter_assignments,
   languages,
+  project_unit_bible_books,
   project_units,
   projects,
   translated_verses,
   users,
 } from '@/db/schema';
+import { bibleKey } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
@@ -34,6 +39,8 @@ import type {
   UpdateChapterAssignmentRequestData,
 } from './chapter-assignments.types';
 
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
+
 export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecord {
   projectId: number;
   organizationId: number;
@@ -41,6 +48,62 @@ export interface ChapterAssignmentWithAuthContext extends ChapterAssignmentRecor
 }
 
 const USJ_SPEC_VERSION = '0.0.1';
+
+type AssignmentProgressRow = Omit<
+  ChapterAssignmentProgressInfo,
+  'textBibleKey' | 'selectedRecordingKey'
+> & {
+  textBibleProvider: Provider;
+  textBibleExternalId: string | null;
+  selectedRecordingId: number | null;
+  selectedRecordingProvider: Provider | null;
+  selectedRecordingExternalId: string | null;
+};
+
+function toAssignmentProgressInfo({
+  textBibleProvider,
+  textBibleExternalId,
+  selectedRecordingId,
+  selectedRecordingProvider,
+  selectedRecordingExternalId,
+  ...row
+}: AssignmentProgressRow): ChapterAssignmentProgressInfo {
+  return {
+    ...row,
+    textBibleKey:
+      textBibleExternalId === null
+        ? null
+        : bibleKey({ provider: textBibleProvider, externalId: textBibleExternalId }),
+    selectedRecordingKey:
+      selectedRecordingId === null ||
+      selectedRecordingProvider === null ||
+      selectedRecordingExternalId === null
+        ? null
+        : bibleKey({
+            provider: selectedRecordingProvider,
+            externalId: selectedRecordingExternalId,
+          }),
+  };
+}
+
+/**
+ * EXISTS subquery for assignment progress: true when any verse-audio unit in
+ * this assignment's bible/book/chapter is conflicted. Scoping by
+ * `chapter_assignments.bibleId` (not book/chapter alone) is what keeps a
+ * conflict in another Bible from lighting up the rollup.
+ */
+export function hasConflictRollupSql() {
+  return sql<boolean>`EXISTS (
+          SELECT 1
+          FROM verse_audio_recordings var
+          INNER JOIN bible_texts bt ON bt.id = var.bible_text_id
+          WHERE var.project_unit_id = ${chapter_assignments.projectUnitId}
+            AND bt.bible_id = ${chapter_assignments.bibleId}
+            AND bt.book_id = ${chapter_assignments.bookId}
+            AND bt.chapter_number = ${chapter_assignments.chapterNumber}
+            AND var.conflict_status = ${VERSE_AUDIO_CONFLICT_STATUS.CONFLICT}
+        )`;
+}
 
 export async function findById(
   id: number,
@@ -69,6 +132,8 @@ export async function findByIdWithOrg(id: number): Promise<Result<ChapterAssignm
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         organizationId: projects.organization,
@@ -105,6 +170,8 @@ export async function findByIdWithAuthContext(
         status: chapter_assignments.status,
         submittedTime: chapter_assignments.submittedTime,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         // Project context
@@ -139,7 +206,11 @@ export async function findForVerse(
 ): Promise<Result<PolicyChapterAssignment>> {
   try {
     const [bibleText] = await db
-      .select({ bookId: bible_texts.bookId, chapterNumber: bible_texts.chapterNumber })
+      .select({
+        bibleId: bible_texts.bibleId,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+      })
       .from(bible_texts)
       .where(eq(bible_texts.id, bibleTextId))
       .limit(1);
@@ -160,6 +231,7 @@ export async function findForVerse(
       .where(
         and(
           eq(chapter_assignments.projectUnitId, projectUnitId),
+          eq(chapter_assignments.bibleId, bibleText.bibleId),
           eq(chapter_assignments.bookId, bibleText.bookId),
           eq(chapter_assignments.chapterNumber, bibleText.chapterNumber)
         )
@@ -209,6 +281,7 @@ export async function getContent(
         bibleTextId: bible_texts.id,
         bookCode: books.code,
         bookName: books.eng_display_name,
+        markers: translated_verses.markers,
       })
       .from(translated_verses)
       .innerJoin(bible_texts, eq(translated_verses.bibleTextId, bible_texts.id))
@@ -238,6 +311,7 @@ export async function getContent(
       chapterNumber: assignment.chapterNumber,
       verseNumber: v.verseNumber,
       translatedContent: v.content,
+      markers: v.markers,
     }));
 
     const conversionResult = convertUSFMToUSJ(generateUSFMText(verseData));
@@ -307,6 +381,69 @@ export async function update(
   return updated ?? null;
 }
 
+export async function claimIfUnassigned(
+  id: number,
+  userId: number,
+  tx: DbTransaction
+): Promise<{ claimed: boolean; record: ChapterAssignmentRecord | null }> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({
+      assignedUserId: userId,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        isNull(chapter_assignments.assignedUserId),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED)
+      )
+    )
+    .returning();
+
+  return { claimed: !!updated, record: updated ?? null };
+}
+
+export async function submitPeerCheckIfEligible(
+  id: number,
+  userId: number,
+  nextStatus: string,
+  submittedTime: Date,
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord | null> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({
+      peerCheckerId: userId,
+      status: nextStatus,
+      submittedTime,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        eq(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK),
+        ne(chapter_assignments.assignedUserId, userId),
+        or(isNull(chapter_assignments.peerCheckerId), eq(chapter_assignments.peerCheckerId, userId))
+      )
+    )
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function flagClaimConflict(
+  id: number,
+  claimConflictUserId: number,
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord | null> {
+  const [updated] = await tx
+    .update(chapter_assignments)
+    .set({ hasClaimConflict: true, claimConflictUserId })
+    .where(eq(chapter_assignments.id, id))
+    .returning();
+  return updated ?? null;
+}
+
 export async function remove(id: number): Promise<Result<void>> {
   try {
     const [deleted] = await db
@@ -321,12 +458,37 @@ export async function remove(id: number): Promise<Result<void>> {
   }
 }
 
+export async function deleteByProjectUnitAndBooks(
+  projectUnitId: number,
+  bookIds: number[],
+  tx?: DbTransaction
+): Promise<void> {
+  if (bookIds.length === 0) return;
+  const conn = tx ?? db;
+  await conn
+    .delete(chapter_assignments)
+    .where(
+      and(
+        eq(chapter_assignments.projectUnitId, projectUnitId),
+        inArray(chapter_assignments.bookId, bookIds)
+      )
+    );
+}
+
 export async function insertStatusHistory(
   tx: DbTransaction,
   chapterAssignmentId: number,
   status: ChapterAssignmentStatus
 ): Promise<void> {
   await tx.insert(chapter_assignment_status_history).values({ chapterAssignmentId, status });
+}
+
+export async function insertManyStatusHistory(
+  tx: DbTransaction,
+  records: { chapterAssignmentId: number; status: ChapterAssignmentStatus }[]
+): Promise<void> {
+  if (records.length === 0) return;
+  await tx.insert(chapter_assignment_status_history).values(records);
 }
 
 export async function insertUserAssignmentHistory(
@@ -369,6 +531,7 @@ export async function findAssignmentsProgress(
     const peerChecker = alias(users, 'peerChecker');
     const sourceLang = alias(languages, 'sourceLang');
     const targetLang = alias(languages, 'targetLang');
+    const recording = alias(bible_provider_resources, 'recording');
 
     const baseQuery = conn
       .select({
@@ -378,6 +541,14 @@ export async function findAssignmentsProgress(
         projectUnitId: chapter_assignments.projectUnitId,
         bibleId: chapter_assignments.bibleId,
         bibleName: bibles.name,
+        ttsLicenseStatus: sql<
+          'allowed' | 'forbidden' | 'unknown'
+        >`coalesce(${bible_provider_resources.ttsLicenseStatus}, 'unknown')`,
+        textBibleProvider: bibles.provider,
+        textBibleExternalId: bibles.externalId,
+        selectedRecordingId: recording.id,
+        selectedRecordingProvider: recording.provider,
+        selectedRecordingExternalId: recording.externalId,
         bookId: chapter_assignments.bookId,
         bookCode: books.code,
         bookNameEng: books.eng_display_name,
@@ -401,12 +572,34 @@ export async function findAssignmentsProgress(
         createdAt: chapter_assignments.createdAt,
         updatedAt: chapter_assignments.updatedAt,
         isAiEnabled: chapter_assignments.isAiEnabled,
+        hasClaimConflict: chapter_assignments.hasClaimConflict,
+        claimConflictUserId: chapter_assignments.claimConflictUserId,
+        hasConflict: hasConflictRollupSql().mapWith(Boolean),
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
+      .innerJoin(
+        project_unit_bible_books,
+        and(
+          eq(project_unit_bible_books.projectUnitId, chapter_assignments.projectUnitId),
+          eq(project_unit_bible_books.bookId, chapter_assignments.bookId)
+        )
+      )
       .innerJoin(projects, eq(project_units.projectId, projects.id))
       .innerJoin(books, eq(chapter_assignments.bookId, books.id))
       .innerJoin(bibles, eq(bibles.id, chapter_assignments.bibleId))
+      // `bibles.provider` deliberately remains the narrower DBL text-ingest enum,
+      // while provider resources cover every playback identity. PostgreSQL cannot
+      // compare those enum types directly, so this relational join casts to text.
+      // Consolidating the broader provider vocabulary is deferred maintenance.
+      .leftJoin(
+        bible_provider_resources,
+        and(
+          sql`${bibles.provider}::text = ${bible_provider_resources.provider}::text`,
+          eq(bibles.externalId, bible_provider_resources.externalId)
+        )
+      )
+      .leftJoin(recording, eq(bibles.audioResourceId, recording.id))
       .leftJoin(targetLang, eq(projects.targetLanguage, targetLang.id))
       .leftJoin(sourceLang, eq(projects.sourceLanguage, sourceLang.id))
       .leftJoin(assignedUser, eq(chapter_assignments.assignedUserId, assignedUser.id))
@@ -427,7 +620,7 @@ export async function findAssignmentsProgress(
         )
       );
 
-    const conditions = [];
+    const conditions = [isNull(project_unit_bible_books.deletedAt)];
     if (filters.projectId !== undefined) {
       conditions.push(eq(project_units.projectId, filters.projectId));
     }
@@ -454,7 +647,10 @@ export async function findAssignmentsProgress(
         chapter_assignments.id,
         projects.id,
         projects.name,
+        bibles.id,
         bibles.name,
+        bible_provider_resources.id,
+        recording.id,
         targetLang.langName,
         targetLang.langCodeIso6393,
         sourceLang.langCodeIso6393,
@@ -465,7 +661,7 @@ export async function findAssignmentsProgress(
       )
       .orderBy(projects.name, books.eng_display_name, chapter_assignments.chapterNumber);
 
-    return ok(rows);
+    return ok(rows.map(toAssignmentProgressInfo));
   } catch (error) {
     logger.error({
       cause: error,
@@ -474,4 +670,17 @@ export async function findAssignmentsProgress(
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+export async function findProjectIdByUnitId(
+  unitId: number,
+  tx?: DbTransaction
+): Promise<number | null> {
+  const executor = tx ?? db;
+  const [row] = await executor
+    .select({ projectId: project_units.projectId })
+    .from(project_units)
+    .where(eq(project_units.id, unitId))
+    .limit(1);
+  return row ? row.projectId : null;
 }

@@ -1,7 +1,11 @@
+import type { DbTransaction, Result } from '@/lib/types';
+
 import { db } from '@/db';
 import { verseMarkersSchema } from '@/db/schema';
+import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
-import { ok } from '@/lib/types';
+import { logger } from '@/lib/logger';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   CreateTranslatedVerseInput,
@@ -47,21 +51,74 @@ export async function updateTranslatedVerse(id: number, input: UpdateTranslatedV
 }
 
 export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
-  const result = await db.transaction(async (tx) => {
-    const upserted = await translatedVersesRepo.upsert(input, tx);
-    if (!upserted.ok) return upserted;
-    // Update the last activity timestamp for the associated project when a translated verse is upserted
-    await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
+  // #417: whether this is the save that takes the project family over the AI activation threshold
+  // can only be decided inside the transaction doing the writing, so the save runs under the claim.
+  const { written, crossed } = await db.transaction(async (tx) =>
+    aiSuggestionsService.claimActivationCrossing(tx, input.projectUnitId, async () => {
+      const upserted = await translatedVersesRepo.upsert(input, tx);
+      if (!upserted.ok) return upserted;
+      // Update the last activity timestamp for the associated project when a translated verse is upserted
+      await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
 
-    return upserted;
-  });
+      return upserted;
+    })
+  );
 
-  if (!result.ok) return result;
-  return ok(toTranslatedVerseResponse(result.data));
+  if (!written.ok) return written;
+
+  // The crossing save backfills the queuing that assignment-time never got to do. Deliberately
+  // after the transaction has committed, and a failure here must not turn an already-saved draft
+  // into an error for the translator.
+  if (crossed) {
+    try {
+      const backfill = await aiSuggestionsService.handleThresholdCrossed(
+        written.data.projectUnitId,
+        written.data.bibleTextId
+      );
+      if (!backfill.ok) {
+        logger.error({
+          cause: backfill.error,
+          message: 'AI threshold backfill failed after crossing save; no automatic retry',
+          context: {
+            projectUnitId: written.data.projectUnitId,
+            bibleTextId: written.data.bibleTextId,
+          },
+        });
+      }
+    } catch (error) {
+      logger.error({
+        cause: error,
+        message: 'AI threshold backfill failed after crossing save; no automatic retry',
+        context: {
+          projectUnitId: written.data.projectUnitId,
+          bibleTextId: written.data.bibleTextId,
+        },
+      });
+    }
+  }
+
+  return ok(toTranslatedVerseResponse(written.data));
 }
 
 export async function listTranslatedVerses(filters: TranslatedVersesFilters = {}) {
   const result = await translatedVersesRepo.list(filters);
   if (!result.ok) return result;
   return ok(result.data.map(toTranslatedVerseResponse));
+}
+
+export async function importTranslatedVerses(
+  rows: CreateTranslatedVerseInput[],
+  tx?: DbTransaction
+): Promise<Result<void>> {
+  try {
+    await translatedVersesRepo.insertMissing(rows, tx);
+    return ok(undefined);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to import translated verses',
+      context: { rowCount: rows.length },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

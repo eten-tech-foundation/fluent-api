@@ -57,6 +57,9 @@ describe('ai-suggestions.repository', () => {
       expect(mockChain.select).toHaveBeenCalled();
       expect(mockChain.from).toHaveBeenCalled();
       expect(mockChain.limit).toHaveBeenCalledWith(3);
+      // Two left joins: the verse must have neither a draft nor an existing suggestion, the same
+      // pair of filters the pericope query applies.
+      expect(mockChain.leftJoin).toHaveBeenCalledTimes(2);
     });
   });
 

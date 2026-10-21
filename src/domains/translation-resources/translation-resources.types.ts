@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import { aquiferLicenseInfoWireSchema } from '@/lib/services/aquifer/aquifer.types';
+
 /** Canonical USFM book codes (same set as `src/db/seeds/data/books.json`). */
 export const USFM_BOOK_CODES = [
   'GEN',
@@ -83,6 +85,12 @@ export const usfmBookCodeSchema = z
 /** Max chapters in one Prepare Offline manifest request (shared Aquifer key). */
 export const MAX_MANIFEST_CHAPTER_SPAN = 20;
 
+/**
+ * Max verses in one same-chapter TN/TQ/Images range request.
+ * Matches the Aquifer chapter end-verse window used by Prepare Offline (1–200).
+ */
+export const MAX_VERSE_RANGE_SPAN = 200;
+
 // ─── Path / query params ─────────────────────────────────────────────────────
 
 export const projectIdParamSchema = z.object({
@@ -107,6 +115,16 @@ export const verseResourceParamSchema = projectIdParamSchema.extend({
     .openapi({ param: { name: 'verse', in: 'path' } }),
 });
 
+/** Path params for same-chapter verse-range TN/TQ/Images (verse bounds are query). */
+export const verseRangeResourceParamSchema = projectIdParamSchema.extend({
+  bookCode: usfmBookCodeSchema.openapi({ param: { name: 'bookCode', in: 'path' } }),
+  chapter: z.coerce
+    .number()
+    .int()
+    .positive()
+    .openapi({ param: { name: 'chapter', in: 'path' } }),
+});
+
 export const languageCodeQuerySchema = z.object({
   languageCode: z
     .string()
@@ -118,6 +136,43 @@ export const languageCodeQuerySchema = z.object({
       description: 'Aquifer ISO language code (e.g. eng). Not the project source language.',
     }),
 });
+
+export const verseRangeQuerySchema = languageCodeQuerySchema
+  .extend({
+    startVerse: z.coerce
+      .number()
+      .int()
+      .positive()
+      .openapi({
+        param: { name: 'startVerse', in: 'query' },
+        description: 'Inclusive start verse within the chapter (same-chapter ranges only)',
+      }),
+    endVerse: z.coerce
+      .number()
+      .int()
+      .positive()
+      .openapi({
+        param: { name: 'endVerse', in: 'query' },
+        description: 'Inclusive end verse within the chapter (must be >= startVerse)',
+      }),
+  })
+  .superRefine((value, ctx) => {
+    if (value.endVerse < value.startVerse) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endVerse'],
+        message: 'endVerse must be greater than or equal to startVerse',
+      });
+    }
+    const span = value.endVerse - value.startVerse + 1;
+    if (span > MAX_VERSE_RANGE_SPAN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endVerse'],
+        message: `Verse range cannot exceed ${MAX_VERSE_RANGE_SPAN} verses`,
+      });
+    }
+  });
 
 export const manifestQuerySchema = languageCodeQuerySchema
   .extend({
@@ -175,6 +230,7 @@ export const translationNoteItemSchema = z
     name: z.string(),
     localizedName: z.string(),
     content: tipTapContentSchema,
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('TranslationNoteItem');
 
@@ -190,6 +246,7 @@ export const translationQuestionItemSchema = z
     name: z.string(),
     localizedName: z.string(),
     content: tipTapContentSchema,
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('TranslationQuestionItem');
 
@@ -242,6 +299,7 @@ export const prepareOfflineManifestItemSchema = z
     collectionCode: z.string().optional(),
     resourceType: z.string().optional(),
     serializedContent: z.string().optional(),
+    licenseInfo: aquiferLicenseInfoWireSchema.optional(),
   })
   .openapi('PrepareOfflineResourceManifestItem');
 

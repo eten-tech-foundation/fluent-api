@@ -20,6 +20,9 @@ export function toResponse(
     projectUnitId: assignment.projectUnitId,
     bibleId: assignment.bibleId,
     bibleName: assignment.bibleName ?? '',
+    ttsLicenseStatus: assignment.ttsLicenseStatus,
+    textBibleKey: assignment.textBibleKey,
+    selectedRecordingKey: assignment.selectedRecordingKey,
     chapterStatus: assignment.status,
     targetLanguage: assignment.targetLanguage ?? '',
     targetLangCode: assignment.targetLangCode ?? '',
@@ -35,6 +38,9 @@ export function toResponse(
     peerCheckerId: assignment.peerCheckerId,
     updatedAt: assignment.updatedAt?.toISOString() ?? null,
     isAiEnabled: assignment.isAiEnabled,
+    hasClaimConflict: assignment.hasClaimConflict,
+    claimConflictUserId: assignment.claimConflictUserId,
+    hasConflict: assignment.hasConflict,
   };
 }
 
