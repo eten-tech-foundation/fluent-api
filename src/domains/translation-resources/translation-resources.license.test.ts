@@ -10,6 +10,7 @@ import {
   getTranslationNotes,
   getTranslationQuestions,
 } from './translation-resources.service';
+import { imageSearchHit } from './translation-resources.test-fixtures';
 import {
   prepareOfflineManifestResponseSchema,
   translationImagesResponseSchema,
@@ -78,11 +79,7 @@ describe('resource license attribution', () => {
   );
 
   it('carries licenseInfo through images — CC BY-SA attribution obligation; do not drop', async () => {
-    const imageHit = {
-      ...hit,
-      mediaType: 'Image' as const,
-      grouping: { type: 'Images' as const, name: 'Images', collectionCode: 'Images' },
-    };
+    const imageHit = imageSearchHit(hit.id);
     // Mock Aquifer image details (not a live payload).
     const imageDetail = aquiferResourceDetailsSchema.parse({
       ...detail,
@@ -113,11 +110,7 @@ describe('resource license attribution', () => {
   });
 
   it('passes through mock caption and attribution on images when Aquifer content has them (#273 / mobile #594)', async () => {
-    const imageHit = {
-      ...hit,
-      mediaType: 'Image' as const,
-      grouping: { type: 'Images' as const, name: 'Images', collectionCode: 'Images' },
-    };
+    const imageHit = imageSearchHit(hit.id);
     // Mock Aquifer image details only — not live payload proof.
     const imageDetail = aquiferResourceDetailsSchema.parse({
       ...detail,
@@ -159,11 +152,7 @@ describe('resource license attribution', () => {
   });
 
   it('omits caption, attribution, and licenseInfo on images when Aquifer mock omits them (#273 / mobile #594)', async () => {
-    const imageHit = {
-      ...hit,
-      mediaType: 'Image' as const,
-      grouping: { type: 'Images' as const, name: 'Images', collectionCode: 'Images' },
-    };
+    const imageHit = imageSearchHit(hit.id);
     const imageDetail = aquiferResourceDetailsSchema.parse({
       ...detail,
       content: { url: 'https://cdn.example/mock-image.jpg', size: 3 },

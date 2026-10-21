@@ -265,7 +265,7 @@ export const translationImageItemSchema = z
     thumbnailUrl: z
       .string()
       .optional()
-      .openapi({ description: 'Optional Aquifer content.thumbnailUrl when distinct from url' }),
+      .openapi({ description: 'Optional Aquifer content.thumbnailUrl when present (non-empty)' }),
     caption: z.string().optional().openapi({
       description:
         'Optional Aquifer content.caption string when present; omitted when absent (no fabricated caption)',

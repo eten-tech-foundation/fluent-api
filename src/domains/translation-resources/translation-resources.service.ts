@@ -36,7 +36,11 @@ interface ResourceSearchConfig {
   resourceType?: AquiferResourceType;
 }
 
-/** Prepare Offline Aquifer catalog (excludes Bible text / DBL). */
+/**
+ * Same catalog mobile Prepare Offline already searches via Aquifer directly
+ * (see fluent-mobile prepareOfflineResourceManifest.ts) — excluding Bible text
+ * which remains a Fluent/DBL concern.
+ */
 const MANIFEST_SEARCH_CONFIGS: ResourceSearchConfig[] = [
   {
     tier: 2,
