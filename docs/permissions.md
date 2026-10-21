@@ -255,7 +255,8 @@ Request
   │  ❌ 403 if check fails
   ▼
 [Layer 4] Domain Policy         — Record-level access check
-  │  ❌ 403/404 depending on domain convention
+  │  ❌ 404 if the caller can't read the record; 403 if it can read it but the action is denied
+  │     (see guides/code-standards.md#403-or-404)
   ▼
 [Route Handler]
 ```
@@ -359,7 +360,7 @@ They are called after the coarse `requirePermission()` gate and always receive t
 | `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                 |
 | `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                 |
 
-Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check returns `404 Project not found` rather than `403` to avoid leaking project existence.
+Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check currently returns `404 Project not found` for every action. Under [FA-R4](guides/code-standards.md#403-or-404), `read` keeps the 404 and `update`/`delete` return `403` when the caller can read the project; that change is in its own PR (see [Follow-up PRs](guides/code-standards.md#follow-up-prs)).
 
 ### UserPolicy
 
@@ -379,20 +380,21 @@ Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](..
 
 The most complex policy. The `edit` method enforces assignment-position rules and workflow-stage gates.
 
-| Method               | Required Permission       | Additional Constraint                                                                                                           |
-| -------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `view`               | `content:view` at scope   | OR user is a project member                                                                                                     |
-| `create`             | `content:assign` at scope | —                                                                                                                               |
-| `update`             | `content:assign` at scope | —                                                                                                                               |
-| `delete`             | `content:assign` at scope | —                                                                                                                               |
-| `deleteAll`          | `content:assign` at scope | —                                                                                                                               |
-| `assignAll`          | `content:assign` at scope | —                                                                                                                               |
-| `assign`             | `content:assign` at scope | —                                                                                                                               |
-| `submit`             | Delegates to `edit`       | —                                                                                                                               |
-| `edit` (translators) | `content:update` at scope | Status `draft`: must be `assignedUserId`. Status `peer_check`: must be `peerCheckerId`. Post-peer statuses: any project member. |
-| `edit` (managers)    | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                      |
-| `toggleAi`           | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                       |
-| `isParticipant`      | Delegates to `edit`       | —                                                                                                                               |
+| Method                 | Required Permission       | Additional Constraint                                                                                                           |
+| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `view`                 | `content:view` at scope   | OR user is a project member                                                                                                     |
+| `create`               | `content:assign` at scope | —                                                                                                                               |
+| `update`               | `content:assign` at scope | —                                                                                                                               |
+| `delete`               | `content:assign` at scope | —                                                                                                                               |
+| `deleteAll`            | `content:assign` at scope | —                                                                                                                               |
+| `assignAll`            | `content:assign` at scope | —                                                                                                                               |
+| `assign`               | `content:assign` at scope | —                                                                                                                               |
+| `submit`               | Delegates to `edit`       | —                                                                                                                               |
+| `edit` (translators)   | `content:update` at scope | Status `draft`: must be `assignedUserId`. Status `peer_check`: must be `peerCheckerId`. Post-peer statuses: any project member. |
+| `edit` (managers)      | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                      |
+| `resolveAudioConflict` | `content:assign` at scope | Allowed at any chapter status (managers can resolve audio conflicts during draft/peer_check).                                   |
+| `toggleAi`             | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                       |
+| `isParticipant`        | Delegates to `edit`       | —                                                                                                                               |
 
 ### AiSuggestionsPolicy
 

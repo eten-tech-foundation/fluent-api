@@ -73,7 +73,7 @@ function aiError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok:
  * env flip. Leading/trailing slashes on any segment are normalized so the
  * resulting URL never contains an empty (`//`) segment.
  */
-function buildToolUrl(toolPath: string): string {
+export function buildToolUrl(toolPath: string): string {
   const base = env.FLUENT_AI_URL.replace(/\/+$/, '');
   const prefix = env.FLUENT_AI_API_PREFIX.replace(/^\/+|\/+$/g, '');
   const tool = toolPath.replace(/^\/+/, '');

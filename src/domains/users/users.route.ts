@@ -1,12 +1,9 @@
 import { createRoute, z } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { db } from '@/db';
-import * as schema from '@/db/schema';
 import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
 import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { ZOD_ERROR_CODES, ZOD_ERROR_MESSAGES } from '@/lib/constants';
@@ -15,7 +12,6 @@ import {
   createUserWithInvitation,
   inviteExistingUserToOrg,
 } from '@/lib/services/auth/auth.service';
-import { authorize } from '@/lib/services/permissions/authorize';
 import { ErrorCode, ErrorMessages, getHttpStatus } from '@/lib/types';
 import { authenticateUser, orgFromBody, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
@@ -26,7 +22,6 @@ import * as userService from './users.service';
 import {
   createUserRequestSchema,
   inviteUserRequestSchema,
-  updateActiveOrgRequestSchema,
   updateUserRequestSchema,
   USER_ACTIONS,
   userResponseSchema,
@@ -235,7 +230,8 @@ const createUserWithInvitationRoute = createRoute({
     ),
   },
   summary: 'Create user and send invitation',
-  description: 'Creates a new user in database and sends magic link invitation email',
+  description:
+    'Creates a new user in database and sends magic link invitation email. Returns 201 when a new Fluent account is created (magic link sent) and 200 when an existing account is added to the org (login link sent).',
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {
@@ -440,8 +436,6 @@ const updateUserRoute = createRoute({
 server.openapi(updateUserRoute, async (c) => {
   const { id } = c.req.valid('param');
   const updates = c.req.valid('json');
-  const currentUser = c.get('user')!;
-  const targetUser = c.get('targetUser')!;
 
   if (Object.keys(updates).length === 0) {
     return c.json(
@@ -460,18 +454,6 @@ server.openapi(updateUserRoute, async (c) => {
       },
       HttpStatusCodes.UNPROCESSABLE_ENTITY
     );
-  }
-
-  // Strip role update if user lacks MEMBERSHIP_REVOKE
-  const targetOrgIds = await findOrgIdsForUser(targetUser.id);
-  const hasGrantManagement = targetOrgIds.some((orgId) =>
-    authorize({ id: currentUser.id, grants: currentUser.grants }, PERMISSIONS.MEMBERSHIP_REVOKE, {
-      orgId,
-    })
-  );
-
-  if (!hasGrantManagement) {
-    delete (updates as Record<string, unknown>).role;
   }
 
   const result = await userService.updateUser(id, updates);
@@ -533,58 +515,4 @@ server.openapi(deleteUserRoute, async (c) => {
   }
 
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
-});
-
-// ─── PATCH /users/me/active-org ───────────────────────────────────────────────
-
-const updateActiveOrgRoute = createRoute({
-  tags: ['Users'],
-  method: 'patch',
-  path: '/users/me/active-org',
-  middleware: [authenticateUser] as const,
-  request: {
-    body: jsonContent(updateActiveOrgRequestSchema, 'The active org to set'),
-  },
-  responses: {
-    [HttpStatusCodes.OK]: {
-      description: 'Active org updated',
-    },
-    [HttpStatusCodes.FORBIDDEN]: jsonContent(
-      createMessageObjectSchema('Forbidden'),
-      'User does not belong to this organization'
-    ),
-  },
-  summary: 'Update active organization',
-  description: 'Sets the active organization for the current session and updates the user default.',
-});
-
-server.openapi(updateActiveOrgRoute, async (c) => {
-  const { orgId } = c.req.valid('json');
-  const currentUser = c.get('user')!;
-  const session = c.get('session')!;
-
-  // Verify the user actually belongs to this org
-  const belongsToOrg = currentUser.grants.some((g) => g.orgId === orgId);
-  if (!belongsToOrg) {
-    return c.json(
-      { message: 'User does not belong to this organization' },
-      HttpStatusCodes.FORBIDDEN
-      // eslint-disable-next-line max-lines
-    );
-  }
-
-  // Update session and user default atomically in a single transaction
-  await db.transaction(async (tx) => {
-    await tx
-      .update(schema.authSession)
-      .set({ activeOrgId: orgId })
-      .where(eq(schema.authSession.id, session.session.id));
-
-    await tx
-      .update(schema.users)
-      .set({ lastActiveOrgId: orgId })
-      .where(eq(schema.users.id, currentUser.id));
-  });
-
-  return c.body(null, HttpStatusCodes.OK);
 });

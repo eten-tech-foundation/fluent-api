@@ -4,6 +4,7 @@ import { syncBiblesFromDbl } from '@/domains/bibles/sync/dbl-bible-sync';
 import { syncAudioAvailability, syncBooksFromDbl } from '@/domains/books/sync/dbl-book-sync';
 import { syncLanguagesFromDbl } from '@/domains/languages/sync/dbl-language-sync';
 
+import { ensureWorkerQueue } from '../lib/dead-letter-queues';
 import { logger } from '../lib/logger';
 
 /** Queue name for the DBL catalogue sync job. */
@@ -26,7 +27,7 @@ export const QUEUE_DBL_SYNC = 'dbl-sync';
  */
 export async function registerDblSyncWorker(boss: PgBoss) {
   // To trigger it manually, send a job to this queue: await boss.send(QUEUE_DBL_SYNC, {});
-  await boss.createQueue(QUEUE_DBL_SYNC);
+  await ensureWorkerQueue(boss, QUEUE_DBL_SYNC);
 
   await boss.work(QUEUE_DBL_SYNC, { batchSize: 1 }, async (jobs) => {
     const job = jobs[0];

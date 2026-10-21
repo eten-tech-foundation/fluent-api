@@ -1,11 +1,12 @@
 import type { SQL } from 'drizzle-orm';
 
-import { eq } from 'drizzle-orm';
+import { eq, ne } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import { chapter_assignments } from '@/db/schema';
+import { bibles, chapter_assignments } from '@/db/schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
+import { ErrorCode } from '@/lib/types';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -53,7 +54,8 @@ function buildProgressSelectChain(rows: unknown[]) {
   };
 }
 
-const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+const { mockDbSelect, mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
+  const dbSelect = vi.fn<(selection?: unknown) => unknown>();
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
@@ -65,11 +67,11 @@ const { mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
     where: vi.fn().mockReturnThis(),
     limit: vi.fn(),
   };
-  return { mockSelectChain: selectChain, mockUpdateChain: updateChain };
+  return { mockDbSelect: dbSelect, mockSelectChain: selectChain, mockUpdateChain: updateChain };
 });
 
 vi.mock('@/db', () => ({
-  db: { select: vi.fn() },
+  db: { select: mockDbSelect },
 }));
 
 vi.mock('drizzle-orm', async (importOriginal) => {
@@ -77,7 +79,9 @@ vi.mock('drizzle-orm', async (importOriginal) => {
   return {
     ...actual,
     eq: vi.fn((...args) => args),
+    ne: vi.fn((...args) => args),
     and: vi.fn((...args) => args),
+    or: vi.fn((...args) => args),
     isNull: vi.fn((col) => col),
   };
 });
@@ -136,6 +140,47 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
       expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
     });
+
+    it('filters strictly on conflict status so clean and resolved recordings are excluded', () => {
+      const fragment = repo.hasConflictRollupSql();
+      const text = sqlText(fragment);
+
+      expect(text).toMatch(/var\.conflict_status\s*=\s*conflict/);
+      expect(text).not.toContain('resolved');
+      expect(text).not.toContain('clean');
+    });
+  });
+
+  it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
+    const chain = buildProgressSelectChain([]);
+    mockDbSelect.mockReturnValue(chain);
+
+    expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
+    expect(db.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ttsLicenseStatus: expect.anything(),
+        textBibleProvider: expect.anything(),
+        textBibleExternalId: expect.anything(),
+        selectedRecordingProvider: expect.anything(),
+        selectedRecordingExternalId: expect.anything(),
+      })
+    );
+    // PostgreSQL recognizes functional dependency on the primary key, not on
+    // the Bible's UNIQUE name. Without this the real query fails with 42803.
+    expect(chain.groupBy.mock.calls[0]).toContain(bibles.id);
+  });
+
+  it('returns an operation failure when the assignment query fails', async () => {
+    const chain = buildProgressSelectChain([]);
+    chain.groupBy.mockReturnValue({
+      orderBy: vi.fn().mockRejectedValue(new Error('database unavailable')),
+    });
+    mockDbSelect.mockReturnValue(chain);
+
+    const result = await repo.findAssignmentsProgress({ projectId: 3 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
   });
 
   describe('findAssignmentsProgress hasConflict rollup', () => {
@@ -148,6 +193,12 @@ describe('chapter-assignments.repository claim helpers', () => {
           projectUnitId: 12,
           bibleId: 9,
           bibleName: 'Target',
+          ttsLicenseStatus: 'allowed',
+          textBibleProvider: 'dbl',
+          textBibleExternalId: 'opaque-text-ID',
+          selectedRecordingId: 20,
+          selectedRecordingProvider: 'aquifer',
+          selectedRecordingExternalId: '20',
           bookId: 1,
           bookCode: 'JHN',
           bookNameEng: 'John',
@@ -177,6 +228,12 @@ describe('chapter-assignments.repository claim helpers', () => {
           projectUnitId: 12,
           bibleId: 10,
           bibleName: 'Source',
+          ttsLicenseStatus: 'unknown',
+          textBibleProvider: 'dbl',
+          textBibleExternalId: null,
+          selectedRecordingId: 88,
+          selectedRecordingProvider: 'youversion',
+          selectedRecordingExternalId: '88',
           bookId: 1,
           bookCode: 'JHN',
           bookNameEng: 'John',
@@ -214,8 +271,24 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).toHaveLength(2);
-        expect(result.data.find((r) => r.bibleId === 9)?.hasConflict).toBe(true);
-        expect(result.data.find((r) => r.bibleId === 10)?.hasConflict).toBe(false);
+        expect(result.data.map(({ assignmentId }) => assignmentId)).toEqual([1, 2]);
+        expect(result.data.find((r) => r.bibleId === 9)).toMatchObject({
+          hasConflict: true,
+          textBibleKey: 'dbl-opaque-text-ID',
+          selectedRecordingKey: 'aq-20',
+        });
+        expect(result.data.find((r) => r.bibleId === 10)).toMatchObject({
+          hasConflict: false,
+          textBibleKey: null,
+          selectedRecordingKey: 'yv-88',
+        });
+        for (const row of result.data) {
+          expect(row).not.toHaveProperty('textBibleProvider');
+          expect(row).not.toHaveProperty('textBibleExternalId');
+          expect(row).not.toHaveProperty('selectedRecordingId');
+          expect(row).not.toHaveProperty('selectedRecordingProvider');
+          expect(row).not.toHaveProperty('selectedRecordingExternalId');
+        }
       }
     });
   });
@@ -249,6 +322,68 @@ describe('chapter-assignments.repository claim helpers', () => {
 
       expect(result.claimed).toBe(false);
       expect(result.record).toBeNull();
+    });
+  });
+
+  describe('submitPeerCheckIfEligible', () => {
+    it('sets peerCheckerId, status, and submittedTime when the row still matches', async () => {
+      const submittedTime = new Date('2026-01-02T00:00:00.000Z');
+      const record = {
+        id: 1,
+        peerCheckerId: 7,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        submittedTime,
+      };
+      mockUpdateChain.returning.mockResolvedValueOnce([record]);
+
+      const result = await repo.submitPeerCheckIfEligible(
+        1,
+        7,
+        'community_review',
+        submittedTime,
+        mockTx()
+      );
+
+      expect(result).toEqual(record);
+      expect(mockUpdateChain.set).toHaveBeenCalledWith({
+        peerCheckerId: 7,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        submittedTime,
+      });
+    });
+
+    it('returns null when another submitter already won the race', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([]);
+
+      const result = await repo.submitPeerCheckIfEligible(
+        1,
+        7,
+        'community_review',
+        new Date(),
+        mockTx()
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('only updates peer_check rows that are open or already assigned to the submitter and whose drafter is not the submitter', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([
+        {
+          id: 1,
+          peerCheckerId: 7,
+          status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+        },
+      ]);
+
+      await repo.submitPeerCheckIfEligible(1, 7, 'community_review', new Date(), mockTx());
+
+      expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 7);
+      expect(mockUpdateChain.where).toHaveBeenCalledWith([
+        [chapter_assignments.id, 1],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK],
+        [chapter_assignments.assignedUserId, 7],
+        [chapter_assignments.peerCheckerId, [chapter_assignments.peerCheckerId, 7]],
+      ]);
     });
   });
 

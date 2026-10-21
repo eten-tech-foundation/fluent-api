@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/workers/standalone-worker.ts",
+    "src/db/scripts/*.ts",
+    "src/db/seeds/*.ts",
+    "src/db/env-configs/*.ts",
+    "scripts/*.{ts,js}"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.{ts,js}"],
+  "ignore": ["src/db/migrations/**", "src/db/seeds/data/**"]
+}

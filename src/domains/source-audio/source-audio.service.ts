@@ -13,6 +13,11 @@ import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import { getBookByCode } from '@/domains/books/books.service';
 import { logger } from '@/lib/logger';
 import { getBibles, getBibleText } from '@/lib/services/aquifer/aquifer.client';
+import {
+  parseDblTimestampSeconds,
+  parseDblVerseNumber,
+  warnIfAllDblTimecodesDropped,
+} from '@/lib/services/dbl/dbl.timecodes';
 import { ErrorCode, ok } from '@/lib/types';
 
 import type {
@@ -22,9 +27,15 @@ import type {
   SourceAudioResponse,
 } from './source-audio.types';
 
+import * as repo from './source-audio.repository';
+
+export function isBibleBookLinkedToProject(projectId: number, bibleId: number, bookCode: string) {
+  return repo.isBibleBookLinkedToProject(projectId, bibleId, bookCode);
+}
+
 interface SourceAudioVerseTimestamp {
   verse: number;
-  startSeconds?: number;
+  startSeconds: number;
   dblAudioBibleId?: string;
 }
 
@@ -134,19 +145,28 @@ function dblTracksToResponse(params: {
   verse?: number;
 }): SourceAudioResponse {
   const primary = params.tracks[0]!;
+  const chapterId = `${params.bookCode}.${params.chapter}`;
+  const chapterPrefix = `${chapterId}.`;
   const verseTimestamps: SourceAudioVerseTimestamp[] = [];
   for (const track of params.tracks) {
+    const before = verseTimestamps.length;
     for (const timecode of track.timecodes ?? []) {
-      const versePart = timecode.verseId.split('.').pop();
-      const verse = versePart ? Number.parseInt(versePart, 10) : Number.NaN;
-      const startSeconds = Number.parseFloat(timecode.start);
-      if (!Number.isFinite(verse) || !Number.isFinite(startSeconds)) continue;
+      const verse = parseDblVerseNumber(timecode.verseId, chapterPrefix);
+      const startSeconds = parseDblTimestampSeconds(timecode.start);
+      if (verse === undefined || startSeconds === undefined) continue;
       verseTimestamps.push({
         verse,
         startSeconds,
         dblAudioBibleId: track.audioBibleId,
       });
     }
+    warnIfAllDblTimecodesDropped({
+      path: 'source-audio',
+      audioBibleId: track.audioBibleId,
+      chapter: chapterId,
+      timecodes: track.timecodes,
+      acceptedCount: verseTimestamps.length - before,
+    });
   }
 
   return {

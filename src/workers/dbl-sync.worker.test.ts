@@ -4,6 +4,7 @@ import * as bibleSyncModule from '@/domains/bibles/sync/dbl-bible-sync';
 import * as bookSyncModule from '@/domains/books/sync/dbl-book-sync';
 import * as languageSyncModule from '@/domains/languages/sync/dbl-language-sync';
 import { ok } from '@/lib/types';
+import { fakeBoss, jobResult } from '@/test/utils/test-helpers';
 
 import { registerDblSyncWorker } from './dbl-sync.worker';
 
@@ -26,23 +27,20 @@ describe('dblSyncWorker', () => {
   });
 
   it('registers the on-demand worker and handles execution lifecycle', async () => {
-    const mockBoss = {
-      createQueue: vi.fn().mockResolvedValue(undefined),
-      work: vi.fn().mockResolvedValue(undefined),
-    } as any;
+    const { boss, work } = fakeBoss();
 
-    await registerDblSyncWorker(mockBoss);
+    await registerDblSyncWorker(boss);
 
-    expect(mockBoss.work).toHaveBeenCalledWith('dbl-sync', { batchSize: 1 }, expect.any(Function));
+    expect(work).toHaveBeenCalledWith('dbl-sync', { batchSize: 1 }, expect.any(Function));
 
-    const handler = mockBoss.work.mock.calls[0][2];
+    const handler = work.mock.calls[0][2];
 
     vi.mocked(languageSyncModule.syncLanguagesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bibleSyncModule.syncBiblesFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bookSyncModule.syncBooksFromDbl).mockResolvedValueOnce(ok({} as any));
     vi.mocked(bookSyncModule.syncAudioAvailability).mockResolvedValueOnce(ok({} as any));
 
-    await handler([{ id: 'job-1' }]);
+    await handler([jobResult({}, { id: 'job-1' })]);
     expect(languageSyncModule.syncLanguagesFromDbl).toHaveBeenCalledTimes(1);
     expect(bibleSyncModule.syncBiblesFromDbl).toHaveBeenCalledTimes(1);
     expect(bookSyncModule.syncBooksFromDbl).toHaveBeenCalledTimes(1);
@@ -52,6 +50,6 @@ describe('dblSyncWorker', () => {
       ok: false,
       error: { message: 'Sync failed' } as any,
     });
-    await expect(handler([{ id: 'job-2' }])).rejects.toThrow('Sync failed');
+    await expect(handler([jobResult({}, { id: 'job-2' })])).rejects.toThrow('Sync failed');
   });
 });

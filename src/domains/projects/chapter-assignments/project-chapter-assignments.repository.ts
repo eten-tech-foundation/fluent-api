@@ -1,19 +1,32 @@
 import type { SQL } from 'drizzle-orm/sql';
 
-import { and, eq, gt, inArray, or } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { chapter_assignments, project_units, projects } from '@/db/schema';
+import {
+  chapter_assignments,
+  project_unit_bible_books,
+  project_units,
+  projects,
+} from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { ChapterAssignmentWithProjectId } from './project-chapter-assignments.types';
 
-export async function getByProject(projectId: number): Promise<Result<ChapterAssignmentRecord[]>> {
+export async function getByProject(
+  projectId: number,
+  milestoneId?: number
+): Promise<Result<ChapterAssignmentRecord[]>> {
   try {
+    const conditions = [eq(project_units.projectId, projectId)];
+    if (milestoneId) {
+      conditions.push(eq(project_units.id, milestoneId));
+    }
+
     const assignments = await db
       .select({
         id: chapter_assignments.id,
@@ -33,7 +46,14 @@ export async function getByProject(projectId: number): Promise<Result<ChapterAss
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-      .where(eq(project_units.projectId, projectId));
+      .innerJoin(
+        project_unit_bible_books,
+        and(
+          eq(project_unit_bible_books.projectUnitId, chapter_assignments.projectUnitId),
+          eq(project_unit_bible_books.bookId, chapter_assignments.bookId)
+        )
+      )
+      .where(and(...conditions, isNull(project_unit_bible_books.deletedAt)));
 
     return ok(assignments);
   } catch (error) {
@@ -86,7 +106,14 @@ export async function getAssignmentIdsByProject(
     .select({ id: chapter_assignments.id })
     .from(chapter_assignments)
     .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-    .where(eq(project_units.projectId, projectId));
+    .innerJoin(
+      project_unit_bible_books,
+      and(
+        eq(project_unit_bible_books.projectUnitId, chapter_assignments.projectUnitId),
+        eq(project_unit_bible_books.bookId, chapter_assignments.bookId)
+      )
+    )
+    .where(and(eq(project_units.projectId, projectId), isNull(project_unit_bible_books.deletedAt)));
 
   return rows.map((r) => r.id);
 }
@@ -147,7 +174,19 @@ export async function getByProjects(
       })
       .from(chapter_assignments)
       .innerJoin(project_units, eq(chapter_assignments.projectUnitId, project_units.id))
-      .where(buildAssignmentFilter(projectIds, excludeProjectIds, updatedAfter));
+      .innerJoin(
+        project_unit_bible_books,
+        and(
+          eq(project_unit_bible_books.projectUnitId, chapter_assignments.projectUnitId),
+          eq(project_unit_bible_books.bookId, chapter_assignments.bookId)
+        )
+      )
+      .where(
+        and(
+          buildAssignmentFilter(projectIds, excludeProjectIds, updatedAfter),
+          isNull(project_unit_bible_books.deletedAt)
+        )
+      );
 
     return ok(assignments);
   } catch (error) {

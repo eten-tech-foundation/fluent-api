@@ -3,6 +3,10 @@ import type { DbTransaction, Result } from '@/lib/types';
 import { db } from '@/db';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
+import {
+  lockProject,
+  readStagesSeeded,
+} from '@/domains/projects/workflow-stages/workflow-stages.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -145,6 +149,36 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
  * Internal cross-domain function called during project-unit setup —
  * returns raw records since this is never sent directly to a client.
  */
+async function createChapterAssignmentForProjectUnitInTransaction(
+  projectUnitId: number,
+  bibleId: number,
+  bookIds: number[],
+  tx: DbTransaction
+): Promise<ChapterAssignmentRecord[]> {
+  const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
+  if (chapters.length === 0) return [];
+
+  const records = chapters.map((c) => ({
+    projectUnitId,
+    bibleId: c.bibleId,
+    bookId: c.bookId,
+    chapterNumber: c.chapterNumber,
+    assignedUserId: null as null,
+    peerCheckerId: null as null,
+  }));
+
+  const inserted = await repo.insertMany(records, tx);
+  if (inserted.length > 0) {
+    const historyRecords = inserted.map((a) => ({
+      chapterAssignmentId: a.id,
+      status: 'not_started' as ChapterAssignmentStatus,
+    }));
+    await repo.insertManyStatusHistory(tx, historyRecords);
+  }
+
+  return inserted;
+}
+
 export async function createChapterAssignmentForProjectUnit(
   projectUnitId: number,
   bibleId: number,
@@ -152,19 +186,22 @@ export async function createChapterAssignmentForProjectUnit(
   tx?: DbTransaction
 ) {
   try {
-    const chapters = await repo.findChaptersForProjectUnit(bibleId, bookIds, tx);
-    if (chapters.length === 0) return ok([]);
+    const inserted = tx
+      ? await createChapterAssignmentForProjectUnitInTransaction(
+          projectUnitId,
+          bibleId,
+          bookIds,
+          tx
+        )
+      : await db.transaction((transaction) =>
+          createChapterAssignmentForProjectUnitInTransaction(
+            projectUnitId,
+            bibleId,
+            bookIds,
+            transaction
+          )
+        );
 
-    const records = chapters.map((c) => ({
-      projectUnitId,
-      bibleId: c.bibleId,
-      bookId: c.bookId,
-      chapterNumber: c.chapterNumber,
-      assignedUserId: null as null,
-      peerCheckerId: null as null,
-    }));
-
-    const inserted = await repo.insertMany(records, tx);
     return ok(inserted);
   } catch (error: any) {
     logger.error({
@@ -251,45 +288,70 @@ export async function updateChapterAssignment(
   return ok(result.data.response);
 }
 
-export async function submitChapterAssignment(chapterAssignmentId: number) {
+export async function submitChapterAssignment(chapterAssignmentId: number, userId: number) {
   const exec = async (tx: DbTransaction) => {
+    const initial = await repo.findById(chapterAssignmentId, tx);
+    if (!initial) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+
+    const projectId = await repo.findProjectIdByUnitId(initial.projectUnitId, tx);
+    if (!projectId) return err(ErrorCode.INTERNAL_ERROR);
+
+    const lockResult = await lockProject(tx, projectId);
+    if (!lockResult.ok) return lockResult;
+
+    // Refresh assignment after lock to avoid stale status under concurrency.
     const current = await repo.findById(chapterAssignmentId, tx);
     if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-    let nextStatus: ChapterAssignmentStatus;
-    let snapshotUser: number | null;
+    const stages = await readStagesSeeded(tx, projectId);
 
-    switch (current.status) {
-      case CHAPTER_ASSIGNMENT_STATUS.DRAFT:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW;
-        snapshotUser = current.peerCheckerId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.LINGUIST_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.THEOLOGICAL_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK;
-        snapshotUser = current.assignedUserId;
-        break;
-      case CHAPTER_ASSIGNMENT_STATUS.CONSULTANT_CHECK:
-        nextStatus = CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
-        snapshotUser = current.assignedUserId;
-        break;
-      default:
-        return err(ErrorCode.INVALID_STATUS_TRANSITION);
+    const currentIndex = stages.findIndex((s) => s.defaultName === current.status);
+    if (currentIndex === -1 || currentIndex >= stages.length - 1) {
+      return err(ErrorCode.INVALID_STATUS_TRANSITION);
+    }
+
+    const nextStatus = stages[currentIndex + 1].defaultName as ChapterAssignmentStatus;
+
+    // Determine the snapshot user (who submitted it).
+    // For peer check, it's the peer checker. For everything else, it's the assigned drafter.
+    let snapshotUser = current.assignedUserId;
+    if (current.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK) {
+      snapshotUser = current.peerCheckerId ?? userId;
     }
 
     const contentResult = await repo.getContent(tx, current);
     if (!contentResult.ok) return contentResult;
+
+    if (current.status === CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK) {
+      const submittedTime = new Date();
+      const updated = await repo.submitPeerCheckIfEligible(
+        chapterAssignmentId,
+        userId,
+        nextStatus,
+        submittedTime,
+        tx
+      );
+      if (!updated) {
+        const latest = await repo.findById(chapterAssignmentId, tx);
+        if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+        return ok(toChapterAssignmentResponse(latest));
+      }
+
+      await repo.insertSnapshot(tx, {
+        chapterAssignmentId,
+        status: current.status,
+        assignedUserId: snapshotUser,
+        content: contentResult.data,
+      });
+      await recordStatusChange(tx, current, updated);
+      await recordUserAssignmentChanges(tx, current, updated, {
+        peerCheckerId: updated.peerCheckerId,
+        status: nextStatus,
+        submittedTime,
+      });
+      await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+      return ok(toChapterAssignmentResponse(updated));
+    }
 
     await repo.insertSnapshot(tx, {
       chapterAssignmentId,
@@ -466,17 +528,25 @@ export async function updateChapterAssignmentAiStatus(
   isAiEnabled: boolean
 ): Promise<Result<void>> {
   try {
-    const assignment = await repo.findById(assignmentId);
-
-    if (!assignment) {
-      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-    }
-
-    if (assignment.isAiEnabled === isAiEnabled) {
-      return ok(undefined);
-    }
+    let assignmentProjectUnitId = 0;
+    let assignmentBibleId = 0;
+    let assignmentBookId = 0;
+    let assignmentChapterNumber = 0;
 
     await db.transaction(async (tx) => {
+      const assignment = await repo.findById(assignmentId, tx);
+      if (!assignment) {
+        throw new Error(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
+
+      assignmentProjectUnitId = assignment.projectUnitId;
+      assignmentBibleId = assignment.bibleId;
+      assignmentBookId = assignment.bookId;
+      assignmentChapterNumber = assignment.chapterNumber;
+
+      if (assignment.isAiEnabled === isAiEnabled) {
+        return;
+      }
       await repo.update(assignmentId, { isAiEnabled }, tx);
     });
 
@@ -485,27 +555,30 @@ export async function updateChapterAssignmentAiStatus(
         // Runs after the isAiEnabled update has committed (not inside a transaction);
         // catch errors so a failed AI trigger doesn't affect the already-saved status.
         await aiSuggestionsService.handleChapterAssigned(
-          assignment.projectUnitId,
-          assignment.bibleId,
-          assignment.bookId,
-          assignment.chapterNumber
+          assignmentProjectUnitId,
+          assignmentBibleId,
+          assignmentBookId,
+          assignmentChapterNumber
         );
       } catch (error) {
         logger.error({
           cause: error,
           message: 'Failed to enqueue AI suggestions after toggling AI status',
           context: {
-            projectUnitId: assignment.projectUnitId,
-            bibleId: assignment.bibleId,
-            bookId: assignment.bookId,
-            chapterNumber: assignment.chapterNumber,
+            projectUnitId: assignmentProjectUnitId,
+            bibleId: assignmentBibleId,
+            bookId: assignmentBookId,
+            chapterNumber: assignmentChapterNumber,
           },
         });
       }
     }
 
     return ok(undefined);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message === ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND) {
+      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
     logger.error({
       cause: error,
       message: 'Failed to toggle AI status for chapter assignment',

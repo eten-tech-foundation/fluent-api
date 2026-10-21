@@ -8,6 +8,7 @@ import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter
 import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
 import { getHttpStatus } from '@/lib/types';
 
 import type { ProjectUnitIdSource, TranslatedVerseAction } from './translated-verses.types';
@@ -99,8 +100,13 @@ export function requireTranslatedVerseAccess(
       const isProjectMember = unitResult.ok
         ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
         : false;
+      const stages = unitResult.ok
+        ? await getWorkflowStagesByProjectId(unitResult.data.projectId)
+        : [];
 
-      if (!ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember)) {
+      if (
+        !ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)
+      ) {
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
     }

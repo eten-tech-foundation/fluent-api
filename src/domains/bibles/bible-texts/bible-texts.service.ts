@@ -1,4 +1,7 @@
-import { ok } from '@/lib/types';
+import type { DbTransaction } from '@/lib/types';
+
+import { logger } from '@/lib/logger';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
   BulkChapterRequest,
@@ -50,4 +53,21 @@ export async function getBulkBibleTexts(bibleId: number, body: BulkChapterReques
     syncedAt: new Date().toISOString(),
     data: toBulkChapterTextResponses(result.data),
   });
+}
+
+export async function getBibleBookVerseReferences(
+  bibleId: number,
+  bookId: number,
+  tx?: DbTransaction
+) {
+  try {
+    return ok(await repo.getBookVerseReferences(bibleId, bookId, tx));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to get source verse references',
+      context: { bibleId, bookId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }
