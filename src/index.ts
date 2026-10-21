@@ -7,32 +7,40 @@ import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-st
 import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
 import { startDeadLetterMonitor } from '@/lib/dead-letter-queues';
 import { logger } from '@/lib/logger';
-import {
-  ensureAiSuggestionQueue,
-  ensureExportQueues,
-  initializeQueue,
-  stopQueue,
-} from '@/lib/queue';
+import { initializeQueueWithRetry, stopQueue } from '@/lib/queue';
 
 import app from './app';
 
+// The listener opens before any external dependency is touched: Azure's
+// startup probe kills the container if the port isn't open in time, and a
+// database/storage flap must degrade those features (callers get 503) rather
+// than take the whole site down with it. Each subsystem initializes on its own
+// so one slow dependency cannot starve the others.
 async function startServer() {
   try {
     logger.info('Starting Fluent API server');
 
-    await verifyBlobStorageOnBoot();
+    const server = serve({
+      fetch: app.fetch,
+      port: env.PORT,
+    });
 
-    logger.info('Initializing queue');
-    const boss = await initializeQueue();
+    logger.info(`Server is running on port ${env.PORT}`);
 
-    logger.info('Ensuring USFM export queues exist');
-    await ensureExportQueues(boss);
+    let shuttingDown = false;
+    let stopDeadLetterMonitor: (() => Promise<void>) | undefined;
+    let audioReclaimInterval: NodeJS.Timeout | null = null;
 
-    logger.info('Ensuring AI suggestion trigger queue exists');
-    await ensureAiSuggestionQueue(boss);
-    const stopDeadLetterMonitor = startDeadLetterMonitor(boss);
+    // Background init: each task is independent and never throws past its own
+    // boundary. The queue loop keeps retrying until shutdown so a DB outage at
+    // boot self-heals when connectivity returns.
+    const queueReady = initializeQueueWithRetry(() => shuttingDown).then((boss) => {
+      if (boss && !shuttingDown) {
+        stopDeadLetterMonitor = startDeadLetterMonitor(boss);
+      }
+    });
 
-    logger.info('Queue ready');
+    const blobVerified = verifyBlobStorageOnBoot().then(() => undefined);
 
     // Deleting a project unit cascades its recordings away, but Postgres cannot
     // delete an object in a bucket — this sweep is what actually frees those
@@ -42,8 +50,8 @@ async function startServer() {
     // logged and the API keeps serving; the probe result is recorded in the
     // storage module, so the verse-audio routes then answer 503 instead of a
     // 500 per request.
-    let audioReclaimInterval: NodeJS.Timeout | null = null;
-    if (isAudioStorageConfigured()) {
+    const audioReady = (async () => {
+      if (!isAudioStorageConfigured()) return;
       try {
         await initializeAudioStorage();
         audioReclaimInterval = setInterval(() => {
@@ -54,23 +62,26 @@ async function startServer() {
       } catch (error) {
         logger.error('Verse audio storage unavailable; reclaim sweep disabled', { error });
       }
-    }
+    })();
 
-    const server = serve({
-      fetch: app.fetch,
-      port: env.PORT,
+    void Promise.allSettled([queueReady, blobVerified, audioReady]).then((results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          logger.error('Background initialization task failed', { reason: result.reason });
+        }
+      }
     });
-
-    logger.info(`Server is running on port ${env.PORT}`);
 
     const gracefulShutdown = async (signal: string) => {
       logger.info(`${signal} received, shutting down server`);
+      shuttingDown = true;
       try {
         if (audioReclaimInterval) clearInterval(audioReclaimInterval);
         // Stop the monitor's timer now but drain its in-flight sweep alongside
         // the listener close. Awaiting it first would hold the socket open for
         // up to DLQ_SHUTDOWN_TIMEOUT_MS of the orchestrator's grace period.
-        const monitorStopped = stopDeadLetterMonitor();
+        // stopDeadLetterMonitor may be unset if shutdown arrives mid-init.
+        const monitorStopped = stopDeadLetterMonitor?.() ?? Promise.resolve();
 
         server.close(() => {
           logger.info('HTTP server closed');
