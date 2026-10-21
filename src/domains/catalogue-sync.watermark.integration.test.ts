@@ -41,6 +41,7 @@ describe('catalogue sync watermarks (PGlite)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await client.exec("SET timezone = 'UTC';");
     // Production invariant (migration 0035): INSERT/UPDATE of license/display
     // columns bumps linked bibles.updated_at for any SQL/ORM writer.
     const triggerSql = readFileSync(
