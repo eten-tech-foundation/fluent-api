@@ -21,6 +21,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/.claude/**',
+      '**/worktrees/**',
       '**/*.live.test.ts',
       '**/*.db.test.ts',
     ],

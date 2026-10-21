@@ -15,6 +15,10 @@ import { z } from '@hono/zod-openapi';
  * - Equal timestamps are re-fetched on the next call (`gte`); clients must upsert idempotently.
  * - Concurrent writes during a fetch may require a later sync; advancing past server
  *   timestamps with device time can skip rows permanently.
+ * - Catalogue writers (languages / books / bibles + provider-resource license
+ *   trigger) stamp `updatedAt` via `next_catalogue_watermark()` (#404). That
+ *   singleton row-lock orders commits so a cursor issued mid-flight cannot
+ *   permanently skip an earlier-started, later-committed write.
  */
 export const updatedAfterQuerySchema = z
   .string()

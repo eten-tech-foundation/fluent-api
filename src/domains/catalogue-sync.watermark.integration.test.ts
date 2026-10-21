@@ -1,11 +1,8 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createCatalogueTestSchema } from '@/db/testing/create-catalogue-schema';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import * as booksRepo from '@/domains/books/books.repository';
 import * as languagesRepo from '@/domains/languages/languages.repository';
@@ -22,33 +19,20 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
-const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../db/migrations');
-
 describe('catalogue sync watermarks (PGlite)', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        languages: schema.languages,
-        books: schema.books,
-        bible_books: schema.bible_books,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibles: schema.bibles,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
+    await createCatalogueTestSchema(client, {
+      languages: schema.languages,
+      books: schema.books,
+      bible_books: schema.bible_books,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibles: schema.bibles,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+    });
     await client.exec("SET timezone = 'UTC';");
-    // Production invariant (migration 0035): INSERT/UPDATE of license/display
-    // columns bumps linked bibles.updated_at for any SQL/ORM writer.
-    const triggerSql = readFileSync(
-      join(migrationDir, '0037_bump_bibles_on_provider_resource_license.sql'),
-      'utf8'
-    ).replaceAll('--> statement-breakpoint', '');
-    await client.exec(triggerSql);
   }, 30_000);
 
   beforeEach(async () => {
@@ -379,6 +363,34 @@ describe('catalogue sync watermarks (PGlite)', () => {
       expect(resource!.ttsLicenseStatus).toBe('allowed');
       expect(after!.updatedAt!.getTime()).toBe(before.getTime());
     });
+  });
+
+  it('allocates revisions beyond the clock and rolls the allocator back with the write', async () => {
+    const future = new Date('2090-01-01T00:00:00.000Z');
+    await database.update(schema.catalogue_watermark).set({ updatedAt: future });
+    await expect(
+      database.transaction(async (tx) => {
+        await tx.insert(schema.books).values({ code: 'ROLLBACK', eng_display_name: 'Rollback' });
+        throw new Error('rollback');
+      })
+    ).rejects.toThrow('rollback');
+    const [state] = await database.select().from(schema.catalogue_watermark);
+    expect(state!.updatedAt).toEqual(future);
+    const [first] = await database
+      .insert(schema.books)
+      .values({ code: 'A', eng_display_name: 'A' })
+      .returning();
+    const [second] = await database
+      .insert(schema.books)
+      .values({ code: 'B', eng_display_name: 'B' })
+      .returning();
+    expect(first!.updatedAt!.getTime()).toBe(future.getTime() + 1);
+    expect(second!.updatedAt!.getTime()).toBe(first!.updatedAt!.getTime() + 1);
+    const incremental = await booksRepo.getAll(first!.updatedAt!);
+    expect(incremental.ok).toBe(true);
+    if (incremental.ok) {
+      expect(incremental.data.map((row) => row.code).sort()).toEqual(['A', 'B']);
+    }
   });
 
   it('books upsert does not stamp updatedAt on unchanged re-sync but still links', async () => {

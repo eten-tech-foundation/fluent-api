@@ -101,3 +101,6 @@ bun.lock*
 
 # Local browser-smoke screenshots (never committed)
 .playwright-mcp/
+
+# Local git worktrees nested under the repo
+worktrees/
