@@ -13,6 +13,7 @@ import {
   imageSearchHit,
   NOTES_RANGE_PATH,
   QUESTIONS_RANGE_PATH,
+  searchEnumeration,
   searchHit,
   textDetails,
 } from './translation-resources.test-fixtures';
@@ -70,7 +71,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when Aquifer has no notes in the range', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(NOTES_RANGE_PATH, { method: 'GET' });
 
@@ -98,7 +99,7 @@ describe('translation-resources verse-range routes', () => {
         { ...searchHit, id: 101, name: 'one-dup', localizedName: 'One Dup' },
         { ...searchHit, id: 202, name: 'two', localizedName: 'Two' },
       ];
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits));
       vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) =>
         ok({ ...textDetails, id, name: String(id), localizedName: String(id) })
       );
@@ -165,7 +166,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when none exist', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(QUESTIONS_RANGE_PATH, { method: 'GET' });
 
@@ -183,7 +184,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns 502 when details hydration fails for every hit', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([searchHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([searchHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE)
       );
@@ -200,7 +201,7 @@ describe('translation-resources verse-range routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const hits = [imageSearchHit(55), imageSearchHit(55), imageSearchHit(66)];
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits));
       vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) =>
         ok({
           id,
@@ -246,7 +247,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when Aquifer has no images in the range', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(IMAGES_RANGE_PATH, { method: 'GET' });
 

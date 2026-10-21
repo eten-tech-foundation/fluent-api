@@ -17,6 +17,7 @@ import {
   MOCK_PROJECT,
   NOTES_PATH,
   QUESTIONS_PATH,
+  searchEnumeration,
   searchHit,
   textDetails,
 } from './translation-resources.test-fixtures';
@@ -114,7 +115,7 @@ describe('translation-resources routes', () => {
     it('returns empty items when Aquifer has no notes', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(NOTES_PATH, { method: 'GET' });
 
@@ -125,7 +126,7 @@ describe('translation-resources routes', () => {
     it('returns hydrated notes on success', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([searchHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([searchHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
 
       const res = await server.request(NOTES_PATH, { method: 'GET' });
@@ -164,7 +165,7 @@ describe('translation-resources routes', () => {
         { ...searchHit, id: 2, name: 'two', localizedName: 'Two' },
         { ...searchHit, id: 3, name: 'three', localizedName: 'Three' },
       ];
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits));
       vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) => {
         if (id === 2) return err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
         return ok({ ...textDetails, id, name: String(id), localizedName: String(id) });
@@ -208,7 +209,7 @@ describe('translation-resources routes', () => {
     it('returns empty items when none exist', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(QUESTIONS_PATH, { method: 'GET' });
 
@@ -219,7 +220,7 @@ describe('translation-resources routes', () => {
     it('returns 502 when details hydration fails', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([searchHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([searchHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE)
       );
@@ -236,7 +237,7 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = imageSearchHit(55);
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
           id: 55,
@@ -267,7 +268,7 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = imageSearchHit(58);
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
           id: 58,
@@ -298,7 +299,7 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = imageSearchHit(56);
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
           id: 56,
@@ -329,7 +330,7 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = imageSearchHit(59);
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
           id: 59,
@@ -366,7 +367,7 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const imageHit = imageSearchHit(57);
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([imageHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([imageHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         ok({
           id: 57,
@@ -401,7 +402,7 @@ describe('translation-resources routes', () => {
     it('returns empty items when Aquifer has no images', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(IMAGES_PATH, { method: 'GET' });
 
@@ -411,10 +412,62 @@ describe('translation-resources routes', () => {
   });
 
   describe('gET manifest', () => {
+    it('keeps every required resource when one chapter has more than 100 notes (#431)', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = Array.from({ length: 101 }, (_, index) => ({
+        ...searchHit,
+        id: index + 1,
+      }));
+      vi.mocked(aquiferClient.searchAllResources)
+        .mockResolvedValueOnce(searchEnumeration(hits))
+        .mockResolvedValue(searchEnumeration([]));
+      vi.mocked(aquiferClient.getResource).mockImplementation(async (id) =>
+        ok({ ...textDetails, id })
+      );
+
+      const res = await server.request(MANIFEST_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.truncated).toBe(false);
+      expect(body.items).toHaveLength(101);
+      expect(body.items.map((item: { aquiferContentId: number }) => item.aquiferContentId)).toEqual(
+        hits.map((hit) => hit.id)
+      );
+      expect(body.totalBytes).toBe(
+        body.items.reduce((sum: number, item: { bytesTotal: number }) => sum + item.bytesTotal, 0)
+      );
+      expect(body.totalBytes).toBeGreaterThan(0);
+      expect(aquiferClient.getResource).toHaveBeenCalledTimes(101);
+    });
+
+    it('sets truncated when Aquifer search enumeration is incomplete (#431)', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = Array.from({ length: 50 }, (_, index) => ({
+        ...searchHit,
+        id: index + 1,
+      }));
+      vi.mocked(aquiferClient.searchAllResources)
+        .mockResolvedValueOnce(searchEnumeration(hits, false))
+        .mockResolvedValue(searchEnumeration([]));
+      vi.mocked(aquiferClient.getResource).mockImplementation(async (id) =>
+        ok({ ...textDetails, id })
+      );
+
+      const res = await server.request(MANIFEST_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.truncated).toBe(true);
+      expect(body.items).toHaveLength(50);
+    });
+
     it('returns empty manifest when Aquifer has no resources', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(MANIFEST_PATH, { method: 'GET' });
 
@@ -434,8 +487,8 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       vi.mocked(aquiferClient.searchAllResources)
-        .mockResolvedValueOnce(ok([searchHit]))
-        .mockResolvedValue(ok([]));
+        .mockResolvedValueOnce(searchEnumeration([searchHit]))
+        .mockResolvedValue(searchEnumeration([]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
 
       const res = await server.request(MANIFEST_PATH, { method: 'GET' });
@@ -466,8 +519,8 @@ describe('translation-resources routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       vi.mocked(aquiferClient.searchAllResources)
-        .mockResolvedValueOnce(ok([searchHit]))
-        .mockResolvedValue(ok([]));
+        .mockResolvedValueOnce(searchEnumeration([searchHit]))
+        .mockResolvedValue(searchEnumeration([]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
 
       const res = await server.request(`${MANIFEST_PATH}&includeContent=true`, { method: 'GET' });
