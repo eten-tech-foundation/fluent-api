@@ -9,6 +9,7 @@ import { err, ErrorCode } from '@/lib/types';
 import { server } from '@/server/server';
 
 import * as verseAudioService from './verse-audio.service';
+import './verse-audio.range.route';
 import './verse-audio.route';
 
 vi.mock('@/lib/auth', () => ({
@@ -99,15 +100,15 @@ const APP_USER = {
 function asAuthenticatedUser(
   permissions: string[] = [PERMISSIONS.PROJECT_VIEW, PERMISSIONS.CONTENT_UPDATE]
 ) {
-  (auth.api.getSession as any).mockResolvedValue({
+  vi.mocked(auth.api.getSession).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
-  });
-  (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
-  (findGrantsByUserId as any).mockResolvedValue({
+  } as never);
+  vi.mocked(getUserByEmail).mockResolvedValue({ ok: true, data: APP_USER } as never);
+  vi.mocked(findGrantsByUserId).mockResolvedValue({
     ok: true,
     data: [{ orgId: 1, projectId: 1, permissions: new Set(permissions) }],
-  });
+  } as never);
 }
 
 describe('verse-audio routes', () => {
@@ -118,7 +119,7 @@ describe('verse-audio routes', () => {
 
   describe('get /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     it('returns 401 when caller is unauthenticated', async () => {
-      (auth.api.getSession as any).mockResolvedValue(null);
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
       const res = await server.request('/verse-audio/1/10', { method: 'GET' });
       expect(res.status).toBe(401);
     });
@@ -227,7 +228,7 @@ describe('verse-audio routes', () => {
     });
 
     it('returns 401 when caller is unauthenticated', async () => {
-      (auth.api.getSession as any).mockResolvedValue(null);
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
       const res = await rangeUpload();
       expect(res.status).toBe(401);
       expect(verseAudioService.uploadRangeRecording).not.toHaveBeenCalled();

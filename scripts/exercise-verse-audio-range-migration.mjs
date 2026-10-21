@@ -3,7 +3,7 @@
  * Disposable PGlite exercise for PR #391 migration coordination.
  *
  * Not a production migrate path. Demonstrates:
- * 1) upgrade: minimal pre-0037 schema → 0037_add_verse_audio_range_metadata
+ * 1) upgrade: minimal pre-0038 schema → 0038_add_verse_audio_range_metadata
  * 2) repeated-run: tracked Drizzle skip (when <= last created_at) + raw SQL non-idempotency
  * 3) skip hazard: apply #391 first, then peer journal `when` values → peers silently skipped
  * 4) by-when SQL apply order (diagnostic only — NOT a whole-PR merge order)
@@ -90,13 +90,13 @@ async function applyTracked(db, tag, when, sql) {
 const journal = JSON.parse(
   readFileSync(resolve(root, 'src/db/migrations/meta/_journal.json'), 'utf8')
 );
-const entry391 = journal.entries.find((e) => e.tag === '0037_add_verse_audio_range_metadata');
+const entry391 = journal.entries.find((e) => e.tag === '0038_add_verse_audio_range_metadata');
 if (!entry391) {
-  throw new Error('journal missing 0037_add_verse_audio_range_metadata');
+  throw new Error('journal missing 0038_add_verse_audio_range_metadata');
 }
 const when391 = entry391.when;
 const sql391 = readFileSync(
-  resolve(root, 'src/db/migrations/0037_add_verse_audio_range_metadata.sql'),
+  resolve(root, 'src/db/migrations/0038_add_verse_audio_range_metadata.sql'),
   'utf8'
 );
 
@@ -279,5 +279,5 @@ const outPath = resolve(
 );
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, `${JSON.stringify(results, null, 2)}\n`);
-console.log(JSON.stringify({ allOk, outPath, summary: results }, null, 2));
+process.stdout.write(`${JSON.stringify({ allOk, outPath, summary: results }, null, 2)}\n`);
 process.exit(allOk ? 0 : 1);

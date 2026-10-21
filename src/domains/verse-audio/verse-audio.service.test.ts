@@ -820,7 +820,10 @@ describe('verse-audio service', () => {
         { startChapter: 1, startVerse: 5, endChapter: 1, endVerse: 2 },
         { startChapter: 1.5, startVerse: 1, endChapter: 1, endVerse: 2 },
       ]) {
-        const result = await uploadRangeRecording({ ...rangeInput, ...bad } as any);
+        const result = await uploadRangeRecording({
+          ...rangeInput,
+          ...bad,
+        } as Parameters<typeof uploadRangeRecording>[0]);
         expect(result).toEqual(err(ErrorCode.VALIDATION_ERROR));
       }
       expect(repo.createFirstRecordingWithTake).not.toHaveBeenCalled();

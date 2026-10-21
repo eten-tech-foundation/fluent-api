@@ -50,7 +50,7 @@ describe('verse-audio repository', () => {
           where: vi.fn().mockReturnValue({ orderBy }),
         }),
       }),
-    } as any);
+    } as never);
 
     const result = await repo.listByChapter(12, 9, 1, 4);
 
@@ -164,9 +164,9 @@ describe('verse-audio repository', () => {
         select: vi.fn(),
       };
 
-      vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
+      vi.mocked(db.transaction).mockImplementation(async (callback) => {
         try {
-          return await callback(tx);
+          return await callback(tx as never);
         } catch (error) {
           // Drizzle/Postgres would roll back uncommitted take coverage here.
           takeWriteVisible = false;
@@ -210,7 +210,7 @@ describe('verse-audio repository', () => {
           }),
         }),
       };
-      vi.mocked(db.transaction).mockImplementation(async (callback: any) => callback(tx));
+      vi.mocked(db.transaction).mockImplementation(async (callback) => callback(tx as never));
 
       const result = await repo.updateTakeCoverageAndRecordingIfVersion(10, 1, 2, shape, {
         versionToken: 3,
@@ -242,9 +242,9 @@ describe('verse-audio repository', () => {
         }),
       };
 
-      vi.mocked(db.transaction).mockImplementation(async (callback: any) => {
+      vi.mocked(db.transaction).mockImplementation(async (callback) => {
         try {
-          const value = await callback(tx);
+          const value = await callback(tx as never);
           // Drizzle commits when the callback resolves (including ok:false Results).
           writesCommitted = true;
           return value;
@@ -288,14 +288,14 @@ describe('verse-audio repository', () => {
       const where = vi.fn().mockReturnValue({ limit });
       const innerJoin = vi.fn().mockReturnValue({ where });
       const from = vi.fn().mockReturnValue({ innerJoin, where });
-      vi.mocked(db.select).mockReturnValue({ from } as any);
+      vi.mocked(db.select).mockReturnValue({ from } as never);
     }
 
     it('sets conflict status and advances version token when not resolved', async () => {
       const returning = vi.fn().mockResolvedValue([{ id: 1, projectUnitId: 10, bibleTextId: 20 }]);
       const where = vi.fn().mockReturnValue({ returning });
       const set = vi.fn().mockReturnValue({ where });
-      vi.mocked(db.update).mockReturnValue({ set } as any);
+      vi.mocked(db.update).mockReturnValue({ set } as never);
 
       mockSelect(mockRecord);
 

@@ -37,10 +37,11 @@ const pericopeShape = {
  */
 async function withHydrationSelectFault<T>(run: () => Promise<T>): Promise<T> {
   const originalTransaction = database.transaction.bind(database);
-  database.transaction = (async (callback: any) =>
-    originalTransaction(async (tx: any) => {
+  database.transaction = (async (callback: Parameters<typeof database.transaction>[0]) =>
+    originalTransaction(async (tx) => {
       const originalSelect = tx.select.bind(tx);
-      tx.select = () => ({
+      // Fault-inject empty hydration rows; cast through unknown for the stub shape.
+      tx.select = (() => ({
         from: () => ({
           innerJoin: () => ({
             where: () => ({
@@ -48,13 +49,13 @@ async function withHydrationSelectFault<T>(run: () => Promise<T>): Promise<T> {
             }),
           }),
         }),
-      });
+      })) as unknown as typeof tx.select;
       try {
         return await callback(tx);
       } finally {
         tx.select = originalSelect;
       }
-    })) as typeof database.transaction;
+    })) as unknown as typeof database.transaction;
 
   try {
     return await run();

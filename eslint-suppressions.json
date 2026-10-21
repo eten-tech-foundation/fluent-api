@@ -566,7 +566,7 @@
       "count": 1
     },
     "ts/no-explicit-any": {
-      "count": 6
+      "count": 3
     }
   },
   "src/domains/verse-audio/verse-audio.repository.ts": {
@@ -582,12 +582,7 @@
       "count": 1
     },
     "ts/no-explicit-any": {
-      "count": 10
-    }
-  },
-  "src/domains/verse-audio/verse-audio.route.ts": {
-    "no-restricted-syntax": {
-      "count": 2
+      "count": 7
     }
   },
   "src/domains/verse-audio/verse-audio.service.test.ts": {

@@ -16,7 +16,7 @@ export interface RangeCoverage {
   end: VerseRef;
 }
 
-export interface ActiveCoverageRecord {
+interface ActiveCoverageRecord {
   granularity: VerseAudioGranularity;
   startChapter: number | null;
   startVerse: number | null;
@@ -25,7 +25,7 @@ export interface ActiveCoverageRecord {
 }
 
 /** Lexicographic (chapter, verse) ordering. */
-export function compareVerseRef(a: VerseRef, b: VerseRef): number {
+function compareVerseRef(a: VerseRef, b: VerseRef): number {
   if (a.chapter !== b.chapter) {
     return a.chapter - b.chapter;
   }
