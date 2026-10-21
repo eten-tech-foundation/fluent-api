@@ -13,7 +13,7 @@ export function applyAutoTransition(
   current: ChapterAssignmentRecord,
   data: UpdateChapterAssignmentRequestData
 ): UpdateChapterAssignmentRequestData {
-  const hasUserAssignment = data.assignedUserId != null || data.peerCheckerId != null;
+  const hasUserAssignment = data.assignedUserId !== undefined || data.peerCheckerId !== undefined;
   const shouldAutoTransitionToDraft =
     current.status === CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED && hasUserAssignment && !data.status;
 
@@ -44,7 +44,7 @@ export async function recordUserAssignmentChanges(
   if (
     data.assignedUserId !== undefined &&
     data.assignedUserId !== current.assignedUserId &&
-    updated.assignedUserId != null
+    updated.assignedUserId
   ) {
     await repo.insertUserAssignmentHistory(
       tx,
@@ -59,7 +59,7 @@ export async function recordUserAssignmentChanges(
   if (
     data.peerCheckerId !== undefined &&
     data.peerCheckerId !== current.peerCheckerId &&
-    updated.peerCheckerId != null
+    updated.peerCheckerId
   ) {
     await repo.insertUserAssignmentHistory(
       tx,

@@ -102,7 +102,9 @@ describe('getSourceAudioManifest', () => {
     }
     expect(getBibleText).not.toHaveBeenCalled();
   });
+});
 
+describe('legacy source and manifest isolation from explicit playback selections', () => {
   it('manifest still name-matches and retains download metadata while omitting unknown sizes', async () => {
     vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, audioResourceId: 999 }));
     vi.mocked(getBibles).mockResolvedValue(

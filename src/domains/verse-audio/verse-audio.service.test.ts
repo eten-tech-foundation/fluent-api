@@ -40,7 +40,6 @@ vi.mock('./verse-audio.repository', () => ({
   findTakeByContentHash: vi.fn(),
   get: vi.fn(),
   getTakeById: vi.fn(),
-  insertRecording: vi.fn(),
   insertTake: vi.fn(),
   listByChapter: vi.fn(),
   listTakesByRecordingIds: vi.fn(),

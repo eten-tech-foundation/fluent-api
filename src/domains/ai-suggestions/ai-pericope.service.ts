@@ -17,7 +17,7 @@ import type {
 } from './ai-suggestions.types';
 
 import * as pericopeRepo from './ai-pericope.repository';
-import { hasReachedAiActivationThreshold } from './ai-suggestions.repository';
+import * as suggestionsRepo from './ai-suggestions.repository';
 
 export function canSuggestPericopeTitle(
   context: PericopeContext,
@@ -90,7 +90,7 @@ export async function queuePericopes(
   try {
     const resolved = await pericopeRepo.resolvePericopes(params);
     if (!resolved.ok) return resolved;
-    const thresholdMet = await hasReachedAiActivationThreshold(
+    const thresholdMet = await suggestionsRepo.hasReachedAiActivationThreshold(
       params.projectUnitId,
       env.AI_ACTIVATION_THRESHOLD_VERSES
     );

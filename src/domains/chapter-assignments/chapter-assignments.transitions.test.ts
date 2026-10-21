@@ -41,18 +41,18 @@ describe('chapter-assignments transitions', () => {
       expect(result.status).toBe(CHAPTER_ASSIGNMENT_STATUS.DRAFT);
     });
 
+    it('auto-transitions NOT_STARTED to DRAFT when unassigning a user (assignedUserId: null)', () => {
+      const result = applyAutoTransition(mockRecord, { assignedUserId: null });
+      expect(result.status).toBe(CHAPTER_ASSIGNMENT_STATUS.DRAFT);
+    });
+
     it('auto-transitions NOT_STARTED to DRAFT when assigning a peer checker', () => {
       const result = applyAutoTransition(mockRecord, { peerCheckerId: 8 });
       expect(result.status).toBe(CHAPTER_ASSIGNMENT_STATUS.DRAFT);
     });
 
-    it('does NOT auto-transition when unassigning with null', () => {
-      const result = applyAutoTransition(mockRecord, { assignedUserId: null });
-      expect(result.status).toBeUndefined();
-    });
-
-    it('does NOT auto-transition when unassigning peer checker with null', () => {
-      const result = applyAutoTransition(mockRecord, { peerCheckerId: null });
+    it('does not auto-transition when neither user field is provided in update', () => {
+      const result = applyAutoTransition(mockRecord, { isAiEnabled: true });
       expect(result.status).toBeUndefined();
     });
 

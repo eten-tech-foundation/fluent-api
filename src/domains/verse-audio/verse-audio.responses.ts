@@ -14,18 +14,18 @@ import * as storageRepo from './storage-objects.repository';
 import * as repo from './verse-audio.repository';
 
 /** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
-export const LEGACY_CONTENT_HASH_PREFIX = 'legacy-';
+const LEGACY_CONTENT_HASH_PREFIX = 'legacy-';
 
-export function toIso(date: Date): string {
+function toIso(date: Date): string {
   return date.toISOString();
 }
 
-export function isLegacyContentHash(contentHash: string): boolean {
+function isLegacyContentHash(contentHash: string): boolean {
   return contentHash.startsWith(LEGACY_CONTENT_HASH_PREFIX);
 }
 
 /** Pre-hash object key (`unit-{id}/text-{id}`) used before contentHash entered the path. */
-export function legacyBlobName(projectUnitId: number, bibleTextId: number): string {
+function legacyBlobName(projectUnitId: number, bibleTextId: number): string {
   return `unit-${projectUnitId}/text-${bibleTextId}`;
 }
 
@@ -39,7 +39,7 @@ export function fallbackBlobKey(
     : audioBlobName(projectUnitId, bibleTextId, contentHash);
 }
 
-export async function storageKeysById(ids: number[]): Promise<Map<number, string>> {
+async function storageKeysById(ids: number[]): Promise<Map<number, string>> {
   const map = new Map<number, string>();
   if (ids.length === 0) {
     return map;
@@ -59,7 +59,7 @@ export async function storageKeysById(ids: number[]): Promise<Map<number, string
  * Modern takes use a deterministic hash-keyed blob name — no DB round trip.
  * Legacy backfill rows still need storage_objects.key (old path without hash).
  */
-export function resolveDownloadUrl(
+function resolveDownloadUrl(
   storageObjectId: number | null,
   contentHash: string,
   projectUnitId: number,
@@ -75,7 +75,7 @@ export function resolveDownloadUrl(
   return generateAudioDownloadUrl(fallbackBlobKey(projectUnitId, bibleTextId, contentHash));
 }
 
-export function collectLegacyStorageObjectIds(
+function collectLegacyStorageObjectIds(
   entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
 ): number[] {
   const ids = new Set<number>();
@@ -95,7 +95,7 @@ export function collectLegacyStorageObjectIds(
   return [...ids];
 }
 
-export async function takeWithUrl(
+async function takeWithUrl(
   take: VerseAudioTakeRecord,
   projectUnitId: number,
   bibleTextId: number,
@@ -120,7 +120,7 @@ export async function takeWithUrl(
   };
 }
 
-export async function withTakesAndUrl(
+async function withTakesAndUrl(
   record: VerseAudioRecord,
   takes: VerseAudioTakeRecord[],
   keysById: Map<number, string>

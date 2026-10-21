@@ -59,7 +59,7 @@ export function getChapterAssignmentWithAuthContext(
   return repo.findByIdWithAuthContext(id, userId);
 }
 
-export { getAssignmentsProgress } from './chapter-assignments.progress.service';
+export { getAssignmentsProgress } from './progress/chapter-assignments-progress.service';
 
 export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number) {
   return repo.findForVerse(projectUnitId, bibleTextId);

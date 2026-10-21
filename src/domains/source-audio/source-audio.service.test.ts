@@ -465,7 +465,7 @@ describe('getChapterSourceAudio', () => {
   });
 });
 
-describe('legacy source isolation from explicit playback selections', () => {
+describe('legacy source and manifest isolation from explicit playback selections', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(biblesRepo.getById).mockResolvedValue(ok({ ...fluentBible, audioResourceId: 999 }));

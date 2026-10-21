@@ -23,10 +23,8 @@ import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.t
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type {
-  ChapterAssignmentProgressInfo,
-  ChapterAssignmentStatus,
-} from './chapter-assignments.types';
+import type { ChapterAssignmentProgressInfo } from '../chapter-assignments.types';
+import type { ChapterAssignmentsProgressFilters } from './chapter-assignments-progress.types';
 
 type AssignmentProgressRow = Omit<
   ChapterAssignmentProgressInfo,
@@ -85,13 +83,7 @@ export function hasConflictRollupSql() {
 }
 
 export async function findAssignmentsProgress(
-  filters: {
-    projectId?: number;
-    orgId?: number;
-    assignedUserId?: number;
-    peerCheckerId?: number;
-    status?: ChapterAssignmentStatus;
-  },
+  filters: ChapterAssignmentsProgressFilters,
   tx?: DbTransaction
 ): Promise<Result<ChapterAssignmentProgressInfo[]>> {
   try {
@@ -206,12 +198,8 @@ export async function findAssignmentsProgress(
       conditions.push(eq(chapter_assignments.status, filters.status));
     }
 
-    let finalQuery = baseQuery;
-    if (conditions.length > 0) {
-      finalQuery = finalQuery.where(and(...conditions)) as any;
-    }
-
-    const rows = await finalQuery
+    const rows = await baseQuery
+      .where(and(...conditions))
       .groupBy(
         chapter_assignments.id,
         projects.id,
