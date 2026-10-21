@@ -66,7 +66,7 @@
     "@hono/zod-openapi": "0.19.10",
     "@scalar/hono-api-reference": "0.9.48",
     "@types/bcryptjs": "^2.4.6",
-    "applicationinsights": "3.14.0",
+    "applicationinsights": "3.17.0",
     "archiver": "7.0.1",
     "bcryptjs": "^3.0.3",
     "better-auth": "1.6.30",
@@ -74,7 +74,7 @@
     "dotenv-expand": "12.0.2",
     "drizzle-orm": "0.45.2",
     "drizzle-zod": "0.7.1",
-    "hono": "4.13.5",
+    "hono": "4.13.13",
     "hono-pino": "0.8.0",
     "mailgun.js": "12.0.3",
     "nanoid": "^6.0.2",
@@ -102,7 +102,7 @@
     "tsc-alias": "1.8.16",
     "tsx": "4.21.0",
     "typescript": "5.8.3",
-    "vitest": "3.2.4"
+    "vitest": "5.0.5"
   },
   "overrides": {
     "better-call": {
