@@ -13,6 +13,7 @@ import type {
   AquiferLanguageResourceCount,
   AquiferResourceCollection,
   AquiferResourceDetails,
+  AquiferResourceSearchEnumeration,
   AquiferResourceSearchResponse,
   AquiferSearchResourcesParams,
 } from './aquifer.types';
@@ -30,7 +31,8 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 /** Hard cap on search pagination to avoid unbounded Aquifer fan-out. */
-const MAX_SEARCH_PAGES = 20;
+export const AQUIFER_MAX_SEARCH_PAGES = 20;
+const MAX_SEARCH_PAGES = AQUIFER_MAX_SEARCH_PAGES;
 /** Cap on upstream body text echoed into logs. */
 const MAX_LOGGED_BODY_CHARS = 300;
 /** Cap on zod issues echoed into logs. */
@@ -236,14 +238,17 @@ export async function getResource(contentId: number): Promise<Result<AquiferReso
 
 /**
  * Paginate search until all items for the range are collected (or Aquifer errors).
- * Stops early on empty page, short page, total count reached, or MAX_SEARCH_PAGES.
+ * Stops early on empty page, short page, or total count reached. When the
+ * MAX_SEARCH_PAGES ceiling is hit without that provider proof, `complete` is
+ * false so callers cannot treat the partial set as exhaustive.
  */
 export async function searchAllResources(
   params: Omit<AquiferSearchResourcesParams, 'limit' | 'offset'>
-): Promise<Result<AquiferResourceSearchResponse['items']>> {
+): Promise<Result<AquiferResourceSearchEnumeration>> {
   const allItems: AquiferResourceSearchResponse['items'] = [];
   let offset = 0;
   const limit = 100;
+  let complete = false;
 
   for (let pageIndex = 0; pageIndex < MAX_SEARCH_PAGES; pageIndex += 1) {
     const page = await searchResources({ ...params, limit, offset });
@@ -255,12 +260,13 @@ export async function searchAllResources(
       page.data.items.length === 0 ||
       page.data.items.length < limit
     ) {
+      complete = true;
       break;
     }
     offset += limit;
   }
 
-  return { ok: true, data: allItems };
+  return { ok: true, data: { items: allItems, complete } };
 }
 
 /**

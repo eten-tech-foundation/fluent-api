@@ -25,8 +25,6 @@ export const AQUIFER_RESOURCE_COLLECTIONS = {
 
 /** Parallel getResource calls when hydrating search hits. */
 const HYDRATE_CONCURRENCY = 5;
-/** Max hydrated items kept per MANIFEST_SEARCH_CONFIGS entry. */
-const MAX_MANIFEST_ITEMS_PER_CONFIG = 100;
 /**
  * Aquifer end-verse window for chapter-range searches. Chapters never exceed
  * this verse count; mirrors fluent-mobile Prepare Offline (1–200).
@@ -280,7 +278,7 @@ async function searchVerseRangeCollection(
     resourceCollectionCode,
   });
   if (!search.ok) return search;
-  return ok(dedupeSearchHitsById(search.data));
+  return ok(dedupeSearchHitsById(search.data.items));
 }
 
 /**
@@ -336,7 +334,7 @@ export async function getTranslationImagesForRange(
   });
   if (!search.ok) return search;
 
-  const uniqueHits = dedupeSearchHitsById(search.data);
+  const uniqueHits = dedupeSearchHitsById(search.data.items);
   const hydrated = await mapWithConcurrency(uniqueHits, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
@@ -459,16 +457,22 @@ export async function getPrepareOfflineManifest(params: {
     });
     if (!search.ok) return search;
 
-    if (search.data.length > MAX_MANIFEST_ITEMS_PER_CONFIG) {
+    // Bounded Aquifer enumeration already collected every page it could. Only mark
+    // truncated when provider metadata could not prove the set is complete (page
+    // ceiling). Do not re-slice a successful enumeration — mobile rejects truncated.
+    if (!search.data.complete) {
       truncated = true;
     }
-    const capped = search.data.slice(0, MAX_MANIFEST_ITEMS_PER_CONFIG);
 
-    const hydrated = await mapWithConcurrency(capped, HYDRATE_CONCURRENCY, async (searchItem) => {
-      const details = await getResource(searchItem.id);
-      if (!details.ok) return details;
-      return ok({ searchItem, details: details.data });
-    });
+    const hydrated = await mapWithConcurrency(
+      search.data.items,
+      HYDRATE_CONCURRENCY,
+      async (searchItem) => {
+        const details = await getResource(searchItem.id);
+        if (!details.ok) return details;
+        return ok({ searchItem, details: details.data });
+      }
+    );
     if (!hydrated.ok) return hydrated;
 
     for (const { searchItem, details } of hydrated.data) {

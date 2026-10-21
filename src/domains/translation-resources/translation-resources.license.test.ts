@@ -9,6 +9,7 @@ import {
   getTranslationNotes,
   getTranslationQuestions,
 } from './translation-resources.service';
+import { searchEnumeration } from './translation-resources.test-fixtures';
 import {
   prepareOfflineManifestResponseSchema,
   translationNotesResponseSchema,
@@ -57,7 +58,7 @@ const detail = {
 describe('resource license attribution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(searchAllResources).mockResolvedValue(ok([hit]));
+    vi.mocked(searchAllResources).mockResolvedValue(searchEnumeration([hit]));
     vi.mocked(getResource).mockResolvedValue(ok(aquiferResourceDetailsSchema.parse(detail)));
   });
 
