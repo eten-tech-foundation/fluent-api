@@ -11,7 +11,7 @@ import type {
 import type { Result } from '@/lib/types';
 
 import * as aquiferClient from '@/lib/services/aquifer/aquifer.client';
-import { err, ErrorCode } from '@/lib/types';
+import { ErrorCode } from '@/lib/types';
 
 import type {
   AvailableResourcesQuery,
@@ -60,15 +60,16 @@ export async function getBibleText(
   bibleId: number,
   query: BibleTextsQuery
 ): Promise<Result<AquiferBibleTextResponse>> {
-  const result = await aquiferClient.getBibleText({
-    aquiferBibleId: bibleId,
-    bookCode: query.bookCode,
-    startChapter: query.startChapter,
-    endChapter: query.endChapter,
-    includeAudio: query.includeAudio,
-  });
   // Aquifer answers 404 when the Bible has no text for the requested book. That is a passage
   // with no content rather than an outage, and fluent-web shows its no-content message for it.
-  if (!result.ok && result.error.httpStatus === 404) return err(ErrorCode.NOT_FOUND);
-  return result;
+  return aquiferClient.getBibleText(
+    {
+      aquiferBibleId: bibleId,
+      bookCode: query.bookCode,
+      startChapter: query.startChapter,
+      endChapter: query.endChapter,
+      includeAudio: query.includeAudio,
+    },
+    { notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND }
+  );
 }

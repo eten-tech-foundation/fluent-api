@@ -179,6 +179,29 @@ describe('youversion routes', () => {
       expect(youVersionClient.getChapterText).not.toHaveBeenCalled();
     });
 
+    it('returns 200 with no verses when YouVersion has no such chapter', async () => {
+      authenticateUserMock();
+      // Real client over a stubbed upstream: the client test can't see the route's response.
+      const actual = await vi.importActual<typeof youVersionClient>(
+        '@/lib/services/youversion/youversion.client'
+      );
+      vi.mocked(youVersionClient.getChapterText).mockImplementationOnce(actual.getChapterText);
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ message: 'Not found' }), { status: 404 }));
+
+      try {
+        const res = await server.request('/youversion/bibles/1/books/DEU/chapters/34/text');
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Cache-Control')).toBe('private, max-age=300');
+        expect(await res.json()).toEqual({ bibleId: 1, bookId: 'DEU', chapterId: 34, verses: [] });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('returns 502 Bad Gateway on YouVersion failure', async () => {
       authenticateUserMock();
       vi.mocked(youVersionClient.getChapterText).mockResolvedValue(

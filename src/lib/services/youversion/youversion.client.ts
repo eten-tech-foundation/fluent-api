@@ -428,6 +428,11 @@ export async function getChapterText(
   const metaResult = await getChapterMeta(bibleId, bookId, chapterId);
   if (!metaResult.ok) {
     if (metaResult.error.httpStatus === 404) {
+      // YouVersion doesn't document this 404; the log shows whether the assumption holds.
+      logger.warn({
+        message: 'YouVersion chapter lookup returned 404 — answering no verses',
+        context: { bibleId, bookId, chapterId, error: metaResult.error.message },
+      });
       return { ok: true, data: { bibleId, bookId, chapterId, verses: [] } };
     }
     return metaResult;

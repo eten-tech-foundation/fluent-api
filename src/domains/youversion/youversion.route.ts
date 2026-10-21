@@ -84,7 +84,7 @@ const getChapterTextRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       youVersionChapterTextSchema,
-      'All verse texts for the requested chapter (server-side fan-out)'
+      'All verse texts for the requested chapter (server-side fan-out); no verses when the Bible has no such chapter'
     ),
     [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,

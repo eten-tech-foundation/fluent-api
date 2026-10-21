@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import env from '@/env';
+import { logger } from '@/lib/logger';
 import { ErrorCode } from '@/lib/types';
 
 import {
@@ -312,10 +313,11 @@ describe('youversion.client', () => {
       }
     });
 
-    it('returns no verses when the Bible has no such chapter', async () => {
+    it('returns no verses and logs a warning when the Bible has no such chapter', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         jsonResponse({ message: 'Chapter not found' }, 404)
       );
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
 
       const result = await getChapterText(1, 'GEN', 999);
 
@@ -324,6 +326,9 @@ describe('youversion.client', () => {
         data: { bibleId: 1, bookId: 'GEN', chapterId: 999, verses: [] },
       });
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toMatchObject({
+        context: { chapterId: 999, error: expect.stringContaining('HTTP 404') },
+      });
     });
 
     it('returns failure if chapter meta fetch fails', async () => {

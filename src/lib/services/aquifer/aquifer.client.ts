@@ -1,4 +1,4 @@
-import type { AppError, Result } from '@/lib/types';
+import type { Result } from '@/lib/types';
 
 import env from '@/env';
 import { logger } from '@/lib/logger';
@@ -55,27 +55,11 @@ function redactSecrets(text: string): string {
   return out;
 }
 
-/**
- * `httpStatus` is set only when Aquifer answered with a non-2xx status, so a caller can tell a
- * missing passage (404) from an outage. Other callers only read `code` and `message`.
- */
-export interface AquiferHttpError extends AppError {
-  httpStatus?: number;
-}
-
-function aquiferError(
-  code: ErrorCode,
-  detail?: string,
-  httpStatus?: number
-): { ok: false; error: AquiferHttpError } {
+function aquiferError(code: ErrorCode, detail?: string): Extract<Result<never>, { ok: false }> {
   const base = ErrorMessages[code];
   return {
     ok: false,
-    error: {
-      code,
-      message: detail ? `${base}: ${redactSecrets(detail)}` : base,
-      ...(httpStatus === undefined ? {} : { httpStatus }),
-    },
+    error: { code, message: detail ? `${base}: ${redactSecrets(detail)}` : base },
   };
 }
 
@@ -140,11 +124,12 @@ async function aquiferGet<T>(
     safeParse: (data: unknown) => { success: true; data: T } | { success: false; error?: unknown };
   },
   query?: URLSearchParams,
-  timeoutMs = DEFAULT_TIMEOUT_MS
-): Promise<Result<T, AquiferHttpError>> {
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  notFoundCode?: ErrorCode
+): Promise<Result<T>> {
   const target = query && query.toString() ? `${path}?${query.toString()}` : path;
-  const fail = (detail: string, httpStatus?: number) =>
-    aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `GET ${target} — ${detail}`, httpStatus);
+  const fail = (detail: string) =>
+    aquiferError(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE, `GET ${target} — ${detail}`);
 
   if (!isAquiferConfigured()) {
     return fail('AQUIFER_API_KEY is not configured');
@@ -191,10 +176,17 @@ async function aquiferGet<T>(
   const elapsedMs = Date.now() - startedAt;
 
   if (!response.ok) {
+    if (response.status === 404 && notFoundCode) {
+      // The not-found error carries no upstream detail to the route, so log it here.
+      logger.warn({
+        message: `Aquifer returned HTTP 404 for GET ${target}; answering ${notFoundCode}`,
+        context: { path, status: response.status, body: redactSecrets(bodySnippet(rawBody)) },
+      });
+      return aquiferError(notFoundCode);
+    }
     return fail(
       `Aquifer returned HTTP ${response.status} ${response.statusText} in ${elapsedMs}ms; ` +
-        `upstream body: ${bodySnippet(rawBody)}`,
-      response.status
+        `upstream body: ${bodySnippet(rawBody)}`
     );
   }
 
@@ -316,14 +308,21 @@ export async function getBibles(languageCode?: string): Promise<Result<AquiferBi
 /**
  * Fetch Bible text (optionally with chapter audio) for a scripture range.
  * Mirrors fluent-mobile AquiferAPI.getBibleText.
+ *
+ * Aquifer answers 404 when the Bible has no text for the requested book. With `notFoundCode`
+ * that 404 comes back as that code; without it, it is an AQUIFER_SERVICE_UNAVAILABLE like any
+ * other non-2xx answer.
  */
-export async function getBibleText(params: {
-  aquiferBibleId: number;
-  bookCode: string;
-  startChapter: number;
-  endChapter: number;
-  includeAudio?: boolean;
-}): Promise<Result<AquiferBibleTextResponse, AquiferHttpError>> {
+export async function getBibleText(
+  params: {
+    aquiferBibleId: number;
+    bookCode: string;
+    startChapter: number;
+    endChapter: number;
+    includeAudio?: boolean;
+  },
+  options?: { notFoundCode?: ErrorCode }
+): Promise<Result<AquiferBibleTextResponse>> {
   const query = new URLSearchParams({
     BookCode: params.bookCode,
     StartChapter: String(params.startChapter),
@@ -336,7 +335,9 @@ export async function getBibleText(params: {
   return aquiferGet(
     `/bibles/${params.aquiferBibleId}/texts`,
     aquiferBibleTextResponseSchema,
-    query
+    query,
+    DEFAULT_TIMEOUT_MS,
+    options?.notFoundCode
   );
 }
 
