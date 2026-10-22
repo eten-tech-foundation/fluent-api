@@ -50,8 +50,9 @@ lists; never use device wall-clock time.
 
 ## Tests
 
-- PGlite: `catalogue-sync.watermark.integration.test.ts` (trigger + allocator
-  rollback).
+- PGlite: `catalogue-sync.watermark.integration.test.ts` (license trigger) and
+  `catalogue-sync.watermark.allocator.integration.test.ts` (DEFAULT / `$onUpdate` /
+  upsert conflict arms pinned past the wall clock).
 - Multi-session PostgreSQL: `catalogue-sync.watermark.concurrency.integration.test.ts`
   (gated on `WATERMARK_TEST_DATABASE_URL` → disposable `fluent_watermark_test`).
   CI mirrors the `dlq-integration` disposable Postgres pattern.

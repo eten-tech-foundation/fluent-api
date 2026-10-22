@@ -16,7 +16,7 @@ const connectionString = process.env.WATERMARK_TEST_DATABASE_URL;
 
 type ReservedSql = Awaited<ReturnType<postgres.Sql['reserve']>>;
 
-type ConcurrencyOp = {
+interface ConcurrencyOp {
   label: string;
   table: 'books' | 'languages' | 'bibles';
   write: (args: {
@@ -26,7 +26,7 @@ type ConcurrencyOp = {
     languageId: number;
     resourceId: number;
   }) => Promise<{ updated_at: Date }>;
-};
+}
 
 const concurrencyOps: ConcurrencyOp[] = [
   {
