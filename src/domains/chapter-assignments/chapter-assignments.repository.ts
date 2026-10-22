@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
 import type { VerseData } from '@/lib/usfm-converter';
@@ -365,6 +365,16 @@ export async function submitPeerCheckIfEligible(
   return updated ?? null;
 }
 
+/**
+ * Marks a durable claim conflict for the losing claimant.
+ * CAS: eligible when the row exists, is assigned to someone other than the
+ * caller, and is not terminal (`complete`). On match, sets `hasClaimConflict`
+ * and latches `claimConflictUserId` to the first loser (COALESCE — later
+ * claimants do not overwrite). Does not change `assignedUserId` or
+ * `peerCheckerId`. Returns null when the row is gone, unassigned, assigned to
+ * the caller, or complete — callers must not treat that as durable conflict
+ * success.
+ */
 export async function flagClaimConflict(
   id: number,
   claimConflictUserId: number,
@@ -372,8 +382,18 @@ export async function flagClaimConflict(
 ): Promise<ChapterAssignmentRecord | null> {
   const [updated] = await tx
     .update(chapter_assignments)
-    .set({ hasClaimConflict: true, claimConflictUserId })
-    .where(eq(chapter_assignments.id, id))
+    .set({
+      hasClaimConflict: true,
+      claimConflictUserId: sql`COALESCE(${chapter_assignments.claimConflictUserId}, ${claimConflictUserId})`,
+    })
+    .where(
+      and(
+        eq(chapter_assignments.id, id),
+        isNotNull(chapter_assignments.assignedUserId),
+        ne(chapter_assignments.assignedUserId, claimConflictUserId),
+        ne(chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE)
+      )
+    )
     .returning();
   return updated ?? null;
 }
