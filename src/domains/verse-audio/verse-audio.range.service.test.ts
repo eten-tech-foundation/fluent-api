@@ -40,7 +40,6 @@ vi.mock('./verse-audio.repository', () => ({
   getTakeById: vi.fn(),
   insertTake: vi.fn(),
   listByChapter: vi.fn(),
-  listByProjectUnit: vi.fn(),
   listTakesByRecordingIds: vi.fn(),
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
@@ -48,7 +47,6 @@ vi.mock('./verse-audio.repository', () => ({
   pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
-  updateTakeCoverage: vi.fn(),
   updateTakeCoverageAndRecordingIfVersion: vi.fn(),
 }));
 
@@ -85,7 +83,6 @@ describe('uploadRangeRecording', () => {
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
-    vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
     vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
   });
 
@@ -116,7 +113,6 @@ describe('uploadRangeRecording', () => {
     vi.mocked(repo.getBibleTextById).mockResolvedValue(
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
-    vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
   });
 
   it('persists pericope shape on first upload', async () => {

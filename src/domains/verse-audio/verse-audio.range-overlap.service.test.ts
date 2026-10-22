@@ -37,7 +37,6 @@ vi.mock('./verse-audio.repository', () => ({
   getTakeById: vi.fn(),
   insertTake: vi.fn(),
   listByChapter: vi.fn(),
-  listByProjectUnit: vi.fn(),
   listTakesByRecordingIds: vi.fn(),
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
@@ -45,7 +44,6 @@ vi.mock('./verse-audio.repository', () => ({
   pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
-  updateTakeCoverage: vi.fn(),
   updateTakeCoverageAndRecordingIfVersion: vi.fn(),
 }));
 
@@ -82,7 +80,6 @@ describe('uploadRangeRecording overlap scans', () => {
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
-    vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
     vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
   });
 
@@ -113,7 +110,6 @@ describe('uploadRangeRecording overlap scans', () => {
     vi.mocked(repo.getBibleTextById).mockResolvedValue(
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
-    vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
   });
 
   it('scans overlaps when promoting a non-active take changes active coverage geometry', async () => {
@@ -260,7 +256,6 @@ describe('uploadRangeRecording overlap scans', () => {
       expect.objectContaining({ endVerse: 10 }),
       expect.objectContaining({ versionToken: 3, endVerse: 10 })
     );
-    expect(repo.updateTakeCoverage).not.toHaveBeenCalled();
     expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
     expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
   });

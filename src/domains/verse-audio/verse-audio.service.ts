@@ -176,19 +176,3 @@ export async function deleteRecording(
 
   return ok(undefined);
 }
-
-/**
- * Deletes objects nothing references any more and stamps their rows.
- *
- * Runs in two independent phases. First it drops superseded takes on settled
- * clean units: hash-keyed blobs are per-take, so without this a verse re-recorded
- * ten times would keep ten objects forever. Conflicted units are left intact
- * until resolve. That phase only deletes take rows — the objects they freed fall
- * to the orphan pass on a later sweep, which is what keeps a concurrent
- * re-upload of the same bytes from having its revived row stamped deleted.
- *
- * The orphan pass is the counterpart to the cascade: dropping a project unit
- * cascades its recordings away, but Postgres cannot touch a bucket, so without
- * this the audio would sit there forever. Runs on an interval from the server
- * entrypoint.
- */

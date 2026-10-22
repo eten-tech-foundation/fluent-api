@@ -17,6 +17,7 @@ import type {
 } from './verse-audio.types';
 
 import { mapForeignKeyViolation, takeSelection } from './verse-audio-takes.repository';
+import { recordSelection } from './verse-audio.coverage-writes';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
 export {
@@ -30,7 +31,6 @@ export {
 } from './verse-audio-takes.repository';
 export {
   markIntersectingCoverageConflicts,
-  updateTakeCoverage,
   updateTakeCoverageAndRecordingIfVersion,
 } from './verse-audio.coverage-writes';
 export type { RecordingStatePatch } from './verse-audio.coverage-writes';
@@ -41,30 +41,6 @@ interface BibleTextAnchor {
   chapterNumber: number;
   verseNumber: number;
 }
-
-const recordSelection = {
-  id: verse_audio_recordings.id,
-  projectUnitId: verse_audio_recordings.projectUnitId,
-  bibleTextId: verse_audio_recordings.bibleTextId,
-  uploadedBy: verse_audio_recordings.uploadedBy,
-  storageObjectId: verse_audio_recordings.storageObjectId,
-  contentType: verse_audio_recordings.contentType,
-  sizeBytes: verse_audio_recordings.sizeBytes,
-  durationSeconds: verse_audio_recordings.durationSeconds,
-  versionToken: verse_audio_recordings.versionToken,
-  conflictStatus: verse_audio_recordings.conflictStatus,
-  granularity: verse_audio_recordings.granularity,
-  startChapter: verse_audio_recordings.startChapter,
-  startVerse: verse_audio_recordings.startVerse,
-  endChapter: verse_audio_recordings.endChapter,
-  endVerse: verse_audio_recordings.endVerse,
-  activeTakeId: verse_audio_recordings.activeTakeId,
-  createdAt: verse_audio_recordings.createdAt,
-  updatedAt: verse_audio_recordings.updatedAt,
-  bookId: bible_texts.bookId,
-  chapterNumber: bible_texts.chapterNumber,
-  verseNumber: bible_texts.verseNumber,
-};
 
 export async function get(
   projectUnitId: number,
@@ -125,33 +101,6 @@ export async function listByChapter(
       cause: error,
       message: 'Failed to list verse audio recordings',
       context: { projectUnitId, bibleId, bookId, chapterNumber },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
-
-/** All recordings for a project unit with bible_texts location (overlap scan). */
-export async function listByProjectUnit(
-  projectUnitId: number
-): Promise<Result<VerseAudioRecord[]>> {
-  try {
-    const recordings = await db
-      .select(recordSelection)
-      .from(verse_audio_recordings)
-      .innerJoin(bible_texts, eq(verse_audio_recordings.bibleTextId, bible_texts.id))
-      .where(eq(verse_audio_recordings.projectUnitId, projectUnitId))
-      .orderBy(
-        asc(bible_texts.bookId),
-        asc(bible_texts.chapterNumber),
-        asc(bible_texts.verseNumber)
-      );
-
-    return ok(recordings as VerseAudioRecord[]);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to list verse audio recordings for project unit',
-      context: { projectUnitId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

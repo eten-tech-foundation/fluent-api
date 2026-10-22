@@ -23,6 +23,8 @@ vi.mock('drizzle-orm', async (importOriginal) => {
     eq: vi.fn((...args) => args),
     ne: vi.fn((...args) => args),
     and: vi.fn((...args) => args),
+    inArray: vi.fn((...args) => args),
+    asc: vi.fn((...args) => args),
     sql: vi.fn((...args) => args),
   };
 });
@@ -201,7 +203,7 @@ describe('verse-audio repository', () => {
       expect(tx.select).toHaveBeenCalledTimes(1);
     });
 
-    it('rolls back both writes when post-CAS hydration is missing (throws, not Result)', async () => {
+    it('rolls back both writes when post-CAS hydration is missing (runInTransaction abort)', async () => {
       let writesCommitted = false;
       const tx = {
         update: vi
@@ -224,7 +226,7 @@ describe('verse-audio repository', () => {
       vi.mocked(db.transaction).mockImplementation(async (callback) => {
         try {
           const value = await callback(tx as never);
-          // Drizzle commits when the callback resolves (including ok:false Results).
+          // Drizzle commits when the callback resolves without throwing.
           writesCommitted = true;
           return value;
         } catch (error) {
@@ -242,6 +244,83 @@ describe('verse-audio repository', () => {
       expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
       expect(writesCommitted).toBe(false);
       expect(tx.update).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('markIntersectingCoverageConflicts', () => {
+    it('does not re-flag resolved units when marking intersecting coverage', async () => {
+      const { ne } = await import('drizzle-orm');
+      const self = {
+        id: 1,
+        bibleTextId: 100,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 1,
+        conflictStatus: 'clean',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+      const resolvedOverlap = {
+        id: 2,
+        bibleTextId: 101,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 2,
+        conflictStatus: 'resolved',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+      const cleanOverlap = {
+        id: 3,
+        bibleTextId: 102,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 3,
+        conflictStatus: 'clean',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const tx = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  for: vi.fn().mockResolvedValue([self, resolvedOverlap, cleanOverlap]),
+                }),
+              }),
+            }),
+          }),
+        }),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: updateWhere }),
+        }),
+      };
+      vi.mocked(db.transaction).mockImplementation(async (callback) => callback(tx as never));
+
+      const result = await repo.markIntersectingCoverageConflicts({
+        projectUnitId: 12,
+        selfBibleTextId: 100,
+        bookId: 40,
+        coverage: { start: { chapter: 1, verse: 1 }, end: { chapter: 1, verse: 5 } },
+      });
+
+      // Resolved overlap (id 2) excluded from toMark; UPDATE also guards with ne(resolved).
+      expect(result).toEqual(ok({ markedIds: [1, 3] }));
+      expect(tx.update).toHaveBeenCalledTimes(1);
+      expect(updateWhere).toHaveBeenCalled();
+      expect(vi.mocked(ne)).toHaveBeenCalledWith(expect.anything(), 'resolved');
     });
   });
 
@@ -293,7 +372,7 @@ describe('verse-audio repository', () => {
       const returning = vi.fn().mockResolvedValue([]);
       const where = vi.fn().mockReturnValue({ returning });
       const set = vi.fn().mockReturnValue({ where });
-      vi.mocked(db.update).mockReturnValue({ set } as any);
+      vi.mocked(db.update).mockReturnValue({ set } as never);
 
       const resolvedRecord = { ...mockRecord, conflictStatus: 'resolved' };
       mockSelect(resolvedRecord);
@@ -307,7 +386,7 @@ describe('verse-audio repository', () => {
       const returning = vi.fn().mockResolvedValue([]);
       const where = vi.fn().mockReturnValue({ returning });
       const set = vi.fn().mockReturnValue({ where });
-      vi.mocked(db.update).mockReturnValue({ set } as any);
+      vi.mocked(db.update).mockReturnValue({ set } as never);
 
       mockSelect(null);
 

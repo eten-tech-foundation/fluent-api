@@ -1,8 +1,9 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { runInTransaction } from '@/db/transaction';
 import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/schema';
 import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
@@ -14,14 +15,14 @@ import type {
   VerseAudioCoverageShape,
   VerseAudioGranularity,
   VerseAudioRecord,
-  VerseAudioTakeRecord,
 } from './verse-audio.types';
 
 import * as takesRepo from './verse-audio-takes.repository';
 import { coverageFromActive, rangesOverlap } from './verse-audio.coverage';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-const recordSelection = {
+/** Shared select shape for recording rows joined to bible_texts anchors. */
+export const recordSelection = {
   id: verse_audio_recordings.id,
   projectUnitId: verse_audio_recordings.projectUnitId,
   bibleTextId: verse_audio_recordings.bibleTextId,
@@ -67,6 +68,9 @@ export interface RecordingStatePatch {
  * same-book intersecting active coverages as `conflict` without bumping
  * `versionToken`. Used after uploads that introduce a new contender or change
  * active coverage — not for idempotent same-shape retries.
+ *
+ * Already-`resolved` units are left alone (same contract as
+ * `markConflictPreservingActive`): a prior adjudication is not silently reopened.
  */
 export async function markIntersectingCoverageConflicts(input: {
   projectUnitId: number;
@@ -87,13 +91,18 @@ export async function markIntersectingCoverageConflicts(input: {
       const records = locked as VerseAudioRecord[];
       const toMark = new Set<number>();
       let selfId: number | undefined;
+      let selfResolved = false;
 
       for (const record of records) {
         if (record.bibleTextId === input.selfBibleTextId) {
           selfId = record.id;
+          selfResolved = record.conflictStatus === VERSE_AUDIO_CONFLICT_STATUS.RESOLVED;
           continue;
         }
         if (record.bookId !== input.bookId) {
+          continue;
+        }
+        if (record.conflictStatus === VERSE_AUDIO_CONFLICT_STATUS.RESOLVED) {
           continue;
         }
         const otherCoverage = coverageFromActive(record, record.chapterNumber, record.verseNumber);
@@ -102,7 +111,7 @@ export async function markIntersectingCoverageConflicts(input: {
         }
       }
 
-      if (toMark.size > 0 && selfId !== undefined) {
+      if (toMark.size > 0 && selfId !== undefined && !selfResolved) {
         toMark.add(selfId);
       }
 
@@ -114,7 +123,12 @@ export async function markIntersectingCoverageConflicts(input: {
             conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CONFLICT,
             updatedAt: new Date(),
           })
-          .where(inArray(verse_audio_recordings.id, markedIds));
+          .where(
+            and(
+              inArray(verse_audio_recordings.id, markedIds),
+              ne(verse_audio_recordings.conflictStatus, VERSE_AUDIO_CONFLICT_STATUS.RESOLVED)
+            )
+          );
       }
 
       return ok({ markedIds });
@@ -133,39 +147,6 @@ export async function markIntersectingCoverageConflicts(input: {
   }
 }
 
-/** Updates take coverage metadata in place (same contentHash, new range shape). */
-export async function updateTakeCoverage(
-  takeId: number,
-  shape: VerseAudioCoverageShape
-): Promise<Result<VerseAudioTakeRecord>> {
-  try {
-    const [row] = await db
-      .update(verse_audio_takes)
-      .set({
-        granularity: shape.granularity,
-        startChapter: shape.startChapter,
-        startVerse: shape.startVerse,
-        endChapter: shape.endChapter,
-        endVerse: shape.endVerse,
-        updatedAt: new Date(),
-      })
-      .where(eq(verse_audio_takes.id, takeId))
-      .returning();
-
-    if (!row) {
-      return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
-    }
-    return ok(row);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to update verse audio take coverage',
-      context: { takeId, shape },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
-
 /**
  * Atomically update take coverage and CAS-promote the recording. If the
  * version predicate misses, the take write is rolled back with the transaction
@@ -179,7 +160,7 @@ export async function updateTakeCoverageAndRecordingIfVersion(
   patch: RecordingStatePatch
 ): Promise<Result<{ applied: boolean; record: VerseAudioRecord | null }>> {
   try {
-    return await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       const [takeRow] = await tx
         .update(verse_audio_takes)
         .set({
@@ -209,8 +190,8 @@ export async function updateTakeCoverageAndRecordingIfVersion(
         .returning();
 
       if (!row) {
-        // Must throw: returning a Result from the callback still commits the txn.
-        throw new Error('VERSE_AUDIO_CAS_MISS');
+        // Rolls back the take write via runInTransaction; caller maps to applied:false.
+        return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
       }
 
       const [hydrated] = await tx
@@ -221,16 +202,19 @@ export async function updateTakeCoverageAndRecordingIfVersion(
         .limit(1);
 
       if (!hydrated) {
-        // Both writes already ran — throw so Drizzle aborts rather than committing
-        // an ok:false Result while coverage+recording stay updated.
-        throw new Error('VERSE_AUDIO_HYDRATION_MISS');
+        // Belt-and-suspenders: unreachable under FK integrity (recording row just
+        // updated). Returning err() aborts the txn so we never commit a partial
+        // ok:false Result while coverage+recording stay updated.
+        return err(ErrorCode.INTERNAL_ERROR);
       }
       return ok({ applied: true, record: hydrated as VerseAudioRecord });
     });
-  } catch (error) {
-    if (error instanceof Error && error.message === 'VERSE_AUDIO_CAS_MISS') {
+
+    if (!result.ok && result.error.code === ErrorCode.VERSE_AUDIO_VERSION_CONFLICT) {
       return ok({ applied: false, record: null });
     }
+    return result;
+  } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to atomically update take coverage and recording state',

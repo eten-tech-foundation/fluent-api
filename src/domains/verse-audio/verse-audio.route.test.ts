@@ -5,7 +5,7 @@ import { getUserByEmail } from '@/domains/users/users.service';
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
 import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
-import { err, ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
 import * as rangeAudioService from './verse-audio.range.service';
@@ -215,9 +215,8 @@ describe('verse-audio routes', () => {
 
     beforeEach(() => {
       asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
-      (rangeAudioService.uploadRangeRecording as any).mockResolvedValue({
-        ok: true,
-        data: {
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
+        ok({
           id: 1,
           projectUnitId: 1,
           bibleTextId: 10,
@@ -227,8 +226,8 @@ describe('verse-audio routes', () => {
           endChapter: 1,
           endVerse: 5,
           versionToken: 2,
-        },
-      });
+        } as never)
+      );
     });
 
     it('returns 401 when caller is unauthenticated', async () => {

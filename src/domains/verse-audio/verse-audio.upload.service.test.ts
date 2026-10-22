@@ -36,7 +36,6 @@ vi.mock('./verse-audio.repository', () => ({
   getTakeById: vi.fn(),
   insertTake: vi.fn(),
   listByChapter: vi.fn(),
-  listByProjectUnit: vi.fn(),
   listTakesByRecordingIds: vi.fn(),
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
@@ -80,7 +79,6 @@ describe('verse-audio service', () => {
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
-    vi.mocked(repo.listByProjectUnit).mockResolvedValue(ok([]));
   });
 
   describe('uploadRecording', () => {

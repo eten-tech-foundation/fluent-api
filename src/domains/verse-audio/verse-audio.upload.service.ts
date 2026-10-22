@@ -414,10 +414,3 @@ export async function uploadRecording(
     scanCoverageConflicts: true,
   });
 }
-
-/**
- * Pericope / range upload: validates anchor + range against bible_texts, then
- * reuses `uploadRecording` CAS / legacy / conflict semantics. Geometric overlap
- * scanning runs only when the upload introduces a new contender or changes
- * active coverage (see `finishUploadResponse`).
- */
