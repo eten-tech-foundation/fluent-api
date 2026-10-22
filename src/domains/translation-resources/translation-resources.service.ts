@@ -6,6 +6,7 @@ import type {
 } from '@/lib/services/aquifer/aquifer.types';
 import type { Result } from '@/lib/types';
 
+import { logger } from '@/lib/logger';
 import { getResource, searchAllResources } from '@/lib/services/aquifer/aquifer.client';
 import { ok } from '@/lib/types';
 
@@ -23,9 +24,12 @@ export const AQUIFER_RESOURCE_COLLECTIONS = {
   translationQuestions: 'UWTranslationQuestions',
 } as const;
 
-const HYDRATE_CONCURRENCY = 5; // parallel getResource hydrate
-const MAX_MANIFEST_ITEMS_PER_CONFIG = 100; // per MANIFEST_SEARCH_CONFIGS entry
-/** Aquifer chapter end-verse window (mobile Prepare Offline 1–200). */
+/** Parallel getResource calls when hydrating search hits. */
+const HYDRATE_CONCURRENCY = 5;
+/**
+ * Aquifer end-verse window for chapter-range searches. Chapters never exceed
+ * this verse count; mirrors fluent-mobile Prepare Offline (1–200).
+ */
 const CHAPTER_RANGE_END_VERSE = 200;
 
 interface ResourceSearchConfig {
@@ -280,7 +284,21 @@ async function searchVerseRangeCollection(
     resourceCollectionCode,
   });
   if (!search.ok) return search;
-  return ok(dedupeSearchHitsById(search.data));
+  if (!search.data.complete) {
+    logger.warn({
+      message: 'Aquifer verse-range search hit page ceiling; returning partial items',
+      context: {
+        resourceCollectionCode,
+        bookCode: ref.bookCode,
+        chapter: ref.chapter,
+        startVerse: ref.startVerse,
+        endVerse: ref.endVerse,
+        languageCode: ref.languageCode,
+        collectedCount: search.data.items.length,
+      },
+    });
+  }
+  return ok(dedupeSearchHitsById(search.data.items));
 }
 
 /**
@@ -335,8 +353,22 @@ export async function getTranslationImagesForRange(
     resourceType: 'Images',
   });
   if (!search.ok) return search;
+  if (!search.data.complete) {
+    logger.warn({
+      message: 'Aquifer images verse-range search hit page ceiling; returning partial items',
+      context: {
+        resourceType: 'Images',
+        bookCode: ref.bookCode,
+        chapter: ref.chapter,
+        startVerse: ref.startVerse,
+        endVerse: ref.endVerse,
+        languageCode: ref.languageCode,
+        collectedCount: search.data.items.length,
+      },
+    });
+  }
 
-  const uniqueHits = dedupeSearchHitsById(search.data);
+  const uniqueHits = dedupeSearchHitsById(search.data.items);
   const hydrated = await mapWithConcurrency(uniqueHits, HYDRATE_CONCURRENCY, async (hit) => {
     const details = await getResource(hit.id);
     if (!details.ok) return details;
@@ -464,13 +496,28 @@ export async function getPrepareOfflineManifest(params: {
     });
     if (!search.ok) return search;
 
-    if (search.data.length > MAX_MANIFEST_ITEMS_PER_CONFIG) {
+    // Bounded Aquifer enumeration already collected every page it could. Only mark
+    // truncated when provider metadata could not prove the set is complete (page
+    // ceiling). Do not re-slice a successful enumeration — mobile rejects truncated.
+    if (!search.data.complete) {
       truncated = true;
+      logger.warn({
+        message: 'Aquifer prepare-offline search hit page ceiling; marking manifest truncated',
+        context: {
+          resourceCollectionCode: config.collectionCode,
+          resourceType: config.resourceType,
+          resourceName: config.resourceName,
+          bookCode,
+          startChapter,
+          endChapter,
+          languageCode,
+          collectedCount: search.data.items.length,
+        },
+      });
     }
-    const capped = search.data.slice(0, MAX_MANIFEST_ITEMS_PER_CONFIG);
 
     const hydrated = await mapWithConcurrency(
-      capped,
+      search.data.items,
       HYDRATE_CONCURRENCY,
       async (searchItem) => {
         const details = await getResource(searchItem.id);

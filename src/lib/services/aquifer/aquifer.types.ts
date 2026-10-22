@@ -50,6 +50,16 @@ export const aquiferResourceSearchResponseSchema = z.object({
 
 export type AquiferResourceSearchResponse = z.infer<typeof aquiferResourceSearchResponseSchema>;
 
+/**
+ * Bounded Aquifer search collection. `complete` is false when the page ceiling
+ * stopped collection without provider proof that every matching item was returned
+ * (short/empty page or `totalItemCount` reached).
+ */
+export interface AquiferResourceSearchEnumeration {
+  items: AquiferResourceSearchResponse['items'];
+  complete: boolean;
+}
+
 // One wire model for online resources and offline manifests. Known fields are optional to
 // tolerate partial upstream metadata; unknown keys survive, including nested attribution fields.
 const aquiferLicenseLinkSchema = z
