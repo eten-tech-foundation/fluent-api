@@ -413,6 +413,11 @@
       "count": 1
     }
   },
+  "src/domains/translation-resources/translation-resources.manifest-completeness.test.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
   "src/domains/translation-resources/translation-resources.range.test.ts": {
     "no-restricted-syntax": {
       "count": 4
@@ -428,7 +433,7 @@
   },
   "src/domains/translation-resources/translation-resources.test.ts": {
     "no-restricted-syntax": {
-      "count": 5
+      "count": 4
     },
     "ts/no-explicit-any": {
       "count": 2
