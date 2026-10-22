@@ -17,6 +17,7 @@ import {
   serial,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -404,8 +405,9 @@ export const project_unit_bible_books = pgTable(
   (table) => [
     primaryKey({ columns: [table.projectUnitId, table.bookId] }),
     // Target for chapter_assignments composite FK (#295). Redundant with the PK
-    // for uniqueness, but Postgres needs a UNIQUE on exactly these columns.
-    uniqueIndex('uq_project_unit_bible_books_unit_book_bible').on(
+    // for uniqueness, but Postgres/PGlite need a UNIQUE CONSTRAINT on exactly
+    // these columns — a uniqueIndex alone is not accepted as an FK target.
+    unique('uq_project_unit_bible_books_unit_book_bible').on(
       table.projectUnitId,
       table.bookId,
       table.bibleId
