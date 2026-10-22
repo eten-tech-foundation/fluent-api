@@ -174,7 +174,7 @@ const getVerseAudioRoute = createRoute({
   },
   summary: 'Get the audio recording for a verse',
   description:
-    'Returns unit version/conflict state plus all takes, each with a read-only downloadUrl valid for 15 minutes. A conflicted unit keeps every take until it is resolved; on a settled clean unit, non-active takes are pruned once they fall outside the take retention window (AUDIO_TAKE_RETENTION_MS, 7 days by default), so takes[] collapses to the active take.',
+    'Selected-canonical unit hydration: stable projectUnitId + bibleTextId (anchor) identity, explicit granularity and full coverage anchors (startChapter/startVerse/endChapter/endVerse; verse units hydrate inclusive bible_texts anchors on read), conflictStatus preserved, and takes[] each with contentHash + short-lived downloadUrl (~15 minutes). Top-level downloadUrl is set only when activeTakeId exactly matches a take — null when active is null or unmatched (no last-take invent fallback). A conflicted unit keeps every take until it is resolved; on a settled clean unit, non-active takes are pruned once they fall outside the take retention window (AUDIO_TAKE_RETENTION_MS, 7 days by default), so takes[] collapses to the active take. Matching-base/legacy upload may advance activeTakeId while conflictStatus remains conflict; POST .../resolve is what marks resolved. No invented playback policy.',
 });
 
 server.openapi(getVerseAudioRoute, async (c) => {
@@ -223,7 +223,7 @@ const listVerseAudioRoute = createRoute({
   },
   summary: 'List audio recordings for a chapter',
   description:
-    'One call per Bible chapter for mobile playback: every stored verse recording matching bibleId, bookId, and chapterNumber, verse-ordered, each with takes + downloadUrl, plus hasConflict when any matching unit is conflicted.',
+    'Selected-canonical chapter listing for offline draft hydration: every stored recording whose bible_texts anchor matches bibleId, bookId, and chapterNumber, verse-ordered. Each item matches unit GET for the same identity (granularity, full coverage including cross-chapter pericope end bounds, activeTakeId, conflictStatus, takes). Top-level downloadUrl follows exact activeTakeId match only (null when unavailable). hasConflict is true when any listed unit has conflictStatus=conflict. List membership is by anchor chapter — a cross-chapter pericope appears on its start/anchor chapter with endChapter/endVerse exposing the full span.',
 });
 
 server.openapi(listVerseAudioRoute, async (c) => {
