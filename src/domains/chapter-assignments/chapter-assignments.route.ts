@@ -238,15 +238,23 @@ const claimChapterAssignmentRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       chapterAssignmentResponseSchema,
-      'Claim result: clean claim, same-user idempotent retry, or durable conflict (hasClaimConflict=true; claimConflictUserId=most recent losing claimant; assignedUserId unchanged)'
+      'Claim result: clean claim, same-user DRAFT idempotent retry, or durable conflict (hasClaimConflict=true; claimConflictUserId=first losing claimant; assignedUserId unchanged)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid or missing chapterAssignmentId path param'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Permission denied (e.g. inactive user)'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
-      'Missing id, or denied for auth (content:assign, missing content:update, same-user non-DRAFT). Not the another-user conflict response.'
+      'No assignment for this id, or claim denied (content:assign, missing content:update, same-user non-DRAFT, or rival holds complete/terminal work). Not the another-user conflict response.'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -255,7 +263,7 @@ const claimChapterAssignmentRoute = createRoute({
   },
   summary: 'Translator self-claim on first recording',
   description:
-    '200 is a clean claim, a same-user DRAFT retry, or a conflict: another user holds the chapter at any status (hasClaimConflict, claimConflictUserId = this claimant, assignee unchanged). 404 is a missing id or an auth denial (content:assign, missing content:update, same user past DRAFT). Permissions are unchanged.',
+    '200 is a clean claim, a same-user DRAFT retry, or a conflict: another user holds non-terminal work (hasClaimConflict; claimConflictUserId = first losing claimant; assignee unchanged). 404 is a missing id or an auth denial (content:assign, missing content:update, same user past DRAFT, rival on complete). Permissions are unchanged.',
 });
 
 server.openapi(claimChapterAssignmentRoute, async (c) => {

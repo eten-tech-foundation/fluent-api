@@ -18,7 +18,21 @@ export interface PolicyChapterAssignment {
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: string | null;
-  updatedAt?: Date | null;
+}
+
+/** Same-user claim retry is only idempotent while the row is still DRAFT. */
+export function isIdempotentSelfClaim(
+  assignment: Pick<PolicyChapterAssignment, 'assignedUserId' | 'status'>,
+  userId: number
+): boolean {
+  return (
+    assignment.assignedUserId === userId && assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT
+  );
+}
+
+/** Rival held work may be conflict-flagged only while not terminal (complete). */
+export function isClaimConflictEligibleStatus(status: string | null | undefined): boolean {
+  return status != null && status !== CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
 }
 
 export function isPostPeerStatus(
@@ -162,18 +176,17 @@ export const ChapterAssignmentPolicy = {
     if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) return false;
 
     // Same translator retrying their own claim (e.g. offline reconnect) — service
-    // returns idempotently without duplicating history.
+    // returns idempotently without duplicating history. Same-user non-DRAFT → 404.
     if (assignment.assignedUserId === user.id) {
-      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
+      return isIdempotentSelfClaim(assignment, user.id);
     }
 
-    // Another user holds the chapter at any status (DRAFT race, late reconnect,
-    // PM assign, or a later workflow stage). Service returns the conflict-shaped
-    // 200 and records hasClaimConflict without overwriting assignedUserId (#376).
-    // Same-user non-DRAFT stays denied above. content:assign and missing
-    // content:update stay denied above — permissions are unchanged.
+    // Another user holds non-terminal work (DRAFT race, late reconnect, PM assign,
+    // or a later non-complete stage). Service returns conflict-shaped 200 and
+    // latches hasClaimConflict / first claimConflictUserId without changing
+    // assignedUserId (#376). Terminal (complete) work is not flaggable.
     if (assignment.assignedUserId != null) {
-      return true;
+      return isClaimConflictEligibleStatus(assignment.status);
     }
 
     return (

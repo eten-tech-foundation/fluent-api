@@ -59,7 +59,7 @@ describe('chapterAssignmentPolicy.claim', () => {
     ).toBe(false);
   });
 
-  it('allows a race loser when another translator recently claimed a draft without peer', () => {
+  it('allows a race loser when another translator claimed a draft without peer', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
       ChapterAssignmentPolicy.claim(user, {
@@ -67,21 +67,18 @@ describe('chapterAssignmentPolicy.claim', () => {
         assignedUserId: 99,
         status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
         peerCheckerId: null,
-        updatedAt: new Date(),
       })
     ).toBe(true);
   });
 
-  it('allows a late reconnect claim on a stale draft held by another translator', () => {
+  it('allows a late reconnect claim on a draft held by another translator', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
-    const staleClaim = new Date(Date.now() - 6 * 60 * 1000);
     expect(
       ChapterAssignmentPolicy.claim(user, {
         ...baseAssignment,
         assignedUserId: 99,
         status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
         peerCheckerId: null,
-        updatedAt: staleClaim,
       })
     ).toBe(true);
   });
@@ -108,6 +105,18 @@ describe('chapterAssignmentPolicy.claim', () => {
         status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
       })
     ).toBe(true);
+  });
+
+  it('denies conflict claim when another user holds complete/terminal work', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        peerCheckerId: 88,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMPLETE,
+      })
+    ).toBe(false);
   });
 
   it('denies when the chapter is not in not_started status', () => {

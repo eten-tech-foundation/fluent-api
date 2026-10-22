@@ -176,51 +176,61 @@ describe('chapter-assignments.repository claim helpers', () => {
   });
 
   describe('flagClaimConflict', () => {
-    it('sets hasClaimConflict and claimConflictUserId under rival-assignee CAS predicates', async () => {
+    it('sets hasClaimConflict and latches claimConflictUserId under rival non-complete CAS', async () => {
       const record = { id: 1, hasClaimConflict: true, claimConflictUserId: 5 };
       mockUpdateChain.returning.mockResolvedValueOnce([record]);
 
       const result = await repo.flagClaimConflict(1, 5, mockTx());
 
       expect(result).toEqual(record);
-      expect(mockUpdateChain.set).toHaveBeenCalledWith({
-        hasClaimConflict: true,
-        claimConflictUserId: 5,
-      });
+      expect(mockUpdateChain.set).toHaveBeenCalledWith(
+        expect.objectContaining({ hasClaimConflict: true })
+      );
       expect(mockUpdateChain.where).toHaveBeenCalledWith([
         [chapter_assignments.id, 1],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 5],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
       ]);
       expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 5);
+      expect(ne).toHaveBeenCalledWith(
+        chapter_assignments.status,
+        CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+      );
     });
 
-    it('replaces claimConflictUserId on a later claimant (last-writer-wins; no first-conflict latch)', async () => {
+    it('uses COALESCE so a later claimant does not overwrite claimConflictUserId', async () => {
       mockUpdateChain.returning
         .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }])
-        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 11 }]);
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }]);
 
       await repo.flagClaimConflict(1, 5, mockTx());
       await repo.flagClaimConflict(1, 11, mockTx());
 
-      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(1, {
-        hasClaimConflict: true,
-        claimConflictUserId: 5,
-      });
-      expect(mockUpdateChain.set).toHaveBeenNthCalledWith(2, {
-        hasClaimConflict: true,
-        claimConflictUserId: 11,
-      });
-      // Rival-assignee CAS only — no latch on existing claimConflictUserId.
+      const firstSet = mockUpdateChain.set.mock.calls[0]?.[0] as {
+        hasClaimConflict: boolean;
+        claimConflictUserId: unknown;
+      };
+      const secondSet = mockUpdateChain.set.mock.calls[1]?.[0] as {
+        hasClaimConflict: boolean;
+        claimConflictUserId: unknown;
+      };
+      expect(firstSet.hasClaimConflict).toBe(true);
+      expect(secondSet.hasClaimConflict).toBe(true);
+      // Both writes use SQL COALESCE rather than a bare scalar overwrite.
+      expect(firstSet.claimConflictUserId).not.toBe(5);
+      expect(secondSet.claimConflictUserId).not.toBe(11);
       expect(mockUpdateChain.where).toHaveBeenNthCalledWith(1, [
         [chapter_assignments.id, 1],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 5],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
       ]);
       expect(mockUpdateChain.where).toHaveBeenNthCalledWith(2, [
         [chapter_assignments.id, 1],
         ['isNotNull', chapter_assignments.assignedUserId],
         [chapter_assignments.assignedUserId, 11],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
       ]);
     });
 

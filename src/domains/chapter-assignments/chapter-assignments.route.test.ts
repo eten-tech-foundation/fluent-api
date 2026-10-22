@@ -116,7 +116,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
 
   it('returns 200 with draft assignment when translator claims successfully', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
-    (chapterAssignmentService.claimChapterAssignment as any).mockResolvedValue({
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
       ok: true,
       data: {
         id: 1,
@@ -129,6 +129,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         status: 'draft',
         submittedTime: null,
         hasClaimConflict: false,
+        claimConflictUserId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -145,7 +146,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
 
   it('returns 200 with hasClaimConflict when another user won the race', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
-    (chapterAssignmentService.claimChapterAssignment as any).mockResolvedValue({
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
       ok: true,
       data: {
         id: 1,
@@ -174,7 +175,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
 
   it('returns 200 with durable conflict when reconnecting after PM assign', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
-    (chapterAssignmentService.claimChapterAssignment as any).mockResolvedValue({
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
       ok: true,
       data: {
         id: 1,

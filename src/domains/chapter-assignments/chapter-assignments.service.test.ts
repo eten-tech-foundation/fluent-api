@@ -238,7 +238,7 @@ describe('claimChapterAssignment', () => {
     }
   });
 
-  it('does not return ghost success when flag CAS misses after delete', async () => {
+  it('does not return conflict-shaped success when flag CAS misses after delete', async () => {
     const stale = {
       ...baseRecord,
       assignedUserId: 7,
@@ -322,7 +322,7 @@ describe('claimChapterAssignment', () => {
     };
     vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: false, record: null });
     vi.mocked(repo.findById).mockResolvedValueOnce(priorRival);
-    // flagClaimConflict is status-agnostic — a PEER_CHECK rival still persists.
+    // flagClaimConflict allows non-terminal rivals — a PEER_CHECK rival still persists.
     vi.mocked(repo.flagClaimConflict).mockResolvedValue(conflictRecord);
 
     const result = await claimChapterAssignment(1, 5);
@@ -431,7 +431,11 @@ describe('claimChapterAssignment', () => {
 
     vi.mocked(repo.findById).mockImplementation(async () => ({ ...row }));
     vi.mocked(repo.flagClaimConflict).mockImplementation(async (_id, claimConflictUserId) => {
-      row = { ...row, hasClaimConflict: true, claimConflictUserId };
+      row = {
+        ...row,
+        hasClaimConflict: true,
+        claimConflictUserId: row.claimConflictUserId ?? claimConflictUserId,
+      };
       return row;
     });
     vi.mocked(repo.insertStatusHistory).mockResolvedValue(undefined);
@@ -454,7 +458,7 @@ describe('claimChapterAssignment', () => {
     expect([10, 20]).toContain(row.assignedUserId);
   });
 
-  it('sequential losing claimants replace claimConflictUserId; assignee preserved; same-assignee no-op; PM clears', async () => {
+  it('sequential losing claimants latch first claimConflictUserId; assignee preserved; same-assignee no-op; PM clears', async () => {
     const assigneeId = 7;
     let row: ChapterAssignmentRecord = {
       ...baseRecord,
@@ -463,14 +467,18 @@ describe('claimChapterAssignment', () => {
     };
 
     // Mirror repository contract: claimIfUnassigned never steals an owner;
-    // flagClaimConflict always overwrites the scalar conflict user.
+    // flagClaimConflict latches the first conflict user (COALESCE).
     vi.mocked(repo.claimIfUnassigned).mockImplementation(async () => ({
       claimed: false,
       record: null,
     }));
     vi.mocked(repo.findById).mockImplementation(async () => ({ ...row }));
     vi.mocked(repo.flagClaimConflict).mockImplementation(async (_id, claimConflictUserId) => {
-      row = { ...row, hasClaimConflict: true, claimConflictUserId };
+      row = {
+        ...row,
+        hasClaimConflict: true,
+        claimConflictUserId: row.claimConflictUserId ?? claimConflictUserId,
+      };
       return { ...row };
     });
     vi.mocked(repo.update).mockImplementation(async (_id, data) => {
@@ -504,10 +512,10 @@ describe('claimChapterAssignment', () => {
     if (secondLoser.ok) {
       expect(secondLoser.data.assignedUserId).toBe(assigneeId);
       expect(secondLoser.data.hasClaimConflict).toBe(true);
-      expect(secondLoser.data.claimConflictUserId).toBe(11);
+      expect(secondLoser.data.claimConflictUserId).toBe(5);
     }
     expect(row.assignedUserId).toBe(assigneeId);
-    expect(row.claimConflictUserId).toBe(11);
+    expect(row.claimConflictUserId).toBe(5);
     expect(repo.flagClaimConflict).toHaveBeenNthCalledWith(1, 1, 5, mockTx);
     expect(repo.flagClaimConflict).toHaveBeenNthCalledWith(2, 1, 11, mockTx);
 
@@ -515,7 +523,7 @@ describe('claimChapterAssignment', () => {
     expect(assigneeRetry.ok).toBe(true);
     if (assigneeRetry.ok) {
       expect(assigneeRetry.data.assignedUserId).toBe(assigneeId);
-      expect(assigneeRetry.data.claimConflictUserId).toBe(11);
+      expect(assigneeRetry.data.claimConflictUserId).toBe(5);
     }
     expect(repo.flagClaimConflict).toHaveBeenCalledTimes(2);
 

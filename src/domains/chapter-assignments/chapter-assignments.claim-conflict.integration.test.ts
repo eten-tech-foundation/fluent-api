@@ -102,7 +102,7 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
     await client.close();
   });
 
-  it('flags rival DRAFT with last-writer claimConflictUserId; assignee and peer preserved', async () => {
+  it('flags rival DRAFT with first-loser latch on claimConflictUserId; assignee and peer preserved', async () => {
     const first = await database.transaction((tx) => repo.flagClaimConflict(1, 5, tx));
     expect(first).toMatchObject({
       assignedUserId: 7,
@@ -116,7 +116,7 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
       assignedUserId: 7,
       peerCheckerId: 88,
       hasClaimConflict: true,
-      claimConflictUserId: 11,
+      claimConflictUserId: 5,
     });
 
     const [row] = await database
@@ -125,7 +125,7 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
       .where(eq(schema.chapter_assignments.id, 1));
     expect(row.assignedUserId).toBe(7);
     expect(row.peerCheckerId).toBe(88);
-    expect(row.claimConflictUserId).toBe(11);
+    expect(row.claimConflictUserId).toBe(5);
   });
 
   it('flags a rival who has left DRAFT without changing assignee or status', async () => {
@@ -169,10 +169,28 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
     expect(row.peerCheckerId).toBe(88);
   });
 
-  it('returns null after delete (no ghost UPDATE success)', async () => {
+  it('returns null after delete (no unpersisted UPDATE success)', async () => {
     await database.delete(schema.chapter_assignments).where(eq(schema.chapter_assignments.id, 1));
 
     const flagged = await database.transaction((tx) => repo.flagClaimConflict(1, 5, tx));
     expect(flagged).toBeNull();
+  });
+
+  it('does not flag when the rival assignment is complete', async () => {
+    await database
+      .update(schema.chapter_assignments)
+      .set({ status: CHAPTER_ASSIGNMENT_STATUS.COMPLETE })
+      .where(eq(schema.chapter_assignments.id, 1));
+
+    const flagged = await database.transaction((tx) => repo.flagClaimConflict(1, 5, tx));
+    expect(flagged).toBeNull();
+
+    const [row] = await database
+      .select()
+      .from(schema.chapter_assignments)
+      .where(eq(schema.chapter_assignments.id, 1));
+    expect(row.hasClaimConflict).toBe(false);
+    expect(row.claimConflictUserId).toBeNull();
+    expect(row.status).toBe(CHAPTER_ASSIGNMENT_STATUS.COMPLETE);
   });
 });

@@ -394,6 +394,7 @@ The most complex policy. The `edit` method enforces assignment-position rules an
 | `edit` (managers)      | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                      |
 | `resolveAudioConflict` | `content:assign` at scope | Allowed at any chapter status (managers can resolve audio conflicts during draft/peer_check).                                   |
 | `toggleAi`             | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                       |
+| `claim`                | `content:update` at scope | Denied if `content:assign`. Unassigned `not_started`: clean claim. Same user + `draft`: idempotent retry. Rival on non-`complete` status: durable conflict (`hasClaimConflict`, first-loser `claimConflictUserId`). Same-user non-`draft` or rival on `complete`: denied (404). |
 | `isParticipant`        | Delegates to `edit`       | —                                                                                                                               |
 
 ### AiSuggestionsPolicy

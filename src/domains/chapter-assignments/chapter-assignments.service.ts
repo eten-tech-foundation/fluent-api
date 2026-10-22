@@ -19,6 +19,7 @@ import type {
   UpdateChapterAssignmentRequestData,
 } from './chapter-assignments.types';
 
+import { isIdempotentSelfClaim } from './chapter-assignments.policy';
 import * as repo from './chapter-assignments.repository';
 import {
   applyAutoTransition,
@@ -400,9 +401,8 @@ export async function claimChapterAssignment(id: number, userId: number) {
       const current = await repo.findById(id, tx);
       if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-      // Same-user idempotency matches policy.claim: DRAFT only. Same assignee on
-      // non-DRAFT is eligibility 404 (not a read-only claim success).
-      if (current.assignedUserId === userId && current.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
+      // Same-user idempotency matches policy.claim (DRAFT only).
+      if (isIdempotentSelfClaim(current, userId)) {
         return ok({
           response: toChapterAssignmentResponse(current),
           shouldTriggerAi: false,
@@ -420,11 +420,11 @@ export async function claimChapterAssignment(id: number, userId: number) {
         });
       }
 
-      // CAS miss: deleted, reassigned to the caller, or the row changed under us.
-      // Never return flagged ?? current (a 200 for a write that did not happen).
+      // CAS miss: deleted, reassigned to the caller, terminal, or raced under us.
+      // Never return a conflict-shaped 200 for a write that did not happen.
       const latest = await repo.findById(id, tx);
       if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-      if (latest.assignedUserId === userId && latest.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT) {
+      if (isIdempotentSelfClaim(latest, userId)) {
         return ok({
           response: toChapterAssignmentResponse(latest),
           shouldTriggerAi: false,
@@ -444,6 +444,10 @@ export async function claimChapterAssignment(id: number, userId: number) {
             shouldTriggerAi: false,
           });
         }
+        logger.warn({
+          message: 'Claim conflict CAS missed twice with rival assignee still visible',
+          context: { id, userId, assignedUserId: latest.assignedUserId, status: latest.status },
+        });
       }
       return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     });
