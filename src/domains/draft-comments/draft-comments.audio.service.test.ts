@@ -103,19 +103,27 @@ describe('createAudioComment', () => {
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
     vi.mocked(repo.findAssignmentContext).mockResolvedValue(assignment);
+    vi.mocked(repo.lockAssignmentWriteContext).mockResolvedValue(assignment);
     vi.mocked(repo.findAuthorDisplay).mockResolvedValue({
       id: 5,
       firstName: 'Ada',
       lastName: 'Lovelace',
       username: 'ada',
     });
-    vi.mocked(repo.findBibleTextById).mockResolvedValue({
+    const bibleText = {
       id: 50,
       bibleId: 3,
       bookId: 40,
       chapterNumber: 1,
       verseNumber: 2,
-    });
+    };
+    vi.mocked(repo.findBibleTextById).mockResolvedValue(bibleText);
+    vi.mocked(repo.lockBibleTextById).mockResolvedValue(bibleText);
+    vi.mocked(repo.lockCommentById).mockImplementation(async (id: number) =>
+      repo.findCommentById(id)
+    );
+    vi.mocked(repo.lockPericopeMembership).mockResolvedValue(null as never);
+    vi.mocked(repo.lockPublicPericopeIdentity).mockResolvedValue(undefined as never);
     vi.mocked(repo.insertComment).mockImplementation(async (values) =>
       commentRow({
         id: 100,
@@ -300,28 +308,37 @@ describe('createAudioComment', () => {
     expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 
-  it('rejects and cleans upload when source vanishes during upload', async () => {
+  it('rejects and cleans upload when source vanishes before locked revalidation', async () => {
     vi.mocked(uploadVerseAudio).mockImplementation(async () => {
-      vi.mocked(repo.findBibleTextById).mockResolvedValue(null as never);
+      vi.mocked(repo.lockBibleTextById).mockResolvedValue(null as never);
     });
     const result = await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INVALID_REFERENCE);
+    expect(repo.lockBibleTextById).toHaveBeenCalled();
     expect(repo.insertComment).not.toHaveBeenCalled();
     expect(deleteVerseAudio).toHaveBeenCalledWith(expect.stringMatching(COMMENT_KEY_RE));
   });
 
-  it('rejects and cleans upload when reply root vanishes during upload', async () => {
+  it('rejects and cleans upload when reply root vanishes before locked revalidation', async () => {
     const root = commentRow({ id: 10, parentCommentId: null });
     vi.mocked(repo.findCommentById).mockResolvedValue(root);
+    vi.mocked(repo.lockCommentById).mockResolvedValue(root);
     vi.mocked(uploadVerseAudio).mockImplementation(async () => {
-      vi.mocked(repo.findCommentById).mockResolvedValue(null as never);
+      vi.mocked(repo.lockCommentById).mockResolvedValue(null as never);
     });
     const result = await createAudioComment(writer, 9, null, file(), null, 10);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
+    expect(repo.lockCommentById).toHaveBeenCalled();
     expect(repo.insertComment).not.toHaveBeenCalled();
     expect(deleteVerseAudio).toHaveBeenCalledWith(expect.stringMatching(COMMENT_KEY_RE));
+  });
+
+  it('uses locked assignment context for the short write (not unlocked SELECT)', async () => {
+    await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
+    expect(repo.lockAssignmentWriteContext).toHaveBeenCalled();
+    expect(repo.lockBibleTextById).toHaveBeenCalledWith(50, expect.anything());
   });
 
   it('cleans only the attempt key when the short write throws after upload', async () => {

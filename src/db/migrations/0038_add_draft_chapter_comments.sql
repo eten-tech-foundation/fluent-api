@@ -131,6 +131,9 @@ FOR EACH ROW
 EXECUTE FUNCTION mark_chapter_comments_unconnected_for_pericope_set_change();--> statement-breakpoint
 -- Public pericope identity matches GET /projects/.../pericopes getPericopeGroupNumber:
 -- section IS NULL → raw pericope_number; else section || '_' || pericope_number (e.g. 6_1).
+-- Advisory xact lock key must match draft-comments.repository.lockPublicPericopeIdentity
+-- (87201458 + hashtext(set/book/chapter/publicId)) so membership mutations serialize with
+-- post-upload comment insert and cannot slip between revalidation and INSERT.
 CREATE OR REPLACE FUNCTION mark_chapter_comments_unconnected_for_pericope_verse_mutation()
 RETURNS trigger AS $$
 DECLARE
@@ -158,6 +161,11 @@ BEGIN
     END;
   END IF;
 
+  PERFORM pg_advisory_xact_lock(
+    87201458,
+    hashtext(tgt_set_id::text || '/' || tgt_book_id::text || '/' || tgt_chapter::text || '/' || tgt_public_id)
+  );
+
   UPDATE chapter_comments
   SET
     connection_state = 'unconnected',
@@ -182,6 +190,12 @@ BEGIN
       WHEN OLD.section IS NULL THEN OLD.pericope_number
       ELSE OLD.section::text || '_' || OLD.pericope_number
     END;
+    PERFORM pg_advisory_xact_lock(
+      87201458,
+      hashtext(
+        OLD.pericope_set_id::text || '/' || OLD.book_id::text || '/' || OLD.chapter_number::text || '/' || old_public_id
+      )
+    );
     UPDATE chapter_comments
     SET
       connection_state = 'unconnected',

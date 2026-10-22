@@ -185,8 +185,9 @@ export async function createAudioComment(
 
   try {
     const result = await runInTransaction(async (tx) => {
-      // Revalidate after upload — reject if assignment/target/source drifted mid-upload.
-      const liveAssignment = await repo.findAssignmentContext(chapterAssignmentId, tx);
+      // Lock assignment+project, then source/root, before insert so READ COMMITTED
+      // cannot admit a structural mutation between revalidation SELECT and INSERT.
+      const liveAssignment = await repo.lockAssignmentWriteContext(chapterAssignmentId, tx);
       if (!liveAssignment || liveAssignment.projectId !== assignment.projectId) {
         return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
       }
@@ -194,7 +195,7 @@ export async function createAudioComment(
       if (liveDenied) return liveDenied;
 
       if (replyToCommentId != null && parentCommentId != null) {
-        const root = await repo.findCommentById(parentCommentId, tx);
+        const root = await repo.lockCommentById(parentCommentId, tx);
         if (
           !root ||
           root.chapterAssignmentId !== chapterAssignmentId ||
@@ -203,7 +204,7 @@ export async function createAudioComment(
         ) {
           return err(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
         }
-        // Refresh inherited snapshot + connectionState from live root (truthful Unconnected).
+        // Refresh inherited snapshot + connectionState from locked root.
         anchorKind = root.anchorKind;
         anchorBibleId = root.anchorBibleId;
         anchorBookId = root.anchorBookId;
@@ -216,10 +217,10 @@ export async function createAudioComment(
         connectionState = root.connectionState;
       } else if (anchor) {
         const bibleText =
-          anchor.kind === 'verse' ? await repo.findBibleTextById(anchor.bibleTextId, tx) : null;
+          anchor.kind === 'verse' ? await repo.lockBibleTextById(anchor.bibleTextId, tx) : null;
         const pericopeMembership =
           anchor.kind === 'pericope' && liveAssignment.pericopeSetId != null
-            ? await repo.findPericopeMembership(
+            ? await repo.lockPericopeMembership(
                 liveAssignment.pericopeSetId,
                 liveAssignment.bookId,
                 liveAssignment.chapterNumber,
