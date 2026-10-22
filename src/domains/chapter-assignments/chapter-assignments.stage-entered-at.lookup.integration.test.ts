@@ -152,6 +152,61 @@ describe('stageEnteredAt lookup (PGlite SQL)', () => {
     expect(resolved.get(6)).toBeNull(); // null createdAt
   });
 
+  it('returns null for mixed-null history (does not invent entry via NULLS LAST)', async () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t3 = new Date('2026-01-03T00:00:00.000Z');
+
+    // Parent gap: draft(id1,t1), peer_check(id2,null), peer_check(id3,t3) → null
+    await insertAssignment(20, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+    await database.insert(schema.chapter_assignment_status_history).values([
+      { chapterAssignmentId: 20, status: 'draft', createdAt: t1 },
+      { chapterAssignmentId: 20, status: 'peer_check', createdAt: null },
+      { chapterAssignmentId: 20, status: 'peer_check', createdAt: t3 },
+    ]);
+
+    // null before dated same-status
+    await insertAssignment(21, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+    await database.insert(schema.chapter_assignment_status_history).values([
+      { chapterAssignmentId: 21, status: 'peer_check', createdAt: null },
+      { chapterAssignmentId: 21, status: 'peer_check', createdAt: t3 },
+    ]);
+
+    // null after dated same-status
+    await insertAssignment(22, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+    await database.insert(schema.chapter_assignment_status_history).values([
+      { chapterAssignmentId: 22, status: 'peer_check', createdAt: t1 },
+      { chapterAssignmentId: 22, status: 'peer_check', createdAt: null },
+    ]);
+
+    // null on different prior status
+    await insertAssignment(23, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+    await database.insert(schema.chapter_assignment_status_history).values([
+      { chapterAssignmentId: 23, status: 'draft', createdAt: null },
+      { chapterAssignmentId: 23, status: 'peer_check', createdAt: t3 },
+    ]);
+
+    // null on later different status
+    await insertAssignment(24, CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK);
+    await database.insert(schema.chapter_assignment_status_history).values([
+      { chapterAssignmentId: 24, status: 'peer_check', createdAt: t1 },
+      { chapterAssignmentId: 24, status: 'community_review', createdAt: null },
+    ]);
+
+    const resolved = await getStageEnteredAtByAssignmentIds([
+      { id: 20, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK },
+      { id: 21, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK },
+      { id: 22, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK },
+      { id: 23, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK },
+      { id: 24, status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK },
+    ]);
+
+    expect(resolved.get(20)).toBeNull();
+    expect(resolved.get(21)).toBeNull();
+    expect(resolved.get(22)).toBeNull();
+    expect(resolved.get(23)).toBeNull();
+    expect(resolved.get(24)).toBeNull();
+  });
+
   it('does not invent stageEnteredAt from assignment timestamps when history is absent', async () => {
     await database.insert(schema.chapter_assignments).values({
       id: 10,

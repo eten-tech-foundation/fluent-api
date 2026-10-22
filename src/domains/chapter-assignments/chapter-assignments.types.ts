@@ -121,7 +121,7 @@ export const updateChapterAssignmentAiStatusSchema = z.object({
 /** ISO-8601 datetime or null — truthful current-stage entry from status history. */
 export const stageEnteredAtSchema = z.string().datetime().nullable().openapi({
   description:
-    'ISO-8601 time when this assignment entered its current status, from chapter_assignment_status_history only. Null when there is no history, the latest history status does not match the current status, or the entry row has a null createdAt. Never derived from assignment createdAt, updatedAt, submittedTime, or activity. Ordering: createdAt ASC NULLS LAST, id ASC; value is the start of the trailing contiguous run of the current status (re-entry and repeated same-status rows included).',
+    'ISO-8601 time when this assignment entered its current status, from chapter_assignment_status_history only. Null when there is no history, any history row has a null createdAt (conservative: unknown timestamps make stage entry unprovable), or the latest history status does not match the current status. Never derived from assignment createdAt, updatedAt, submittedTime, or activity. When every history createdAt is non-null: order by createdAt ASC, id ASC; value is the start of the trailing contiguous run of the current status (re-entry uses the latest run; repeated same-status rows do not reset entry).',
 });
 
 export const chapterAssignmentResponseSchema = z.object({

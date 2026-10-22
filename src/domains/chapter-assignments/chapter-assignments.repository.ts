@@ -410,7 +410,7 @@ export async function deleteByProjectUnitAndBooks(
     );
 }
 
-/** Batch status history ordered by createdAt ASC NULLS LAST, id ASC. */
+/** Batch status history (createdAt ASC NULLS LAST, id ASC). Resolver rejects any null createdAt. */
 export async function findStatusHistoryByAssignmentIds(
   assignmentIds: number[],
   tx?: DbTransaction

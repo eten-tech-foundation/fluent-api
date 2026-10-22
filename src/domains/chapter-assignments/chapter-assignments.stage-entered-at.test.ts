@@ -54,7 +54,7 @@ describe('resolveStageEnteredAt', () => {
     expect(resolveStageEnteredAt('draft', [])).toBeNull();
   });
 
-  it('returns null when the entry row createdAt is null', () => {
+  it('returns null when any history row has null createdAt (sole row)', () => {
     expect(
       resolveStageEnteredAt('draft', rows({ id: 1, status: 'draft', createdAt: null }))
     ).toBeNull();
@@ -99,15 +99,69 @@ describe('resolveStageEnteredAt', () => {
     expect(entryTime).toBe('2026-01-02T00:00:00.000Z');
   });
 
-  it('treats null createdAt as later than dated rows (NULLS LAST)', () => {
-    expect(
-      resolveStageEnteredAt(
-        'peer_check',
-        rows(
-          { id: 1, status: 'peer_check', createdAt: t('2026-01-02T00:00:00.000Z') },
-          { id: 2, status: 'peer_check', createdAt: null }
+  describe('mixed-null history (conservative unavailability)', () => {
+    // Parent gap: draft(id1,t1), peer_check(id2,null), peer_check(id3,t3) must
+    // not invent t3 via NULLS LAST — any null createdAt → stageEnteredAt null.
+
+    it('returns null when a null createdAt sits between dated same-status rows', () => {
+      expect(
+        resolveStageEnteredAt(
+          'peer_check',
+          rows(
+            { id: 1, status: 'draft', createdAt: t('2026-01-01T00:00:00.000Z') },
+            { id: 2, status: 'peer_check', createdAt: null },
+            { id: 3, status: 'peer_check', createdAt: t('2026-01-03T00:00:00.000Z') }
+          )
         )
-      )
-    ).toBe('2026-01-02T00:00:00.000Z');
+      ).toBeNull();
+    });
+
+    it('returns null when null createdAt is before dated current-status rows', () => {
+      expect(
+        resolveStageEnteredAt(
+          'peer_check',
+          rows(
+            { id: 1, status: 'peer_check', createdAt: null },
+            { id: 2, status: 'peer_check', createdAt: t('2026-01-02T00:00:00.000Z') }
+          )
+        )
+      ).toBeNull();
+    });
+
+    it('returns null when null createdAt is after dated current-status rows', () => {
+      expect(
+        resolveStageEnteredAt(
+          'peer_check',
+          rows(
+            { id: 1, status: 'peer_check', createdAt: t('2026-01-02T00:00:00.000Z') },
+            { id: 2, status: 'peer_check', createdAt: null }
+          )
+        )
+      ).toBeNull();
+    });
+
+    it('returns null when null createdAt is on a different prior status', () => {
+      expect(
+        resolveStageEnteredAt(
+          'peer_check',
+          rows(
+            { id: 1, status: 'draft', createdAt: null },
+            { id: 2, status: 'peer_check', createdAt: t('2026-01-02T00:00:00.000Z') }
+          )
+        )
+      ).toBeNull();
+    });
+
+    it('returns null when null createdAt is on a later different status (also mismatch)', () => {
+      expect(
+        resolveStageEnteredAt(
+          'peer_check',
+          rows(
+            { id: 1, status: 'peer_check', createdAt: t('2026-01-02T00:00:00.000Z') },
+            { id: 2, status: 'community_review', createdAt: null }
+          )
+        )
+      ).toBeNull();
+    });
   });
 });
