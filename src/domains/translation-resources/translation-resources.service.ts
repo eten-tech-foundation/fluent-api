@@ -23,14 +23,9 @@ export const AQUIFER_RESOURCE_COLLECTIONS = {
   translationQuestions: 'UWTranslationQuestions',
 } as const;
 
-/** Parallel getResource calls when hydrating search hits. */
-const HYDRATE_CONCURRENCY = 5;
-/** Max hydrated items kept per MANIFEST_SEARCH_CONFIGS entry. */
-const MAX_MANIFEST_ITEMS_PER_CONFIG = 100;
-/**
- * Aquifer end-verse window for chapter-range searches. Chapters never exceed
- * this verse count; mirrors fluent-mobile Prepare Offline (1–200).
- */
+const HYDRATE_CONCURRENCY = 5; // parallel getResource hydrate
+const MAX_MANIFEST_ITEMS_PER_CONFIG = 100; // per MANIFEST_SEARCH_CONFIGS entry
+/** Aquifer chapter end-verse window (mobile Prepare Offline 1–200). */
 const CHAPTER_RANGE_END_VERSE = 200;
 
 interface ResourceSearchConfig {
@@ -120,6 +115,8 @@ interface ExtractedAquiferAsset {
   url: string;
   size?: number;
   thumbnailUrl?: string;
+  caption?: string;
+  attribution?: string;
 }
 
 function ownString(record: Record<string, unknown>, fieldName: string): string | undefined {
@@ -127,19 +124,20 @@ function ownString(record: Record<string, unknown>, fieldName: string): string |
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/**
- * Read url/href, size, and thumbnailUrl from a single Aquifer asset record.
- * Nested sibling records must not contribute mixed fields.
- */
+/** Own-record url/href + optional media metadata; do not mix nested siblings. */
 function readAssetFromRecord(record: Record<string, unknown>): ExtractedAquiferAsset | undefined {
   const url = ownString(record, 'url') ?? ownString(record, 'href');
   if (!url) return undefined;
   const size = typeof record.size === 'number' ? record.size : undefined;
   const thumbnailUrl = ownString(record, 'thumbnailUrl');
+  const caption = ownString(record, 'caption');
+  const attribution = ownString(record, 'attribution');
   return {
     url,
     ...(size !== undefined ? { size } : {}),
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(caption ? { caption } : {}),
+    ...(attribution ? { attribution } : {}),
   };
 }
 
@@ -356,7 +354,12 @@ export async function getTranslationImagesForRange(
       localizedName: hit.localizedName || hit.name,
       url: asset.url,
       ...(asset.thumbnailUrl ? { thumbnailUrl: asset.thumbnailUrl } : {}),
+      ...(asset.caption ? { caption: asset.caption } : {}),
+      ...(asset.attribution ? { attribution: asset.attribution } : {}),
       size: asset.size,
+      ...(details.grouping.licenseInfo !== undefined
+        ? { licenseInfo: details.grouping.licenseInfo }
+        : {}),
     });
   }
   return ok({ items });
