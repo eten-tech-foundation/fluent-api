@@ -53,3 +53,25 @@ rule.
 The single place in the web client that reads a Bible's TTS licence status
 and refuses to request synthesis unless it is _allowed_. It bars synthesis
 only; recorded audio is unaffected.
+
+**Bible**:
+Fluent's own record of a source edition — its name, abbreviation, language,
+and which provider resources it is built from and plays. Holds Fluent's
+records and choices, never provider facts.
+_Avoid_: "edition" for this record; a provider's edition is a provider resource.
+
+**Provider resource**:
+A Bible text or recording as identified by an external provider (DBL,
+Aquifer, YouVersion), and where everything that provider tells us about it
+lives: identity, licence status, licence notice, audio availability. Exists
+without a Bible for reference editions. Its role — text or recording — comes
+from which Bible link points at it, not from the resource itself.
+_Avoid_: "provider Bible", "external Bible".
+
+**Text resource**:
+The provider resource a Bible's text is built from. At most one Bible per
+text resource.
+
+**Selected recording**:
+The provider resource a Bible plays as recorded audio — Fluent's choice, not
+a provider fact. May be from a different provider than the text.

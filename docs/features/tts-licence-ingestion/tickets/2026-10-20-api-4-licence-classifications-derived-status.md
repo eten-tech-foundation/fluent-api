@@ -6,7 +6,7 @@
 **Parent feature:** [`tts-licence-ingestion`](../plan.md) — Ticket API-4, Phase 2.
 **Repo:** `fluent-api`.
 **Working branch:** `feat/tts-licence-ingestion` (in `fluent-api`). Work on that branch directly, or branch from it (`git switch -c <your-branch> origin/feat/tts-licence-ingestion`) and target your PR at it, so the plan, design and ADR context travel with the ticket. The feature branch merges to `main` once the phase's tickets are done.
-**Blocked by:** API-3 (the reviewed `licence-classifications.json` must be committed).
+**Blocked by:** API-3 (the reviewed `licence-classifications.json` must be committed) and API-5 (derive status through `bibles.text_resource_id`, not the value join).
 **Decision record:** [ADR 0003](../../../adr/0003-tts-licence-status-derived-from-licence-text.md).
 
 ## Problem

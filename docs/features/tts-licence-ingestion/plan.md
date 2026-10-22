@@ -14,16 +14,18 @@ All work happens on (or branches from) the `feat/tts-licence-ingestion` branch i
 | [API-2](https://github.com/eten-tech-foundation/fluent-api/issues/428) | [All-rights-reserved sweep](tickets/2026-10-20-api-2-all-rights-reserved-sweep.md)                                                                   | fluent-api | 1     | API-1                              | `enhancement`, `ready-for-agent`            | `DevQA`   | P0       |
 | [WEB-1](https://github.com/eten-tech-foundation/fluent-web/issues/592) | [Licence message in audio settings](../../../../fluent-web/docs/features/tts-licence-ingestion/tickets/2026-10-20-web-1-settings-licence-message.md) | fluent-web | 1     | — (meaningful once API-1 is on QA) | `enhancement`, `web-app`, `ready-for-agent` | `Full QA` | P1       |
 | [API-3](https://github.com/eten-tech-foundation/fluent-api/issues/429) | [AI licence classification pass](tickets/2026-10-20-api-3-ai-licence-classification-pass.md)                                                         | fluent-api | 2     | API-1 run on prod                  | `enhancement`, `ready-for-human`            | `DevQA`   | P1       |
-| [API-4](https://github.com/eten-tech-foundation/fluent-api/issues/430) | [Licence classifications + derived status (deny-by-default)](tickets/2026-10-20-api-4-licence-classifications-derived-status.md)                     | fluent-api | 2     | API-3                              | `enhancement`, `ready-for-agent`            | `DevQA`   | P1       |
+| [API-4](https://github.com/eten-tech-foundation/fluent-api/issues/430) | [Licence classifications + derived status (deny-by-default)](tickets/2026-10-20-api-4-licence-classifications-derived-status.md)                     | fluent-api | 2     | API-3, API-5                       | `enhancement`, `ready-for-agent`            | `DevQA`   | P1       |
+| API-5                                                                  | [Bibles reference provider resources by FK](tickets/2026-10-22-api-5-bibles-reference-provider-resources.md)                                         | fluent-api | 1→2   | API-1, API-2 shipped               | `enhancement`, `ready-for-agent`            | `DevQA`   | P1       |
 
 ## Sequencing
 
 ```
 Phase 1 (summit)                     Phase 2
-API-1 ──► API-2 ──► run on dev/QA/prod ──► API-3 (offline AI pass, human review)
-WEB-1 (parallel)                                  │
-                                                  ▼
-                                            API-4 (table + data + derived sync)
+API-1 ──► API-2 ──► run on dev/QA/prod ──┬─► API-3 (offline AI pass, human review) ─┐
+WEB-1 (parallel)                          └─► API-5 (FK data model, release 1) ────┤
+                                                                                     ▼
+                                                       API-4 (table + data + derived sync)
+                                              API-5 release 2 (drop old columns) — any time after release 1 is on prod
 ```
 
 - **API-1 + API-2 ship together** in one release. Deployment task, at
@@ -31,6 +33,7 @@ WEB-1 (parallel)                                  │
   after the release lands. The sweep runs as the sync's last step, so no
   separate command can be forgotten.
 - **API-3 needs prod's real notices**, so it starts after Phase 1 has run on prod.
+- **API-5 is two releases.** Release 1 adds `text_resource_id` and `bpr.has_audio`, backfills them, and switches all reads and writes. Release 2 drops `bibles.provider`, `external_id` and `has_audio`. Migrations run before the new code is live, so the drop can never ship with the switch. See ADR 0004.
 - **API-4 must not deploy without API-3's reviewed data.** Derived status turns
   every unclassified notice into `unknown`; shipping the code without the data
   would switch TTS off for every Bible. API-4's migration loads the data.

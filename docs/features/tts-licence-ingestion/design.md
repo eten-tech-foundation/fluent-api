@@ -85,6 +85,8 @@ BY license_notice` after the sync; the script logs the distinct count.
     appears under it: text-to-speech isn't available for _{Bible}_ because of
     its licensing terms. Product owns the final wording.
 
+12. **Data model clean-up (API-5, ADR 0004).** Provider facts live only on the provider resource; a Bible holds Fluent records plus two FKs, `text_resource_id` and `audio_resource_id`. `bibles.provider`, `external_id` and `has_audio` move to (or are replaced by) the resource, `bible_provider` folds into `resource_provider`, and there is no `kind` column. The table keeps its name.
+
 ## Follow-ups (tracked, not ticketed here)
 
 - **Server-side enforcement.** `POST /ai/tts/generate` is Bible-blind; the fence
