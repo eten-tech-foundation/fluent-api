@@ -248,6 +248,30 @@ describe('verse-audio repository', () => {
   });
 
   describe('markIntersectingCoverageConflicts', () => {
+    function mockLockedRows(rows: unknown[]) {
+      const updateWhere = vi.fn().mockResolvedValue(undefined);
+      const tx = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  for: vi.fn().mockResolvedValue(rows),
+                }),
+              }),
+            }),
+          }),
+        }),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: updateWhere }),
+        }),
+      };
+      vi.mocked(db.transaction).mockImplementation(async (callback) => callback(tx as never));
+      return { tx, updateWhere };
+    }
+
+    const coverage = { start: { chapter: 1, verse: 1 }, end: { chapter: 1, verse: 5 } };
+
     it('does not re-flag resolved units when marking intersecting coverage', async () => {
       const { ne } = await import('drizzle-orm');
       const self = {
@@ -290,30 +314,13 @@ describe('verse-audio repository', () => {
         endVerse: null,
       };
 
-      const updateWhere = vi.fn().mockResolvedValue(undefined);
-      const tx = {
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            innerJoin: vi.fn().mockReturnValue({
-              where: vi.fn().mockReturnValue({
-                orderBy: vi.fn().mockReturnValue({
-                  for: vi.fn().mockResolvedValue([self, resolvedOverlap, cleanOverlap]),
-                }),
-              }),
-            }),
-          }),
-        }),
-        update: vi.fn().mockReturnValue({
-          set: vi.fn().mockReturnValue({ where: updateWhere }),
-        }),
-      };
-      vi.mocked(db.transaction).mockImplementation(async (callback) => callback(tx as never));
+      const { tx, updateWhere } = mockLockedRows([self, resolvedOverlap, cleanOverlap]);
 
       const result = await repo.markIntersectingCoverageConflicts({
         projectUnitId: 12,
         selfBibleTextId: 100,
         bookId: 40,
-        coverage: { start: { chapter: 1, verse: 1 }, end: { chapter: 1, verse: 5 } },
+        coverage,
       });
 
       // Resolved overlap (id 2) excluded from toMark; UPDATE also guards with ne(resolved).
@@ -321,6 +328,94 @@ describe('verse-audio repository', () => {
       expect(tx.update).toHaveBeenCalledTimes(1);
       expect(updateWhere).toHaveBeenCalled();
       expect(vi.mocked(ne)).toHaveBeenCalledWith(expect.anything(), 'resolved');
+    });
+
+    it('flags self when the only overlapping unit is resolved', async () => {
+      const { ne, inArray } = await import('drizzle-orm');
+      const self = {
+        id: 10,
+        bibleTextId: 200,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 1,
+        conflictStatus: 'clean',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+      const resolvedOverlap = {
+        id: 11,
+        bibleTextId: 201,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 2,
+        conflictStatus: 'resolved',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+
+      const { tx, updateWhere } = mockLockedRows([self, resolvedOverlap]);
+
+      const result = await repo.markIntersectingCoverageConflicts({
+        projectUnitId: 12,
+        selfBibleTextId: 200,
+        bookId: 40,
+        coverage,
+      });
+
+      // Contender B flagged; adjudicated A stays out of toMark (and UPDATE ne-guards resolved).
+      expect(result).toEqual(ok({ markedIds: [10] }));
+      expect(tx.update).toHaveBeenCalledTimes(1);
+      expect(updateWhere).toHaveBeenCalled();
+      expect(vi.mocked(inArray)).toHaveBeenCalledWith(expect.anything(), [10]);
+      expect(vi.mocked(ne)).toHaveBeenCalledWith(expect.anything(), 'resolved');
+    });
+
+    it('does not re-flag a resolved self even when overlaps exist', async () => {
+      const self = {
+        id: 20,
+        bibleTextId: 300,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 1,
+        conflictStatus: 'resolved',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+      const cleanOverlap = {
+        id: 21,
+        bibleTextId: 301,
+        bookId: 40,
+        chapterNumber: 1,
+        verseNumber: 3,
+        conflictStatus: 'clean',
+        granularity: 'verse',
+        startChapter: null,
+        startVerse: null,
+        endChapter: null,
+        endVerse: null,
+      };
+
+      const { tx } = mockLockedRows([self, cleanOverlap]);
+
+      const result = await repo.markIntersectingCoverageConflicts({
+        projectUnitId: 12,
+        selfBibleTextId: 300,
+        bookId: 40,
+        coverage,
+      });
+
+      // Overlap still marks the non-resolved peer; resolved self stays resolved.
+      expect(result).toEqual(ok({ markedIds: [21] }));
+      expect(tx.update).toHaveBeenCalledTimes(1);
     });
   });
 

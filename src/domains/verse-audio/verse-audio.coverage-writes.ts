@@ -69,8 +69,10 @@ export interface RecordingStatePatch {
  * `versionToken`. Used after uploads that introduce a new contender or change
  * active coverage — not for idempotent same-shape retries.
  *
- * Already-`resolved` units are left alone (same contract as
- * `markConflictPreservingActive`): a prior adjudication is not silently reopened.
+ * Already-`resolved` units are not re-flagged (same contract as
+ * `markConflictPreservingActive`): a prior adjudication is not silently
+ * reopened. They still count as contention for flagging a non-resolved self,
+ * so a new contender that only overlaps adjudicated rows is surfaced.
  */
 export async function markIntersectingCoverageConflicts(input: {
   projectUnitId: number;
@@ -92,6 +94,7 @@ export async function markIntersectingCoverageConflicts(input: {
       const toMark = new Set<number>();
       let selfId: number | undefined;
       let selfResolved = false;
+      let sawOverlap = false;
 
       for (const record of records) {
         if (record.bibleTextId === input.selfBibleTextId) {
@@ -102,16 +105,18 @@ export async function markIntersectingCoverageConflicts(input: {
         if (record.bookId !== input.bookId) {
           continue;
         }
-        if (record.conflictStatus === VERSE_AUDIO_CONFLICT_STATUS.RESOLVED) {
+        const otherCoverage = coverageFromActive(record, record.chapterNumber, record.verseNumber);
+        if (!rangesOverlap(input.coverage, otherCoverage)) {
           continue;
         }
-        const otherCoverage = coverageFromActive(record, record.chapterNumber, record.verseNumber);
-        if (rangesOverlap(input.coverage, otherCoverage)) {
+        sawOverlap = true;
+        // Write-protect adjudicated rows; still counted via sawOverlap above.
+        if (record.conflictStatus !== VERSE_AUDIO_CONFLICT_STATUS.RESOLVED) {
           toMark.add(record.id);
         }
       }
 
-      if (toMark.size > 0 && selfId !== undefined && !selfResolved) {
+      if (sawOverlap && selfId !== undefined && !selfResolved) {
         toMark.add(selfId);
       }
 
