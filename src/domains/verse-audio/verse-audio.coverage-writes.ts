@@ -3,8 +3,8 @@ import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { runInTransaction } from '@/db/transaction';
 import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/schema';
+import { runInTransaction } from '@/db/transaction';
 import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';

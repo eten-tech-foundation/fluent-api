@@ -539,7 +539,7 @@
       "count": 1
     },
     "ts/no-explicit-any": {
-      "count": 3
+      "count": 1
     }
   },
   "src/domains/verse-audio/verse-audio.repository.ts": {
@@ -555,7 +555,7 @@
       "count": 1
     },
     "ts/no-explicit-any": {
-      "count": 7
+      "count": 6
     }
   },
   "src/domains/youversion/youversion.route.test.ts": {
