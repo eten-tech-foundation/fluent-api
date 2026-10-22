@@ -31,7 +31,7 @@ export function isIdempotentSelfClaim(
 }
 
 /** Rival held work may be conflict-flagged only while not terminal (complete). */
-export function isClaimConflictEligibleStatus(status: string | null | undefined): boolean {
+function isClaimConflictEligibleStatus(status: string | null | undefined): boolean {
   return status != null && status !== CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
 }
 
