@@ -1,6 +1,6 @@
 # Bibles reference provider resources by FK
 
-> **Status: DRAFT** — not yet filed. Board: Fluent (#4) → `In Progress (Product)`.
+> **Status: FILED** — GitHub: [fluent-api#453](https://github.com/eten-tech-foundation/fluent-api/issues/453). Board: Fluent (#4) → `In Progress (Product)`.
 > Suggested labels: `enhancement`, `ready-for-agent` · QA path: `DevQA` · Priority: P1
 
 **Parent feature:** [`tts-licence-ingestion`](../plan.md) — Ticket API-5, between Phase 1 and Phase 2.
