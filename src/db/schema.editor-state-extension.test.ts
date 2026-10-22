@@ -96,7 +96,7 @@ describe('userSettingsWriteSchema — strict write path (A4)', () => {
   // The write schema is deliberately the strict object schema WITHOUT the
   // `.catch({})` fallback used on the read path. A malformed write must be
   // surfaced (the route maps this to a 422) rather than silently swallowed
-  // and persisted as an empty blob. Explicit null deletes a known key.
+  // and persisted as an empty blob. Explicit null deletes displayMode only.
   it('accepts a well-formed write blob', () => {
     const blob = { checkIgnoredWordPairs: { 'the the': 'suppress' as const } };
     expect(userSettingsWriteSchema.parse(blob)).toEqual(blob);
@@ -107,6 +107,10 @@ describe('userSettingsWriteSchema — strict write path (A4)', () => {
       displayMode: 'verse',
     });
     expect(userSettingsWriteSchema.parse({ displayMode: null })).toEqual({ displayMode: null });
+  });
+
+  it('rejects checkIgnoredWordPairs null (clear via {}; null-delete is displayMode-only)', () => {
+    expect(() => userSettingsWriteSchema.parse({ checkIgnoredWordPairs: null })).toThrow();
   });
 
   it('accepts an empty write blob', () => {

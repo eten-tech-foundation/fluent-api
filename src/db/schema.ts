@@ -847,10 +847,13 @@ export const editorStateResourcesSchema = z
 // the `.catch` variant. (Guarded by src/routes/doc.route.test.ts.)
 export const userSettingsDisplayModeSchema = z.enum(['verse', 'pericope']);
 
+// Shared so read/write schemas cannot drift on the verdict enum (FA-R1).
+export const checkIgnoredWordPairsSchema = z.record(z.string(), z.enum(['suppress', 'surface']));
+
 export const userSettingsObjectSchema = z.object({
   // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
   // pair string (e.g. "the the"); applies across all of the user's projects.
-  checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
   // Mobile drafting unit preference (client defaults missing → verse). Stored
   // only when set; normalized responses omit a deleted key (no null echo).
   displayMode: userSettingsDisplayModeSchema.optional(),
@@ -865,13 +868,11 @@ export const userSettingsSchema = userSettingsObjectSchema.catch({});
 // Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
 // (surfaced as a 422 VALIDATION_ERROR — a well-formed request whose contents fail
 // schema validation; see self-settings.service.upsertSettings) instead of being
-// silently swallowed. Explicit `null` on a known key means "delete this key"
-// (merged atomically in the repository); absent keys are not in the patch.
+// silently swallowed. Explicit `null` deletes only `displayMode` (#434); clear
+// suppressions with `{ checkIgnoredWordPairs: {} }` — `null` there is 422.
+// Absent keys are not in the patch.
 export const userSettingsWriteSchema = z.object({
-  checkIgnoredWordPairs: z
-    .record(z.string(), z.enum(['suppress', 'surface']))
-    .nullable()
-    .optional(),
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
   displayMode: userSettingsDisplayModeSchema.nullable().optional(),
 });
 

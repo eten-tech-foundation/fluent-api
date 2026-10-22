@@ -1,3 +1,4 @@
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,16 +26,16 @@ vi.mock('@/lib/logger', () => ({
  */
 describe('self-settings.repository.mergePatch (PGlite)', () => {
   beforeAll(async () => {
-    // Minimal table: skip users FK so this suite stays isolated from seeds.
-    await database.execute(sql`
-      CREATE TABLE user_settings (
-        user_id integer PRIMARY KEY,
-        settings jsonb,
-        created_at timestamp DEFAULT now(),
-        updated_at timestamp DEFAULT now()
-      )
-    `);
-  });
+    // Generate from the production Drizzle table (keeps columns/defaults in sync
+    // with schema.ts). Drop the users FK so this suite stays isolated from seeds.
+    const statements = await generateMigration(
+      generateDrizzleJson({}),
+      generateDrizzleJson({ user_settings: schema.user_settings })
+    );
+    await client.exec(
+      statements.filter((statement) => !statement.includes('FOREIGN KEY')).join('\n')
+    );
+  }, 30_000);
 
   beforeEach(async () => {
     await database.execute(sql`DELETE FROM ${schema.user_settings}`);

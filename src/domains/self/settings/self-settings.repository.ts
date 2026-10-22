@@ -42,8 +42,9 @@ export async function findByUser(userId: number): Promise<Result<UserSettingsRow
  * - Insert path: store `jsonb_strip_nulls(patch)` (nulls never persist).
  * - Update path: `jsonb_strip_nulls(COALESCE(existing, {}) || patch)` so
  *   concurrent different-key writers retain each other's keys and an explicit
- *   JSON `null` deletes only that key. Uses one upsert statement — not a
- *   JS read/merge/write — including first-row creation races.
+ *   JSON `null` deletes that key (service validation allows null only for
+ *   `displayMode`). Uses one upsert statement — not a JS read/merge/write —
+ *   including first-row creation races.
  */
 export async function mergePatch(input: MergeUserSettingsInput): Promise<Result<UserSettingsRow>> {
   const patchJson = JSON.stringify(input.patch);

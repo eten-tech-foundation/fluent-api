@@ -11,7 +11,7 @@ export type UserSettingsPatch = z.infer<typeof userSettingsWriteSchema>;
 
 export interface MergeUserSettingsInput {
   userId: number;
-  /** Validated patch; explicit `null` values delete that key. */
+  /** Validated patch; explicit `null` deletes only `displayMode`. */
   patch: UserSettingsPatch;
 }
 
@@ -21,10 +21,11 @@ export const SETTINGS_CAPABILITIES = {
   displayMode: true,
 } as const;
 
+// Literals read from SETTINGS_CAPABILITIES so a value drift fails typecheck.
 const settingsCapabilitiesSchema = z
   .object({
-    partialMerge: z.literal(true),
-    displayMode: z.literal(true),
+    partialMerge: z.literal(SETTINGS_CAPABILITIES.partialMerge),
+    displayMode: z.literal(SETTINGS_CAPABILITIES.displayMode),
   })
   .openapi('UserSettingsCapabilities');
 

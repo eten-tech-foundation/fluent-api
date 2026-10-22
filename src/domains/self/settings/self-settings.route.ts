@@ -51,9 +51,9 @@ server.openapi(getSelfSettingsRoute, async (c) => {
 });
 
 // ─── PUT /self/settings ───────────────────────────────────────────────────────
-// Atomic partial merge: provided keys overwrite; explicit null deletes that key;
-// absent keys are untouched. Empty settings object is a no-op. Same-key writes
-// are last successfully server-saved (no PATCH / ETags / wall-clock — §8.3).
+// Atomic partial merge: provided keys overwrite; explicit null deletes displayMode
+// only; absent keys are untouched. Empty settings object is a no-op. Same-key
+// writes are last successfully server-saved (no PATCH / ETags / wall-clock — §8.3).
 
 const saveSelfSettingsRoute = createRoute({
   tags: ['Self - Settings'],
@@ -63,7 +63,9 @@ const saveSelfSettingsRoute = createRoute({
   request: {
     body: jsonContent(
       saveUserSettingsRequestSchema,
-      'Settings patch to merge (absent keys untouched; null deletes that key)'
+      'Settings patch: supported keys are checkIgnoredWordPairs and displayMode. ' +
+        'Absent keys are untouched. Explicit displayMode:null deletes only that key; ' +
+        'checkIgnoredWordPairs:null is rejected (422). Clear suppressions with {}.'
     ),
   },
   responses: {
@@ -88,8 +90,10 @@ const saveSelfSettingsRoute = createRoute({
   summary: 'Save settings for current user',
   description:
     'Atomically merges the provided settings keys into the user-global blob for ' +
-    'the current session user. Explicit null deletes only that key; {} is a no-op. ' +
-    'Response includes settingsCapabilities for clients that gate partial writes.',
+    'the current session user. Supported keys: checkIgnoredWordPairs, displayMode. ' +
+    'Explicit displayMode:null deletes only that key; checkIgnoredWordPairs:null is ' +
+    '422 (clear via {}). Empty {} after unknown-key strip is a no-op. Response ' +
+    'includes settingsCapabilities for clients that gate partial writes.',
 });
 
 server.openapi(saveSelfSettingsRoute, async (c) => {

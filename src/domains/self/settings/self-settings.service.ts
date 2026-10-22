@@ -43,9 +43,10 @@ export async function upsertSettings(userId: number, rawSettings: unknown) {
   // Validate the incoming write with the STRICT schema (no `.catch`), so a
   // malformed body is rejected (as a 422 — see below) rather than silently
   // swallowed. Unknown top-level keys are stripped; bad shapes for known keys
-  // fail parsing. Explicit `null` on a known key is a delete; absent keys are
-  // omitted from the patch (untouched). (The `.catch({})` W8 tolerance applies
-  // only when reading stored rows back.)
+  // fail parsing. Explicit `null` deletes only `displayMode`;
+  // `checkIgnoredWordPairs: null` is a 422. Absent keys are omitted from the
+  // patch (untouched). (The `.catch({})` W8 tolerance applies only when reading
+  // stored rows back.)
   const parsed = userSettingsWriteSchema.safeParse(rawSettings);
   // A malformed body is a request-shape (validation) failure, not a reference
   // error — VALIDATION_ERROR maps to 422, the correct status for a well-formed

@@ -335,6 +335,26 @@ describe('PUT /self/settings', () => {
     expect(json.settingsCapabilities).toEqual(CAPABILITIES);
   });
 
+  it('returns 422 when checkIgnoredWordPairs is null (does not erase suppressions)', async () => {
+    authenticateAs(USER_A);
+    await putSettings({
+      settings: {
+        displayMode: 'verse',
+        checkIgnoredWordPairs: { 'the the': 'suppress' },
+      },
+    });
+
+    const res = await putSettings({ settings: { checkIgnoredWordPairs: null } });
+    expect(res.status).toBe(422);
+
+    const get = await getSettings();
+    expect(get.status).toBe(200);
+    expect((await get.json()).settings).toEqual({
+      displayMode: 'verse',
+      checkIgnoredWordPairs: { 'the the': 'suppress' },
+    });
+  });
+
   it('clears checkIgnoredWordPairs to {} without erasing displayMode', async () => {
     authenticateAs(USER_A);
     await putSettings({
