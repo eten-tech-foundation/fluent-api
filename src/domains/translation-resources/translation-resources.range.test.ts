@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auth } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 import * as aquiferClient from '@/lib/services/aquifer/aquifer.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
@@ -111,6 +112,30 @@ describe('translation-resources verse-range routes', () => {
       expect(body.items.map((item: { id: number }) => item.id)).toEqual([101, 202]);
       expect(aquiferClient.getResource).toHaveBeenCalledTimes(2);
       expect(aquiferClient.searchAllResources).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns when Aquifer range search is incomplete and still returns collected items', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = [{ ...searchHit, id: 101 }];
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits, false));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
+
+      const res = await server.request(NOTES_RANGE_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).items).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith({
+        message: 'Aquifer verse-range search hit page ceiling; returning partial items',
+        context: expect.objectContaining({
+          resourceCollectionCode: 'UWTranslationNotes',
+          bookCode: 'MRK',
+          chapter: 1,
+          startVerse: 1,
+          endVerse: 8,
+          collectedCount: 1,
+        }),
+      });
     });
 
     it('returns 502 with a generic message when Aquifer search fails', async () => {

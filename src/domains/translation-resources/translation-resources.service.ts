@@ -6,6 +6,7 @@ import type {
 } from '@/lib/services/aquifer/aquifer.types';
 import type { Result } from '@/lib/types';
 
+import { logger } from '@/lib/logger';
 import { getResource, searchAllResources } from '@/lib/services/aquifer/aquifer.client';
 import { ok } from '@/lib/types';
 
@@ -118,6 +119,8 @@ interface ExtractedAquiferAsset {
   url: string;
   size?: number;
   thumbnailUrl?: string;
+  caption?: string;
+  attribution?: string;
 }
 
 function ownString(record: Record<string, unknown>, fieldName: string): string | undefined {
@@ -125,19 +128,20 @@ function ownString(record: Record<string, unknown>, fieldName: string): string |
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/**
- * Read url/href, size, and thumbnailUrl from a single Aquifer asset record.
- * Nested sibling records must not contribute mixed fields.
- */
+/** Own-record url/href + optional media metadata; do not mix nested siblings. */
 function readAssetFromRecord(record: Record<string, unknown>): ExtractedAquiferAsset | undefined {
   const url = ownString(record, 'url') ?? ownString(record, 'href');
   if (!url) return undefined;
   const size = typeof record.size === 'number' ? record.size : undefined;
   const thumbnailUrl = ownString(record, 'thumbnailUrl');
+  const caption = ownString(record, 'caption');
+  const attribution = ownString(record, 'attribution');
   return {
     url,
     ...(size !== undefined ? { size } : {}),
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(caption ? { caption } : {}),
+    ...(attribution ? { attribution } : {}),
   };
 }
 
@@ -190,12 +194,14 @@ function mediaFallbackExt(mediaType: AquiferResourceMediaType): string {
  * Map items with a fixed concurrency pool. Individual mapper failures are
  * skipped so one bad Aquifer content id cannot drop the rest of the section.
  * If every item fails, the first failure is returned so the route can 502
- * instead of looking like an empty collection.
+ * instead of looking like an empty collection. Offline manifests require every
+ * item, so their mapper opts into returning the first failure even after successes.
  */
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  mapper: (item: T) => Promise<Result<R>>
+  mapper: (item: T) => Promise<Result<R>>,
+  failurePolicy: 'skip' | 'fail' = 'skip'
 ): Promise<Result<R[]>> {
   if (items.length === 0) return ok([]);
 
@@ -222,7 +228,7 @@ async function mapWithConcurrency<T, R>(
     else firstFailure ??= slot;
   }
 
-  if (successes.length === 0 && firstFailure) return firstFailure;
+  if (firstFailure && (failurePolicy === 'fail' || successes.length === 0)) return firstFailure;
   return ok(successes);
 }
 
@@ -278,6 +284,20 @@ async function searchVerseRangeCollection(
     resourceCollectionCode,
   });
   if (!search.ok) return search;
+  if (!search.data.complete) {
+    logger.warn({
+      message: 'Aquifer verse-range search hit page ceiling; returning partial items',
+      context: {
+        resourceCollectionCode,
+        bookCode: ref.bookCode,
+        chapter: ref.chapter,
+        startVerse: ref.startVerse,
+        endVerse: ref.endVerse,
+        languageCode: ref.languageCode,
+        collectedCount: search.data.items.length,
+      },
+    });
+  }
   return ok(dedupeSearchHitsById(search.data.items));
 }
 
@@ -333,6 +353,20 @@ export async function getTranslationImagesForRange(
     resourceType: 'Images',
   });
   if (!search.ok) return search;
+  if (!search.data.complete) {
+    logger.warn({
+      message: 'Aquifer images verse-range search hit page ceiling; returning partial items',
+      context: {
+        resourceType: 'Images',
+        bookCode: ref.bookCode,
+        chapter: ref.chapter,
+        startVerse: ref.startVerse,
+        endVerse: ref.endVerse,
+        languageCode: ref.languageCode,
+        collectedCount: search.data.items.length,
+      },
+    });
+  }
 
   const uniqueHits = dedupeSearchHitsById(search.data.items);
   const hydrated = await mapWithConcurrency(uniqueHits, HYDRATE_CONCURRENCY, async (hit) => {
@@ -352,7 +386,12 @@ export async function getTranslationImagesForRange(
       localizedName: hit.localizedName || hit.name,
       url: asset.url,
       ...(asset.thumbnailUrl ? { thumbnailUrl: asset.thumbnailUrl } : {}),
+      ...(asset.caption ? { caption: asset.caption } : {}),
+      ...(asset.attribution ? { attribution: asset.attribution } : {}),
       size: asset.size,
+      ...(details.grouping.licenseInfo !== undefined
+        ? { licenseInfo: details.grouping.licenseInfo }
+        : {}),
     });
   }
   return ok({ items });
@@ -462,6 +501,19 @@ export async function getPrepareOfflineManifest(params: {
     // ceiling). Do not re-slice a successful enumeration — mobile rejects truncated.
     if (!search.data.complete) {
       truncated = true;
+      logger.warn({
+        message: 'Aquifer prepare-offline search hit page ceiling; marking manifest truncated',
+        context: {
+          resourceCollectionCode: config.collectionCode,
+          resourceType: config.resourceType,
+          resourceName: config.resourceName,
+          bookCode,
+          startChapter,
+          endChapter,
+          languageCode,
+          collectedCount: search.data.items.length,
+        },
+      });
     }
 
     const hydrated = await mapWithConcurrency(
@@ -471,7 +523,8 @@ export async function getPrepareOfflineManifest(params: {
         const details = await getResource(searchItem.id);
         if (!details.ok) return details;
         return ok({ searchItem, details: details.data });
-      }
+      },
+      'fail'
     );
     if (!hydrated.ok) return hydrated;
 

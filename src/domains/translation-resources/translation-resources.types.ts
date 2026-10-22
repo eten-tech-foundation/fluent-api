@@ -262,8 +262,22 @@ export const translationImageItemSchema = z
     title: z.string(),
     localizedName: z.string(),
     url: z.string(),
-    thumbnailUrl: z.string().optional(),
+    thumbnailUrl: z
+      .string()
+      .optional()
+      .openapi({ description: 'Optional Aquifer content.thumbnailUrl when present (non-empty)' }),
+    caption: z.string().optional().openapi({
+      description:
+        'Optional Aquifer content.caption string when present; omitted when absent (no fabricated caption)',
+    }),
+    attribution: z.string().optional().openapi({
+      description:
+        'Optional Aquifer content.attribution string when present; clients may also derive credit from licenseInfo',
+    }),
     size: z.number().int().nonnegative().optional(),
+    licenseInfo: aquiferLicenseInfoWireSchema.optional().openapi({
+      description: 'Aquifer grouping.licenseInfo when present (same wire as TN/TQ)',
+    }),
   })
   .openapi('TranslationImageItem');
 
@@ -314,7 +328,7 @@ export const prepareOfflineManifestResponseSchema = z
     totalBytes: z.number().int().nonnegative(),
     truncated: z.boolean().openapi({
       description:
-        'True when one or more resource configs could not be fully enumerated within the server bounded Aquifer search page budget (provider total / short-page proof missing). False when every matching resource was collected and hydrated. Clients must not treat a truncated catalogue as complete.',
+        'True when one or more resource configs could not be fully enumerated within the server bounded Aquifer search page budget (provider total / short-page proof missing). False when every matching resource was collected; hydrate failures may still drop items (or 502 on the manifest fail-closed path) and are not covered by this flag. Clients must not treat a truncated catalogue as complete.',
     }),
   })
   .openapi('PrepareOfflineResourceManifest');
