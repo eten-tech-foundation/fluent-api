@@ -29,11 +29,6 @@
       "count": 1
     }
   },
-  "src/domains/ai-suggestions/ai-pericope.repository.integration.test.ts": {
-    "max-lines": {
-      "count": 1
-    }
-  },
   "src/domains/ai-suggestions/ai-pericope.repository.ts": {
     "fluent-standards/one-repository-per-directory": {
       "count": 1
@@ -85,9 +80,6 @@
   },
   "src/domains/ai-suggestions/ai-suggestions.service.ts": {
     "fluent-standards/repository-namespace-import": {
-      "count": 1
-    },
-    "max-lines": {
       "count": 1
     }
   },
@@ -204,15 +196,7 @@
       "count": 1
     },
     "ts/no-explicit-any": {
-      "count": 3
-    }
-  },
-  "src/domains/chapter-assignments/chapter-assignments.repository.ts": {
-    "max-lines": {
-      "count": 1
-    },
-    "ts/no-explicit-any": {
-      "count": 1
+      "count": 2
     }
   },
   "src/domains/chapter-assignments/chapter-assignments.route.test.ts": {
@@ -232,14 +216,8 @@
     }
   },
   "src/domains/chapter-assignments/chapter-assignments.service.ts": {
-    "max-lines": {
-      "count": 1
-    },
     "no-restricted-syntax": {
       "count": 1
-    },
-    "ts/no-explicit-any": {
-      "count": 2
     }
   },
   "src/domains/languages/import/enrich-localized-names.test.ts": {
@@ -415,11 +393,6 @@
       "count": 6
     }
   },
-  "src/domains/source-audio/source-audio.service.test.ts": {
-    "max-lines": {
-      "count": 1
-    }
-  },
   "src/domains/source-audio/source-audio.service.ts": {
     "fluent-standards/no-cross-domain-repository": {
       "count": 1
@@ -588,16 +561,6 @@
   "src/domains/verse-audio/verse-audio.route.ts": {
     "no-restricted-syntax": {
       "count": 2
-    }
-  },
-  "src/domains/verse-audio/verse-audio.service.test.ts": {
-    "max-lines": {
-      "count": 1
-    }
-  },
-  "src/domains/verse-audio/verse-audio.service.ts": {
-    "max-lines": {
-      "count": 1
     }
   },
   "src/domains/youversion/youversion.route.test.ts": {
