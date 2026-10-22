@@ -262,8 +262,22 @@ export const translationImageItemSchema = z
     title: z.string(),
     localizedName: z.string(),
     url: z.string(),
-    thumbnailUrl: z.string().optional(),
+    thumbnailUrl: z
+      .string()
+      .optional()
+      .openapi({ description: 'Optional Aquifer content.thumbnailUrl when present (non-empty)' }),
+    caption: z.string().optional().openapi({
+      description:
+        'Optional Aquifer content.caption string when present; omitted when absent (no fabricated caption)',
+    }),
+    attribution: z.string().optional().openapi({
+      description:
+        'Optional Aquifer content.attribution string when present; clients may also derive credit from licenseInfo',
+    }),
     size: z.number().int().nonnegative().optional(),
+    licenseInfo: aquiferLicenseInfoWireSchema.optional().openapi({
+      description: 'Aquifer grouping.licenseInfo when present (same wire as TN/TQ)',
+    }),
   })
   .openapi('TranslationImageItem');
 

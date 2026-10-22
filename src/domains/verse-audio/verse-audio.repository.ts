@@ -110,48 +110,6 @@ export async function listByChapter(
   }
 }
 
-/**
- * Insert-only unit create. On a concurrent first-upload race, reloads the
- * winner instead of overwriting its metadata / version token.
- */
-export async function insertRecording(
-  input: UpsertVerseAudioInput
-): Promise<Result<VerseAudioRecord>> {
-  try {
-    const [row] = await db
-      .insert(verse_audio_recordings)
-      .values(input)
-      .onConflictDoNothing({
-        target: [verse_audio_recordings.projectUnitId, verse_audio_recordings.bibleTextId],
-      })
-      .returning();
-
-    if (!row) {
-      const existing = await get(input.projectUnitId, input.bibleTextId);
-      if (!existing.ok) {
-        return existing;
-      }
-      return ok(existing.data);
-    }
-
-    const result = await get(row.projectUnitId, row.bibleTextId);
-    if (!result.ok) {
-      return err(ErrorCode.INTERNAL_ERROR);
-    }
-    return ok(result.data);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to insert verse audio recording',
-      context: { input: { ...input, sizeBytes: input.sizeBytes } },
-    });
-    if (hasPostgresErrorCode(error, '23503')) {
-      return mapForeignKeyViolation(error);
-    }
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
-}
-
 export type FirstRecordingOutcome = 'created' | 'concurrent' | 'link-conflict';
 
 /**

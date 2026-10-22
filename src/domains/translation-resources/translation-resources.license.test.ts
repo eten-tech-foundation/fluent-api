@@ -6,11 +6,14 @@ import { ok } from '@/lib/types';
 
 import {
   getPrepareOfflineManifest,
+  getTranslationImages,
   getTranslationNotes,
   getTranslationQuestions,
 } from './translation-resources.service';
+import { imageSearchHit } from './translation-resources.test-fixtures';
 import {
   prepareOfflineManifestResponseSchema,
+  translationImagesResponseSchema,
   translationNotesResponseSchema,
   translationQuestionsResponseSchema,
 } from './translation-resources.types';
@@ -74,6 +77,113 @@ describe('resource license attribution', () => {
       expect(result.data.items[0]?.content).toEqual(detail.content);
     }
   );
+
+  it('carries licenseInfo through images — CC BY-SA attribution obligation; do not drop', async () => {
+    const imageHit = imageSearchHit(hit.id);
+    // Mock Aquifer image details (not a live payload).
+    const imageDetail = aquiferResourceDetailsSchema.parse({
+      ...detail,
+      mediaType: 'Image',
+      content: { url: 'https://cdn.example/mock-image.jpg', size: 42 },
+      grouping: {
+        type: 'Images',
+        name: 'Images',
+        mediaType: 'Image',
+        licenseInfo,
+        collectionCode: 'Images',
+      },
+    });
+    vi.mocked(searchAllResources).mockResolvedValue(ok([imageHit]));
+    vi.mocked(getResource).mockResolvedValue(ok(imageDetail));
+
+    const result = await getTranslationImages({
+      bookCode: 'GEN',
+      chapter: 3,
+      verse: 1,
+      languageCode: 'eng',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Image hydration failed');
+    expect(translationImagesResponseSchema.parse(result.data).items[0]?.licenseInfo).toEqual(
+      licenseInfo
+    );
+  });
+
+  it('passes through mock caption and attribution on images when Aquifer content has them (#273 / mobile #594)', async () => {
+    const imageHit = imageSearchHit(hit.id);
+    // Mock Aquifer image details only — not live payload proof.
+    const imageDetail = aquiferResourceDetailsSchema.parse({
+      ...detail,
+      content: {
+        url: 'https://cdn.example/mock-image.jpg',
+        thumbnailUrl: 'https://cdn.example/mock-thumb.jpg',
+        caption: 'Mock map caption',
+        attribution: 'Mock explicit credit',
+        size: 11,
+      },
+      grouping: {
+        type: 'Images',
+        name: 'Images',
+        mediaType: 'Image',
+        licenseInfo,
+        collectionCode: 'Images',
+      },
+    });
+    vi.mocked(searchAllResources).mockResolvedValue(ok([imageHit]));
+    vi.mocked(getResource).mockResolvedValue(ok(imageDetail));
+
+    const result = await getTranslationImages({
+      bookCode: 'GEN',
+      chapter: 3,
+      verse: 1,
+      languageCode: 'eng',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Image hydration failed');
+    const item = translationImagesResponseSchema.parse(result.data).items[0];
+    expect(item).toMatchObject({
+      url: 'https://cdn.example/mock-image.jpg',
+      thumbnailUrl: 'https://cdn.example/mock-thumb.jpg',
+      caption: 'Mock map caption',
+      attribution: 'Mock explicit credit',
+      licenseInfo,
+      size: 11,
+    });
+  });
+
+  it('omits caption, attribution, and licenseInfo on images when Aquifer mock omits them (#273 / mobile #594)', async () => {
+    const imageHit = imageSearchHit(hit.id);
+    const imageDetail = aquiferResourceDetailsSchema.parse({
+      ...detail,
+      content: { url: 'https://cdn.example/mock-image.jpg', size: 3 },
+      grouping: {
+        type: 'Images',
+        name: 'Images',
+        mediaType: 'Image',
+        collectionCode: 'Images',
+      },
+    });
+    vi.mocked(searchAllResources).mockResolvedValue(ok([imageHit]));
+    vi.mocked(getResource).mockResolvedValue(ok(imageDetail));
+
+    const result = await getTranslationImages({
+      bookCode: 'GEN',
+      chapter: 3,
+      verse: 1,
+      languageCode: 'eng',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Image hydration failed');
+    const item = translationImagesResponseSchema.parse(result.data).items[0];
+    expect(item).toMatchObject({
+      url: 'https://cdn.example/mock-image.jpg',
+      size: 3,
+    });
+    expect(item).not.toHaveProperty('caption');
+    expect(item).not.toHaveProperty('attribution');
+    expect(item).not.toHaveProperty('licenseInfo');
+    expect(item).not.toHaveProperty('thumbnailUrl');
+  });
 
   it.each([true, false])(
     'carries licenseInfo through the manifest (includeContent=%s) — CC BY-SA attribution obligation; do not drop',
