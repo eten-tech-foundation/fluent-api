@@ -1,3 +1,5 @@
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+
 /**
  * Draft chapter comments (#458 / mobile #451 #703).
  * Kept outside schema.ts (already at the 1500-line FA-L11 cap).
@@ -5,9 +7,9 @@
  * Anchor identity columns are immutable create-time snapshots with NO FK to
  * bible_texts / pericope_sets — source DELETE must not erase retained IDs.
  */
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-
+import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   integer,
   pgEnum,
@@ -94,6 +96,41 @@ export const chapter_comments = pgTable(
     index('idx_chapter_comments_author_assignment').on(
       table.chapterAssignmentId,
       table.authorUserId
+    ),
+    // Declared to match 0038 SQL CHECKs (manual snapshot reconcile — no drizzle-kit generate).
+    check(
+      'chapter_comments_body_exclusive',
+      sql`(
+			("body_kind" = 'text'
+			AND "body_text" IS NOT NULL
+			AND btrim("body_text") <> ''
+			AND "emoji" IS NULL
+			AND "audio_storage_key" IS NULL)
+		OR (
+			"body_kind" = 'emoji'
+			AND "emoji" IS NOT NULL
+			AND btrim("emoji") <> ''
+			AND "body_text" IS NULL
+			AND "audio_storage_key" IS NULL)
+		OR (
+			"body_kind" = 'audio'
+			AND "audio_storage_key" IS NOT NULL
+			AND "body_text" IS NULL
+			AND "emoji" IS NULL)
+	)`
+    ),
+    check(
+      'chapter_comments_anchor_shape',
+      sql`(
+			("anchor_kind" = 'verse'
+			AND "anchor_bible_text_id" IS NOT NULL
+			AND "anchor_verse_number" IS NOT NULL)
+		OR (
+			"anchor_kind" = 'pericope'
+			AND "anchor_pericope_set_id" IS NOT NULL
+			AND "anchor_pericope_number" IS NOT NULL
+			AND btrim("anchor_pericope_number") <> '')
+	)`
     ),
   ]
 );

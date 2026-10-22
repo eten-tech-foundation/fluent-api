@@ -184,4 +184,73 @@ describe('draft-comments.service', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.FORBIDDEN);
   });
+
+  it('creates pericope comment snapshotting public wire id 6_1', async () => {
+    vi.mocked(repo.findPericopeMembership).mockResolvedValue({
+      pericopeSetId: 7,
+      bookId: 40,
+      chapterNumber: 1,
+      pericopeNumber: '6_1',
+      pericopeTitle: null,
+    });
+    vi.mocked(repo.insertComment).mockResolvedValue(
+      commentRow({
+        anchorKind: 'pericope',
+        anchorBibleTextId: null,
+        anchorVerseNumber: null,
+        anchorPericopeSetId: 7,
+        anchorPericopeNumber: '6_1',
+        bodyKind: 'text',
+        bodyText: 'on 6_1',
+      })
+    );
+
+    const result = await createTopLevelComment(writer, 9, {
+      anchor: { kind: 'pericope', pericopeNumber: '6_1' },
+      body: { kind: 'text', text: 'on 6_1' },
+    });
+    expect(result.ok).toBe(true);
+    expect(repo.findPericopeMembership).toHaveBeenCalledWith(7, 40, 1, '6_1');
+    expect(repo.insertComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchorKind: 'pericope',
+        anchorPericopeNumber: '6_1',
+        anchorPericopeSetId: 7,
+      })
+    );
+    if (result.ok) {
+      expect(result.data.anchor.pericopeNumber).toBe('6_1');
+    }
+  });
+
+  it('rejects unknown/mismatched public pericope id before insert', async () => {
+    vi.mocked(repo.findPericopeMembership).mockResolvedValue(null);
+    const result = await createTopLevelComment(writer, 9, {
+      anchor: { kind: 'pericope', pericopeNumber: '1' },
+      body: { kind: 'text', text: 'nope' },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INVALID_REFERENCE);
+    expect(repo.insertComment).not.toHaveBeenCalled();
+  });
+
+  it('denies pericope create when assignment is not readable (wrong project grant)', async () => {
+    const otherProject: AppPolicyUser = {
+      id: 5,
+      grants: [
+        {
+          orgId: 1,
+          projectId: 99,
+          permissions: new Set([PERMISSIONS.CONTENT_VIEW, PERMISSIONS.COMMENT_WRITE]),
+        },
+      ],
+    };
+    const result = await createTopLevelComment(otherProject, 9, {
+      anchor: { kind: 'pericope', pericopeNumber: '6_1' },
+      body: { kind: 'text', text: 'x' },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    expect(repo.findPericopeMembership).not.toHaveBeenCalled();
+  });
 });

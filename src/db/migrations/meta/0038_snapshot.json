@@ -4408,7 +4408,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "chapter_comments_body_exclusive": {
+          "name": "chapter_comments_body_exclusive",
+          "value": "(\n\t\t\t(\"body_kind\" = 'text'\n\t\t\tAND \"body_text\" IS NOT NULL\n\t\t\tAND btrim(\"body_text\") <> ''\n\t\t\tAND \"emoji\" IS NULL\n\t\t\tAND \"audio_storage_key\" IS NULL)\n\t\tOR (\n\t\t\t\"body_kind\" = 'emoji'\n\t\t\tAND \"emoji\" IS NOT NULL\n\t\t\tAND btrim(\"emoji\") <> ''\n\t\t\tAND \"body_text\" IS NULL\n\t\t\tAND \"audio_storage_key\" IS NULL)\n\t\tOR (\n\t\t\t\"body_kind\" = 'audio'\n\t\t\tAND \"audio_storage_key\" IS NOT NULL\n\t\t\tAND \"body_text\" IS NULL\n\t\t\tAND \"emoji\" IS NULL)\n\t)"
+        },
+        "chapter_comments_anchor_shape": {
+          "name": "chapter_comments_anchor_shape",
+          "value": "(\n\t\t\t(\"anchor_kind\" = 'verse'\n\t\t\tAND \"anchor_bible_text_id\" IS NOT NULL\n\t\t\tAND \"anchor_verse_number\" IS NOT NULL)\n\t\tOR (\n\t\t\t\"anchor_kind\" = 'pericope'\n\t\t\tAND \"anchor_pericope_set_id\" IS NOT NULL\n\t\t\tAND \"anchor_pericope_number\" IS NOT NULL\n\t\t\tAND btrim(\"anchor_pericope_number\") <> '')\n\t)"
+        }
+      },
       "isRLSEnabled": false
     }
   },

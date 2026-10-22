@@ -1,4 +1,6 @@
 import { createRoute, z } from '@hono/zod-openapi';
+import { bodyLimit } from 'hono/body-limit';
+import { HTTPException } from 'hono/http-exception';
 import { Buffer } from 'node:buffer';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
@@ -36,11 +38,20 @@ const commentParams = assignmentParams.extend({
 
 const errorMessage = createMessageObjectSchema('Error');
 
+/** FA-R4: unknown/inaccessible assignment is 404 (not empty-scope 403). */
 const scopeFromChapterAssignment: ScopeResolver = async (c) => {
   const chapterAssignmentId = Number(c.req.param('chapterAssignmentId'));
-  if (!Number.isFinite(chapterAssignmentId)) return {};
+  if (!Number.isFinite(chapterAssignmentId)) {
+    throw new HTTPException(HttpStatusCodes.NOT_FOUND, {
+      message: 'Chapter assignment not found',
+    });
+  }
   const ctx = await draftCommentsService.resolveCommentAssignmentScope(chapterAssignmentId);
-  if (!ctx) return {};
+  if (!ctx) {
+    throw new HTTPException(HttpStatusCodes.NOT_FOUND, {
+      message: 'Chapter assignment not found',
+    });
+  }
   return ctx;
 };
 
@@ -159,6 +170,11 @@ const createAudioRoute = createRoute({
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.COMMENT_WRITE, scopeFromChapterAssignment),
+    bodyLimit({
+      maxSize: MAX_COMMENT_AUDIO_BYTES,
+      onError: (c) =>
+        c.json({ message: 'Audio file exceeds the 30 MB limit' }, HttpStatusCodes.REQUEST_TOO_LONG),
+    }),
   ] as const,
   request: {
     params: assignmentParams,
@@ -183,6 +199,7 @@ const createAudioRoute = createRoute({
     [HttpStatusCodes.FORBIDDEN]: jsonContent(errorMessage, 'Forbidden'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(errorMessage, 'Not found'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorMessage, 'Validation'),
+    [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(errorMessage, 'Payload too large'),
     [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(errorMessage, 'Storage unavailable'),
   },
 });
@@ -194,9 +211,6 @@ server.openapi(createAudioRoute, async (c) => {
   const file = form.file;
   if (!(file instanceof File)) {
     return c.json({ message: 'file is required' }, HttpStatusCodes.BAD_REQUEST);
-  }
-  if (file.size > MAX_COMMENT_AUDIO_BYTES) {
-    return c.json({ message: 'Audio file too large' }, HttpStatusCodes.BAD_REQUEST);
   }
   if (!ALLOWED_COMMENT_AUDIO_CONTENT_TYPES.has(file.type)) {
     return c.json({ message: 'Unsupported audio content type' }, HttpStatusCodes.BAD_REQUEST);

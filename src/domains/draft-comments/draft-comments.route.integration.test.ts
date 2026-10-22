@@ -201,7 +201,7 @@ describe('draft-comments routes auth', () => {
     );
   });
 
-  it('returns 404 from middleware when assignment scope is unknown', async () => {
+  it('returns 404 when assignment scope is unknown (FA-R4)', async () => {
     asAuthenticatedUser([
       {
         orgId: 1,
@@ -211,8 +211,27 @@ describe('draft-comments routes auth', () => {
     ]);
     vi.mocked(draftCommentsService.resolveCommentAssignmentScope).mockResolvedValue(null);
     const res = await server.request('/chapter-assignments/999/comments', { method: 'GET' });
-    // empty scope → authorize fails → 403 at requirePermission
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 413 for oversize audio Content-Length before parseBody', async () => {
+    asAuthenticatedUser([
+      {
+        orgId: 1,
+        projectId: 10,
+        permissions: new Set([PERMISSIONS.CONTENT_VIEW, PERMISSIONS.COMMENT_WRITE]),
+      },
+    ]);
+    const res = await server.request('/chapter-assignments/1/comments/audio', {
+      method: 'POST',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=----bound',
+        'content-length': String(30 * 1024 * 1024 + 1),
+      },
+      body: 'x',
+    });
+    expect(res.status).toBe(413);
+    expect(draftCommentsService.createAudioComment).not.toHaveBeenCalled();
   });
 
   it('POST /comments/audio passes replyToCommentId and omits caller anchor', async () => {

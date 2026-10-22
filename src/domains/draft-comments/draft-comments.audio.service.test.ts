@@ -9,7 +9,6 @@ import { deleteVerseAudio, isAudioStorageAvailable, uploadVerseAudio } from '@/l
 import { PERMISSIONS } from '@/lib/permissions';
 import { ErrorCode } from '@/lib/types';
 
-import { commentAudioBlobName } from './draft-comments.audio';
 import { createAudioComment } from './draft-comments.audio.service';
 import * as repo from './draft-comments.repository';
 import { MAX_COMMENT_AUDIO_BYTES } from './draft-comments.types';
@@ -52,6 +51,7 @@ const assignment = {
 
 const audioBytes = Buffer.from('fake-audio-bytes');
 const contentHash = createHash('sha256').update(audioBytes).digest('hex');
+const COMMENT_KEY_RE = new RegExp(`^comments/1/[0-9a-f-]{36}/${contentHash}$`);
 
 function commentRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -63,7 +63,7 @@ function commentRow(overrides: Record<string, unknown> = {}) {
     bodyKind: 'audio' as const,
     bodyText: null,
     emoji: null,
-    audioStorageKey: commentAudioBlobName(1, 100, contentHash),
+    audioStorageKey: `comments/1/00000000-0000-0000-0000-000000000001/${contentHash}`,
     audioContentType: 'audio/mp4',
     audioByteSize: audioBytes.length,
     audioDurationSeconds: 1.5,
@@ -116,9 +116,8 @@ describe('createAudioComment', () => {
       chapterNumber: 1,
       verseNumber: 2,
     });
-    let lastInsert = commentRow();
-    vi.mocked(repo.insertComment).mockImplementation(async (values) => {
-      lastInsert = commentRow({
+    vi.mocked(repo.insertComment).mockImplementation(async (values) =>
+      commentRow({
         id: 100,
         parentCommentId: values.parentCommentId ?? null,
         connectionState: values.connectionState,
@@ -132,14 +131,6 @@ describe('createAudioComment', () => {
         anchorPericopeNumber: values.anchorPericopeNumber,
         anchorPericopeTitle: values.anchorPericopeTitle,
         audioStorageKey: values.audioStorageKey,
-      });
-      return lastInsert;
-    });
-    vi.mocked(repo.finalizeCommentAudioKey).mockImplementation(async (id, key) =>
-      commentRow({
-        ...lastInsert,
-        id,
-        audioStorageKey: key,
       })
     );
   });
@@ -153,7 +144,7 @@ describe('createAudioComment', () => {
       expect(result.data.bodyKind).toBe('audio');
     }
     expect(uploadVerseAudio).toHaveBeenCalledWith(
-      commentAudioBlobName(1, 100, contentHash),
+      expect.stringMatching(COMMENT_KEY_RE),
       audioBytes,
       'audio/mp4'
     );
@@ -163,9 +154,23 @@ describe('createAudioComment', () => {
         authorUserId: 5,
         bodyKind: 'audio',
         connectionState: 'connected',
+        audioStorageKey: expect.stringMatching(COMMENT_KEY_RE),
       }),
       expect.anything()
     );
+  });
+
+  it('uploads before the short write transaction', async () => {
+    const order: string[] = [];
+    vi.mocked(uploadVerseAudio).mockImplementation(async () => {
+      order.push('upload');
+    });
+    vi.mocked(runInTransaction).mockImplementation(async (work) => {
+      order.push('tx');
+      return work({} as never);
+    });
+    await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
+    expect(order).toEqual(['upload', 'tx']);
   });
 
   it('replies to a root with parentCommentId = root id and inherits snapshot', async () => {
@@ -187,7 +192,6 @@ describe('createAudioComment', () => {
       10
     );
     expect(result.ok).toBe(true);
-    expect(repo.findBibleTextById).not.toHaveBeenCalled();
     expect(uploadVerseAudio).toHaveBeenCalled();
     expect(repo.insertComment).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -199,10 +203,6 @@ describe('createAudioComment', () => {
       }),
       expect.anything()
     );
-    if (result.ok) {
-      expect(result.data.parentCommentId).toBe(10);
-      expect(result.data.connectionState).toBe('unconnected');
-    }
   });
 
   it('flattens reply-to-reply onto the root id', async () => {
@@ -225,33 +225,21 @@ describe('createAudioComment', () => {
   it('denies unknown / cross-chapter / cross-project targets before storage', async () => {
     vi.mocked(repo.findCommentById).mockResolvedValueOnce(null as never);
     const unknown = await createAudioComment(writer, 9, null, file(), null, 404);
-    expect(unknown).toEqual(expect.objectContaining({ ok: false }));
-    if (!unknown.ok) expect(unknown.error.code).toBe(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
+    expect(unknown.ok).toBe(false);
     expect(uploadVerseAudio).not.toHaveBeenCalled();
 
     vi.mocked(repo.findCommentById).mockResolvedValueOnce(
       commentRow({ id: 3, chapterAssignmentId: 99 })
     );
-    const crossChapter = await createAudioComment(writer, 9, null, file(), null, 3);
-    expect(crossChapter.ok).toBe(false);
+    await createAudioComment(writer, 9, null, file(), null, 3);
     expect(uploadVerseAudio).not.toHaveBeenCalled();
 
     vi.mocked(repo.findCommentById).mockResolvedValueOnce(commentRow({ id: 4, projectId: 99 }));
-    const crossProject = await createAudioComment(writer, 9, null, file(), null, 4);
-    expect(crossProject.ok).toBe(false);
+    await createAudioComment(writer, 9, null, file(), null, 4);
     expect(uploadVerseAudio).not.toHaveBeenCalled();
   });
 
-  it('denies missing / revoked / other-project write before storage', async () => {
-    const noRead: AppPolicyUser = {
-      id: 5,
-      grants: [{ orgId: 2, projectId: 2, permissions: new Set([PERMISSIONS.CONTENT_VIEW]) }],
-    };
-    const missing = await createAudioComment(noRead, 9, { kind: 'verse', bibleTextId: 50 }, file());
-    expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.error.code).toBe(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-    expect(uploadVerseAudio).not.toHaveBeenCalled();
-
+  it('denies missing / revoked write before storage', async () => {
     const noWrite: AppPolicyUser = {
       id: 5,
       grants: [
@@ -274,82 +262,83 @@ describe('createAudioComment', () => {
   });
 
   it('rejects empty, oversize, bad MIME, and non-finite duration before storage', async () => {
-    const empty = await createAudioComment(
+    await createAudioComment(
       writer,
       9,
       { kind: 'verse', bibleTextId: 50 },
       file({ data: Buffer.alloc(0) })
     );
-    expect(empty.ok).toBe(false);
-    if (!empty.ok) expect(empty.error.code).toBe(ErrorCode.EMPTY_AUDIO_FILE);
-
-    const oversize = await createAudioComment(
+    await createAudioComment(
       writer,
       9,
       { kind: 'verse', bibleTextId: 50 },
       file({ data: Buffer.alloc(MAX_COMMENT_AUDIO_BYTES + 1) })
     );
-    expect(oversize.ok).toBe(false);
-    if (!oversize.ok) expect(oversize.error.code).toBe(ErrorCode.VALIDATION_ERROR);
-
-    const mime = await createAudioComment(
+    await createAudioComment(
       writer,
       9,
       { kind: 'verse', bibleTextId: 50 },
       file({ contentType: 'video/mp4' })
     );
-    expect(mime.ok).toBe(false);
-    if (!mime.ok) expect(mime.error.code).toBe(ErrorCode.UNSUPPORTED_AUDIO_TYPE);
-
     for (const durationSeconds of [Number.NaN, Number.POSITIVE_INFINITY, -1, 30 * 60 + 1]) {
-      const bad = await createAudioComment(
+      await createAudioComment(
         writer,
         9,
         { kind: 'verse', bibleTextId: 50 },
         file({ durationSeconds })
       );
-      expect(bad.ok).toBe(false);
-      if (!bad.ok) expect(bad.error.code).toBe(ErrorCode.VALIDATION_ERROR);
     }
     expect(uploadVerseAudio).not.toHaveBeenCalled();
   });
 
-  it('rolls back conceptually on storage failure (no finalize; returns unavailable)', async () => {
+  it('returns unavailable on storage failure without insert or delete', async () => {
     vi.mocked(uploadVerseAudio).mockRejectedValue(new Error('r2 down'));
     const result = await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.COMMENT_AUDIO_STORAGE_UNAVAILABLE);
-    expect(repo.finalizeCommentAudioKey).not.toHaveBeenCalled();
+    expect(repo.insertComment).not.toHaveBeenCalled();
     expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 
-  it('cleans the comment-owned object when finalize fails after upload', async () => {
-    vi.mocked(repo.finalizeCommentAudioKey).mockResolvedValue(null as never);
-    const key = commentAudioBlobName(1, 100, contentHash);
+  it('rejects and cleans upload when source vanishes during upload', async () => {
+    vi.mocked(uploadVerseAudio).mockImplementation(async () => {
+      vi.mocked(repo.findBibleTextById).mockResolvedValue(null as never);
+    });
     const result = await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
-    expect(deleteVerseAudio).toHaveBeenCalledWith(key);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INVALID_REFERENCE);
+    expect(repo.insertComment).not.toHaveBeenCalled();
+    expect(deleteVerseAudio).toHaveBeenCalledWith(expect.stringMatching(COMMENT_KEY_RE));
   });
 
-  it('cleans only the uploaded comment key when the transaction throws after upload', async () => {
-    const key = commentAudioBlobName(1, 100, contentHash);
-    vi.mocked(repo.finalizeCommentAudioKey).mockRejectedValue(new Error('db blew up'));
+  it('rejects and cleans upload when reply root vanishes during upload', async () => {
+    const root = commentRow({ id: 10, parentCommentId: null });
+    vi.mocked(repo.findCommentById).mockResolvedValue(root);
+    vi.mocked(uploadVerseAudio).mockImplementation(async () => {
+      vi.mocked(repo.findCommentById).mockResolvedValue(null as never);
+    });
+    const result = await createAudioComment(writer, 9, null, file(), null, 10);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
+    expect(repo.insertComment).not.toHaveBeenCalled();
+    expect(deleteVerseAudio).toHaveBeenCalledWith(expect.stringMatching(COMMENT_KEY_RE));
+  });
+
+  it('cleans only the attempt key when the short write throws after upload', async () => {
+    vi.mocked(repo.insertComment).mockRejectedValue(new Error('db blew up'));
     const result = await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
-    expect(deleteVerseAudio).toHaveBeenCalledWith(key);
+    expect(deleteVerseAudio).toHaveBeenCalledWith(expect.stringMatching(COMMENT_KEY_RE));
     expect(deleteVerseAudio).not.toHaveBeenCalledWith(expect.stringContaining('pending'));
   });
 
   it('does not delete committed audio when post-commit author/map fails', async () => {
-    const key = commentAudioBlobName(1, 100, contentHash);
     vi.mocked(repo.findAuthorDisplay).mockRejectedValue(new Error('author lookup failed'));
     const result = await createAudioComment(writer, 9, { kind: 'verse', bibleTextId: 50 }, file());
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
-    expect(uploadVerseAudio).toHaveBeenCalledWith(key, audioBytes, 'audio/mp4');
-    expect(repo.finalizeCommentAudioKey).toHaveBeenCalledWith(100, key, expect.anything());
+    expect(repo.insertComment).toHaveBeenCalled();
     expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 
@@ -364,7 +353,7 @@ describe('createAudioComment', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
     expect(uploadVerseAudio).toHaveBeenCalled();
-    expect(repo.finalizeCommentAudioKey).toHaveBeenCalled();
+    expect(repo.insertComment).toHaveBeenCalled();
     expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 });

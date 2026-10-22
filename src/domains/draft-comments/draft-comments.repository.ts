@@ -16,6 +16,8 @@ import {
   users,
 } from '@/db/schema';
 
+import { matchPublicPericopeMembership } from './draft-comments.pericopes';
+
 type Executor = typeof db | DbTransaction;
 
 export async function findAssignmentContext(chapterAssignmentId: number, conn: Executor = db) {
@@ -57,14 +59,17 @@ export async function findPericopeMembership(
   pericopeSetId: number,
   bookId: number,
   chapterNumber: number,
-  pericopeNumber: string,
+  publicPericopeNumber: string,
   conn: Executor = db
 ) {
-  const [row] = await conn
+  // Load chapter-scoped rows, then match the public wire id (section_raw vs raw) —
+  // never eq() against raw pericope_number alone (ambiguous for FCBH sections).
+  const rows = await conn
     .select({
       pericopeSetId: pericope_verses.pericopeSetId,
       bookId: pericope_verses.bookId,
       chapterNumber: pericope_verses.chapterNumber,
+      section: pericope_verses.section,
       pericopeNumber: pericope_verses.pericopeNumber,
       pericopeTitle: pericope_verses.pericopeTitle,
     })
@@ -73,31 +78,15 @@ export async function findPericopeMembership(
       and(
         eq(pericope_verses.pericopeSetId, pericopeSetId),
         eq(pericope_verses.bookId, bookId),
-        eq(pericope_verses.chapterNumber, chapterNumber),
-        eq(pericope_verses.pericopeNumber, pericopeNumber)
+        eq(pericope_verses.chapterNumber, chapterNumber)
       )
-    )
-    .limit(1);
-  return row ?? null;
+    );
+  return matchPublicPericopeMembership(rows, publicPericopeNumber);
 }
 
 export async function insertComment(values: NewChapterComment, conn: Executor = db) {
   const [row] = await conn.insert(chapter_comments).values(values).returning();
   return row!;
-}
-
-/** Swap pending audio key for the final comment-owned object key after upload. */
-export async function finalizeCommentAudioKey(
-  commentId: number,
-  audioStorageKey: string,
-  conn: Executor = db
-) {
-  const [row] = await conn
-    .update(chapter_comments)
-    .set({ audioStorageKey, updatedAt: new Date() })
-    .where(eq(chapter_comments.id, commentId))
-    .returning();
-  return row ?? null;
 }
 
 export async function findCommentById(commentId: number, conn: Executor = db) {

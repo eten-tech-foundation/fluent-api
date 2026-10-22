@@ -165,8 +165,9 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
     expect(root.data.author.userId).toBe(1);
     expect(uploadVerseAudio).toHaveBeenCalledTimes(1);
     const uploadedKey = vi.mocked(uploadVerseAudio).mock.calls[0]?.[0];
-    expect(uploadedKey?.startsWith(`comments/1/${root.data.id}/`)).toBe(true);
+    expect(uploadedKey).toMatch(/^comments\/1\/[0-9a-f-]{36}\//);
     expect(uploadedKey?.startsWith('comments/pending/')).toBe(false);
+    expect(root.data.audio?.contentHash).toBeTruthy();
 
     // Force Unconnected on root — replies must retain it even if source is gone.
     await database
@@ -239,7 +240,7 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
     expect(rows[0]?.id).toBe(other!.id);
   });
 
-  it('rolls back the pending row when storage upload fails', async () => {
+  it('leaves no row when storage upload fails', async () => {
     vi.mocked(uploadVerseAudio).mockRejectedValue(new Error('r2 down'));
     const result = await createAudioComment(
       writer,
@@ -253,8 +254,8 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
     expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 
-  it('rolls back and cleans only the attempt key when finalize throws after upload', async () => {
-    const priorKey = 'comments/1/999/prior-other-object';
+  it('cleans only the attempt key when short write fails after upload', async () => {
+    const priorKey = 'comments/1/00000000-0000-0000-0000-000000000099/prior';
     await database.insert(draftSchema.chapter_comments).values({
       projectId: 1,
       chapterAssignmentId: 1,
@@ -272,9 +273,9 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
       anchorVerseNumber: 1,
     });
 
-    const finalizeSpy = vi
-      .spyOn(repo, 'finalizeCommentAudioKey')
-      .mockRejectedValueOnce(new Error('finalize failed'));
+    const insertSpy = vi
+      .spyOn(repo, 'insertComment')
+      .mockRejectedValueOnce(new Error('insert failed'));
 
     const result = await createAudioComment(
       writer,
@@ -286,18 +287,17 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
     if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
 
     const attemptKey = vi.mocked(uploadVerseAudio).mock.calls[0]?.[0];
-    expect(attemptKey).toMatch(/^comments\/1\/\d+\//);
+    expect(attemptKey).toMatch(/^comments\/1\/[0-9a-f-]{36}\//);
     expect(attemptKey).not.toBe(priorKey);
 
     const rows = await database.select().from(draftSchema.chapter_comments);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.audioStorageKey).toBe(priorKey);
-    expect(rows.every((r) => !r.audioStorageKey?.startsWith('comments/pending/'))).toBe(true);
 
     expect(deleteVerseAudio).toHaveBeenCalledTimes(1);
     expect(deleteVerseAudio).toHaveBeenCalledWith(attemptKey);
     expect(deleteVerseAudio).not.toHaveBeenCalledWith(priorKey);
 
-    finalizeSpy.mockRestore();
+    insertSpy.mockRestore();
   });
 });

@@ -129,24 +129,33 @@ CREATE TRIGGER trg_chapter_comments_unconnected_on_project_pericope_set
 AFTER UPDATE OF pericope_set_id ON projects
 FOR EACH ROW
 EXECUTE FUNCTION mark_chapter_comments_unconnected_for_pericope_set_change();--> statement-breakpoint
+-- Public pericope identity matches GET /projects/.../pericopes getPericopeGroupNumber:
+-- section IS NULL → raw pericope_number; else section || '_' || pericope_number (e.g. 6_1).
 CREATE OR REPLACE FUNCTION mark_chapter_comments_unconnected_for_pericope_verse_mutation()
 RETURNS trigger AS $$
 DECLARE
   tgt_set_id integer;
   tgt_book_id integer;
   tgt_chapter integer;
-  tgt_pericope_number varchar(20);
+  tgt_public_id varchar(20);
+  old_public_id varchar(20);
 BEGIN
   IF TG_OP = 'DELETE' THEN
     tgt_set_id := OLD.pericope_set_id;
     tgt_book_id := OLD.book_id;
     tgt_chapter := OLD.chapter_number;
-    tgt_pericope_number := OLD.pericope_number;
+    tgt_public_id := CASE
+      WHEN OLD.section IS NULL THEN OLD.pericope_number
+      ELSE OLD.section::text || '_' || OLD.pericope_number
+    END;
   ELSE
     tgt_set_id := NEW.pericope_set_id;
     tgt_book_id := NEW.book_id;
     tgt_chapter := NEW.chapter_number;
-    tgt_pericope_number := NEW.pericope_number;
+    tgt_public_id := CASE
+      WHEN NEW.section IS NULL THEN NEW.pericope_number
+      ELSE NEW.section::text || '_' || NEW.pericope_number
+    END;
   END IF;
 
   UPDATE chapter_comments
@@ -158,7 +167,7 @@ BEGIN
     AND anchor_pericope_set_id = tgt_set_id
     AND anchor_book_id = tgt_book_id
     AND anchor_chapter_number = tgt_chapter
-    AND anchor_pericope_number = tgt_pericope_number;
+    AND anchor_pericope_number = tgt_public_id;
 
   IF TG_OP = 'UPDATE'
     AND (
@@ -166,8 +175,13 @@ BEGIN
       OR OLD.book_id IS DISTINCT FROM NEW.book_id
       OR OLD.chapter_number IS DISTINCT FROM NEW.chapter_number
       OR OLD.pericope_number IS DISTINCT FROM NEW.pericope_number
+      OR OLD.section IS DISTINCT FROM NEW.section
     )
   THEN
+    old_public_id := CASE
+      WHEN OLD.section IS NULL THEN OLD.pericope_number
+      ELSE OLD.section::text || '_' || OLD.pericope_number
+    END;
     UPDATE chapter_comments
     SET
       connection_state = 'unconnected',
@@ -177,7 +191,7 @@ BEGIN
       AND anchor_pericope_set_id = OLD.pericope_set_id
       AND anchor_book_id = OLD.book_id
       AND anchor_chapter_number = OLD.chapter_number
-      AND anchor_pericope_number = OLD.pericope_number;
+      AND anchor_pericope_number = old_public_id;
   END IF;
 
   IF TG_OP = 'DELETE' THEN

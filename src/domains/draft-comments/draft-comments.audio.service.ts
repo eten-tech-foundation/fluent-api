@@ -1,6 +1,6 @@
 import type { Buffer } from 'node:buffer';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { AppPolicyUser, Result } from '@/lib/types';
 
@@ -26,27 +26,14 @@ import {
 const MAX_COMMENT_AUDIO_DURATION_SECONDS = 30 * 60;
 
 async function cleanupUploadedCommentAudio(key: string | null): Promise<void> {
-  // Only the object this attempt uploaded — never pending placeholders or other keys.
   if (!key || !isCommentAudioKey(key) || key.startsWith('comments/pending/')) return;
   await deleteVerseAudio(key).catch(() => undefined);
 }
 
-/**
- * Create a root audio comment, or a one-level audio reply when `replyToCommentId` is set.
- * Replies flatten onto the root, inherit the root's immutable anchor + connectionState
- * (including retained Unconnected), and ignore any caller-supplied anchor.
- * Target resolution and auth run before any storage call.
- */
-export async function createAudioComment(
+function denyWrite(
   user: AppPolicyUser,
-  chapterAssignmentId: number,
-  anchor: CommentAnchorInput | null,
-  file: { data: Buffer; contentType: string; durationSeconds?: number | null },
-  roleDisplay: string | null = null,
-  replyToCommentId: number | null = null
-): Promise<Result<ChapterCommentResponse>> {
-  const assignment = await repo.findAssignmentContext(chapterAssignmentId);
-  if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+  assignment: { organizationId: number; projectId: number }
+): Result<never> | null {
   if (
     !DraftCommentPolicy.read(user, {
       organizationId: assignment.organizationId,
@@ -63,6 +50,27 @@ export async function createAudioComment(
   ) {
     return err(ErrorCode.FORBIDDEN);
   }
+  return null;
+}
+
+/**
+ * Create a root audio comment, or a one-level audio reply when `replyToCommentId` is set.
+ * Network upload runs outside any DB transaction; a short write tx revalidates
+ * assignment/target/source state after upload so mid-upload mutations cannot create a
+ * falsely connected or cross-project row.
+ */
+export async function createAudioComment(
+  user: AppPolicyUser,
+  chapterAssignmentId: number,
+  anchor: CommentAnchorInput | null,
+  file: { data: Buffer; contentType: string; durationSeconds?: number | null },
+  roleDisplay: string | null = null,
+  replyToCommentId: number | null = null
+): Promise<Result<ChapterCommentResponse>> {
+  const assignment = await repo.findAssignmentContext(chapterAssignmentId);
+  if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+  const denied = denyWrite(user, assignment);
+  if (denied) return denied;
   if (!isAudioStorageAvailable()) return err(ErrorCode.COMMENT_AUDIO_STORAGE_UNAVAILABLE);
   if (file.data.length === 0) return err(ErrorCode.EMPTY_AUDIO_FILE);
   if (file.data.length > MAX_COMMENT_AUDIO_BYTES) return err(ErrorCode.VALIDATION_ERROR);
@@ -93,7 +101,6 @@ export async function createAudioComment(
   let connectionState: 'connected' | 'unconnected';
 
   if (replyToCommentId != null) {
-    // Resolve target in the authorized chapter/project before any storage call.
     const target = await repo.findCommentById(replyToCommentId);
     if (
       !target ||
@@ -112,7 +119,6 @@ export async function createAudioComment(
       return err(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
     }
     parentCommentId = rootId;
-    // Caller anchor (if any) is ignored — reply inherits the root snapshot.
     anchorKind = root.anchorKind;
     anchorBibleId = root.anchorBibleId;
     anchorBookId = root.anchorBookId;
@@ -162,31 +168,100 @@ export async function createAudioComment(
   }
 
   const contentHash = createHash('sha256').update(file.data).digest('hex');
+  const objectId = randomUUID();
+  const key = commentAudioBlobName(assignment.projectId, objectId, contentHash);
   let uploadedKey: string | null = null;
-  /**
-   * True once the tx callback returns a successful updated row. Distinct from observed
-   * outer commit: a lost COMMIT ack must not treat this as a known rollback.
-   */
-  let callbackSucceeded = false;
-  let committedRow: Awaited<ReturnType<typeof repo.finalizeCommentAudioKey>> | null = null;
 
   try {
-    // Map outside the write transaction so author/display reads never use a second
-    // connection against an open tx (PGlite single-connection deadlock).
+    await uploadVerseAudio(key, file.data, file.contentType);
+    uploadedKey = key;
+  } catch {
+    return err(ErrorCode.COMMENT_AUDIO_STORAGE_UNAVAILABLE);
+  }
+
+  /** Set once the short write callback returns ok(row). */
+  let callbackSucceeded = false;
+  let committedRow: Awaited<ReturnType<typeof repo.insertComment>> | null = null;
+
+  try {
     const result = await runInTransaction(async (tx) => {
-      // Insert with a non-final key so CHECK passes; roll back removes the row if
-      // upload/update fails (no retained pending comment).
-      const pendingKey = `comments/pending/${assignment.projectId}/${contentHash}`;
-      const placeholder = await repo.insertComment(
+      // Revalidate after upload — reject if assignment/target/source drifted mid-upload.
+      const liveAssignment = await repo.findAssignmentContext(chapterAssignmentId, tx);
+      if (!liveAssignment || liveAssignment.projectId !== assignment.projectId) {
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
+      const liveDenied = denyWrite(user, liveAssignment);
+      if (liveDenied) return liveDenied;
+
+      if (replyToCommentId != null && parentCommentId != null) {
+        const root = await repo.findCommentById(parentCommentId, tx);
+        if (
+          !root ||
+          root.chapterAssignmentId !== chapterAssignmentId ||
+          root.projectId !== liveAssignment.projectId ||
+          root.parentCommentId != null
+        ) {
+          return err(ErrorCode.CHAPTER_COMMENT_NOT_FOUND);
+        }
+        // Refresh inherited snapshot + connectionState from live root (truthful Unconnected).
+        anchorKind = root.anchorKind;
+        anchorBibleId = root.anchorBibleId;
+        anchorBookId = root.anchorBookId;
+        anchorChapterNumber = root.anchorChapterNumber;
+        anchorBibleTextId = root.anchorBibleTextId;
+        anchorVerseNumber = root.anchorVerseNumber;
+        anchorPericopeSetId = root.anchorPericopeSetId;
+        anchorPericopeNumber = root.anchorPericopeNumber;
+        anchorPericopeTitle = root.anchorPericopeTitle;
+        connectionState = root.connectionState;
+      } else if (anchor) {
+        const bibleText =
+          anchor.kind === 'verse' ? await repo.findBibleTextById(anchor.bibleTextId, tx) : null;
+        const pericopeMembership =
+          anchor.kind === 'pericope' && liveAssignment.pericopeSetId != null
+            ? await repo.findPericopeMembership(
+                liveAssignment.pericopeSetId,
+                liveAssignment.bookId,
+                liveAssignment.chapterNumber,
+                anchor.pericopeNumber,
+                tx
+              )
+            : null;
+        const snapshot = resolveAnchorSnapshot(
+          anchor,
+          {
+            projectId: liveAssignment.projectId,
+            bibleId: liveAssignment.bibleId,
+            bookId: liveAssignment.bookId,
+            chapterNumber: liveAssignment.chapterNumber,
+            pericopeSetId: liveAssignment.pericopeSetId,
+          },
+          bibleText,
+          pericopeMembership
+        );
+        if ('error' in snapshot) return err(ErrorCode.INVALID_REFERENCE);
+        anchorKind = snapshot.kind;
+        anchorBibleId = snapshot.bibleId;
+        anchorBookId = snapshot.bookId;
+        anchorChapterNumber = snapshot.chapterNumber;
+        anchorBibleTextId = snapshot.bibleTextId;
+        anchorVerseNumber = snapshot.verseNumber;
+        anchorPericopeSetId = snapshot.pericopeSetId;
+        anchorPericopeNumber = snapshot.pericopeNumber;
+        anchorPericopeTitle = snapshot.pericopeTitle;
+        connectionState = COMMENT_CONNECTION_STATE.CONNECTED;
+      }
+
+      const row = await repo.insertComment(
         {
-          projectId: assignment.projectId,
+          projectId: liveAssignment.projectId,
           chapterAssignmentId,
           authorUserId: user.id,
           parentCommentId,
           bodyKind: COMMENT_BODY_KIND.AUDIO,
           bodyText: null,
           emoji: null,
-          audioStorageKey: pendingKey,
+          audioStorageKey: key,
           audioContentType: file.contentType,
           audioByteSize: file.data.length,
           audioDurationSeconds: file.durationSeconds ?? null,
@@ -204,32 +279,16 @@ export async function createAudioComment(
         },
         tx
       );
-
-      const key = commentAudioBlobName(assignment.projectId, placeholder.id, contentHash);
-      try {
-        await uploadVerseAudio(key, file.data, file.contentType);
-        uploadedKey = key;
-      } catch {
-        return err(ErrorCode.COMMENT_AUDIO_STORAGE_UNAVAILABLE);
-      }
-
-      const updated = await repo.finalizeCommentAudioKey(placeholder.id, key, tx);
-      if (!updated) {
-        return err(ErrorCode.INTERNAL_ERROR);
-      }
       callbackSucceeded = true;
-      return ok(updated);
+      return ok(row);
     });
 
     if (!result.ok) {
-      // Known Result rollback (callback returned err → TransactionAbort).
       await cleanupUploadedCommentAudio(uploadedKey);
       return result;
     }
     committedRow = result.data;
   } catch {
-    // Outer throw after callback success ⇒ COMMIT outcome unknown — preserve object.
-    // Finalize/upload failure before callback success ⇒ known aborted write — clean.
     if (!callbackSucceeded) {
       await cleanupUploadedCommentAudio(uploadedKey);
     }
@@ -239,7 +298,6 @@ export async function createAudioComment(
   try {
     return ok(await mapCommentRow(committedRow!, [], user.id, roleDisplay));
   } catch {
-    // Post-commit mapping/display failure — row + object stay; never delete referenced audio.
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }

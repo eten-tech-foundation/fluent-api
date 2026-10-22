@@ -75,6 +75,42 @@ describe('resolveAnchorSnapshot', () => {
       bibleTextId: null,
     });
   });
+
+  it('snapshots FCBH public wire id 6_1 (not bare raw 1)', () => {
+    const snap = resolveAnchorSnapshot(
+      { kind: COMMENT_ANCHOR_KIND.PERICOPE, pericopeNumber: '6_1' },
+      assignment,
+      null,
+      {
+        pericopeSetId: 9,
+        bookId: 40,
+        chapterNumber: 5,
+        pericopeNumber: '6_1',
+        pericopeTitle: null,
+      }
+    );
+    expect(snap).toMatchObject({
+      kind: 'pericope',
+      pericopeNumber: '6_1',
+      pericopeSetId: 9,
+    });
+  });
+
+  it('rejects when membership public id does not match caller input', () => {
+    const snap = resolveAnchorSnapshot(
+      { kind: COMMENT_ANCHOR_KIND.PERICOPE, pericopeNumber: '6_1' },
+      assignment,
+      null,
+      {
+        pericopeSetId: 9,
+        bookId: 40,
+        chapterNumber: 5,
+        pericopeNumber: '7_1',
+        pericopeTitle: null,
+      }
+    );
+    expect(snap).toEqual({ error: 'INVALID_REFERENCE' });
+  });
 });
 
 describe('assertStickyConnectionTransition', () => {
