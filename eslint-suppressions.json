@@ -204,10 +204,13 @@
       "count": 3
     },
     "ts/no-explicit-any": {
-      "count": 9
+      "count": 7
     }
   },
   "src/domains/chapter-assignments/chapter-assignments.service.test.ts": {
+    "max-lines": {
+      "count": 1
+    },
     "no-restricted-syntax": {
       "count": 1
     },

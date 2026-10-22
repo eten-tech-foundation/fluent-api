@@ -19,6 +19,7 @@ import type {
   UpdateChapterAssignmentRequestData,
 } from './chapter-assignments.types';
 
+import { isIdempotentSelfClaim } from './chapter-assignments.policy';
 import * as repo from './chapter-assignments.repository';
 import {
   applyAutoTransition,
@@ -400,18 +401,55 @@ export async function claimChapterAssignment(id: number, userId: number) {
       const current = await repo.findById(id, tx);
       if (!current) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-      if (current.assignedUserId === userId) {
+      // Same-user idempotency matches policy.claim (DRAFT only).
+      if (isIdempotentSelfClaim(current, userId)) {
         return ok({
           response: toChapterAssignmentResponse(current),
           shouldTriggerAi: false,
         });
       }
+      if (current.assignedUserId === userId) {
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
 
       const flagged = await repo.flagClaimConflict(id, userId, tx);
-      return ok({
-        response: toChapterAssignmentResponse(flagged ?? current),
-        shouldTriggerAi: false,
-      });
+      if (flagged) {
+        return ok({
+          response: toChapterAssignmentResponse(flagged),
+          shouldTriggerAi: false,
+        });
+      }
+
+      // CAS miss: deleted, reassigned to the caller, terminal, or raced under us.
+      // Never return a conflict-shaped 200 for a write that did not happen.
+      const latest = await repo.findById(id, tx);
+      if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      if (isIdempotentSelfClaim(latest, userId)) {
+        return ok({
+          response: toChapterAssignmentResponse(latest),
+          shouldTriggerAi: false,
+        });
+      }
+      if (latest.assignedUserId === userId) {
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+      }
+      // Never synthesize a conflict from a CAS miss — only return what was
+      // persisted. Retry once under READ COMMITTED if a rival assignee is still
+      // visible; otherwise the durable write did not happen.
+      if (latest.assignedUserId != null) {
+        const retried = await repo.flagClaimConflict(id, userId, tx);
+        if (retried) {
+          return ok({
+            response: toChapterAssignmentResponse(retried),
+            shouldTriggerAi: false,
+          });
+        }
+        logger.warn({
+          message: 'Claim conflict CAS missed twice with rival assignee still visible',
+          context: { id, userId, assignedUserId: latest.assignedUserId, status: latest.status },
+        });
+      }
+      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
     });
 
     if (!result.ok) {

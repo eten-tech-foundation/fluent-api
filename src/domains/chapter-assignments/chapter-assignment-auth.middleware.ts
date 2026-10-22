@@ -45,7 +45,6 @@ export function requireChapterAssignmentAccess(
       assignedUserId: ctx.assignedUserId,
       peerCheckerId: ctx.peerCheckerId,
       status: ctx.status,
-      updatedAt: ctx.updatedAt,
     };
 
     const needsStages =
