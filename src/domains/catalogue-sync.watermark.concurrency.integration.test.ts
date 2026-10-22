@@ -36,7 +36,7 @@ const concurrencyOps: ConcurrencyOp[] = [
       const [changed] = await early`
           INSERT INTO books (code, eng_display_name) VALUES (${key}, 'Late book')
           RETURNING updated_at`;
-      return changed!;
+      return changed! as { updated_at: Date };
     },
   },
   {
@@ -46,7 +46,7 @@ const concurrencyOps: ConcurrencyOp[] = [
       const [changed] = await early`
           UPDATE bibles SET has_audio = true, updated_at = next_catalogue_watermark()
           WHERE id = ${bibleId} RETURNING updated_at`;
-      return changed!;
+      return changed! as { updated_at: Date };
     },
   },
   {
@@ -56,7 +56,7 @@ const concurrencyOps: ConcurrencyOp[] = [
       const [changed] = await early`
           UPDATE languages SET lang_name_localized = 'Filled', updated_at = next_catalogue_watermark()
           WHERE id = ${languageId} RETURNING updated_at`;
-      return changed!;
+      return changed! as { updated_at: Date };
     },
   },
   {
@@ -67,7 +67,7 @@ const concurrencyOps: ConcurrencyOp[] = [
           UPDATE bible_provider_resources SET tts_license_status = 'allowed'
           WHERE id = ${resourceId}`;
       const [changed] = await early`SELECT updated_at FROM bibles WHERE id = ${bibleId}`;
-      return changed!;
+      return changed! as { updated_at: Date };
     },
   },
 ];
