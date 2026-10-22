@@ -279,5 +279,37 @@ describe('translation-resources verse-range routes', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ items: [] });
     });
+
+    it('warns when Aquifer images range search is incomplete and still returns collected items', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = [imageSearchHit(55)];
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits, false));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 55,
+          name: 'map',
+          localizedName: 'Map 55',
+          content: { url: 'https://cdn.example/55.jpg', size: 55 },
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_RANGE_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).items).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith({
+        message: 'Aquifer images verse-range search hit page ceiling; returning partial items',
+        context: expect.objectContaining({
+          resourceType: 'Images',
+          bookCode: 'MRK',
+          chapter: 1,
+          startVerse: 1,
+          endVerse: 8,
+          collectedCount: 1,
+        }),
+      });
+    });
   });
 });
