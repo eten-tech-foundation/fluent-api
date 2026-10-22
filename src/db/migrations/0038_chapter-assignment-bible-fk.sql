@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "uq_project_unit_bible_books_unit_book_bible" ON "project_unit_bible_books" USING btree ("project_unit_id","book_id","bible_id");--> statement-breakpoint
+ALTER TABLE "chapter_assignments" ADD CONSTRAINT "fk_chapter_assignments_bible_book_link" FOREIGN KEY ("project_unit_id","book_id","bible_id") REFERENCES "public"."project_unit_bible_books"("project_unit_id","book_id","bible_id") ON DELETE cascade ON UPDATE cascade;

@@ -17,9 +17,12 @@ A unit whose `chapter_assignments.bible_id` differs from the bible behind its
 out of the rollup (or the reverse). Same underlying row, two answers, is the
 bug #295 filed.
 
-Today that divergent state is latent (ingestion keeps them aligned). It
-becomes reachable if a unit can source text from more than one bible for the
-same book, or a unit's bible is reassigned after assignments exist.
+The database enforces the invariant: `chapter_assignments` has a composite
+FK to `project_unit_bible_books (project_unit_id, book_id, bible_id)` with
+`ON UPDATE CASCADE` / `ON DELETE CASCADE` (migration
+`chapter-assignment-bible-fk`). An assignment cannot exist without a matching
+book↔bible link for its unit, so the three query paths agree because
+divergent rows are unrepresentable.
 
 ## Behaviour when they disagree
 
