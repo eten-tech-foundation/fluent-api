@@ -69,7 +69,14 @@ vi.mock('./chapter-assignments.service', () => ({
   getChapterAssignmentWithAuthContext: vi.fn(),
   claimChapterAssignment: vi.fn(),
   submitChapterAssignment: vi.fn(),
-  toChapterAssignmentResponse: vi.fn((record) => record),
+  toChapterAssignmentResponse: vi.fn((record, stageEnteredAt = null) => ({
+    ...record,
+    stageEnteredAt,
+  })),
+  buildChapterAssignmentResponse: vi.fn(async (record) => ({
+    ...record,
+    stageEnteredAt: null,
+  })),
 }));
 
 const TRANSLATOR = {

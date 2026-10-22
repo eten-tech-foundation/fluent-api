@@ -135,6 +135,7 @@ function chapter(projectId: number, chapterAssignmentId: number): UserChapterAss
     assignedUserId: 1,
     peerCheckerId: null,
     updatedAt: null,
+    stageEnteredAt: null,
     isAiEnabled: false,
     hasClaimConflict: false,
     claimConflictUserId: null,

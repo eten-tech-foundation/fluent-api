@@ -37,6 +37,7 @@ export function toResponse(
     assignedUserId: assignment.assignedUserId,
     peerCheckerId: assignment.peerCheckerId,
     updatedAt: assignment.updatedAt?.toISOString() ?? null,
+    stageEnteredAt: assignment.stageEnteredAt,
     isAiEnabled: assignment.isAiEnabled,
     hasClaimConflict: assignment.hasClaimConflict,
     claimConflictUserId: assignment.claimConflictUserId,
