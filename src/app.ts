@@ -35,6 +35,7 @@ import '@/domains/ai-suggestions/ai-suggestions.internal.route';
 import '@/domains/ai-tools/ai-tools.route';
 import '@/domains/ai-tools/tts.route';
 import '@/domains/pericopes/pericopes.route';
+import '@/domains/draft-comments/draft-comments.route';
 import '@/domains/translation-resources/translation-resources.route';
 import '@/domains/source-audio/source-audio.route';
 import '@/domains/playback-audio/playback-audio.route';
