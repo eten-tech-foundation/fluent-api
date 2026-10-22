@@ -11,6 +11,8 @@ import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import type { CommentAnchorInput } from './draft-comments.types';
+
 import * as draftCommentsService from './draft-comments.service';
 import {
   ALLOWED_COMMENT_AUDIO_CONTENT_TYPES,
@@ -151,9 +153,9 @@ const createAudioRoute = createRoute({
   method: 'post',
   path: '/chapter-assignments/{chapterAssignmentId}/comments/audio',
   tags: ['Draft comments'],
-  summary: 'Create top-level audio comment (comment-owned storage; not verse-audio)',
+  summary: 'Create audio comment or one-level audio reply (comment-owned storage; not verse-audio)',
   description:
-    'multipart fields: file (required), anchorKind, bibleTextId|pericopeNumber, optional durationSeconds. Max 30MB; MIME allow-list. Never uses PUT /verse-audio.',
+    'multipart fields: file (required), optional replyToCommentId (flattens to root; inherits root anchor/connectionState; caller anchor ignored), else required anchorKind + bibleTextId|pericopeNumber, optional durationSeconds. Max 30MB; MIME allow-list. Never uses PUT /verse-audio.',
   middleware: [
     authenticateUser,
     requirePermission(PERMISSIONS.COMMENT_WRITE, scopeFromChapterAssignment),
@@ -165,7 +167,8 @@ const createAudioRoute = createRoute({
         'multipart/form-data': {
           schema: z.object({
             file: z.any(),
-            anchorKind: z.enum(['verse', 'pericope']),
+            replyToCommentId: z.string().optional(),
+            anchorKind: z.enum(['verse', 'pericope']).optional(),
             bibleTextId: z.string().optional(),
             pericopeNumber: z.string().optional(),
             durationSeconds: z.string().optional(),
@@ -199,14 +202,28 @@ server.openapi(createAudioRoute, async (c) => {
     return c.json({ message: 'Unsupported audio content type' }, HttpStatusCodes.BAD_REQUEST);
   }
 
-  const anchorKind = String(form.anchorKind ?? '');
-  const anchorParse = commentAnchorInputSchema.safeParse(
-    anchorKind === 'verse'
-      ? { kind: 'verse', bibleTextId: Number(form.bibleTextId) }
-      : { kind: 'pericope', pericopeNumber: String(form.pericopeNumber ?? '') }
-  );
-  if (!anchorParse.success) {
-    return c.json({ message: 'Invalid anchor' }, HttpStatusCodes.BAD_REQUEST);
+  const replyRaw = form.replyToCommentId;
+  let replyToCommentId: number | null = null;
+  if (replyRaw !== undefined && replyRaw !== '') {
+    const parsedReply = Number(replyRaw);
+    if (!Number.isInteger(parsedReply) || parsedReply < 1) {
+      return c.json({ message: 'Invalid replyToCommentId' }, HttpStatusCodes.BAD_REQUEST);
+    }
+    replyToCommentId = parsedReply;
+  }
+
+  let anchor: CommentAnchorInput | null = null;
+  if (replyToCommentId == null) {
+    const anchorKind = String(form.anchorKind ?? '');
+    const anchorParse = commentAnchorInputSchema.safeParse(
+      anchorKind === 'verse'
+        ? { kind: 'verse', bibleTextId: Number(form.bibleTextId) }
+        : { kind: 'pericope', pericopeNumber: String(form.pericopeNumber ?? '') }
+    );
+    if (!anchorParse.success) {
+      return c.json({ message: 'Invalid anchor' }, HttpStatusCodes.BAD_REQUEST);
+    }
+    anchor = anchorParse.data;
   }
 
   const durationRaw = form.durationSeconds;
@@ -217,8 +234,10 @@ server.openapi(createAudioRoute, async (c) => {
   const result = await draftCommentsService.createAudioComment(
     { id: user.id, grants: user.grants },
     chapterAssignmentId,
-    anchorParse.data,
-    { data, contentType: file.type, durationSeconds }
+    anchor,
+    { data, contentType: file.type, durationSeconds },
+    null,
+    replyToCommentId
   );
   if (!result.ok) {
     return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);

@@ -86,6 +86,20 @@ export async function insertComment(values: NewChapterComment, conn: Executor = 
   return row!;
 }
 
+/** Swap pending audio key for the final comment-owned object key after upload. */
+export async function finalizeCommentAudioKey(
+  commentId: number,
+  audioStorageKey: string,
+  conn: Executor = db
+) {
+  const [row] = await conn
+    .update(chapter_comments)
+    .set({ audioStorageKey, updatedAt: new Date() })
+    .where(eq(chapter_comments.id, commentId))
+    .returning();
+  return row ?? null;
+}
+
 export async function findCommentById(commentId: number, conn: Executor = db) {
   const [row] = await conn
     .select()

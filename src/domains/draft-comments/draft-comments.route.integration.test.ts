@@ -214,4 +214,68 @@ describe('draft-comments routes auth', () => {
     // empty scope → authorize fails → 403 at requirePermission
     expect(res.status).toBe(403);
   });
+
+  it('POST /comments/audio passes replyToCommentId and omits caller anchor', async () => {
+    asAuthenticatedUser([
+      {
+        orgId: 1,
+        projectId: 10,
+        permissions: new Set([PERMISSIONS.CONTENT_VIEW, PERMISSIONS.COMMENT_WRITE]),
+      },
+    ]);
+    vi.mocked(draftCommentsService.createAudioComment).mockResolvedValue(
+      ok({
+        id: 3,
+        projectId: 10,
+        chapterAssignmentId: 1,
+        parentCommentId: 7,
+        author: { userId: 1, displayName: 'observer', roleDisplay: null },
+        createdAt: '2026-01-01T00:00:00.000Z',
+        bodyKind: 'audio',
+        text: null,
+        emoji: null,
+        audio: {
+          contentType: 'audio/mp4',
+          byteSize: 4,
+          durationSeconds: 1,
+          contentHash: 'abc',
+          downloadUrl: null,
+        },
+        anchor: {
+          kind: 'verse',
+          bibleId: 1,
+          bookId: 40,
+          chapterNumber: 1,
+          bibleTextId: 1,
+          verseNumber: 1,
+          pericopeSetId: null,
+          pericopeNumber: null,
+          pericopeTitle: null,
+        },
+        connectionState: 'unconnected',
+        reactions: [],
+        currentUserReaction: null,
+      })
+    );
+
+    const form = new FormData();
+    form.set('file', new File([new Uint8Array([1, 2, 3, 4])], 'clip.m4a', { type: 'audio/mp4' }));
+    form.set('replyToCommentId', '7');
+    form.set('anchorKind', 'verse');
+    form.set('bibleTextId', '999');
+
+    const res = await server.request('/chapter-assignments/1/comments/audio', {
+      method: 'POST',
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    expect(draftCommentsService.createAudioComment).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
+      1,
+      null,
+      expect.objectContaining({ contentType: 'audio/mp4' }),
+      null,
+      7
+    );
+  });
 });
