@@ -365,8 +365,14 @@ describe('catalogue sync watermarks (PGlite)', () => {
     });
   });
 
-  it('allocates revisions beyond the clock and rolls the allocator back with the write', async () => {
+  it('pins DEFAULT, $onUpdate, and upsert conflict arms past the wall clock', async () => {
     const future = new Date('2090-01-01T00:00:00.000Z');
+    // Stamps from the allocator stay near `future`; wall-clock now()/new Date() would not.
+    const fromAllocator = (stamp: Date) => {
+      expect(stamp.getTime()).toBeGreaterThan(future.getTime());
+      expect(stamp.getTime()).toBeLessThan(future.getTime() + 100);
+    };
+
     await database.update(schema.catalogue_watermark).set({ updatedAt: future });
     await expect(
       database.transaction(async (tx) => {
@@ -376,20 +382,81 @@ describe('catalogue sync watermarks (PGlite)', () => {
     ).rejects.toThrow('rollback');
     const [state] = await database.select().from(schema.catalogue_watermark);
     expect(state!.updatedAt).toEqual(future);
-    const [first] = await database
+
+    // Column DEFAULT
+    const [inserted] = await database
       .insert(schema.books)
       .values({ code: 'A', eng_display_name: 'A' })
       .returning();
-    const [second] = await database
-      .insert(schema.books)
-      .values({ code: 'B', eng_display_name: 'B' })
+    expect(inserted!.updatedAt!.getTime()).toBe(future.getTime() + 1);
+
+    // ORM .update() → $onUpdate (not bare now()/new Date())
+    const [ormUpdated] = await database
+      .update(schema.books)
+      .set({ eng_display_name: 'A2' })
+      .where(eq(schema.books.id, inserted!.id))
       .returning();
-    expect(first!.updatedAt!.getTime()).toBe(future.getTime() + 1);
-    expect(second!.updatedAt!.getTime()).toBe(first!.updatedAt!.getTime() + 1);
-    const incremental = await booksRepo.getAll(first!.updatedAt!);
+    expect(ormUpdated!.updatedAt!.getTime()).toBe(future.getTime() + 2);
+
+    // languages upsert conflict arm
+    await database.insert(schema.languages).values({
+      langName: 'Spanish',
+      langCodeIso6393: 'spa',
+      langNameLocalized: null,
+      scriptDirection: 'ltr',
+    });
+    const langFill = await languagesRepo.upsertFromDbl([
+      {
+        langCodeIso6393: 'spa',
+        langName: 'Español',
+        langNameLocalized: 'Español',
+        scriptDirection: 'ltr',
+      },
+    ]);
+    expect(langFill.ok).toBe(true);
+    const [langAfter] = await database
+      .select()
+      .from(schema.languages)
+      .where(eq(schema.languages.langCodeIso6393, 'spa'));
+    expect(langAfter!.langNameLocalized).toBe('Español');
+    fromAllocator(langAfter!.updatedAt!);
+    expect(langAfter!.updatedAt!.getTime()).toBeGreaterThan(ormUpdated!.updatedAt!.getTime());
+
+    // bibles upsert conflict arm
+    const bibleInsert = await biblesRepo.upsertFromDbl([
+      {
+        languageId: langAfter!.id,
+        name: 'Alpha',
+        abbreviation: 'ALP',
+        provider: 'dbl',
+        externalId: 'alpha-future',
+        hasAudio: false,
+      },
+    ]);
+    expect(bibleInsert.ok).toBe(true);
+    const bibleChange = await biblesRepo.upsertFromDbl([
+      {
+        languageId: langAfter!.id,
+        name: 'Alpha',
+        abbreviation: 'ALP',
+        provider: 'dbl',
+        externalId: 'alpha-future',
+        hasAudio: true,
+      },
+    ]);
+    expect(bibleChange.ok).toBe(true);
+    const [bibleAfter] = await database
+      .select()
+      .from(schema.bibles)
+      .where(eq(schema.bibles.externalId, 'alpha-future'));
+    expect(bibleAfter!.hasAudio).toBe(true);
+    fromAllocator(bibleAfter!.updatedAt!);
+    expect(bibleAfter!.updatedAt!.getTime()).toBeGreaterThan(langAfter!.updatedAt!.getTime());
+
+    const incremental = await booksRepo.getAll(inserted!.updatedAt!);
     expect(incremental.ok).toBe(true);
     if (incremental.ok) {
-      expect(incremental.data.map((row) => row.code).sort()).toEqual(['A', 'B']);
+      expect(incremental.data.map((row) => row.code)).toEqual(['A']);
     }
   });
 

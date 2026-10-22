@@ -9,12 +9,23 @@ import { catalogue_watermark } from '../schema';
 
 const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../migrations');
 
-function migrationStatements(fileName: string): string[] {
+/** Split a Drizzle SQL migration file on statement breakpoints. */
+export function migrationStatements(fileName: string): string[] {
   return readFileSync(join(migrationDir, fileName), 'utf8')
     .split('--> statement-breakpoint')
     .map((statement) => statement.trim())
     .filter(Boolean);
 }
+
+/** DROP/CREATE for the provider-resource → bibles watermark trigger (single source). */
+export const PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL = `
+    DROP TRIGGER IF EXISTS trg_bump_bibles_on_provider_resource_license ON bible_provider_resources;
+    CREATE TRIGGER trg_bump_bibles_on_provider_resource_license
+    AFTER INSERT OR UPDATE OF tts_license_status, license_notice, display_name, provider, external_id
+    ON bible_provider_resources
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_linked_bibles_on_provider_resource_license();
+  `;
 
 /** Install next_catalogue_watermark() before CREATE TABLE … DEFAULT that references it. */
 export async function installNextCatalogueWatermarkFunction(
@@ -55,13 +66,5 @@ export async function createCatalogueTestSchema(
   );
   if (!bump) throw new Error('Catalogue license-bump trigger migration is missing');
   await client.exec(bump);
-
-  await client.exec(`
-    DROP TRIGGER IF EXISTS trg_bump_bibles_on_provider_resource_license ON bible_provider_resources;
-    CREATE TRIGGER trg_bump_bibles_on_provider_resource_license
-    AFTER INSERT OR UPDATE OF tts_license_status, license_notice, display_name, provider, external_id
-    ON bible_provider_resources
-    FOR EACH ROW
-    EXECUTE FUNCTION bump_linked_bibles_on_provider_resource_license();
-  `);
+  await client.exec(PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL);
 }

@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import {
+  migrationStatements,
+  PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL,
+} from '@/db/testing/create-catalogue-schema';
 
 /**
  * Multi-session PostgreSQL regressions for #404. PGlite cannot exercise
@@ -11,7 +13,64 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * DATABASE_URL / shared Dev/QA). Pattern mirrors dlq-integration.
  */
 const connectionString = process.env.WATERMARK_TEST_DATABASE_URL;
-const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../db/migrations');
+
+type ReservedSql = Awaited<ReturnType<postgres.Sql['reserve']>>;
+
+type ConcurrencyOp = {
+  label: string;
+  table: 'books' | 'languages' | 'bibles';
+  write: (args: {
+    early: ReservedSql;
+    key: string;
+    bibleId: number;
+    languageId: number;
+    resourceId: number;
+  }) => Promise<{ updated_at: Date }>;
+};
+
+const concurrencyOps: ConcurrencyOp[] = [
+  {
+    label: 'book insert',
+    table: 'books',
+    write: async ({ early, key }) => {
+      const [changed] = await early`
+          INSERT INTO books (code, eng_display_name) VALUES (${key}, 'Late book')
+          RETURNING updated_at`;
+      return changed!;
+    },
+  },
+  {
+    label: 'bible update',
+    table: 'bibles',
+    write: async ({ early, bibleId }) => {
+      const [changed] = await early`
+          UPDATE bibles SET has_audio = true, updated_at = next_catalogue_watermark()
+          WHERE id = ${bibleId} RETURNING updated_at`;
+      return changed!;
+    },
+  },
+  {
+    label: 'language fill',
+    table: 'languages',
+    write: async ({ early, languageId }) => {
+      const [changed] = await early`
+          UPDATE languages SET lang_name_localized = 'Filled', updated_at = next_catalogue_watermark()
+          WHERE id = ${languageId} RETURNING updated_at`;
+      return changed!;
+    },
+  },
+  {
+    label: 'license trigger',
+    table: 'bibles',
+    write: async ({ early, bibleId, resourceId }) => {
+      await early`
+          UPDATE bible_provider_resources SET tts_license_status = 'allowed'
+          WHERE id = ${resourceId}`;
+      const [changed] = await early`SELECT updated_at FROM bibles WHERE id = ${bibleId}`;
+      return changed!;
+    },
+  },
+];
 
 describe.skipIf(!connectionString)('catalogue watermark commit ordering (PostgreSQL)', () => {
   const sql = postgres(connectionString!, { max: 4 });
@@ -70,33 +129,19 @@ describe.skipIf(!connectionString)('catalogue watermark commit ordering (Postgre
           updated_at timestamp DEFAULT now()
         )`;
 
-    const statements = readFileSync(
-      join(migrationDir, '0038_catalogue_watermark_allocator.sql'),
-      'utf8'
-    )
-      .split('--> statement-breakpoint')
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-    for (const statement of statements) {
+    for (const statement of migrationStatements('0038_catalogue_watermark_allocator.sql')) {
       await sql.unsafe(statement);
     }
-    await sql.unsafe(`
-        DROP TRIGGER IF EXISTS trg_bump_bibles_on_provider_resource_license ON bible_provider_resources;
-        CREATE TRIGGER trg_bump_bibles_on_provider_resource_license
-        AFTER INSERT OR UPDATE OF tts_license_status, license_notice, display_name, provider, external_id
-        ON bible_provider_resources
-        FOR EACH ROW
-        EXECUTE FUNCTION bump_linked_bibles_on_provider_resource_license();
-      `);
+    await sql.unsafe(PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL);
   }, 60_000);
 
   afterAll(async () => {
     await sql.end();
   });
 
-  it.each(['book insert', 'Bible update', 'language fill', 'license trigger'] as const)(
-    '%s cannot be lost when a cursor advances during a transaction',
-    async (operation) => {
+  it.each(concurrencyOps)(
+    '$label cannot be lost when a cursor advances during a transaction',
+    async ({ table, write }) => {
       const key = randomUUID();
       const [language] = await sql`INSERT INTO languages (lang_name) VALUES (${key}) RETURNING id`;
       const [bible] = await sql`
@@ -117,26 +162,14 @@ describe.skipIf(!connectionString)('catalogue watermark commit ordering (Postgre
             INSERT INTO books (code, eng_display_name) VALUES (${`cursor-${key}`}, 'Cursor')
             RETURNING updated_at`;
         const cursor = cursorRow!.updated_at as Date;
-        let changed: { updated_at: Date } | undefined;
-        if (operation === 'book insert') {
-          [changed] = await early`
-              INSERT INTO books (code, eng_display_name) VALUES (${key}, 'Late book')
-              RETURNING updated_at`;
-        } else if (operation === 'Bible update') {
-          [changed] = await early`
-              UPDATE bibles SET has_audio = true, updated_at = next_catalogue_watermark()
-              WHERE id = ${bible!.id} RETURNING updated_at`;
-        } else if (operation === 'language fill') {
-          [changed] = await early`
-              UPDATE languages SET lang_name_localized = 'Filled', updated_at = next_catalogue_watermark()
-              WHERE id = ${language!.id} RETURNING updated_at`;
-        } else {
-          await early`
-              UPDATE bible_provider_resources SET tts_license_status = 'allowed'
-              WHERE id = ${resource!.id}`;
-          [changed] = await early`SELECT updated_at FROM bibles WHERE id = ${bible!.id}`;
-        }
-        expect(changed!.updated_at.getTime()).toBeGreaterThan(cursor.getTime());
+        const changed = await write({
+          early,
+          key,
+          bibleId: bible!.id,
+          languageId: language!.id,
+          resourceId: resource!.id,
+        });
+        expect(changed.updated_at.getTime()).toBeGreaterThan(cursor.getTime());
 
         // While this write is invisible, a later writer must wait: it cannot
         // commit a cursor that would skip the in-flight row.
@@ -154,18 +187,10 @@ describe.skipIf(!connectionString)('catalogue watermark commit ordering (Postgre
         await early`COMMIT`;
         committed = true;
         const [newer] = await pending;
-        expect((newer!.updated_at as Date).getTime()).toBeGreaterThan(
-          changed!.updated_at.getTime()
-        );
-        const table =
-          operation === 'book insert'
-            ? 'books'
-            : operation === 'language fill'
-              ? 'languages'
-              : 'bibles';
+        expect((newer!.updated_at as Date).getTime()).toBeGreaterThan(changed.updated_at.getTime());
         const rows = await sql`SELECT updated_at FROM ${sql(table)} WHERE updated_at >= ${cursor}`;
         expect(rows.map((row) => (row.updated_at as Date).getTime())).toContain(
-          changed!.updated_at.getTime()
+          changed.updated_at.getTime()
         );
       } finally {
         if (!committed) await early`ROLLBACK`;
@@ -180,9 +205,48 @@ describe.skipIf(!connectionString)('catalogue watermark commit ordering (Postgre
     }
   );
 
+  it('releases the singleton on ROLLBACK so a blocked later writer proceeds', async () => {
+    const key = randomUUID();
+    const early = await sql.reserve();
+    const later = await sql.reserve();
+    let pending: Promise<postgres.RowList<postgres.Row[]>> | undefined;
+    try {
+      await early`BEGIN`;
+      await early`
+          INSERT INTO books (code, eng_display_name) VALUES (${key}, 'Early rollback')
+          RETURNING updated_at`;
+
+      const [connection] = await later`SELECT pg_backend_pid() AS pid`;
+      pending = later`
+          INSERT INTO books (code, eng_display_name) VALUES (${`later-${key}`}, 'Later')
+          RETURNING updated_at`.execute();
+      await expect
+        .poll(async () => {
+          const [state] =
+            await sql`SELECT cardinality(pg_blocking_pids(${connection!.pid})) AS count`;
+          return Number(state!.count);
+        })
+        .toBeGreaterThan(0);
+
+      await early`ROLLBACK`;
+      const [newer] = await pending;
+      expect((newer!.updated_at as Date).getTime()).toBeGreaterThan(0);
+
+      const rolledBack = await sql`SELECT code FROM books WHERE code = ${key}`;
+      expect(rolledBack).toEqual([]);
+      const proceeded = await sql`SELECT code FROM books WHERE code = ${`later-${key}`}`;
+      expect(proceeded.map((row) => row.code)).toEqual([`later-${key}`]);
+    } finally {
+      await pending?.catch(() => {});
+      early.release();
+      later.release();
+      await sql`DELETE FROM books WHERE code IN (${key}, ${`later-${key}`})`;
+    }
+  });
+
   it('documents that now()-stamped writes can fall behind a concurrent cursor', async () => {
-    // Regression baseline: same race with an explicit now() stamp (no allocator
-    // lock). The late-commit row can land behind the cursor issued mid-flight.
+    // Regression baseline: same race with transaction-start now() (no allocator
+    // lock). The late-commit row lands behind the cursor issued mid-flight.
     const key = randomUUID();
     const early = await sql.reserve();
     let committed = false;
@@ -190,15 +254,16 @@ describe.skipIf(!connectionString)('catalogue watermark commit ordering (Postgre
       await early`BEGIN`;
       // Hold the early transaction open without taking the catalogue lock.
       await early`SELECT 1`;
+      // Ensure wall clock advances past early's transaction-start now().
+      await new Promise((resolve) => setTimeout(resolve, 5));
       const [cursorRow] = await sql`
           INSERT INTO books (code, eng_display_name)
           VALUES (${`cursor-now-${key}`}, 'Cursor')
           RETURNING updated_at`;
       const cursor = cursorRow!.updated_at as Date;
-      // Force a wall-clock stamp older than the concurrent cursor.
       const [changed] = await early`
           INSERT INTO books (code, eng_display_name, updated_at)
-          VALUES (${`late-now-${key}`}, 'Late', ${new Date(cursor.getTime() - 5)})
+          VALUES (${`late-now-${key}`}, 'Late', now())
           RETURNING updated_at`;
       await early`COMMIT`;
       committed = true;
