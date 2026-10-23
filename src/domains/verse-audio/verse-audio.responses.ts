@@ -11,6 +11,7 @@ import type {
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
 
 /** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
@@ -108,6 +109,11 @@ async function takeWithUrl(
     sizeBytes: take.sizeBytes,
     durationSeconds: take.durationSeconds,
     contentHash: take.contentHash,
+    granularity: take.granularity,
+    startChapter: take.startChapter,
+    startVerse: take.startVerse,
+    endChapter: take.endChapter,
+    endVerse: take.endVerse,
     downloadUrl: await resolveDownloadUrl(
       take.storageObjectId,
       take.contentHash,
@@ -144,6 +150,11 @@ async function withTakesAndUrl(
     durationSeconds: record.durationSeconds,
     versionToken: record.versionToken,
     conflictStatus: record.conflictStatus,
+    granularity: record.granularity,
+    startChapter: record.startChapter,
+    startVerse: record.startVerse,
+    endChapter: record.endChapter,
+    endVerse: record.endVerse,
     activeTakeId: record.activeTakeId,
     verseNumber: record.verseNumber,
     downloadUrl: await resolveDownloadUrl(
@@ -175,7 +186,7 @@ export async function loadUnitResponse(
     return recording;
   }
 
-  const takes = await repo.listTakesForRecording(recording.data.id);
+  const takes = await takesRepo.listTakesForRecording(recording.data.id);
   if (!takes.ok) {
     return takes;
   }

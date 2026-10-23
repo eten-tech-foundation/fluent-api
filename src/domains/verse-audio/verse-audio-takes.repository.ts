@@ -4,32 +4,14 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { verse_audio_recordings, verse_audio_takes } from '@/db/schema';
-import { getPostgresConstraintName, hasPostgresErrorCode } from '@/lib/db-errors';
+import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { InsertTakeInput, VerseAudioTakeRecord } from './verse-audio.types';
 
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
-
-/** Storage-object FKs that fail when reclaim races an insert/promotion. */
-const RETRYABLE_STORAGE_FK_CONSTRAINTS = new Set([
-  'verse_audio_takes_storage_object_id_storage_objects_id_fk',
-  'verse_audio_recordings_storage_object_id_storage_objects_id_fk',
-  'verse_audio_recordings_active_take_id_verse_audio_takes_id_fk',
-]);
-
-export function mapForeignKeyViolation(error: unknown): Result<never> {
-  const constraint = getPostgresConstraintName(error) ?? '';
-  if (RETRYABLE_STORAGE_FK_CONSTRAINTS.has(constraint) || constraint.includes('storage_object')) {
-    // Reclamation / prune deleted the referenced row; safe to reload and retry.
-    return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
-  }
-  if (constraint.includes('recording_id')) {
-    return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
-  }
-  return err(ErrorCode.INTERNAL_ERROR);
-}
 
 export const takeSelection = {
   id: verse_audio_takes.id,
@@ -40,6 +22,11 @@ export const takeSelection = {
   sizeBytes: verse_audio_takes.sizeBytes,
   durationSeconds: verse_audio_takes.durationSeconds,
   contentHash: verse_audio_takes.contentHash,
+  granularity: verse_audio_takes.granularity,
+  startChapter: verse_audio_takes.startChapter,
+  startVerse: verse_audio_takes.startVerse,
+  endChapter: verse_audio_takes.endChapter,
+  endVerse: verse_audio_takes.endVerse,
   createdAt: verse_audio_takes.createdAt,
   updatedAt: verse_audio_takes.updatedAt,
 };
