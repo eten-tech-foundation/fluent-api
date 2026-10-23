@@ -7,7 +7,7 @@ import type {
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
-import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
+import { VERSE_AUDIO_CONFLICT_STATUS, VERSE_AUDIO_GRANULARITY } from './verse-audio.types';
 
 export const hashOf = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 
@@ -22,7 +22,14 @@ export const record: VerseAudioRecord = {
   durationSeconds: 12.5,
   versionToken: 1,
   conflictStatus: VERSE_AUDIO_CONFLICT_STATUS.CLEAN,
+  granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+  startChapter: null,
+  startVerse: null,
+  endChapter: null,
+  endVerse: null,
   activeTakeId: 10,
+  bookId: 40,
+  chapterNumber: 1,
   verseNumber: 3,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
@@ -37,6 +44,11 @@ export const take: VerseAudioTakeRecord = {
   sizeBytes: 4,
   durationSeconds: 12.5,
   contentHash: hashOf(Buffer.from('abcd')),
+  granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+  startChapter: null,
+  startVerse: null,
+  endChapter: null,
+  endVerse: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
 };

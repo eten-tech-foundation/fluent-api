@@ -22,6 +22,11 @@ export const takeSelection = {
   sizeBytes: verse_audio_takes.sizeBytes,
   durationSeconds: verse_audio_takes.durationSeconds,
   contentHash: verse_audio_takes.contentHash,
+  granularity: verse_audio_takes.granularity,
+  startChapter: verse_audio_takes.startChapter,
+  startVerse: verse_audio_takes.startVerse,
+  endChapter: verse_audio_takes.endChapter,
+  endVerse: verse_audio_takes.endVerse,
   createdAt: verse_audio_takes.createdAt,
   updatedAt: verse_audio_takes.updatedAt,
 };

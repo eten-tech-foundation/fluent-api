@@ -52,6 +52,7 @@ describe('chapter-assignments-progress repository (PGlite integration)', () => {
       scriptDirectionEnum: schema.scriptDirectionEnum,
       projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
       verseAudioConflictStatusEnum: schema.verseAudioConflictStatusEnum,
+      verseAudioGranularityEnum: schema.verseAudioGranularityEnum,
       userStatusEnum: schema.userStatusEnum,
       milestoneTypeEnum: schema.milestoneTypeEnum,
       projectStatusEnum: schema.projectStatusEnum,
