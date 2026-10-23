@@ -171,9 +171,14 @@ const createAudioRoute = createRoute({
     authenticateUser,
     requirePermission(PERMISSIONS.COMMENT_WRITE, scopeFromChapterAssignment),
     bodyLimit({
-      maxSize: MAX_COMMENT_AUDIO_BYTES,
+      // Multipart boundaries, part headers, and text fields add overhead beyond file bytes.
+      // Service still enforces MAX_COMMENT_AUDIO_BYTES on the file payload itself.
+      maxSize: MAX_COMMENT_AUDIO_BYTES + 64 * 1024,
       onError: (c) =>
-        c.json({ message: 'Audio file exceeds the 30 MB limit' }, HttpStatusCodes.REQUEST_TOO_LONG),
+        c.json(
+          { message: 'Request body exceeds the audio upload limit' },
+          HttpStatusCodes.REQUEST_TOO_LONG
+        ),
     }),
   ] as const,
   request: {

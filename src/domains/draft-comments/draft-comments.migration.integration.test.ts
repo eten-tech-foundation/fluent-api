@@ -80,7 +80,7 @@ async function seedMinimalGraph() {
   });
 }
 
-describe('draft-comments migration 0038 (PGlite, disposable)', () => {
+describe('draft-comments migration 0039 (PGlite, disposable)', () => {
   beforeAll(async () => {
     const statements = await generateMigration(
       generateDrizzleJson({}),
@@ -112,7 +112,7 @@ describe('draft-comments migration 0038 (PGlite, disposable)', () => {
     await client.exec(statements.join('\n'));
 
     const migrationSql = readFileSync(
-      join(migrationDir, '0038_add_draft_chapter_comments.sql'),
+      join(migrationDir, '0039_add_draft_chapter_comments.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(migrationSql);

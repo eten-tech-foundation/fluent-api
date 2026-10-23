@@ -222,15 +222,19 @@ describe('draft-comments routes auth', () => {
         permissions: new Set([PERMISSIONS.CONTENT_VIEW, PERMISSIONS.COMMENT_WRITE]),
       },
     ]);
+    // bodyLimit allows MAX_COMMENT_AUDIO_BYTES + 64KiB for multipart framing.
     const res = await server.request('/chapter-assignments/1/comments/audio', {
       method: 'POST',
       headers: {
         'content-type': 'multipart/form-data; boundary=----bound',
-        'content-length': String(30 * 1024 * 1024 + 1),
+        'content-length': String(30 * 1024 * 1024 + 64 * 1024 + 1),
       },
       body: 'x',
     });
     expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toEqual({
+      message: 'Request body exceeds the audio upload limit',
+    });
     expect(draftCommentsService.createAudioComment).not.toHaveBeenCalled();
   });
 

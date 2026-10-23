@@ -385,21 +385,22 @@ Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](..
 
 The most complex policy. The `edit` method enforces assignment-position rules and workflow-stage gates.
 
-| Method                 | Required Permission       | Additional Constraint                                                                                                           |
-| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `view`                 | `content:view` at scope   | OR user is a project member                                                                                                     |
-| `create`               | `content:assign` at scope | —                                                                                                                               |
-| `update`               | `content:assign` at scope | —                                                                                                                               |
-| `delete`               | `content:assign` at scope | —                                                                                                                               |
-| `deleteAll`            | `content:assign` at scope | —                                                                                                                               |
-| `assignAll`            | `content:assign` at scope | —                                                                                                                               |
-| `assign`               | `content:assign` at scope | —                                                                                                                               |
-| `submit`               | Delegates to `edit`       | —                                                                                                                               |
-| `edit` (translators)   | `content:update` at scope | Status `draft`: must be `assignedUserId`. Status `peer_check`: must be `peerCheckerId`. Post-peer statuses: any project member. |
-| `edit` (managers)      | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                      |
-| `resolveAudioConflict` | `content:assign` at scope | Allowed at any chapter status (managers can resolve audio conflicts during draft/peer_check).                                   |
-| `toggleAi`             | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                       |
-| `isParticipant`        | Delegates to `edit`       | —                                                                                                                               |
+| Method                 | Required Permission       | Additional Constraint                                                                                                                                                                                                                                                           |
+| ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `view`                 | `content:view` at scope   | OR user is a project member                                                                                                                                                                                                                                                     |
+| `create`               | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `update`               | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `delete`               | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `deleteAll`            | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `assignAll`            | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `assign`               | `content:assign` at scope | —                                                                                                                                                                                                                                                                               |
+| `submit`               | Delegates to `edit`       | —                                                                                                                                                                                                                                                                               |
+| `edit` (translators)   | `content:update` at scope | Status `draft`: must be `assignedUserId`. Status `peer_check`: must be `peerCheckerId`. Post-peer statuses: any project member.                                                                                                                                                 |
+| `edit` (managers)      | `content:assign` at scope | Only at post-peer statuses: `community_review`, `linguist_check`, `theological_check`, `consultant_check`.                                                                                                                                                                      |
+| `resolveAudioConflict` | `content:assign` at scope | Allowed at any chapter status (managers can resolve audio conflicts during draft/peer_check).                                                                                                                                                                                   |
+| `toggleAi`             | `content:assign`          | OR (`content:update` AND status=`draft` AND `assignedUserId === user.id`)                                                                                                                                                                                                       |
+| `claim`                | `content:update` at scope | Denied if `content:assign`. Unassigned `not_started`: clean claim. Same user + `draft`: idempotent retry. Rival on non-`complete` status: durable conflict (`hasClaimConflict`, first-loser `claimConflictUserId`). Same-user non-`draft` or rival on `complete`: denied (404). |
+| `isParticipant`        | Delegates to `edit`       | —                                                                                                                                                                                                                                                                               |
 
 ### AiSuggestionsPolicy
 
@@ -420,7 +421,9 @@ Scoped grant checks for draft chapter comments. Never role-label-only. `comment:
 | `read(user, scope)`  | `content:view` at `{orgId, projectId}` (list + aggregate).                              |
 | `write(user, scope)` | `comment:write` at `{orgId, projectId}` (create / reply / react / comment-owned audio). |
 
-Service denyWrite: missing read → 404; readable but no write → 403. Routes also gate via `requirePermission`.
+HTTP: unknown/missing assignment → 404 (`scopeFromChapterAssignment`); insufficient grant → 403
+(`requirePermission`). Service `denyWrite` (direct callers): missing read → 404; readable but no
+write → 403 — write routes usually hit middleware 403 first when `comment:write` is absent.
 
 ---
 
