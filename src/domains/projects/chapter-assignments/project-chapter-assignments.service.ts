@@ -2,9 +2,7 @@ import type { ChapterAssignmentProgressInfo } from '@/domains/chapter-assignment
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { buildChapterAssignmentResponses } from '@/domains/chapter-assignments/chapter-assignments.response';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
-import { getStageEnteredAtByAssignmentIds } from '@/domains/chapter-assignments/chapter-assignments.stage-entered-at.lookup';
 import * as projectsService from '@/domains/projects/projects.service';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import * as userProjectsService from '@/domains/users/projects/user-projects.service';
@@ -24,7 +22,7 @@ import * as repo from './project-chapter-assignments.repository';
 export async function getProjectChapterAssignments(projectId: number, milestoneId?: number) {
   const result = await repo.getByProject(projectId, milestoneId);
   if (!result.ok) return result;
-  return ok(await buildChapterAssignmentResponses(result.data));
+  return ok(await chapterAssignmentService.buildChapterAssignmentResponses(result.data));
 }
 
 export function deleteChapterAssignmentsByProject(projectId: number) {
@@ -238,7 +236,7 @@ export async function getChapterAssignmentsByUserId(
   const result = await repo.getByProjects(projectIds, excludeProjectIds, updatedAfter);
   if (!result.ok) return result;
 
-  const stageEnteredAtById = await getStageEnteredAtByAssignmentIds(
+  const stageEnteredAtById = await chapterAssignmentService.getStageEnteredAtByAssignmentIds(
     result.data.map((record) => ({ id: record.id, status: record.status }))
   );
 

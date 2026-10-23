@@ -30,8 +30,10 @@ import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export {
   buildChapterAssignmentResponse,
+  buildChapterAssignmentResponses,
   toChapterAssignmentResponse,
 } from './chapter-assignments.response';
+export { getStageEnteredAtByAssignmentIds } from './chapter-assignments.stage-entered-at.lookup';
 export function getChapterAssignment(id: number) {
   return repo.findByIdWithOrg(id);
 }
