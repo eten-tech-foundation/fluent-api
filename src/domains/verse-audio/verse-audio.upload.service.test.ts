@@ -5,6 +5,7 @@ import { audioBlobName, uploadVerseAudio } from '@/lib/audio-storage';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
 import { uploadRecording } from './verse-audio.service';
 import { hashOf, record, take, uploadInput } from './verse-audio.test-fixtures';
@@ -40,9 +41,17 @@ vi.mock('./verse-audio.repository', () => ({
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   markIntersectingCoverageConflicts: vi.fn(),
-  pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
+}));
+
+vi.mock('./verse-audio-takes.repository', () => ({
+  findTakeByContentHash: vi.fn(),
+  getTakeById: vi.fn(),
+  insertTake: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
+  pruneSupersededTakes: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -73,8 +82,8 @@ describe('verse-audio service', () => {
     vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
     vi.mocked(repo.getBibleTextById).mockResolvedValue(
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
@@ -160,7 +169,7 @@ describe('verse-audio service', () => {
           record: { ...unit, activeTakeId: 10, storageObjectId: 55, versionToken: 4 },
         })
       );
-      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+      vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
 
       const result = await uploadRecording({
         ...uploadInput,
@@ -228,7 +237,7 @@ describe('verse-audio service', () => {
           },
         })
       );
-      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+      vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
 
       const result = await uploadRecording({
         ...uploadInput,
@@ -280,7 +289,7 @@ describe('verse-audio service', () => {
           },
         })
       );
-      vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+      vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
 
       const result = await uploadRecording({
         ...uploadInput,

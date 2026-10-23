@@ -60,7 +60,6 @@
   "exports:src/domains/usfm/usfm.route.ts:exportProjectUSFMRoute",
   "exports:src/domains/usfm/usfm.route.ts:getExportableBooksRoute",
   "exports:src/domains/usfm/usfm.route.ts:getJobStatusRoute",
-  "exports:src/domains/verse-audio/verse-audio.repository.ts:takeSelection",
   "exports:src/domains/verse-audio/verse-audio.types.ts:verseAudioTakeResponseSchema",
   "exports:src/domains/youversion/youversion.types.ts:youVersionBibleVerseSchema",
   "exports:src/lib/blob-storage.ts:EXPORT_TTL_MS",

@@ -7,6 +7,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type { VerseAudioRecord } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import { uploadRangeRecording } from './verse-audio.range.service';
 import * as repo from './verse-audio.repository';
 import { hashOf, record, take, uploadInput } from './verse-audio.test-fixtures';
@@ -44,10 +45,18 @@ vi.mock('./verse-audio.repository', () => ({
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   markIntersectingCoverageConflicts: vi.fn(),
-  pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
   updateTakeCoverageAndRecordingIfVersion: vi.fn(),
+}));
+
+vi.mock('./verse-audio-takes.repository', () => ({
+  findTakeByContentHash: vi.fn(),
+  getTakeById: vi.fn(),
+  insertTake: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
+  pruneSupersededTakes: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -77,13 +86,12 @@ describe('uploadRangeRecording', () => {
     );
     vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
     vi.mocked(repo.getBibleTextById).mockResolvedValue(
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
-    vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
   });
 
   const rangeInput = {
@@ -130,7 +138,7 @@ describe('uploadRangeRecording', () => {
     vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
       ok({ outcome: 'created', record: rangeRecord, take: rangeTake })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
 
     const result = await uploadRangeRecording(rangeInput);
 
@@ -196,7 +204,7 @@ describe('uploadRangeRecording', () => {
     vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
       ok({ outcome: 'created', record: rangeRecord, take: rangeTake })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([rangeTake]));
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(
       ok({ markedIds: [rangeRecord.id, otherVerse.id] })
     );
@@ -287,7 +295,7 @@ describe('uploadRangeRecording', () => {
         record: { ...unit, ...pericopeShape, versionToken: 3, activeTakeId: 11 },
       })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([verseTake, pericopeTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([verseTake, pericopeTake]));
 
     const result = await uploadRangeRecording({
       ...rangeInput,
@@ -322,7 +330,7 @@ describe('uploadRangeRecording', () => {
     const activePericope = { ...take, ...pericopeShape };
     vi.mocked(repo.get).mockResolvedValue(ok(cleanUnit));
     vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(activePericope));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([activePericope]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([activePericope]));
 
     const result = await uploadRangeRecording({
       ...rangeInput,
@@ -368,7 +376,9 @@ describe('uploadRangeRecording', () => {
         record: { ...cleanVerseUnit, ...oneVersePericope, versionToken: 6 },
       })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([{ ...take, ...oneVersePericope }]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(
+      ok([{ ...take, ...oneVersePericope }])
+    );
 
     const result = await uploadRangeRecording({
       ...rangeInput,
@@ -394,7 +404,9 @@ describe('uploadRangeRecording', () => {
     const staleDup = { ...take, id: 10, ...pericopeShape };
     vi.mocked(repo.get).mockResolvedValue(ok(cleanUnit));
     vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(staleDup));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([staleDup, { ...take, id: 11 }]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(
+      ok([staleDup, { ...take, id: 11 }])
+    );
 
     const result = await uploadRangeRecording({
       ...rangeInput,
@@ -429,7 +441,7 @@ describe('uploadRangeRecording', () => {
     vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
       ok({ applied: true, record: { ...cleanUnit, versionToken: 6, activeTakeId: 10 } })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
 
     const result = await uploadRangeRecording({
       ...rangeInput,

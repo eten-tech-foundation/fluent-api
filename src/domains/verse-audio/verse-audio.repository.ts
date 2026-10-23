@@ -16,19 +16,12 @@ import type {
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
-import { mapForeignKeyViolation, takeSelection } from './verse-audio-takes.repository';
+import { takeSelection } from './verse-audio-takes.repository';
 import { recordSelection } from './verse-audio.coverage-writes';
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-export {
-  findTakeByContentHash,
-  getTakeById,
-  insertTake,
-  listTakesByRecordingIds,
-  listTakesForRecording,
-  pruneSupersededTakes,
-  takeSelection,
-} from './verse-audio-takes.repository';
+export { findTakeByContentHash, insertTake } from './verse-audio-takes.repository';
 export {
   markIntersectingCoverageConflicts,
   updateTakeCoverageAndRecordingIfVersion,

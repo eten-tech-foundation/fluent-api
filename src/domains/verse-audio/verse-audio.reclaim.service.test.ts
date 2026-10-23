@@ -4,8 +4,8 @@ import { deleteVerseAudio } from '@/lib/audio-storage';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import { reclaimOrphanedStorageObjects } from './verse-audio.reclaim.service';
-import * as repo from './verse-audio.repository';
 
 vi.mock('@/lib/audio-storage', () => ({
   deleteVerseAudio: vi.fn(async () => {}),
@@ -17,7 +17,7 @@ vi.mock('./storage-objects.repository', () => ({
   reclaimOrphanIfUnreferenced: vi.fn(),
 }));
 
-vi.mock('./verse-audio.repository', () => ({
+vi.mock('./verse-audio-takes.repository', () => ({
   pruneSupersededTakes: vi.fn(),
 }));
 
@@ -32,7 +32,7 @@ describe('verse-audio service', () => {
       vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
       vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockResolvedValue(ok(false));
       vi.mocked(deleteVerseAudio).mockResolvedValue(undefined);
-      vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
+      vi.mocked(takesRepo.pruneSupersededTakes).mockResolvedValue(ok(0));
     });
 
     const orphan = (id: number, key: string) => ({
@@ -63,12 +63,12 @@ describe('verse-audio service', () => {
     });
 
     it('prunes superseded takes before the orphan sweep, leaving their objects to it', async () => {
-      vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(1));
+      vi.mocked(takesRepo.pruneSupersededTakes).mockResolvedValue(ok(1));
       vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([]));
 
       const result = await reclaimOrphanedStorageObjects();
 
-      expect(repo.pruneSupersededTakes).toHaveBeenCalledWith(expect.any(Number));
+      expect(takesRepo.pruneSupersededTakes).toHaveBeenCalledWith(expect.any(Number));
       // The prune drops rows only. Deleting the blob here would race a concurrent
       // re-upload of the same bytes, which revives that very storage_objects row.
       expect(deleteVerseAudio).not.toHaveBeenCalled();
@@ -77,7 +77,7 @@ describe('verse-audio service', () => {
     });
 
     it('still runs the orphan sweep when the take prune fails', async () => {
-      vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+      vi.mocked(takesRepo.pruneSupersededTakes).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
       const candidate = orphan(3, 'unit-9/text-3/c');
       vi.mocked(storageRepo.findOrphans).mockResolvedValue(ok([candidate]));
       vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockImplementation(

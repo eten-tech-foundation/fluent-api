@@ -1,13 +1,9 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import {
-  installNextCatalogueWatermarkFunction,
-  seedCatalogueWatermarkSingleton,
-} from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import { updateTakeCoverageAndRecordingIfVersion } from './verse-audio.repository';
@@ -77,40 +73,33 @@ describe('updateTakeCoverageAndRecordingIfVersion (PGlite rollback)', () => {
   let takeId: number;
 
   beforeAll(async () => {
-    await installNextCatalogueWatermarkFunction(client);
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        organizations: schema.organizations,
-        languages: schema.languages,
-        catalogue_watermark: schema.catalogue_watermark,
-        authUser: schema.authUser,
-        authSession: schema.authSession,
-        users: schema.users,
-        pericope_sets: schema.pericope_sets,
-        projects: schema.projects,
-        project_units: schema.project_units,
-        books: schema.books,
-        bibles: schema.bibles,
-        bible_texts: schema.bible_texts,
-        bible_provider_resources: schema.bible_provider_resources,
-        storage_objects: schema.storage_objects,
-        verse_audio_recordings: schema.verse_audio_recordings,
-        verse_audio_takes: schema.verse_audio_takes,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        projectStatusEnum: schema.projectStatusEnum,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        milestoneTypeEnum: schema.milestoneTypeEnum,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        userStatusEnum: schema.userStatusEnum,
-        verseAudioConflictStatusEnum: schema.verseAudioConflictStatusEnum,
-        verseAudioGranularityEnum: schema.verseAudioGranularityEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
-    await seedCatalogueWatermarkSingleton(client);
+    await createTestSchema(client, {
+      organizations: schema.organizations,
+      languages: schema.languages,
+      authUser: schema.authUser,
+      authSession: schema.authSession,
+      users: schema.users,
+      pericope_sets: schema.pericope_sets,
+      projects: schema.projects,
+      project_units: schema.project_units,
+      books: schema.books,
+      bibles: schema.bibles,
+      bible_texts: schema.bible_texts,
+      bible_provider_resources: schema.bible_provider_resources,
+      storage_objects: schema.storage_objects,
+      verse_audio_recordings: schema.verse_audio_recordings,
+      verse_audio_takes: schema.verse_audio_takes,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+      projectStatusEnum: schema.projectStatusEnum,
+      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+      milestoneTypeEnum: schema.milestoneTypeEnum,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      userStatusEnum: schema.userStatusEnum,
+      verseAudioConflictStatusEnum: schema.verseAudioConflictStatusEnum,
+      verseAudioGranularityEnum: schema.verseAudioGranularityEnum,
+    });
   }, 60_000);
 
   beforeEach(async () => {
