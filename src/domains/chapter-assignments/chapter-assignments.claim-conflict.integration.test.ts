@@ -3,6 +3,10 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -25,9 +29,11 @@ vi.mock('@/domains/projects/users/project-users.service', () => ({
 
 describe('flagClaimConflict SQL CAS (PGlite)', () => {
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
+        catalogue_watermark: schema.catalogue_watermark,
         chapter_assignments: schema.chapter_assignments,
         project_units: schema.project_units,
         milestoneTypeEnum: schema.milestoneTypeEnum,
@@ -50,6 +56,7 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
 
     await database.insert(schema.organizations).values({ id: 1, name: 'Org' });
     await database.insert(schema.languages).values({ id: 1, langName: 'English' });

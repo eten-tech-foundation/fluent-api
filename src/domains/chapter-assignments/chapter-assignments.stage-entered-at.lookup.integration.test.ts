@@ -2,6 +2,10 @@ import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 
 import * as repo from './chapter-assignments.repository';
 import { getStageEnteredAtByAssignmentIds } from './chapter-assignments.stage-entered-at.lookup';
@@ -21,11 +25,13 @@ vi.mock('@/lib/logger', () => ({
 
 describe('stageEnteredAt lookup (PGlite SQL)', () => {
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson(schema)
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
 
     await database.insert(schema.organizations).values({ id: 1, name: 'Org' });
     await database.insert(schema.languages).values([
