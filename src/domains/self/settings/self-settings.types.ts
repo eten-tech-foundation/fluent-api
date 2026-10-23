@@ -1,22 +1,38 @@
 import { z } from '@hono/zod-openapi';
 
-import type { userSettingsSchema } from '@/db/schema';
+import type { userSettingsSchema, userSettingsWriteSchema } from '@/db/schema';
 
 import { userSettingsObjectSchema } from '@/db/schema';
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
 export type UserSettings = z.infer<typeof userSettingsSchema>;
+export type UserSettingsPatch = z.infer<typeof userSettingsWriteSchema>;
 
-export interface UpsertUserSettingsInput {
+export interface MergeUserSettingsInput {
   userId: number;
-  settings: UserSettings;
+  /** Validated patch; explicit `null` deletes only `displayMode`. */
+  patch: UserSettingsPatch;
 }
+
+/** Server capability flags — not stored settings keys (API #434 / mobile#754). */
+export const SETTINGS_CAPABILITIES = {
+  partialMerge: true,
+  displayMode: true,
+} as const;
+
+// Literals read from SETTINGS_CAPABILITIES so a value drift fails typecheck.
+const settingsCapabilitiesSchema = z
+  .object({
+    partialMerge: z.literal(SETTINGS_CAPABILITIES.partialMerge),
+    displayMode: z.literal(SETTINGS_CAPABILITIES.displayMode),
+  })
+  .openapi('UserSettingsCapabilities');
 
 // ─── API request schema ───────────────────────────────────────────────────────
 
-// The blob is validated against `userSettingsSchema` in the service layer (so a
-// schema violation yields a 400). At the route boundary we accept any object so
+// The blob is validated against `userSettingsWriteSchema` in the service layer (so a
+// schema violation yields a 422). At the route boundary we accept any object so
 // the OpenAPI surface documents `{ settings: {...} }` without duplicating the
 // per-key rules.
 export const saveUserSettingsRequestSchema = z
@@ -43,10 +59,15 @@ export type SaveUserSettingsRequest = z.infer<typeof saveUserSettingsRequestSche
 // fields, so the documented shape is unchanged; the fail-soft `.catch` tolerance
 // lives entirely in the service read path (`toResponse`), which is where it
 // belongs — it was never meant to be part of the published contract.
+//
+// `settingsCapabilities` is additive top-level metadata (not part of the stored
+// blob) so mobile can detect atomic partial-merge + displayMode support before
+// issuing a displayMode-only PUT.
 export const userSettingsResponseSchema = z
   .object({
     settings: userSettingsObjectSchema.nullable(),
     updatedAt: z.string().nullable(),
+    settingsCapabilities: settingsCapabilitiesSchema,
   })
   .openapi('UserSettingsResponse');
 
