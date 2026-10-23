@@ -48,7 +48,7 @@ describe('draft-comments reaction serialization (PGlite)', () => {
       bible_texts: schema.bible_texts,
     });
     const migrationSql = readFileSync(
-      join(migrationDir, '0039_add_draft_chapter_comments.sql'),
+      join(migrationDir, '0040_add_draft_chapter_comments.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(migrationSql);

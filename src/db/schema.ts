@@ -47,6 +47,7 @@ export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status'
   'conflict',
   'resolved',
 ]);
+export const verseAudioGranularityEnum = pgEnum('verse_audio_granularity', ['verse', 'pericope']);
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull().unique(),
@@ -651,6 +652,15 @@ export const verse_audio_recordings = pgTable(
     /** Monotonic token clients send as baseVersionToken on upload. */
     versionToken: integer('version_token').notNull().default(1),
     conflictStatus: verseAudioConflictStatusEnum('conflict_status').notNull().default('clean'),
+    /**
+     * Coverage of the active take (denormalized). Per-take shape lives on
+     * verse_audio_takes so conflicted non-active takes keep their own range.
+     */
+    granularity: verseAudioGranularityEnum('granularity').notNull().default('verse'),
+    startChapter: integer('start_chapter'),
+    startVerse: integer('start_verse'),
+    endChapter: integer('end_chapter'),
+    endVerse: integer('end_verse'),
     /** Canonical take while clean; during conflict still points at the prior active take. */
     // eslint-disable-next-line ts/no-use-before-define -- circular FK with verse_audio_takes.recordingId
     activeTakeId: integer('active_take_id').references((): AnyPgColumn => verse_audio_takes.id, {
@@ -664,6 +674,7 @@ export const verse_audio_recordings = pgTable(
   },
   (table) => [
     uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+    index('idx_verse_audio_recordings_project_unit').on(table.projectUnitId),
   ]
 );
 
@@ -690,6 +701,12 @@ export const verse_audio_takes = pgTable(
     durationSeconds: real('duration_seconds'),
     /** SHA-256 hex of the audio bytes — suppresses false conflicts on retry. */
     contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    /** Take coverage — retained when a conflicting take has a different verse/range shape. */
+    granularity: verseAudioGranularityEnum('granularity').notNull().default('verse'),
+    startChapter: integer('start_chapter'),
+    startVerse: integer('start_verse'),
+    endChapter: integer('end_chapter'),
+    endVerse: integer('end_verse'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()

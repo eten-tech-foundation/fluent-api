@@ -36,9 +36,9 @@ function validateMiddlewareInputs(
   const policyUser = { id: user.id, grants: user.grants };
 
   const projectUnitId =
-    source === VERSE_AUDIO_ID_SOURCES.PARAMS
-      ? Number(c.req.param('projectUnitId'))
-      : Number(c.req.query('projectUnitId'));
+    source === VERSE_AUDIO_ID_SOURCES.QUERY
+      ? Number(c.req.query('projectUnitId'))
+      : Number(c.req.param('projectUnitId'));
 
   if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
     return undefined;
@@ -47,8 +47,15 @@ function validateMiddlewareInputs(
   return { user, policyUser, projectUnitId };
 }
 
-function parseBibleTextId(c: Context<AppEnv>): number | undefined {
-  const bibleTextId = Number(c.req.param('bibleTextId'));
+async function parseBibleTextId(
+  c: Context<AppEnv>,
+  source: VerseAudioIdSource
+): Promise<number | undefined> {
+  const raw =
+    source === VERSE_AUDIO_ID_SOURCES.FORM
+      ? (await c.req.parseBody()).bibleTextId
+      : c.req.param('bibleTextId');
+  const bibleTextId = Number(raw);
   return Number.isInteger(bibleTextId) && bibleTextId > 0 ? bibleTextId : undefined;
 }
 
@@ -113,7 +120,7 @@ export function requireResolveVerseAudioConflictAccess(source: VerseAudioIdSourc
 
     const { user, policyUser, projectUnitId } = validInputs;
 
-    const bibleTextId = parseBibleTextId(c);
+    const bibleTextId = await parseBibleTextId(c, source);
     if (bibleTextId === undefined) {
       return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
     }
@@ -149,7 +156,7 @@ export function requireEditVerseAudioAccess(source: VerseAudioIdSource) {
 
     const { user, policyUser, projectUnitId } = validInputs;
 
-    const bibleTextId = parseBibleTextId(c);
+    const bibleTextId = await parseBibleTextId(c, source);
     if (bibleTextId === undefined) {
       return c.json({ message: 'Missing bibleTextId' }, HttpStatusCodes.BAD_REQUEST);
     }

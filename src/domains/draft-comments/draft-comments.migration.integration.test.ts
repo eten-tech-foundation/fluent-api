@@ -80,7 +80,7 @@ async function seedMinimalGraph() {
   });
 }
 
-describe('draft-comments migration 0039 (PGlite, disposable)', () => {
+describe('draft-comments migration 0040 (PGlite, disposable)', () => {
   beforeAll(async () => {
     await createTestSchema(client, {
       userStatusEnum: schema.userStatusEnum,
@@ -108,7 +108,7 @@ describe('draft-comments migration 0039 (PGlite, disposable)', () => {
     });
 
     const migrationSql = readFileSync(
-      join(migrationDir, '0039_add_draft_chapter_comments.sql'),
+      join(migrationDir, '0040_add_draft_chapter_comments.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(migrationSql);
