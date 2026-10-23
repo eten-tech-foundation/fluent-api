@@ -4,7 +4,7 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_texts, verse_audio_recordings, verse_audio_takes } from '@/db/schema';
-import { hasPostgresErrorCode } from '@/lib/db-errors';
+import { getPostgresConstraintName, hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -16,18 +16,27 @@ import type {
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
-import { mapForeignKeyViolation, takeSelection } from './verse-audio-takes.repository';
+import { takeSelection } from './verse-audio-takes.repository';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-export {
-  findTakeByContentHash,
-  getTakeById,
-  insertTake,
-  listTakesByRecordingIds,
-  listTakesForRecording,
-  pruneSupersededTakes,
-  takeSelection,
-} from './verse-audio-takes.repository';
+/** Storage-object FKs that fail when reclaim races an insert/promotion. */
+const RETRYABLE_STORAGE_FK_CONSTRAINTS = new Set([
+  'verse_audio_takes_storage_object_id_storage_objects_id_fk',
+  'verse_audio_recordings_storage_object_id_storage_objects_id_fk',
+  'verse_audio_recordings_active_take_id_verse_audio_takes_id_fk',
+]);
+
+export function mapForeignKeyViolation(error: unknown): Result<never> {
+  const constraint = getPostgresConstraintName(error) ?? '';
+  if (RETRYABLE_STORAGE_FK_CONSTRAINTS.has(constraint) || constraint.includes('storage_object')) {
+    // Reclamation / prune deleted the referenced row; safe to reload and retry.
+    return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+  }
+  if (constraint.includes('recording_id')) {
+    return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+  }
+  return err(ErrorCode.INTERNAL_ERROR);
+}
 
 const recordSelection = {
   id: verse_audio_recordings.id,
