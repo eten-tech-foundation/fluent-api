@@ -1,8 +1,8 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 
 import * as repo from './self-settings.repository';
 
@@ -26,15 +26,20 @@ vi.mock('@/lib/logger', () => ({
  */
 describe('self-settings.repository.mergePatch (PGlite)', () => {
   beforeAll(async () => {
-    // Generate from the production Drizzle table (keeps columns/defaults in sync
-    // with schema.ts). Drop the users FK so this suite stays isolated from seeds.
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({ user_settings: schema.user_settings })
-    );
-    await client.exec(
-      statements.filter((statement) => !statement.includes('FOREIGN KEY')).join('\n')
-    );
+    // Fixture through the shared createTestSchema path like every sibling suite.
+    // The users FK is kept, so seed the user ids the suite writes against.
+    await createTestSchema(client, {
+      authUser: schema.authUser,
+      organizations: schema.organizations,
+      users: schema.users,
+      userStatusEnum: schema.userStatusEnum,
+      user_settings: schema.user_settings,
+    });
+    await database.insert(schema.users).values([
+      { id: 1, username: 'settings-u1', email: 'settings-u1@example.com' },
+      { id: 2, username: 'settings-u2', email: 'settings-u2@example.com' },
+      { id: 3, username: 'settings-u3', email: 'settings-u3@example.com' },
+    ]);
   }, 30_000);
 
   beforeEach(async () => {
