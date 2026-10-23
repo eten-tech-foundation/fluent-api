@@ -11,6 +11,7 @@ vi.mock('@/db', () => ({
   db: {
     select: vi.fn(),
     update: vi.fn(),
+    transaction: vi.fn(),
   },
 }));
 

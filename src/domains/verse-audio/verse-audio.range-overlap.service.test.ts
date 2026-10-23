@@ -5,6 +5,7 @@ import { uploadVerseAudio } from '@/lib/audio-storage';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import { uploadRangeRecording } from './verse-audio.range.service';
 import * as repo from './verse-audio.repository';
 import { hashOf, record, take } from './verse-audio.test-fixtures';
@@ -47,6 +48,15 @@ vi.mock('./verse-audio.repository', () => ({
   updateTakeCoverageAndRecordingIfVersion: vi.fn(),
 }));
 
+vi.mock('./verse-audio-takes.repository', () => ({
+  findTakeByContentHash: vi.fn(),
+  getTakeById: vi.fn(),
+  insertTake: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
+  pruneSupersededTakes: vi.fn(),
+}));
+
 vi.mock('@/lib/logger', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
@@ -74,8 +84,8 @@ describe('uploadRangeRecording overlap scans', () => {
     );
     vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
     vi.mocked(repo.getBibleTextById).mockResolvedValue(
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
@@ -137,7 +147,7 @@ describe('uploadRangeRecording overlap scans', () => {
         record: { ...cleanUnit, ...pericopeShape, versionToken: 6, activeTakeId: 10 },
       })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [1, 2] }));
 
     const result = await uploadRangeRecording({
@@ -197,7 +207,7 @@ describe('uploadRangeRecording overlap scans', () => {
         },
       })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [1, 2] }));
 
     const result = await uploadRangeRecording({
@@ -304,7 +314,7 @@ describe('uploadRangeRecording overlap scans', () => {
     vi.mocked(repo.updateTakeCoverageAndRecordingIfVersion).mockResolvedValue(
       ok({ applied: true, record: { ...unit, ...newShape, versionToken: 3 } })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([{ ...take, ...newShape }]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([{ ...take, ...newShape }]));
 
     const result = await uploadRangeRecording({
       ...rangeInput,
@@ -354,7 +364,7 @@ describe('uploadRangeRecording overlap scans', () => {
     vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
       ok({ applied: true, record: { ...unit, versionToken: 4, activeTakeId: 11 } })
     );
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take, newTake]));
 
     const result = await uploadRangeRecording({
       ...rangeInput,
