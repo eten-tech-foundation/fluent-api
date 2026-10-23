@@ -47,34 +47,43 @@ describe('chapterAssignmentPolicy.claim', () => {
     ).toBe(true);
   });
 
-  it('allows a race loser when another translator recently claimed a draft without peer', () => {
+  it('denies same-user claim when status is no longer DRAFT', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
       ChapterAssignmentPolicy.claim(user, {
         ...baseAssignment,
-        assignedUserId: 99,
-        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
-        peerCheckerId: null,
-        updatedAt: new Date(),
-      })
-    ).toBe(true);
-  });
-
-  it('denies a late claim on a stale peer draft (not a real race)', () => {
-    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
-    const staleClaim = new Date(Date.now() - 6 * 60 * 1000);
-    expect(
-      ChapterAssignmentPolicy.claim(user, {
-        ...baseAssignment,
-        assignedUserId: 99,
-        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
-        peerCheckerId: null,
-        updatedAt: staleClaim,
+        assignedUserId: user.id,
+        peerCheckerId: 88,
+        status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
       })
     ).toBe(false);
   });
 
-  it('denies when the chapter is already assigned to someone else with a peer checker (PM assign)', () => {
+  it('allows a race loser when another translator claimed a draft without peer', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+        peerCheckerId: null,
+      })
+    ).toBe(true);
+  });
+
+  it('allows a late reconnect claim on a draft held by another translator', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+        peerCheckerId: null,
+      })
+    ).toBe(true);
+  });
+
+  it('allows claim when the chapter is assigned to someone else with a peer checker (PM assign)', () => {
     const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
     expect(
       ChapterAssignmentPolicy.claim(user, {
@@ -82,6 +91,30 @@ describe('chapterAssignmentPolicy.claim', () => {
         assignedUserId: 99,
         peerCheckerId: 88,
         status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+      })
+    ).toBe(true);
+  });
+
+  it('allows a conflict-shaped claim when another user holds a non-DRAFT assignment', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        peerCheckerId: 88,
+        status: CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+      })
+    ).toBe(true);
+  });
+
+  it('denies conflict claim when another user holds complete/terminal work', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(
+      ChapterAssignmentPolicy.claim(user, {
+        ...baseAssignment,
+        assignedUserId: 99,
+        peerCheckerId: 88,
+        status: CHAPTER_ASSIGNMENT_STATUS.COMPLETE,
       })
     ).toBe(false);
   });

@@ -1,5 +1,5 @@
 {
-  "id": "811e81ff-aeee-40b8-afd5-8947eb5e9611",
+  "id": "ef6ffedd-3c0d-4574-9347-c1c80ec93254",
   "prevId": "362faffe-16e3-4844-a202-18e2f79af637",
   "version": "7",
   "dialect": "postgresql",
@@ -1400,7 +1400,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {
@@ -1498,7 +1498,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -1513,6 +1513,37 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.catalogue_watermark": {
+      "name": "catalogue_watermark",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "boolean",
+          "primaryKey": true,
+          "notNull": true,
+          "default": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "catalogue_watermark_singleton": {
+          "name": "catalogue_watermark_singleton",
+          "value": "\"catalogue_watermark\".\"id\" = true"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.chapter_assignment_assigned_user_history": {
@@ -2070,7 +2101,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -3758,38 +3789,6 @@
           "notNull": true,
           "default": "'clean'"
         },
-        "granularity": {
-          "name": "granularity",
-          "type": "verse_audio_granularity",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'verse'"
-        },
-        "start_chapter": {
-          "name": "start_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_verse": {
-          "name": "start_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_chapter": {
-          "name": "end_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_verse": {
-          "name": "end_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "active_take_id": {
           "name": "active_take_id",
           "type": "integer",
@@ -3829,21 +3828,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_verse_audio_recordings_project_unit": {
-          "name": "idx_verse_audio_recordings_project_unit",
-          "columns": [
-            {
-              "expression": "project_unit_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3953,38 +3937,6 @@
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true
-        },
-        "granularity": {
-          "name": "granularity",
-          "type": "verse_audio_granularity",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'verse'"
-        },
-        "start_chapter": {
-          "name": "start_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_verse": {
-          "name": "start_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_chapter": {
-          "name": "end_chapter",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_verse": {
-          "name": "end_verse",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4125,11 +4077,6 @@
       "name": "verse_audio_conflict_status",
       "schema": "public",
       "values": ["clean", "conflict", "resolved"]
-    },
-    "public.verse_audio_granularity": {
-      "name": "verse_audio_granularity",
-      "schema": "public",
-      "values": ["verse", "pericope"]
     }
   },
   "schemas": {},

@@ -19,5 +19,6 @@
   },
   "tsc-alias": {
     "resolveFullPaths": true
-  }
+  },
+  "exclude": ["worktrees", "node_modules", "dist"]
 }

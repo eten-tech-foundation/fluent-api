@@ -5,6 +5,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as schema from '@/db/schema';
 import { pericope_verses } from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import env from '@/env';
 import { auth } from '@/lib/auth';
 import { server } from '@/server/server';
@@ -91,12 +95,14 @@ const SET_ONE_ROWS = [
 describe('pericope set sync with real PostgreSQL queries', () => {
   beforeAll(async () => {
     // Generate tables and constraints from the current production schema.
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
         pericope_verses: schema.pericope_verses,
         pericope_sets: schema.pericope_sets,
         books: schema.books,
+        catalogue_watermark: schema.catalogue_watermark,
         organizations: schema.organizations,
         users: schema.users,
         userStatusEnum: schema.userStatusEnum,
@@ -105,6 +111,7 @@ describe('pericope set sync with real PostgreSQL queries', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
     await database.insert(schema.books).values([
       { id: 41, code: 'MRK', eng_display_name: 'Mark' },
       { id: 42, code: 'LUK', eng_display_name: 'Luke' },

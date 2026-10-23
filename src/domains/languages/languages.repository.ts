@@ -90,7 +90,7 @@ export async function upsertFromDbl(
                   WHEN (languages.lang_name IS NULL AND excluded.lang_name IS NOT NULL)
                     OR (languages.lang_name_localized IS NULL AND excluded.lang_name_localized IS NOT NULL)
                     OR (languages.script_direction IS NULL AND excluded.script_direction IS NOT NULL)
-                  THEN now()
+                  THEN next_catalogue_watermark()
                   ELSE languages.updated_at
                 END`,
             },

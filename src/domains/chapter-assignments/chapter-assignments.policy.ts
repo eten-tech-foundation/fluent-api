@@ -10,7 +10,7 @@ import type { AppPolicyUser } from '@/lib/types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { authorize } from '@/lib/services/permissions/authorize';
 
-import { CHAPTER_ASSIGNMENT_STATUS, CLAIM_RACE_WINDOW_MS } from './chapter-assignments.types';
+import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
 export interface PolicyChapterAssignment {
   organizationId: number;
@@ -18,12 +18,21 @@ export interface PolicyChapterAssignment {
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: string | null;
-  updatedAt?: Date | null;
 }
 
-function isWithinClaimRaceWindow(updatedAt: Date | null | undefined, now = Date.now()): boolean {
-  if (!updatedAt) return false;
-  return now - updatedAt.getTime() <= CLAIM_RACE_WINDOW_MS;
+/** Same-user claim retry is only idempotent while the row is still DRAFT. */
+export function isIdempotentSelfClaim(
+  assignment: Pick<PolicyChapterAssignment, 'assignedUserId' | 'status'>,
+  userId: number
+): boolean {
+  return (
+    assignment.assignedUserId === userId && assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT
+  );
+}
+
+/** Rival held work may be conflict-flagged only while not terminal (complete). */
+function isClaimConflictEligibleStatus(status: string | null | undefined): boolean {
+  return status != null && status !== CHAPTER_ASSIGNMENT_STATUS.COMPLETE;
 }
 
 export function isPostPeerStatus(
@@ -167,21 +176,17 @@ export const ChapterAssignmentPolicy = {
     if (!authorize(user, PERMISSIONS.CONTENT_UPDATE, scope)) return false;
 
     // Same translator retrying their own claim (e.g. offline reconnect) — service
-    // returns idempotently without duplicating history.
+    // returns idempotently without duplicating history. Same-user non-DRAFT → 404.
     if (assignment.assignedUserId === user.id) {
-      return assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT;
+      return isIdempotentSelfClaim(assignment, user.id);
     }
 
-    // Another translator won a recent self-claim (true race / retry overlap).
-    // Service flags hasClaimConflict and returns 200 — never 404 for concurrency.
-    // Stale drafts are not claimable; offline reconnect conflicts are detected
-    // client-side during assignment sync (#271), not via this branch.
+    // Another user holds non-terminal work (DRAFT race, late reconnect, PM assign,
+    // or a later non-complete stage). Service returns conflict-shaped 200 and
+    // latches hasClaimConflict / first claimConflictUserId without changing
+    // assignedUserId (#376). Terminal (complete) work is not flaggable.
     if (assignment.assignedUserId != null) {
-      return (
-        assignment.status === CHAPTER_ASSIGNMENT_STATUS.DRAFT &&
-        assignment.peerCheckerId == null &&
-        isWithinClaimRaceWindow(assignment.updatedAt)
-      );
+      return isClaimConflictEligibleStatus(assignment.status);
     }
 
     return (
