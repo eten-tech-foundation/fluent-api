@@ -56,12 +56,20 @@ describe('parseUsfmFiles (#419)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data[0].verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'First.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
       {
         chapterNumber: 1,
         verseNumber: 2,
         text: 'Second.',
-        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+        markers: {
+          headings: [{ marker: 's1', text: 'The Creation' }],
+          paragraphs: [{ marker: 'p', offset: 0 }],
+        },
       },
     ]);
   });
