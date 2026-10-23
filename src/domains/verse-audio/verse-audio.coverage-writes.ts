@@ -17,8 +17,8 @@ import type {
   VerseAudioRecord,
 } from './verse-audio.types';
 
-import * as takesRepo from './verse-audio-takes.repository';
 import { coverageFromActive, rangesOverlap } from './verse-audio.coverage';
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
 /** Shared select shape for recording rows joined to bible_texts anchors. */
@@ -226,7 +226,7 @@ export async function updateTakeCoverageAndRecordingIfVersion(
       context: { takeId, recordingId, expectedVersionToken, shape, patch },
     });
     if (hasPostgresErrorCode(error, '23503')) {
-      return takesRepo.mapForeignKeyViolation(error);
+      return mapForeignKeyViolation(error);
     }
     return err(ErrorCode.INTERNAL_ERROR);
   }
