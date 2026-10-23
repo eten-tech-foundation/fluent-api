@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import env from '@/env';
-import { ErrorCode } from '@/lib/types';
+import { logger } from '@/lib/logger';
+import { err, ErrorCode } from '@/lib/types';
 
 import {
   AQUIFER_MAX_SEARCH_PAGES,
@@ -472,6 +473,59 @@ describe('aquifer.client', () => {
       if (result.ok) {
         expect(result.data.chapters[0]?.audio?.mp3?.size).toBeUndefined();
         expect(result.data.chapters[0]?.verses[0]?.text).toBeNull();
+      }
+    });
+
+    const missingBook = { aquiferBibleId: 101, bookCode: 'DEU', startChapter: 34, endChapter: 34 };
+
+    it('answers notFoundCode and logs the upstream 404 when the Bible has no text for the book', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ statusCode: 404, message: 'Not Found' }, 404)
+      );
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const result = await getBibleText(missingBook, {
+        notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND,
+      });
+
+      expect(result).toEqual(err(ErrorCode.BIBLE_BOOK_NOT_FOUND));
+      expect(warn).toHaveBeenCalledWith({
+        message: expect.stringContaining('HTTP 404 for GET /bibles/101/texts?BookCode=DEU'),
+        context: {
+          path: '/bibles/101/texts',
+          status: 404,
+          body: '{"statusCode":404,"message":"Not Found"}',
+        },
+      });
+    });
+
+    it('treats a 404 as an upstream failure when no notFoundCode is given', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ statusCode: 404, message: 'Not Found' }, 404)
+      );
+
+      const result = await getBibleText(missingBook);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('HTTP 404');
+      }
+    });
+
+    it('keeps a non-404 failure as an upstream failure even with notFoundCode', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ message: 'Upstream error' }, 500)
+      );
+
+      const result = await getBibleText(missingBook, {
+        notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('HTTP 500');
       }
     });
   });

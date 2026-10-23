@@ -8,34 +8,32 @@ import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import type { RecordingStatePatch } from './verse-audio.coverage-writes';
 import type {
   InsertTakeInput,
   UpsertVerseAudioInput,
-  VerseAudioConflictStatus,
   VerseAudioRecord,
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
 import { takeSelection } from './verse-audio-takes.repository';
+import { recordSelection } from './verse-audio.coverage-writes';
 import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-const recordSelection = {
-  id: verse_audio_recordings.id,
-  projectUnitId: verse_audio_recordings.projectUnitId,
-  bibleTextId: verse_audio_recordings.bibleTextId,
-  uploadedBy: verse_audio_recordings.uploadedBy,
-  storageObjectId: verse_audio_recordings.storageObjectId,
-  contentType: verse_audio_recordings.contentType,
-  sizeBytes: verse_audio_recordings.sizeBytes,
-  durationSeconds: verse_audio_recordings.durationSeconds,
-  versionToken: verse_audio_recordings.versionToken,
-  conflictStatus: verse_audio_recordings.conflictStatus,
-  activeTakeId: verse_audio_recordings.activeTakeId,
-  createdAt: verse_audio_recordings.createdAt,
-  updatedAt: verse_audio_recordings.updatedAt,
-  verseNumber: bible_texts.verseNumber,
-};
+export { findTakeByContentHash, insertTake } from './verse-audio-takes.repository';
+export {
+  markIntersectingCoverageConflicts,
+  updateTakeCoverageAndRecordingIfVersion,
+} from './verse-audio.coverage-writes';
+export type { RecordingStatePatch } from './verse-audio.coverage-writes';
+
+interface BibleTextAnchor {
+  id: number;
+  bookId: number;
+  chapterNumber: number;
+  verseNumber: number;
+}
 
 export async function get(
   projectUnitId: number,
@@ -96,6 +94,35 @@ export async function listByChapter(
       cause: error,
       message: 'Failed to list verse audio recordings',
       context: { projectUnitId, bibleId, bookId, chapterNumber },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** Loads book/chapter/verse for range-upload anchor validation. */
+export async function getBibleTextById(bibleTextId: number): Promise<Result<BibleTextAnchor>> {
+  try {
+    const [row] = await db
+      .select({
+        id: bible_texts.id,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+        verseNumber: bible_texts.verseNumber,
+      })
+      .from(bible_texts)
+      .where(eq(bible_texts.id, bibleTextId))
+      .limit(1);
+
+    if (!row) {
+      return err(ErrorCode.INVALID_REFERENCE);
+    }
+
+    return ok(row);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to load bible text for verse audio',
+      context: { bibleTextId },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
@@ -207,6 +234,11 @@ export async function createFirstRecordingWithTake(
           contentType: takeInput.contentType,
           sizeBytes: takeInput.sizeBytes,
           durationSeconds: takeInput.durationSeconds,
+          granularity: take.granularity,
+          startChapter: take.startChapter,
+          startVerse: take.startVerse,
+          endChapter: take.endChapter,
+          endVerse: take.endVerse,
           versionToken: 2,
           updatedAt: new Date(),
         })
@@ -266,18 +298,6 @@ export async function createFirstRecordingWithTake(
   }
 }
 
-export interface RecordingStatePatch {
-  uploadedBy?: number;
-  /** Pass `null` to clear; omit (`undefined`) to leave unchanged. */
-  storageObjectId?: number | null;
-  contentType?: string;
-  sizeBytes?: number;
-  durationSeconds?: number | null;
-  versionToken?: number;
-  conflictStatus?: VerseAudioConflictStatus;
-  activeTakeId?: number | null;
-}
-
 export interface UpdateIfVersionOptions {
   /** First-take link: only succeed while no active take is set yet. */
   requireNullActiveTake?: boolean;
@@ -332,7 +352,7 @@ export async function updateRecordingStateIfVersion(
 }
 
 /**
- * Flag conflict without touching active take (CAS-miss path).
+ * Flag conflict without changing the active take.
  *
  * Atomically increments versionToken and sets conflictStatus to 'conflict',
  * while preserving an intervening 'resolved' status so a racing upload cannot

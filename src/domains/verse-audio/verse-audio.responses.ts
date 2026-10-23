@@ -109,6 +109,11 @@ async function takeWithUrl(
     sizeBytes: take.sizeBytes,
     durationSeconds: take.durationSeconds,
     contentHash: take.contentHash,
+    granularity: take.granularity,
+    startChapter: take.startChapter,
+    startVerse: take.startVerse,
+    endChapter: take.endChapter,
+    endVerse: take.endVerse,
     downloadUrl: await resolveDownloadUrl(
       take.storageObjectId,
       take.contentHash,
@@ -145,6 +150,11 @@ async function withTakesAndUrl(
     durationSeconds: record.durationSeconds,
     versionToken: record.versionToken,
     conflictStatus: record.conflictStatus,
+    granularity: record.granularity,
+    startChapter: record.startChapter,
+    startVerse: record.startVerse,
+    endChapter: record.endChapter,
+    endVerse: record.endVerse,
     activeTakeId: record.activeTakeId,
     verseNumber: record.verseNumber,
     downloadUrl: await resolveDownloadUrl(

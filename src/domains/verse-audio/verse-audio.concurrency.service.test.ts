@@ -32,16 +32,27 @@ vi.mock('./storage-objects.repository', () => ({
 
 vi.mock('./verse-audio.repository', () => ({
   createFirstRecordingWithTake: vi.fn(),
+  findTakeByContentHash: vi.fn(),
   get: vi.fn(),
+  getBibleTextById: vi.fn(),
+  getTakeById: vi.fn(),
+  insertTake: vi.fn(),
+  listByChapter: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
+  markIntersectingCoverageConflicts: vi.fn(),
+  remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
 }));
 
 vi.mock('./verse-audio-takes.repository', () => ({
   findTakeByContentHash: vi.fn(),
+  getTakeById: vi.fn(),
   insertTake: vi.fn(),
   listTakesByRecordingIds: vi.fn(),
   listTakesForRecording: vi.fn(),
+  pruneSupersededTakes: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -74,6 +85,10 @@ describe('verse-audio service', () => {
     vi.mocked(uploadVerseAudio).mockResolvedValue(undefined);
     vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take]));
     vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([take]));
+    vi.mocked(repo.getBibleTextById).mockResolvedValue(
+      ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
+    );
+    vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
   });
 
   describe('uploadRecording', () => {
@@ -116,12 +131,12 @@ describe('verse-audio service', () => {
 
     it('suppresses false conflicts when content hash already exists on the active take', async () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(take));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
 
       const result = await uploadRecording({ ...uploadInput, baseVersionToken: 2 });
 
       expect(result.ok).toBe(true);
-      expect(takesRepo.insertTake).not.toHaveBeenCalled();
+      expect(repo.insertTake).not.toHaveBeenCalled();
       expect(uploadVerseAudio).not.toHaveBeenCalled();
       expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
     });
@@ -146,7 +161,7 @@ describe('verse-audio service', () => {
             versionToken: 2,
           })
         );
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
       vi.mocked(storageRepo.claim).mockResolvedValue(
         ok({
           bucket: 'verse-audio',
@@ -156,7 +171,7 @@ describe('verse-audio service', () => {
           key: `unit-12/text-3401/${newHash}`,
         })
       );
-      vi.mocked(takesRepo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({
           applied: true,
@@ -210,7 +225,7 @@ describe('verse-audio service', () => {
       };
 
       vi.mocked(repo.get).mockResolvedValue(ok(resolved));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
       vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([prior, active]));
 
       const result = await uploadRecording({
@@ -244,7 +259,7 @@ describe('verse-audio service', () => {
       vi.mocked(repo.get)
         .mockResolvedValueOnce(ok(conflicted))
         .mockResolvedValue(ok({ ...conflicted, activeTakeId: 10, versionToken: 4 }));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(losing));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(losing));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({ applied: true, record: { ...conflicted, activeTakeId: 10, versionToken: 4 } })
       );
@@ -282,7 +297,7 @@ describe('verse-audio service', () => {
       };
 
       vi.mocked(repo.get).mockResolvedValueOnce(ok(conflicted)).mockResolvedValue(ok(resolved));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(prior));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(prior));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({ applied: false, record: null })
       );
@@ -311,7 +326,7 @@ describe('verse-audio service', () => {
       vi.mocked(repo.get)
         .mockResolvedValueOnce(ok(conflicted))
         .mockResolvedValue(ok({ ...conflicted, activeTakeId: 12, versionToken: 2 }));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
       vi.mocked(storageRepo.claim).mockResolvedValue(
         ok({
           bucket: 'verse-audio',
@@ -321,7 +336,7 @@ describe('verse-audio service', () => {
           key: `unit-12/text-3401/${newHash}`,
         })
       );
-      vi.mocked(takesRepo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({ applied: true, record: { ...conflicted, activeTakeId: 12, versionToken: 2 } })
       );
@@ -352,7 +367,7 @@ describe('verse-audio service', () => {
       };
 
       vi.mocked(repo.get).mockResolvedValueOnce(ok(record)).mockResolvedValue(ok(conflicted));
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
       vi.mocked(storageRepo.claim).mockResolvedValue(
         ok({
           bucket: 'verse-audio',
@@ -362,7 +377,7 @@ describe('verse-audio service', () => {
           key: `unit-12/text-3401/${newHash}`,
         })
       );
-      vi.mocked(takesRepo.insertTake).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(newTake));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({ applied: false, record: null })
       );
@@ -375,7 +390,7 @@ describe('verse-audio service', () => {
         data: newData,
       });
 
-      expect(takesRepo.insertTake).toHaveBeenCalledWith(
+      expect(repo.insertTake).toHaveBeenCalledWith(
         expect.objectContaining({ contentHash: newHash })
       );
       expect(repo.markConflictPreservingActive).toHaveBeenCalledWith(record.id);
@@ -400,7 +415,7 @@ describe('verse-audio service', () => {
             versionToken: 2,
           })
         );
-      vi.mocked(takesRepo.findTakeByContentHash).mockResolvedValue(ok(null));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
       vi.mocked(storageRepo.claim).mockResolvedValue(
         ok({
           bucket: 'verse-audio',
@@ -410,7 +425,7 @@ describe('verse-audio service', () => {
           key: `unit-12/text-3401/${newHash}`,
         })
       );
-      vi.mocked(takesRepo.insertTake).mockResolvedValue(ok(conflictTake));
+      vi.mocked(repo.insertTake).mockResolvedValue(ok(conflictTake));
       vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
         ok({
           applied: true,
