@@ -327,7 +327,8 @@ export const prepareOfflineManifestResponseSchema = z
     items: z.array(prepareOfflineManifestItemSchema),
     totalBytes: z.number().int().nonnegative(),
     truncated: z.boolean().openapi({
-      description: 'True when one or more resource configs exceeded the per-config hydration cap',
+      description:
+        'True when one or more resource configs could not be fully enumerated within the server bounded Aquifer search page budget (provider total / short-page proof missing). False when every matching resource was collected; hydrate failures may still drop items (or 502 on the manifest fail-closed path) and are not covered by this flag. Clients must not treat a truncated catalogue as complete.',
     }),
   })
   .openapi('PrepareOfflineResourceManifest');

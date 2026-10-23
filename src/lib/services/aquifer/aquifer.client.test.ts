@@ -4,6 +4,7 @@ import env from '@/env';
 import { ErrorCode } from '@/lib/types';
 
 import {
+  AQUIFER_MAX_SEARCH_PAGES,
   getBibles,
   getBibleText,
   getResource,
@@ -283,8 +284,9 @@ describe('aquifer.client', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(101);
-        expect(result.data.at(-1)?.id).toBe(101);
+        expect(result.data.items).toHaveLength(101);
+        expect(result.data.items.at(-1)?.id).toBe(101);
+        expect(result.data.complete).toBe(true);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
@@ -307,9 +309,75 @@ describe('aquifer.client', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(1);
+        expect(result.data.items).toHaveLength(1);
+        expect(result.data.complete).toBe(true);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks enumeration incomplete when the page ceiling is hit with a known higher total', async () => {
+      const fullPage = (offset: number) => ({
+        totalItemCount: AQUIFER_MAX_SEARCH_PAGES * 100 + 1,
+        returnedItemCount: 100,
+        offset,
+        items: Array.from({ length: 100 }, (_, index) => ({
+          ...searchItem,
+          id: offset + index + 1,
+          name: `item-${offset + index + 1}`,
+          localizedName: `Item ${offset + index + 1}`,
+        })),
+      });
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      for (let page = 0; page < AQUIFER_MAX_SEARCH_PAGES; page += 1) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(fullPage(page * 100)));
+      }
+
+      const result = await searchAllResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(AQUIFER_MAX_SEARCH_PAGES * 100);
+        expect(result.data.complete).toBe(false);
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(AQUIFER_MAX_SEARCH_PAGES);
+    });
+
+    it('marks enumeration complete when totalItemCount is reached exactly at the page ceiling', async () => {
+      const total = AQUIFER_MAX_SEARCH_PAGES * 100;
+      const fullPage = (offset: number) => ({
+        totalItemCount: total,
+        returnedItemCount: 100,
+        offset,
+        items: Array.from({ length: 100 }, (_, index) => ({
+          ...searchItem,
+          id: offset + index + 1,
+          name: `item-${offset + index + 1}`,
+          localizedName: `Item ${offset + index + 1}`,
+        })),
+      });
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      for (let page = 0; page < AQUIFER_MAX_SEARCH_PAGES; page += 1) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(fullPage(page * 100)));
+      }
+
+      const result = await searchAllResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(total);
+        expect(result.data.complete).toBe(true);
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(AQUIFER_MAX_SEARCH_PAGES);
     });
   });
 

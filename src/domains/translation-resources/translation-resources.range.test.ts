@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auth } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 import * as aquiferClient from '@/lib/services/aquifer/aquifer.client';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
@@ -13,6 +14,7 @@ import {
   imageSearchHit,
   NOTES_RANGE_PATH,
   QUESTIONS_RANGE_PATH,
+  searchEnumeration,
   searchHit,
   textDetails,
 } from './translation-resources.test-fixtures';
@@ -70,7 +72,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when Aquifer has no notes in the range', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(NOTES_RANGE_PATH, { method: 'GET' });
 
@@ -98,7 +100,7 @@ describe('translation-resources verse-range routes', () => {
         { ...searchHit, id: 101, name: 'one-dup', localizedName: 'One Dup' },
         { ...searchHit, id: 202, name: 'two', localizedName: 'Two' },
       ];
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits));
       vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) =>
         ok({ ...textDetails, id, name: String(id), localizedName: String(id) })
       );
@@ -110,6 +112,30 @@ describe('translation-resources verse-range routes', () => {
       expect(body.items.map((item: { id: number }) => item.id)).toEqual([101, 202]);
       expect(aquiferClient.getResource).toHaveBeenCalledTimes(2);
       expect(aquiferClient.searchAllResources).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns when Aquifer range search is incomplete and still returns collected items', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = [{ ...searchHit, id: 101 }];
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits, false));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(ok(textDetails));
+
+      const res = await server.request(NOTES_RANGE_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).items).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith({
+        message: 'Aquifer verse-range search hit page ceiling; returning partial items',
+        context: expect.objectContaining({
+          resourceCollectionCode: 'UWTranslationNotes',
+          bookCode: 'MRK',
+          chapter: 1,
+          startVerse: 1,
+          endVerse: 8,
+          collectedCount: 1,
+        }),
+      });
     });
 
     it('returns 502 with a generic message when Aquifer search fails', async () => {
@@ -165,7 +191,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when none exist', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(QUESTIONS_RANGE_PATH, { method: 'GET' });
 
@@ -183,7 +209,7 @@ describe('translation-resources verse-range routes', () => {
     it('returns 502 when details hydration fails for every hit', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([searchHit]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([searchHit]));
       vi.mocked(aquiferClient.getResource).mockResolvedValue(
         err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE)
       );
@@ -200,7 +226,7 @@ describe('translation-resources verse-range routes', () => {
       asAuthenticatedUser();
       asProjectMember();
       const hits = [imageSearchHit(55), imageSearchHit(55), imageSearchHit(66)];
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok(hits));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits));
       vi.mocked(aquiferClient.getResource).mockImplementation(async (id: number) =>
         ok({
           id,
@@ -246,12 +272,44 @@ describe('translation-resources verse-range routes', () => {
     it('returns empty items when Aquifer has no images in the range', async () => {
       asAuthenticatedUser();
       asProjectMember();
-      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(ok([]));
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration([]));
 
       const res = await server.request(IMAGES_RANGE_PATH, { method: 'GET' });
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ items: [] });
+    });
+
+    it('warns when Aquifer images range search is incomplete and still returns collected items', async () => {
+      asAuthenticatedUser();
+      asProjectMember();
+      const hits = [imageSearchHit(55)];
+      vi.mocked(aquiferClient.searchAllResources).mockResolvedValue(searchEnumeration(hits, false));
+      vi.mocked(aquiferClient.getResource).mockResolvedValue(
+        ok({
+          id: 55,
+          name: 'map',
+          localizedName: 'Map 55',
+          content: { url: 'https://cdn.example/55.jpg', size: 55 },
+          grouping: { type: 'Images', name: 'Images', mediaType: 'Image' },
+        })
+      );
+
+      const res = await server.request(IMAGES_RANGE_PATH, { method: 'GET' });
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).items).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith({
+        message: 'Aquifer images verse-range search hit page ceiling; returning partial items',
+        context: expect.objectContaining({
+          resourceType: 'Images',
+          bookCode: 'MRK',
+          chapter: 1,
+          startVerse: 1,
+          endVerse: 8,
+          collectedCount: 1,
+        }),
+      });
     });
   });
 });

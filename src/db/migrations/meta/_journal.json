@@ -267,6 +267,13 @@
       "when": 1791958111326,
       "tag": "0037_bump_bibles_on_provider_resource_license",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792616814331,
+      "tag": "0038_catalogue_watermark_allocator",
+      "breakpoints": true
     }
   ]
 }

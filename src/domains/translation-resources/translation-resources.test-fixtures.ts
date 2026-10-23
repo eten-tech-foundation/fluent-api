@@ -100,3 +100,8 @@ export function imageSearchHit(id: number) {
     },
   };
 }
+
+/** Synthetic Aquifer search enumeration for route mocks (not a live payload). */
+export function searchEnumeration<T>(items: T[], complete = true) {
+  return ok({ items, complete });
+}

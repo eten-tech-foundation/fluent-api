@@ -55,7 +55,6 @@ function buildAssignment(
     assignedUserId: 2,
     peerCheckerId: null,
     isProjectMember: true,
-    updatedAt: new Date(),
     ...overrides,
   } as unknown as ChapterAssignmentWithAuthContext;
 }
