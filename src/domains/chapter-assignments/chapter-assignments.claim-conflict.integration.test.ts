@@ -1,8 +1,8 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -25,31 +25,27 @@ vi.mock('@/domains/projects/users/project-users.service', () => ({
 
 describe('flagClaimConflict SQL CAS (PGlite)', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        chapter_assignments: schema.chapter_assignments,
-        project_units: schema.project_units,
-        milestoneTypeEnum: schema.milestoneTypeEnum,
-        projectStatusEnum: schema.projectStatusEnum,
-        projects: schema.projects,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        organizations: schema.organizations,
-        languages: schema.languages,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        bibles: schema.bibles,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        bible_provider_resources: schema.bible_provider_resources,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        books: schema.books,
-        users: schema.users,
-        userStatusEnum: schema.userStatusEnum,
-        authUser: schema.authUser,
-        pericope_sets: schema.pericope_sets,
-      })
-    );
-    await client.exec(statements.join('\n'));
+    await createTestSchema(client, {
+      chapter_assignments: schema.chapter_assignments,
+      project_units: schema.project_units,
+      milestoneTypeEnum: schema.milestoneTypeEnum,
+      projectStatusEnum: schema.projectStatusEnum,
+      projects: schema.projects,
+      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+      organizations: schema.organizations,
+      languages: schema.languages,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      bibles: schema.bibles,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      bible_provider_resources: schema.bible_provider_resources,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+      books: schema.books,
+      users: schema.users,
+      userStatusEnum: schema.userStatusEnum,
+      authUser: schema.authUser,
+      pericope_sets: schema.pericope_sets,
+    });
 
     await database.insert(schema.organizations).values({ id: 1, name: 'Org' });
     await database.insert(schema.languages).values({ id: 1, langName: 'English' });

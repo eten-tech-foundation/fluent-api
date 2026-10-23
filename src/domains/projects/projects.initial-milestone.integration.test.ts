@@ -1,8 +1,8 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { ok } from '@/lib/types';
 
 import { createProject } from './projects.service';
@@ -76,11 +76,7 @@ async function milestoneNames(projectId: number) {
 
 describe('the milestone created with a project', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson(schema)
-    );
-    await client.exec(statements.join('\n'));
+    await createTestSchema(client, schema);
     await database
       .insert(schema.users)
       .values({ id: 1, username: 'manager', email: 'manager@example.com' });
