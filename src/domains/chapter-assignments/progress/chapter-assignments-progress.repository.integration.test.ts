@@ -1,11 +1,7 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
-import {
-  installNextCatalogueWatermarkFunction,
-  seedCatalogueWatermarkSingleton,
-} from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 
 import { CHAPTER_ASSIGNMENT_STATUS } from '../chapter-assignments.types';
@@ -31,42 +27,35 @@ describe('chapter-assignments-progress repository (PGlite integration)', () => {
   let chapterAssignmentId: number;
 
   beforeAll(async () => {
-    await installNextCatalogueWatermarkFunction(client);
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        organizations: schema.organizations,
-        languages: schema.languages,
-        catalogue_watermark: schema.catalogue_watermark,
-        users: schema.users,
-        projects: schema.projects,
-        pericope_sets: schema.pericope_sets,
-        project_units: schema.project_units,
-        books: schema.books,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibles: schema.bibles,
-        project_unit_bible_books: schema.project_unit_bible_books,
-        chapter_assignments: schema.chapter_assignments,
-        bible_texts: schema.bible_texts,
-        translated_verses: schema.translated_verses,
-        storage_objects: schema.storage_objects,
-        verse_audio_recordings: schema.verse_audio_recordings,
-        verse_audio_takes: schema.verse_audio_takes,
-        authUser: schema.authUser,
-        authSession: schema.authSession,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        verseAudioConflictStatusEnum: schema.verseAudioConflictStatusEnum,
-        userStatusEnum: schema.userStatusEnum,
-        milestoneTypeEnum: schema.milestoneTypeEnum,
-        projectStatusEnum: schema.projectStatusEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
-    await seedCatalogueWatermarkSingleton(client);
+    await createTestSchema(client, {
+      organizations: schema.organizations,
+      languages: schema.languages,
+      users: schema.users,
+      projects: schema.projects,
+      pericope_sets: schema.pericope_sets,
+      project_units: schema.project_units,
+      books: schema.books,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibles: schema.bibles,
+      project_unit_bible_books: schema.project_unit_bible_books,
+      chapter_assignments: schema.chapter_assignments,
+      bible_texts: schema.bible_texts,
+      translated_verses: schema.translated_verses,
+      storage_objects: schema.storage_objects,
+      verse_audio_recordings: schema.verse_audio_recordings,
+      verse_audio_takes: schema.verse_audio_takes,
+      authUser: schema.authUser,
+      authSession: schema.authSession,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+      verseAudioConflictStatusEnum: schema.verseAudioConflictStatusEnum,
+      userStatusEnum: schema.userStatusEnum,
+      milestoneTypeEnum: schema.milestoneTypeEnum,
+      projectStatusEnum: schema.projectStatusEnum,
+    });
 
     const [org] = await database
       .insert(schema.organizations)
