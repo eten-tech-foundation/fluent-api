@@ -15,6 +15,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as draftSchema from '@/db/draft-comments.schema';
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { runInTransaction } from '@/db/transaction';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -33,6 +37,7 @@ const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../../db/mig
 
 describe('draft-comments post-upload write locks (PGlite)', () => {
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
@@ -49,6 +54,7 @@ describe('draft-comments post-upload write locks (PGlite)', () => {
         users: schema.users,
         organizations: schema.organizations,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         books: schema.books,
         pericope_sets: schema.pericope_sets,
         pericope_verses: schema.pericope_verses,
@@ -61,6 +67,7 @@ describe('draft-comments post-upload write locks (PGlite)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
     const migrationSql = readFileSync(
       join(migrationDir, '0039_add_draft_chapter_comments.sql'),
       'utf8'

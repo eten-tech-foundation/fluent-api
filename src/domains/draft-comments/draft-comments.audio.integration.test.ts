@@ -8,6 +8,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as draftSchema from '@/db/draft-comments.schema';
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { deleteVerseAudio, isAudioStorageAvailable, uploadVerseAudio } from '@/lib/audio-storage';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ErrorCode } from '@/lib/types';
@@ -38,6 +42,7 @@ const audioBytes = Buffer.from('pglite-audio');
 
 describe('createAudioComment (PGlite + mocked storage)', () => {
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
@@ -54,6 +59,7 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
         users: schema.users,
         organizations: schema.organizations,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         books: schema.books,
         pericope_sets: schema.pericope_sets,
         pericope_verses: schema.pericope_verses,
@@ -66,6 +72,7 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
     const migrationSql = readFileSync(
       join(migrationDir, '0039_add_draft_chapter_comments.sql'),
       'utf8'

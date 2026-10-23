@@ -7,6 +7,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as draftSchema from '@/db/draft-comments.schema';
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 
 const { client, database } = await vi.hoisted(async () => {
   const { PGlite } = await import('@electric-sql/pglite');
@@ -82,6 +86,7 @@ async function seedMinimalGraph() {
 
 describe('draft-comments migration 0039 (PGlite, disposable)', () => {
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
@@ -98,6 +103,7 @@ describe('draft-comments migration 0039 (PGlite, disposable)', () => {
         users: schema.users,
         organizations: schema.organizations,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         books: schema.books,
         pericope_sets: schema.pericope_sets,
         pericope_verses: schema.pericope_verses,
@@ -110,6 +116,7 @@ describe('draft-comments migration 0039 (PGlite, disposable)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
 
     const migrationSql = readFileSync(
       join(migrationDir, '0039_add_draft_chapter_comments.sql'),
