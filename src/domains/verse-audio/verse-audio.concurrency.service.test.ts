@@ -42,7 +42,6 @@ vi.mock('./verse-audio.repository', () => ({
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   markIntersectingCoverageConflicts: vi.fn(),
-  pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
 }));

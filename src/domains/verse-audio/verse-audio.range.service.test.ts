@@ -45,7 +45,6 @@ vi.mock('./verse-audio.repository', () => ({
   listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
   markIntersectingCoverageConflicts: vi.fn(),
-  pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
   updateTakeCoverageAndRecordingIfVersion: vi.fn(),
@@ -93,7 +92,6 @@ describe('uploadRangeRecording', () => {
       ok({ id: 3401, bookId: 40, chapterNumber: 1, verseNumber: 3 })
     );
     vi.mocked(repo.markIntersectingCoverageConflicts).mockResolvedValue(ok({ markedIds: [] }));
-    vi.mocked(repo.pruneSupersededTakes).mockResolvedValue(ok(0));
   });
 
   const rangeInput = {
