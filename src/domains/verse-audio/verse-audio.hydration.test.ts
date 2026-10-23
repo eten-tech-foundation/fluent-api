@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { generateAudioDownloadUrl } from '@/lib/audio-storage';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { VerseAudioRecord, VerseAudioTakeRecord } from './verse-audio.types';
@@ -321,6 +322,16 @@ describe('selected-canonical hydration', () => {
     expect(result.data.conflictStatus).toBe('conflict');
     expect(result.data.takes[0]?.id).toBe(40);
     expect(result.data.takes[0]?.downloadUrl).toBe(signedUrl(12, 3403, onlyTakeHash));
+    expect(logger.warn).toHaveBeenCalledWith({
+      message: 'Verse audio activeTakeId has no matching take; top-level download unavailable',
+      context: {
+        recordingId: 4,
+        projectUnitId: 12,
+        bibleTextId: 3403,
+        activeTakeId: 999,
+        takeIds: [40],
+      },
+    });
 
     const fixture = withHashes(loadWireContract().unmatchedActiveUnavailable, {
       HASH_ONLY_TAKE: onlyTakeHash,
@@ -461,5 +472,101 @@ describe('selected-canonical hydration', () => {
 
     expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
     expect(generateAudioDownloadUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('selected-canonical empty takes + exact older active', () => {
+  const olderHash = 'e'.repeat(64);
+  const newerHash = 'f'.repeat(64);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
+    vi.mocked(generateAudioDownloadUrl).mockImplementation(async (key: string) => {
+      return `https://r2.example/${key}?sig=x`;
+    });
+  });
+
+  it.each([
+    { label: 'null active', activeTakeId: null as number | null },
+    { label: 'unmatched active', activeTakeId: 999 as number | null },
+  ])('keeps takes:[] unavailable when $label', async ({ activeTakeId }) => {
+    const unit: VerseAudioRecord = { ...record, activeTakeId };
+    vi.mocked(repo.get).mockResolvedValue(ok(unit));
+    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([]));
+
+    const result = await getRecording(12, 3401);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.takes).toEqual([]);
+    expect(result.data.activeTakeId).toBe(activeTakeId);
+    expect(result.data.downloadUrl).toBeNull();
+    expect(generateAudioDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('selects older non-last active take over newer different-granularity take', async () => {
+    const olderVerse: VerseAudioTakeRecord = {
+      ...take,
+      id: 10,
+      contentHash: olderHash,
+      granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+      startChapter: null,
+      startVerse: null,
+      endChapter: null,
+      endVerse: null,
+      createdAt: new Date('2026-07-01T00:00:00Z'),
+      updatedAt: new Date('2026-07-01T00:00:00Z'),
+    };
+    const newerPericope: VerseAudioTakeRecord = {
+      ...take,
+      id: 20,
+      contentHash: newerHash,
+      sizeBytes: 8,
+      durationSeconds: 40,
+      granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
+      startChapter: 1,
+      startVerse: 3,
+      endChapter: 1,
+      endVerse: 8,
+      createdAt: new Date('2026-07-03T00:00:00Z'),
+      updatedAt: new Date('2026-07-03T00:00:00Z'),
+    };
+    const unit: VerseAudioRecord = {
+      ...record,
+      activeTakeId: 10,
+      granularity: VERSE_AUDIO_GRANULARITY.VERSE,
+      startChapter: null,
+      startVerse: null,
+      endChapter: null,
+      endVerse: null,
+    };
+
+    vi.mocked(repo.get).mockResolvedValue(ok(unit));
+    // Newer take last in array — invent-take would wrongly pick it.
+    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([olderVerse, newerPericope]));
+
+    const result = await getRecording(12, 3401);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.activeTakeId).toBe(10);
+    expect(result.data.granularity).toBe('verse');
+    expect(result.data).toMatchObject({
+      startChapter: 1,
+      startVerse: 3,
+      endChapter: 1,
+      endVerse: 3,
+    });
+    expect(result.data.downloadUrl).toBe(signedUrl(12, 3401, olderHash));
+    expect(result.data.downloadUrl).toBe(result.data.takes[0]?.downloadUrl);
+    expect(result.data.downloadUrl).not.toBe(signedUrl(12, 3401, newerHash));
+    expect(result.data.takes[1]?.contentHash).toBe(newerHash);
+    expect(result.data.takes[1]?.granularity).toBe('pericope');
   });
 });

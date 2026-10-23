@@ -46,7 +46,12 @@ export function fallbackBlobKey(
 /**
  * Wire coverage for selected-canonical clients. Verse units persist null range
  * columns; hydration fills inclusive anchors from bible_texts. Pericope uses
- * stored bounds unchanged.
+ * stored bounds unchanged (including anomalous all-null bounds — pass-through).
+ *
+ * Deliberately diverges from `coverageFromActive` (conflict geometry): that
+ * helper anchor-fills when pericope bounds are null so overlap scans stay
+ * well-defined. Wire hydration must not invent pericope spans; writes validate
+ * bounds, so null pericope coverage is only reachable via anomalous data.
  */
 export function hydrateCoverageForWire(
   shape: VerseAudioCoverageShape,
@@ -102,20 +107,14 @@ function resolveDownloadUrl(
 }
 
 function collectLegacyStorageObjectIds(
-  entries: Array<{ record: VerseAudioRecord; takes: VerseAudioTakeRecord[] }>
+  entries: Array<{ takes: VerseAudioTakeRecord[] }>
 ): number[] {
   const ids = new Set<number>();
-  for (const { record, takes } of entries) {
+  for (const { takes } of entries) {
     for (const take of takes) {
       if (isLegacyContentHash(take.contentHash) && take.storageObjectId !== null) {
         ids.add(take.storageObjectId);
       }
-    }
-
-    // Top-level URL uses the exact active take only — never invent last-take.
-    const active = takes.find((t) => t.id === record.activeTakeId);
-    if (active && isLegacyContentHash(active.contentHash) && active.storageObjectId !== null) {
-      ids.add(active.storageObjectId);
     }
   }
   return [...ids];
@@ -193,14 +192,22 @@ async function withTakesAndUrl(
 
   const downloadUrl = activeView?.downloadUrl ?? null;
 
+  // Blob metadata: prefer the matched active take so top-level fields cannot
+  // disagree with takes[]. When unmatched/null active, fall back to the
+  // denormalized recording row (CAS writes keep it mirrored to active).
+  const uploadedBy = activeView?.uploadedBy ?? record.uploadedBy;
+  const contentType = activeView?.contentType ?? record.contentType;
+  const sizeBytes = activeView?.sizeBytes ?? record.sizeBytes;
+  const durationSeconds = activeView?.durationSeconds ?? record.durationSeconds;
+
   return {
     id: record.id,
     projectUnitId: record.projectUnitId,
     bibleTextId: record.bibleTextId,
-    uploadedBy: record.uploadedBy,
-    contentType: record.contentType,
-    sizeBytes: record.sizeBytes,
-    durationSeconds: record.durationSeconds,
+    uploadedBy,
+    contentType,
+    sizeBytes,
+    durationSeconds,
     versionToken: record.versionToken,
     conflictStatus: record.conflictStatus,
     ...coverage,
