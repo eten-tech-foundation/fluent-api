@@ -10,6 +10,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type { VerseAudioRecord, VerseAudioTakeRecord } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
 import { hydrateCoverageForWire } from './verse-audio.responses';
 import { getRecording, listChapterRecordings } from './verse-audio.service';
@@ -41,17 +42,17 @@ vi.mock('./storage-objects.repository', () => ({
 
 vi.mock('./verse-audio.repository', () => ({
   createFirstRecordingWithTake: vi.fn(),
-  findTakeByContentHash: vi.fn(),
   get: vi.fn(),
-  getTakeById: vi.fn(),
-  insertTake: vi.fn(),
   listByChapter: vi.fn(),
-  listTakesByRecordingIds: vi.fn(),
-  listTakesForRecording: vi.fn(),
   markConflictPreservingActive: vi.fn(),
-  pruneSupersededTakes: vi.fn(),
   remove: vi.fn(),
   updateRecordingStateIfVersion: vi.fn(),
+}));
+
+vi.mock('./verse-audio-takes.repository', () => ({
+  getTakeById: vi.fn(),
+  listTakesByRecordingIds: vi.fn(),
+  listTakesForRecording: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -158,7 +159,7 @@ describe('selected-canonical hydration', () => {
 
   it('hydrates single-verse unit with anchors, matched hash URL, and OpenAPI shape', async () => {
     vi.mocked(repo.get).mockResolvedValue(ok(record));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([verseTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([verseTake]));
 
     const result = await getRecording(12, 3401);
 
@@ -219,7 +220,7 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.get).mockResolvedValue(ok(unit));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([verseTake, periTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([verseTake, periTake]));
 
     const result = await getRecording(12, 3401);
 
@@ -264,7 +265,7 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.get).mockResolvedValue(ok(unit));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([orphan]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([orphan]));
 
     const result = await getRecording(12, 3402);
 
@@ -308,7 +309,7 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.get).mockResolvedValue(ok(unit));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([only]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([only]));
 
     const result = await getRecording(12, 3403);
 
@@ -361,9 +362,9 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.get).mockResolvedValue(ok(periUnit));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([verseTake, periTake]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([verseTake, periTake]));
     vi.mocked(repo.listByChapter).mockResolvedValue(ok([periUnit]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([verseTake, periTake]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([verseTake, periTake]));
 
     const unit = await getRecording(12, 3401);
     const list = await listChapterRecordings(12, 9, 40, 1);
@@ -395,7 +396,7 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.listByChapter).mockResolvedValue(ok([record, conflicted]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([verseTake, conflictTake]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([verseTake, conflictTake]));
 
     const result = await listChapterRecordings(12, 9, 40, 1);
 
@@ -433,7 +434,7 @@ describe('selected-canonical hydration', () => {
     };
 
     vi.mocked(repo.listByChapter).mockResolvedValue(ok([cross]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([crossTake]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([crossTake]));
 
     const result = await listChapterRecordings(12, 9, 40, 1);
 
@@ -458,7 +459,7 @@ describe('selected-canonical hydration', () => {
 
   it('propagates empty chapter list without inventing units', async () => {
     vi.mocked(repo.listByChapter).mockResolvedValue(ok([]));
-    vi.mocked(repo.listTakesByRecordingIds).mockResolvedValue(ok([]));
+    vi.mocked(takesRepo.listTakesByRecordingIds).mockResolvedValue(ok([]));
 
     const result = await listChapterRecordings(12, 9, 40, 1);
 
@@ -493,7 +494,7 @@ describe('selected-canonical empty takes + exact older active', () => {
   ])('keeps takes:[] unavailable when $label', async ({ activeTakeId }) => {
     const unit: VerseAudioRecord = { ...record, activeTakeId };
     vi.mocked(repo.get).mockResolvedValue(ok(unit));
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([]));
 
     const result = await getRecording(12, 3401);
 
@@ -546,7 +547,7 @@ describe('selected-canonical empty takes + exact older active', () => {
 
     vi.mocked(repo.get).mockResolvedValue(ok(unit));
     // Newer take last in array — invent-take would wrongly pick it.
-    vi.mocked(repo.listTakesForRecording).mockResolvedValue(ok([olderVerse, newerPericope]));
+    vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([olderVerse, newerPericope]));
 
     const result = await getRecording(12, 3401);
 
