@@ -9,10 +9,8 @@ import * as repo from './verse-audio.repository';
 
 vi.mock('@/db', () => ({
   db: {
-    insert: vi.fn(),
     select: vi.fn(),
     update: vi.fn(),
-    transaction: vi.fn(),
   },
 }));
 
@@ -56,18 +54,6 @@ describe('verse-audio repository', () => {
 
     expect(result).toEqual({ ok: true, data: [] });
     expect(eq).toHaveBeenCalledWith(bible_texts.bibleId, 9);
-  });
-
-  it('maps a reclaimed storage object during take insert to 409', () => {
-    const error = foreignKeyRace('verse_audio_takes_storage_object_id_storage_objects_id_fk');
-    const result = repo.mapForeignKeyViolation(error);
-    expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT));
-  });
-
-  it('maps a missing recording FK during take insert to 404', () => {
-    const error = foreignKeyRace('verse_audio_takes_recording_id_verse_audio_recordings_id_fk');
-    const result = repo.mapForeignKeyViolation(error);
-    expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_NOT_FOUND));
   });
 
   it('maps a pruned active take during conditional promotion to 409', async () => {

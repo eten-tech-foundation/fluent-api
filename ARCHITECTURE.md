@@ -269,13 +269,13 @@ export async function createProject(input: CreateProjectInput) {
 
 ### Decision Matrix
 
-| Scenario                                   | Access Pattern                                  | Example                          |
-| ------------------------------------------ | ----------------------------------------------- | -------------------------------- |
-| Same domain, single repo                   | `import * as repo from './{domain}.repository'` | `repo.findById(id)`              |
-| Same domain, multiple repos in same domain | Still use single repo import per file           | `repo.findX()` + `repo.findY()`  |
-| Cross-domain read                          | Call other domain's service function            | `userService.getUserById(id)`    |
-| Cross-domain write within transaction      | Call service function with `tx` param           | `otherService.updateX(data, tx)` |
-| Complex cross-domain query                 | Service function wrapping repository logic      | `otherService.searchX(criteria)` |
+| Scenario                                   | Access Pattern                                  | Example                                |
+| ------------------------------------------ | ----------------------------------------------- | -------------------------------------- |
+| Same domain, single repo                   | `import * as repo from './{domain}.repository'` | `repo.findById(id)`                    |
+| Same domain, multiple repos in same domain | One namespace import per repository file        | `repo.findX()` + `takesRepo.insertY()` |
+| Cross-domain read                          | Call other domain's service function            | `userService.getUserById(id)`          |
+| Cross-domain write within transaction      | Call service function with `tx` param           | `otherService.updateX(data, tx)`       |
+| Complex cross-domain query                 | Service function wrapping repository logic      | `otherService.searchX(criteria)`       |
 
 ### Anti-Patterns to Avoid
 

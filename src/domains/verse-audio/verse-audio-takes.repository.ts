@@ -10,7 +10,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { InsertTakeInput, VerseAudioTakeRecord } from './verse-audio.types';
 
-import * as repo from './verse-audio.repository';
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
 export const takeSelection = {
@@ -131,7 +131,7 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
       context: { input: { ...input, sizeBytes: input.sizeBytes } },
     });
     if (hasPostgresErrorCode(error, '23503')) {
-      return repo.mapForeignKeyViolation(error);
+      return mapForeignKeyViolation(error);
     }
     return err(ErrorCode.INTERNAL_ERROR);
   }
