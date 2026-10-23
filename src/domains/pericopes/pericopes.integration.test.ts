@@ -1,12 +1,8 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
 import { pericope_verses } from '@/db/schema';
-import {
-  installNextCatalogueWatermarkFunction,
-  seedCatalogueWatermarkSingleton,
-} from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { ok } from '@/lib/types';
@@ -59,32 +55,25 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
   beforeAll(async () => {
     // Generate tables, constraints, and indexes from the production schema so
     // this fixture cannot silently retain obsolete handwritten DDL.
-    await installNextCatalogueWatermarkFunction(client);
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        pericope_verses: schema.pericope_verses,
-        pericope_sets: schema.pericope_sets,
-        books: schema.books,
-        bibles: schema.bibles,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        projects: schema.projects,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        languages: schema.languages,
-        catalogue_watermark: schema.catalogue_watermark,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        organizations: schema.organizations,
-        users: schema.users,
-        userStatusEnum: schema.userStatusEnum,
-        authUser: schema.authUser,
-        authSession: schema.authSession,
-      })
-    );
-    await client.exec(statements.join('\n'));
-    await seedCatalogueWatermarkSingleton(client);
+    await createTestSchema(client, {
+      pericope_verses: schema.pericope_verses,
+      pericope_sets: schema.pericope_sets,
+      books: schema.books,
+      bibles: schema.bibles,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+      projects: schema.projects,
+      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+      languages: schema.languages,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      organizations: schema.organizations,
+      users: schema.users,
+      userStatusEnum: schema.userStatusEnum,
+      authUser: schema.authUser,
+      authSession: schema.authSession,
+    });
     await database.insert(schema.books).values([
       { id: 41, code: 'MRK', eng_display_name: 'Mark' },
       { id: 42, code: 'LUK', eng_display_name: 'Luke' },

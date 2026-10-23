@@ -28,9 +28,7 @@ export const PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL = `
   `;
 
 /** Install next_catalogue_watermark() before CREATE TABLE … DEFAULT that references it. */
-export async function installNextCatalogueWatermarkFunction(
-  client: Pick<PGlite, 'exec'>
-): Promise<void> {
+async function installNextCatalogueWatermarkFunction(client: Pick<PGlite, 'exec'>): Promise<void> {
   const allocator = migrationStatements('0038_catalogue_watermark_allocator.sql').find(
     (statement) => statement.includes('CREATE FUNCTION next_catalogue_watermark()')
   );
@@ -39,20 +37,34 @@ export async function installNextCatalogueWatermarkFunction(
 }
 
 /** Seed the singleton after catalogue_watermark exists (schema gen or migration). */
-export async function seedCatalogueWatermarkSingleton(client: Pick<PGlite, 'exec'>): Promise<void> {
+async function seedCatalogueWatermarkSingleton(client: Pick<PGlite, 'exec'>): Promise<void> {
   await client.exec(`INSERT INTO catalogue_watermark (id, updated_at)
     VALUES (true, clock_timestamp() AT TIME ZONE 'UTC')
     ON CONFLICT (id) DO NOTHING`);
 }
 
+/** bump_linked_bibles function + trigger; fires on bible_provider_resources, updates bibles. */
+async function installProviderResourceLicenseTrigger(client: Pick<PGlite, 'exec'>): Promise<void> {
+  const bump = migrationStatements('0038_catalogue_watermark_allocator.sql').find((statement) =>
+    statement.includes('CREATE OR REPLACE FUNCTION bump_linked_bibles_on_provider_resource_license')
+  );
+  if (!bump) throw new Error('Catalogue license-bump trigger migration is missing');
+  await client.exec(bump);
+  await client.exec(PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL);
+}
+
 /**
- * Install next_catalogue_watermark() then generate catalogue tables whose
- * DEFAULT / $onUpdate expressions reference it (PGlite watermark suite helper).
+ * Generate and execute schema DDL for a PGlite fixture through one path so
+ * tests cannot drift from the catalogue watermark contract:
+ * next_catalogue_watermark() exists before the CREATE TABLE … DEFAULT
+ * expressions referencing it, catalogue_watermark is always generated, and its
+ * singleton is seeded before inserts. The provider-resource license trigger is
+ * installed when both tables it spans are present.
  */
-export async function createCatalogueTestSchema(
+export async function createTestSchema(
   client: PGlite,
   tables: Parameters<typeof generateDrizzleJson>[0]
-) {
+): Promise<void> {
   await installNextCatalogueWatermarkFunction(client);
   const statements = await generateMigration(
     generateDrizzleJson({}),
@@ -61,10 +73,7 @@ export async function createCatalogueTestSchema(
   await client.exec(statements.join('\n'));
   await seedCatalogueWatermarkSingleton(client);
 
-  const bump = migrationStatements('0038_catalogue_watermark_allocator.sql').find((statement) =>
-    statement.includes('CREATE OR REPLACE FUNCTION bump_linked_bibles_on_provider_resource_license')
-  );
-  if (!bump) throw new Error('Catalogue license-bump trigger migration is missing');
-  await client.exec(bump);
-  await client.exec(PROVIDER_RESOURCE_LICENSE_TRIGGER_SQL);
+  if ('bibles' in tables && 'bible_provider_resources' in tables) {
+    await installProviderResourceLicenseTrigger(client);
+  }
 }

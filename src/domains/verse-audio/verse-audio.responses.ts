@@ -11,6 +11,7 @@ import type {
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
 
 /** Migration 0025 placeholders — real bytes live at the pre-hash key shape. */
@@ -175,7 +176,7 @@ export async function loadUnitResponse(
     return recording;
   }
 
-  const takes = await repo.listTakesForRecording(recording.data.id);
+  const takes = await takesRepo.listTakesForRecording(recording.data.id);
   if (!takes.ok) {
     return takes;
   }

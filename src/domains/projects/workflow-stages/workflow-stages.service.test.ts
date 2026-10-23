@@ -1,13 +1,9 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { asc, eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
 import { project_workflow_stages } from '@/db/schema';
-import {
-  installNextCatalogueWatermarkFunction,
-  seedCatalogueWatermarkSingleton,
-} from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { ErrorCode } from '@/lib/types';
 
 import {
@@ -67,13 +63,7 @@ async function seedProject(id = PROJECT_ID) {
 
 describe('workflow stages service (PGlite integration)', () => {
   beforeAll(async () => {
-    await installNextCatalogueWatermarkFunction(client);
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson(schema)
-    );
-    await client.exec(statements.join('\n'));
-    await seedCatalogueWatermarkSingleton(client);
+    await createTestSchema(client, schema);
     await seedBaseEntities();
   });
 
