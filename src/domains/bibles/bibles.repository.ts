@@ -238,7 +238,7 @@ export async function upsertFromDbl(
                     OR bibles.abbreviation IS DISTINCT FROM excluded.abbreviation
                     OR bibles.language_id IS DISTINCT FROM excluded.language_id
                     OR bibles.has_audio IS DISTINCT FROM excluded.has_audio
-                  THEN now()
+                  THEN next_catalogue_watermark()
                   ELSE bibles.updated_at
                 END`,
             },

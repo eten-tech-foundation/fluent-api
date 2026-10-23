@@ -67,7 +67,7 @@ describe('createAudioComment (PGlite + mocked storage)', () => {
     );
     await client.exec(statements.join('\n'));
     const migrationSql = readFileSync(
-      join(migrationDir, '0038_add_draft_chapter_comments.sql'),
+      join(migrationDir, '0039_add_draft_chapter_comments.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(migrationSql);

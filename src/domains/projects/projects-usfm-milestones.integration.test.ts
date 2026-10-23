@@ -5,6 +5,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { DbTransaction } from '@/lib/types';
 
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { moveBookToMilestone } from '@/domains/milestones/milestones.repository';
 import { asAuthenticatedUser } from '@/domains/pericopes/pericopes.test-fixtures';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
@@ -97,11 +101,13 @@ function moveBook() {
 describe('imported USFM across project rollback and milestone moves', () => {
   beforeAll(async () => {
     // Use the production constraints, including import uniqueness and cascade deletes.
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson(schema)
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
     await database
       .insert(schema.users)
       .values({ id: 1, username: 'translator', email: 'translator@example.com' });

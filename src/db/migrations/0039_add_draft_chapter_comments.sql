@@ -1,11 +1,12 @@
 -- =============================================================================
 -- Migration: draft chapter comments (#458 / mobile #451 #703)
--- Tag: 0038_add_draft_chapter_comments (journal idx 38; snapshot 0038_snapshot.json)
+-- Tag: 0039_add_draft_chapter_comments (journal idx 39; snapshot 0039_snapshot.json)
+-- Renumbered from 0038 after main landed 0038_catalogue_watermark_allocator (#445).
 --
 -- BRANCH LANDING / REBASE COORDINATION:
 --   - origin/main journal ends at 0037; this branch registers the next sequential
---     idx (38) with tag 0038_add_draft_chapter_comments.
---   - Open PRs also propose distinct 0038_* tags (notably #391
+--     idx (39) with tag 0039_add_draft_chapter_comments.
+--   - Open PRs also propose distinct 0039_* tags (or competing 0038) (notably #391
 --     0038_add_verse_audio_range_metadata @ d1baee7; also #445, #446). This
 --     branch does NOT import those implementations. On rebase/merge, whichever
 --     0038 lands second must renumber its idx/tag/snapshot — document the
