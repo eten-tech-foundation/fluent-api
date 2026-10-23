@@ -21,6 +21,7 @@ import type {
 } from './verse-audio.types';
 
 import * as storageRepo from './storage-objects.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
 import {
   buildRecordingResponses,
@@ -158,7 +159,7 @@ export async function uploadRecording(
   }
 
   // Idempotent retry / intentional revert onto an existing take's bytes.
-  const duplicate = await repo.findTakeByContentHash(unit.id, contentHash);
+  const duplicate = await takesRepo.findTakeByContentHash(unit.id, contentHash);
   if (!duplicate.ok) {
     return duplicate;
   }
@@ -209,7 +210,7 @@ export async function uploadRecording(
     return stored;
   }
 
-  const take = await repo.insertTake({
+  const take = await takesRepo.insertTake({
     recordingId: unit.id,
     uploadedBy: input.uploadedBy,
     storageObjectId: stored.data.storageObjectId,
@@ -302,7 +303,7 @@ export async function listChapterRecordings(
     return result;
   }
 
-  const takes = await repo.listTakesByRecordingIds(result.data.map((r) => r.id));
+  const takes = await takesRepo.listTakesByRecordingIds(result.data.map((r) => r.id));
   if (!takes.ok) {
     return takes;
   }
@@ -336,7 +337,7 @@ export async function resolveConflict(
     return recording;
   }
 
-  const take = await repo.getTakeById(input.takeId);
+  const take = await takesRepo.getTakeById(input.takeId);
   if (!take.ok) {
     return take;
   }
@@ -386,7 +387,7 @@ export async function deleteRecording(
     return existing;
   }
 
-  const takes = await repo.listTakesForRecording(existing.data.id);
+  const takes = await takesRepo.listTakesForRecording(existing.data.id);
   if (!takes.ok) {
     return takes;
   }
