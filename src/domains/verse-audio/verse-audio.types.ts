@@ -135,7 +135,12 @@ export interface VerseAudioWithUrl {
   endVerse: number | null;
   activeTakeId: number | null;
   verseNumber: number;
-  downloadUrl: string;
+  /**
+   * Short-lived URL for the exact active take (`takes[].id === activeTakeId`).
+   * Null when activeTakeId is null or does not match any take — never invents
+   * a last-take / top-level fallback.
+   */
+  downloadUrl: string | null;
   takes: VerseAudioTakeWithUrl[];
   createdAt: string;
   updatedAt: string;
@@ -218,35 +223,85 @@ export const verseAudioTakeResponseSchema = z.object({
   contentType: z.string(),
   sizeBytes: z.number().int(),
   durationSeconds: z.number().nullable(),
-  contentHash: z.string(),
-  granularity: z.enum(['verse', 'pericope']),
-  startChapter: nullablePositiveInt,
-  startVerse: nullablePositiveInt,
-  endChapter: nullablePositiveInt,
-  endVerse: nullablePositiveInt,
-  downloadUrl: z.string(),
+  contentHash: z.string().openapi({
+    description:
+      'Stable content identity for this take. Selected-canonical clients bind cache keys to activeTakeId + this hash.',
+  }),
+  granularity: z.enum(['verse', 'pericope']).openapi({
+    description:
+      'Recorded-unit granularity for this take. Verse responses hydrate inclusive start/end anchors from the shared bible_texts identity; pericope uses persisted range bounds.',
+  }),
+  startChapter: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage start chapter. For granularity=verse this is the anchor chapter (hydrated on read).',
+  }),
+  startVerse: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage start verse. For granularity=verse this is the anchor verse (hydrated on read).',
+  }),
+  endChapter: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage end chapter. May differ from startChapter for cross-chapter pericopes.',
+  }),
+  endVerse: nullablePositiveInt.openapi({
+    description: 'Inclusive coverage end verse.',
+  }),
+  downloadUrl: z.string().openapi({
+    description: 'Short-lived read-only URL for this take (valid ~15 minutes).',
+  }),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export const verseAudioResponseSchema = z.object({
-  id: z.number().int(),
+  id: z.number().int().openapi({
+    description:
+      'Recording row id. Stable unit identity with projectUnitId + bibleTextId (anchor).',
+  }),
   projectUnitId: z.number().int(),
-  bibleTextId: z.number().int(),
+  bibleTextId: z.number().int().openapi({
+    description:
+      'Shared anchored recording identity: bible_texts.id of the first verse (pericope start / single verse).',
+  }),
   uploadedBy: z.number().int(),
   contentType: z.string(),
   sizeBytes: z.number().int(),
   durationSeconds: z.number().nullable(),
   versionToken: z.number().int(),
-  conflictStatus: z.enum(['clean', 'conflict', 'resolved']),
-  granularity: z.enum(['verse', 'pericope']),
-  startChapter: nullablePositiveInt,
-  startVerse: nullablePositiveInt,
-  endChapter: nullablePositiveInt,
-  endVerse: nullablePositiveInt,
-  activeTakeId: z.number().int().nullable(),
-  verseNumber: z.number().int(),
-  downloadUrl: z.string(),
+  conflictStatus: z.enum(['clean', 'conflict', 'resolved']).openapi({
+    description:
+      'Preserved conflict truth. Matching-base / legacy upload may advance activeTakeId while status remains conflict; only POST .../resolve marks resolved. Not a playback-policy signal.',
+  }),
+  granularity: z.enum(['verse', 'pericope']).openapi({
+    description:
+      'Selected-canonical recorded-unit granularity from the exact active take when activeTakeId matches; otherwise from denormalized recording state.',
+  }),
+  startChapter: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage start chapter. Verse units hydrate the bible_texts anchor chapter on read.',
+  }),
+  startVerse: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage start verse. Verse units hydrate the bible_texts anchor verse on read.',
+  }),
+  endChapter: nullablePositiveInt.openapi({
+    description:
+      'Inclusive coverage end chapter (cross-chapter pericopes supported when endChapter > startChapter).',
+  }),
+  endVerse: nullablePositiveInt.openapi({
+    description: 'Inclusive coverage end verse.',
+  }),
+  activeTakeId: z.number().int().nullable().openapi({
+    description:
+      'Selected take id. Clients must match takes[].id exactly; null or unmatched means selected audio is unavailable.',
+  }),
+  verseNumber: z.number().int().openapi({
+    description: 'Anchor verse number from bible_texts (listing order / identity aid).',
+  }),
+  downloadUrl: z.string().nullable().openapi({
+    description:
+      'Short-lived URL for the exact active take only (takes[].id === activeTakeId). Null when activeTakeId is null or unmatched — never a last-take invent fallback.',
+  }),
   takes: z.array(verseAudioTakeResponseSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
