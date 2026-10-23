@@ -1,7 +1,7 @@
 -- =============================================================================
 -- Migration: draft chapter comments (#458 / mobile #451 #703)
 -- Tag: 0040_add_draft_chapter_comments (journal idx 40; snapshot 0040_snapshot.json)
--- Renumbered from 0039 after main landed #391:
+-- Renumbered after main landed #391:
 --   0038_catalogue_watermark_allocator + 0039_add_verse_audio_range_metadata.
 --
 -- BRANCH LANDING / REBASE COORDINATION:
@@ -9,7 +9,6 @@
 --     idx (40) with tag 0040_add_draft_chapter_comments.
 --   - Never run this migrate against QA/dev/prod from agent sessions.
 -- =============================================================================
-
 CREATE TYPE "public"."comment_anchor_kind" AS ENUM('verse', 'pericope');--> statement-breakpoint
 CREATE TYPE "public"."comment_body_kind" AS ENUM('text', 'audio', 'emoji');--> statement-breakpoint
 CREATE TYPE "public"."comment_connection_state" AS ENUM('connected', 'unconnected');--> statement-breakpoint
