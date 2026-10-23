@@ -10,7 +10,7 @@ export const bookResponseSchema = z.object({
   eng_display_name: z.string(),
   updatedAt: z.string().datetime().nullable().openapi({
     description:
-      'Server watermark for this row. Clients must use max(updatedAt) across a successful non-empty list as the next updatedAfter cursor; empty lists must not advance the cursor.',
+      'Server watermark for this row (advanced via next_catalogue_watermark() when the book row changes). Clients must use max(updatedAt) across a successful non-empty list as the next updatedAfter cursor; empty lists must not advance the cursor. Device wall-clock cursors can skip rows.',
   }),
 });
 

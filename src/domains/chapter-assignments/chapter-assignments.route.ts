@@ -238,15 +238,23 @@ const claimChapterAssignmentRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: jsonContent(
       chapterAssignmentResponseSchema,
-      'Claim result (clean or conflicted)'
+      'Claim result: clean claim, same-user DRAFT idempotent retry, or durable conflict (hasClaimConflict=true; claimConflictUserId=first losing claimant; assignedUserId unchanged)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid or missing chapterAssignmentId path param'
     ),
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
     ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Permission denied (e.g. inactive user)'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
-      'Chapter assignment not found'
+      'No assignment for this id, or claim denied (content:assign, missing content:update, same-user non-DRAFT, or rival holds complete/terminal work). Not the another-user conflict response.'
     ),
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
@@ -255,7 +263,7 @@ const claimChapterAssignmentRoute = createRoute({
   },
   summary: 'Translator self-claim on first recording',
   description:
-    'Translator claims an unassigned chapter. Idempotent for the same user. If another user already claimed/was assigned concurrently, marks a durable claim conflict instead of rejecting or overwriting (fluent-mobile#268/#271).',
+    '200 is a clean claim, a same-user DRAFT retry, or a conflict: another user holds non-terminal work (hasClaimConflict; claimConflictUserId = first losing claimant; assignee unchanged). 404 is a missing id or an auth denial (content:assign, missing content:update, same user past DRAFT, rival on complete). Permissions are unchanged.',
 });
 
 server.openapi(claimChapterAssignmentRoute, async (c) => {

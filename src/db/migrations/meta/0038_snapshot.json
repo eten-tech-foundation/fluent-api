@@ -1,6 +1,6 @@
 {
-  "id": "72b88369-3e70-4cfa-8ac7-a66939e06c97",
-  "prevId": "781d4303-32e8-4153-920f-fba9ce9eba66",
+  "id": "ef6ffedd-3c0d-4574-9347-c1c80ec93254",
+  "prevId": "362faffe-16e3-4844-a202-18e2f79af637",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1400,7 +1400,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {
@@ -1498,7 +1498,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -1513,6 +1513,37 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.catalogue_watermark": {
+      "name": "catalogue_watermark",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "boolean",
+          "primaryKey": true,
+          "notNull": true,
+          "default": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "catalogue_watermark_singleton": {
+          "name": "catalogue_watermark_singleton",
+          "value": "\"catalogue_watermark\".\"id\" = true"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.chapter_assignment_assigned_user_history": {
@@ -2014,15 +2045,6 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "fk_chapter_assignments_bible_book_link": {
-          "name": "fk_chapter_assignments_bible_book_link",
-          "tableFrom": "chapter_assignments",
-          "tableTo": "project_unit_bible_books",
-          "columnsFrom": ["project_unit_id", "book_id", "bible_id"],
-          "columnsTo": ["project_unit_id", "book_id", "bible_id"],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2079,7 +2101,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -2505,13 +2527,7 @@
           "columns": ["project_unit_id", "book_id"]
         }
       },
-      "uniqueConstraints": {
-        "uq_project_unit_bible_books_unit_book_bible": {
-          "name": "uq_project_unit_bible_books_unit_book_bible",
-          "nullsNotDistinct": false,
-          "columns": ["project_unit_id", "book_id", "bible_id"]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

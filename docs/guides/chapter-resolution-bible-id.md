@@ -17,12 +17,14 @@ A unit whose `chapter_assignments.bible_id` differs from the bible behind its
 out of the rollup (or the reverse). Same underlying row, two answers, is the
 bug #295 filed.
 
-The database enforces the invariant: `chapter_assignments` has a composite
-FK to `project_unit_bible_books (project_unit_id, book_id, bible_id)` with
-`ON UPDATE CASCADE` / `ON DELETE CASCADE` (migration
-`chapter-assignment-bible-fk`). An assignment cannot exist without a matching
-book↔bible link for its unit, so the three query paths agree because
-divergent rows are unrepresentable.
+The assignment-to-link leg is DB-enforced: `chapter_assignments` has a
+composite FK to `project_unit_bible_books (project_unit_id, book_id, bible_id)`
+with `ON UPDATE CASCADE` / `ON DELETE CASCADE` (migration
+`chapter_assignment_bible_fk`). An assignment cannot exist without a matching
+book↔bible link for its unit. That does not cover verse-level pointers
+(`verse_audio_recordings.bibleTextId`, `translated_verses.bibleTextId`) or
+soft-deleted links (`deletedAt` is invisible to FKs) — those still rely on
+the three query paths filtering by bible.
 
 ## Behaviour when they disagree
 

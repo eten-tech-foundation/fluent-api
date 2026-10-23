@@ -2,6 +2,10 @@ import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
 
 import { CHAPTER_ASSIGNMENT_STATUS } from '../chapter-assignments.types';
@@ -27,11 +31,13 @@ describe('chapter-assignments-progress repository (PGlite integration)', () => {
   let chapterAssignmentId: number;
 
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
         organizations: schema.organizations,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         users: schema.users,
         projects: schema.projects,
         pericope_sets: schema.pericope_sets,
@@ -60,6 +66,7 @@ describe('chapter-assignments-progress repository (PGlite integration)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
 
     const [org] = await database
       .insert(schema.organizations)
