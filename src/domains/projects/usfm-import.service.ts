@@ -7,25 +7,45 @@ import * as bibleTextsService from '@/domains/bibles/bible-texts/bible-texts.ser
 import * as booksService from '@/domains/books/books.service';
 import * as translatedVersesService from '@/domains/translated-verses/translated-verses.service';
 import { logger } from '@/lib/logger';
-import { err, ErrorCode, ok } from '@/lib/types';
+import { err, ErrorCode, ErrorMessages, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
 
-import type { ParsedUsfmFile, UsfmFileInput } from './projects.types';
+import type {
+  ParsedUsfmFile,
+  UsfmFileCheck,
+  UsfmFileInput,
+  UsfmFileProblem,
+  UsfmFileToCheck,
+} from './projects.types';
 
 import * as repo from './projects.repository';
+import { bookCodeFromName } from './usfm-book-names';
 
 /** Completed-source imports whose durable intent still needs an editable projection. */
 export function getUsfmImportsReadyForMaterialization() {
   return repo.getUsfmImportsReadyForMaterialization();
 }
 
-/** Match the upload screen: first valid id, toc3, then mt/mt1 code token. */
-function detectBookCode(usfm: string, knownCodes: Set<string>): string | undefined {
-  const markers = [...usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)];
-  for (const names of [['id'], ['toc3'], ['mt', 'mt1']]) {
-    const marker = markers.find((match) => names.includes(match[1].toLowerCase()));
-    const code = marker?.[2].trim().split(/\s+/)[0].toUpperCase();
-    if (code && knownCodes.has(code)) return code;
+/**
+ * The book a file is for: the code in `\id`, else the book its `\toc3` or a `\mt` line names
+ * (#418). The upload check and project creation both go through here, so they cannot disagree.
+ */
+function detectBookCode(usfm: string, knownCodes: ReadonlySet<string>): string | undefined {
+  let id: string | undefined;
+  let toc3: string | undefined;
+  const titles: string[] = [];
+  for (const [, name, text] of usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)) {
+    const marker = name.toLowerCase();
+    if (marker === 'id') id ??= text;
+    else if (marker === 'toc3') toc3 ??= text;
+    else if (/^mt\d*$/.test(marker)) titles.push(text);
+  }
+
+  const idCode = id?.trim().split(/\s+/)[0].toUpperCase();
+  if (idCode && knownCodes.has(idCode)) return idCode;
+  for (const name of [toc3, ...titles]) {
+    const code = name === undefined ? undefined : bookCodeFromName(name, knownCodes);
+    if (code) return code;
   }
 }
 
@@ -94,6 +114,44 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
   }
 
   return ok(parsed);
+}
+
+const FILE_PROBLEM_MESSAGES: Record<UsfmFileProblem, string> = {
+  USFM_INVALID: ErrorMessages.USFM_INVALID,
+  USFM_BOOK_MISSING: ErrorMessages.USFM_BOOK_MISSING,
+  USFM_BOOK_DUPLICATE: 'Another file in this upload is for the same book',
+};
+
+function rejected(fileName: string, error: UsfmFileProblem): UsfmFileCheck {
+  return { fileName, ok: false, error, message: FILE_PROBLEM_MESSAGES[error] };
+}
+
+/**
+ * The upload step's check (#418, #419): each file goes through the same book detection and
+ * parse that project creation runs, nothing is written, and every file gets its own verdict so
+ * the dialog can name the ones it rejects. #418 allows one file per book, so a book that two
+ * files resolve to is reported on each file after the first.
+ */
+export async function checkUsfmFiles(files: UsfmFileToCheck[]): Promise<Result<UsfmFileCheck[]>> {
+  const known = await booksService.getAllBooks();
+  if (!known.ok) return known;
+  const nameByCode = new Map(known.data.map((book) => [book.code, book.eng_display_name]));
+  const knownCodes = new Set(nameByCode.keys());
+
+  const seen = new Set<string>();
+  return ok(
+    files.map(({ fileName, usfm }): UsfmFileCheck => {
+      const bookCode = detectBookCode(usfm, knownCodes);
+      if (!bookCode) {
+        return rejected(fileName, /\\[a-z]/i.test(usfm) ? 'USFM_BOOK_MISSING' : 'USFM_INVALID');
+      }
+      if (!parseImportVerses(usfm, bookCode).ok) return rejected(fileName, 'USFM_INVALID');
+      if (seen.has(bookCode)) return rejected(fileName, 'USFM_BOOK_DUPLICATE');
+
+      seen.add(bookCode);
+      return { fileName, ok: true, bookCode, bookName: nameByCode.get(bookCode) ?? bookCode };
+    })
+  );
 }
 
 export type MaterializeOutcome = 'materialized' | 'pending';
