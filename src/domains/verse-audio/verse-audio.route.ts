@@ -1,17 +1,12 @@
-import type { Context } from 'hono';
-
 import { createRoute, z } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import { Buffer } from 'node:buffer';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
-import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import type { AppError } from '@/lib/types';
-
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
-import { ErrorCode, getHttpStatus } from '@/lib/types';
+import { getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -20,6 +15,14 @@ import {
   requireReadVerseAudioAccess,
   requireResolveVerseAudioConflictAccess,
 } from './verse-audio-auth.middleware';
+import {
+  baseVersionTokenFormField,
+  commonErrorResponses,
+  parseOptionalBaseVersionToken,
+  respondVerseAudioError,
+  STORAGE_UNAVAILABLE_BODY,
+  verseAudioParamsSchema,
+} from './verse-audio.route-shared';
 import * as verseAudioService from './verse-audio.service';
 import {
   MAX_AUDIO_BYTES,
@@ -29,74 +32,6 @@ import {
   verseAudioResponseSchema,
   verseAudioVersionConflictSchema,
 } from './verse-audio.types';
-
-// Covers both ways audio storage can be out: credentials unset, or the bucket
-// unreachable at boot. Either way the answer is one clean 503 rather than a 500
-// from whichever R2 call the request happened to reach.
-const STORAGE_UNAVAILABLE_MESSAGE = 'Audio storage is unavailable';
-const STORAGE_UNAVAILABLE_BODY = { message: STORAGE_UNAVAILABLE_MESSAGE } as const;
-
-const verseAudioParamsSchema = z.object({
-  projectUnitId: z.coerce
-    .number()
-    .int()
-    .positive()
-    .openapi({
-      param: { name: 'projectUnitId', in: 'path', required: true },
-      description: 'Project unit ID',
-      example: 12,
-    }),
-  bibleTextId: z.coerce
-    .number()
-    .int()
-    .positive()
-    .openapi({
-      param: { name: 'bibleTextId', in: 'path', required: true },
-      description: 'bible_texts.id of the verse',
-      example: 3401,
-    }),
-});
-
-const commonErrorResponses = {
-  [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
-    createMessageObjectSchema('Unauthorized'),
-    'Authentication required'
-  ),
-  [HttpStatusCodes.FORBIDDEN]: jsonContent(createMessageObjectSchema('Forbidden'), 'Access denied'),
-  [HttpStatusCodes.NOT_FOUND]: jsonContent(
-    createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
-    'Recording, verse, or assignment not found'
-  ),
-  [HttpStatusCodes.SERVICE_UNAVAILABLE]: jsonContent(
-    createMessageObjectSchema(STORAGE_UNAVAILABLE_MESSAGE),
-    'Audio storage is not configured, or its bucket was unreachable at startup'
-  ),
-  [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
-    createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
-    'Internal server error'
-  ),
-} as const;
-
-async function respondVerseAudioError(
-  c: Context,
-  projectUnitId: number,
-  bibleTextId: number,
-  error: AppError
-) {
-  const status = getHttpStatus(error);
-  const body: { message: string; currentVersionToken?: number } = {
-    message: error.message,
-  };
-
-  if (error.code === ErrorCode.VERSE_AUDIO_VERSION_CONFLICT) {
-    const current = await verseAudioService.getCurrentVersionToken(projectUnitId, bibleTextId);
-    if (current.ok) {
-      body.currentVersionToken = current.data;
-    }
-  }
-
-  return c.json(body, status as never);
-}
 
 // ─── PUT /verse-audio/{projectUnitId}/{bibleTextId} ──────────────────────────
 
@@ -109,7 +44,8 @@ const uploadVerseAudioRoute = createRoute({
     requireEditVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
     bodyLimit({
       maxSize: MAX_AUDIO_BYTES,
-      onError: (c) => c.json({ message: 'Audio file exceeds the 30 MB limit' }, 413),
+      onError: (c) =>
+        c.json({ message: 'Audio file exceeds the 30 MB limit' }, HttpStatusCodes.REQUEST_TOO_LONG),
     }),
   ] as const,
   request: {
@@ -133,18 +69,7 @@ const uploadVerseAudioRoute = createRoute({
             // must coerce to a positive integer — `z.coerce` alone would read '' as
             // 0 and reject it. This schema is enforced, not just documentation:
             // zod-openapi validates multipart bodies through the form validator.
-            baseVersionToken: z
-              .preprocess(
-                (value) => (value === '' ? undefined : value),
-                z.coerce.number().int().positive().optional()
-              )
-              .openapi({
-                type: 'integer',
-                minimum: 1,
-                description:
-                  'Last-known unit versionToken (starts at 1). Matching token updates the active take; omitted or empty replaces the active take on behalf of clients too old to send one; a present-but-stale token keeps both takes and marks conflict. Present but not a positive integer is a 400. No upload clears an existing conflict — use the resolve endpoint.',
-                example: 1,
-              }),
+            baseVersionToken: baseVersionTokenFormField,
           }),
         },
       },
@@ -164,7 +89,7 @@ const uploadVerseAudioRoute = createRoute({
       verseAudioVersionConflictSchema,
       'A concurrent write or cleanup invalidated the upload; refresh currentVersionToken and retry'
     ),
-    413: jsonContent(
+    [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(
       createMessageObjectSchema('Payload too large'),
       'Audio file exceeds the 30 MB limit'
     ),
@@ -196,17 +121,12 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
   // rather than read from c.req.valid('form') because this handler works from its
   // own parseBody copy, and reading a fumbled token as absent would quietly
   // disable the conflict detection the token exists for.
-  const baseRaw = body.baseVersionToken;
-  let baseVersionToken: number | undefined;
-  if (baseRaw !== undefined && baseRaw !== '') {
-    const parsed = typeof baseRaw === 'string' ? Number(baseRaw) : Number.NaN;
-    if (!Number.isInteger(parsed) || parsed < 1) {
-      return c.json(
-        { message: 'baseVersionToken must be a positive integer' },
-        HttpStatusCodes.BAD_REQUEST
-      );
-    }
-    baseVersionToken = parsed;
+  const baseToken = parseOptionalBaseVersionToken(body.baseVersionToken);
+  if (!baseToken.ok) {
+    return c.json(
+      { message: 'baseVersionToken must be a positive integer' },
+      HttpStatusCodes.BAD_REQUEST
+    );
   }
 
   const data = Buffer.from(await file.arrayBuffer());
@@ -218,7 +138,7 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
     contentType: file.type,
     data,
     durationSeconds,
-    baseVersionToken,
+    baseVersionToken: baseToken.value,
   });
 
   if (!result.ok) {

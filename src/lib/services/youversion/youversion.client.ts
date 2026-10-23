@@ -299,7 +299,7 @@ export async function getChapterMeta(
   bibleId: number,
   bookId: string,
   chapterId: number
-): Promise<Result<YouVersionChapterResponse>> {
+): Promise<Result<YouVersionChapterResponse, YouVersionHttpError>> {
   return youVersionGet(
     `/bibles/${bibleId}/books/${encodeURIComponent(bookId)}/chapters/${chapterId}`,
     youVersionChapterResponseSchema
@@ -404,7 +404,8 @@ async function withConcurrencyLimit<T>(
 /**
  * Batch helper — fetch all verse texts for a chapter in one server call.
  *
- * 1. Calls getChapterMeta to get the ordered verse passage_id list.
+ * 1. Calls getChapterMeta to get the ordered verse passage_id list. A 404 there means this
+ *    Bible has no such book or chapter: that is an empty verse list, not an upstream failure.
  * 2. Filters out non-verse entries (e.g. GEN.1.INTRO) before issuing any network
  *    requests, so a 4xx/5xx on front-matter never fails the chapter.
  * 3. Fans out one getPassage per verse, bounded to PASSAGE_CONCURRENCY in-flight
@@ -425,7 +426,17 @@ export async function getChapterText(
 ): Promise<Result<YouVersionChapterText>> {
   // Step 1: chapter meta
   const metaResult = await getChapterMeta(bibleId, bookId, chapterId);
-  if (!metaResult.ok) return metaResult;
+  if (!metaResult.ok) {
+    if (metaResult.error.httpStatus === 404) {
+      // YouVersion doesn't document this 404; the log shows whether the assumption holds.
+      logger.warn({
+        message: 'YouVersion chapter lookup returned 404 — answering no verses',
+        context: { bibleId, bookId, chapterId, error: metaResult.error.message },
+      });
+      return { ok: true, data: { bibleId, bookId, chapterId, verses: [] } };
+    }
+    return metaResult;
+  }
 
   const { verses: verseMetas } = metaResult.data;
 
