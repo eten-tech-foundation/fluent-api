@@ -1,7 +1,7 @@
 {
   "meta": {
     "headHint": "run from checkout; see git rev-parse HEAD",
-    "migrationTag": "0038_add_verse_audio_range_metadata",
+    "migrationTag": "0039_add_verse_audio_range_metadata",
     "when391": 1792429850384,
     "noteWholePrOrder": "Scenario 4 sorts individual SQL by journal when and INTERLEAVES #379 migrations with #378. That is diagnostic only. Practical merge order is whole-PR units (see PR #391 coordination reply).",
     "notExercised": [
@@ -163,7 +163,7 @@
       },
       {
         "pr": 391,
-        "tag": "0038_add_verse_audio_range_metadata",
+        "tag": "0039_add_verse_audio_range_metadata",
         "applied": true
       }
     ],

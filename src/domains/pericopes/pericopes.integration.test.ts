@@ -3,6 +3,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as schema from '@/db/schema';
 import { pericope_verses } from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { getProjectById } from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { ok } from '@/lib/types';
@@ -55,6 +59,7 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
   beforeAll(async () => {
     // Generate tables, constraints, and indexes from the production schema so
     // this fixture cannot silently retain obsolete handwritten DDL.
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
@@ -69,6 +74,7 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
         projects: schema.projects,
         projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         scriptDirectionEnum: schema.scriptDirectionEnum,
         organizations: schema.organizations,
         users: schema.users,
@@ -78,6 +84,7 @@ describe('chapter pericopes with real PostgreSQL queries', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
     await database.insert(schema.books).values([
       { id: 41, code: 'MRK', eng_display_name: 'Mark' },
       { id: 42, code: 'LUK', eng_display_name: 'Luke' },

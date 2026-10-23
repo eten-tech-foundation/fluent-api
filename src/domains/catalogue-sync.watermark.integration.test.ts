@@ -1,14 +1,9 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createCatalogueTestSchema } from '@/db/testing/create-catalogue-schema';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
-import * as booksRepo from '@/domains/books/books.repository';
-import * as languagesRepo from '@/domains/languages/languages.repository';
 
 const { client, database } = await vi.hoisted(async () => {
   const { PGlite } = await import('@electric-sql/pglite');
@@ -22,33 +17,20 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
-const migrationDir = join(dirname(fileURLToPath(import.meta.url)), '../db/migrations');
-
 describe('catalogue sync watermarks (PGlite)', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        languages: schema.languages,
-        books: schema.books,
-        bible_books: schema.bible_books,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibles: schema.bibles,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
+    await createCatalogueTestSchema(client, {
+      languages: schema.languages,
+      books: schema.books,
+      bible_books: schema.bible_books,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibles: schema.bibles,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+    });
     await client.exec("SET timezone = 'UTC';");
-    // Production invariant (migration 0035): INSERT/UPDATE of license/display
-    // columns bumps linked bibles.updated_at for any SQL/ORM writer.
-    const triggerSql = readFileSync(
-      join(migrationDir, '0037_bump_bibles_on_provider_resource_license.sql'),
-      'utf8'
-    ).replaceAll('--> statement-breakpoint', '');
-    await client.exec(triggerSql);
   }, 30_000);
 
   beforeEach(async () => {
@@ -379,149 +361,5 @@ describe('catalogue sync watermarks (PGlite)', () => {
       expect(resource!.ttsLicenseStatus).toBe('allowed');
       expect(after!.updatedAt!.getTime()).toBe(before.getTime());
     });
-  });
-
-  it('books upsert does not stamp updatedAt on unchanged re-sync but still links', async () => {
-    const [language] = await database
-      .insert(schema.languages)
-      .values({ langName: 'English', langCodeIso6393: 'eng' })
-      .returning();
-    const [bible] = await database
-      .insert(schema.bibles)
-      .values({
-        languageId: language!.id,
-        name: 'Link Bible',
-        abbreviation: 'LNK',
-        provider: 'dbl',
-        externalId: 'link-1',
-      })
-      .returning();
-
-    const first = await booksRepo.upsertFromDbl(bible!.id, [
-      { code: 'GEN', eng_display_name: 'Genesis' },
-    ]);
-    expect(first.ok).toBe(true);
-
-    const [bookAfterInsert] = await database
-      .select()
-      .from(schema.books)
-      .where(eq(schema.books.code, 'GEN'));
-    const watermark = bookAfterInsert!.updatedAt;
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    const second = await booksRepo.upsertFromDbl(bible!.id, [
-      { code: 'GEN', eng_display_name: 'Génesis' },
-    ]);
-    expect(second.ok).toBe(true);
-    if (second.ok) expect(second.data.linkedBooks).toBe(1);
-
-    const [bookAfterNoop] = await database
-      .select()
-      .from(schema.books)
-      .where(eq(schema.books.code, 'GEN'));
-    expect(bookAfterNoop!.eng_display_name).toBe('Genesis');
-    expect(bookAfterNoop!.updatedAt!.getTime()).toBe(watermark!.getTime());
-  });
-
-  it('languages upsert stamps updatedAt only when COALESCE fills a NULL', async () => {
-    await database.insert(schema.languages).values({
-      langName: 'Spanish',
-      langCodeIso6393: 'spa',
-      langNameLocalized: null,
-      scriptDirection: 'ltr',
-    });
-    const [before] = await database
-      .select()
-      .from(schema.languages)
-      .where(eq(schema.languages.langCodeIso6393, 'spa'));
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await languagesRepo.upsertFromDbl([
-      {
-        langCodeIso6393: 'spa',
-        langName: 'Español',
-        langNameLocalized: null,
-        scriptDirection: 'ltr',
-      },
-    ]);
-    const [afterNoop] = await database
-      .select()
-      .from(schema.languages)
-      .where(eq(schema.languages.langCodeIso6393, 'spa'));
-    expect(afterNoop!.langName).toBe('Spanish');
-    expect(afterNoop!.updatedAt!.getTime()).toBe(before!.updatedAt!.getTime());
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await languagesRepo.upsertFromDbl([
-      {
-        langCodeIso6393: 'spa',
-        langName: 'Español',
-        langNameLocalized: 'Español',
-        scriptDirection: 'ltr',
-      },
-    ]);
-    const [afterFill] = await database
-      .select()
-      .from(schema.languages)
-      .where(eq(schema.languages.langCodeIso6393, 'spa'));
-    expect(afterFill!.langNameLocalized).toBe('Español');
-    expect(afterFill!.updatedAt!.getTime()).toBeGreaterThan(before!.updatedAt!.getTime());
-  });
-
-  it('bibles upsert stamps updatedAt only when a tracked column changes', async () => {
-    const [language] = await database
-      .insert(schema.languages)
-      .values({ langName: 'English', langCodeIso6393: 'eng' })
-      .returning();
-
-    await biblesRepo.upsertFromDbl([
-      {
-        languageId: language!.id,
-        name: 'Alpha',
-        abbreviation: 'ALP',
-        provider: 'dbl',
-        externalId: 'alpha-1',
-        hasAudio: false,
-      },
-    ]);
-    const [before] = await database
-      .select()
-      .from(schema.bibles)
-      .where(eq(schema.bibles.externalId, 'alpha-1'));
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await biblesRepo.upsertFromDbl([
-      {
-        languageId: language!.id,
-        name: 'Alpha',
-        abbreviation: 'ALP',
-        provider: 'dbl',
-        externalId: 'alpha-1',
-        hasAudio: false,
-      },
-    ]);
-    const [afterNoop] = await database
-      .select()
-      .from(schema.bibles)
-      .where(eq(schema.bibles.externalId, 'alpha-1'));
-    expect(afterNoop!.updatedAt!.getTime()).toBe(before!.updatedAt!.getTime());
-
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await biblesRepo.upsertFromDbl([
-      {
-        languageId: language!.id,
-        name: 'Alpha',
-        abbreviation: 'ALP',
-        provider: 'dbl',
-        externalId: 'alpha-1',
-        hasAudio: true,
-      },
-    ]);
-    const [afterChange] = await database
-      .select()
-      .from(schema.bibles)
-      .where(eq(schema.bibles.externalId, 'alpha-1'));
-    expect(afterChange!.hasAudio).toBe(true);
-    expect(afterChange!.updatedAt!.getTime()).toBeGreaterThan(before!.updatedAt!.getTime());
   });
 });

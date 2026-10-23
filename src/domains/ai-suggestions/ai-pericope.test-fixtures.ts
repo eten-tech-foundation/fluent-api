@@ -6,6 +6,10 @@ import { eq } from 'drizzle-orm';
 import type { db } from '@/db';
 
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 
 interface PericopeIntegrationFixture {
   bibleId: number;
@@ -22,6 +26,7 @@ export async function setupPericopeIntegrationTest(
   client: PGlite,
   database: typeof db
 ): Promise<PericopeIntegrationFixture> {
+  await installNextCatalogueWatermarkFunction(client);
   const statements = await generateMigration(
     generateDrizzleJson({}),
     generateDrizzleJson({
@@ -41,6 +46,7 @@ export async function setupPericopeIntegrationTest(
       users: schema.users,
       organizations: schema.organizations,
       languages: schema.languages,
+      catalogue_watermark: schema.catalogue_watermark,
       bibles: schema.bibles,
       bible_provider_resources: schema.bible_provider_resources,
       authUser: schema.authUser,
@@ -56,6 +62,7 @@ export async function setupPericopeIntegrationTest(
     })
   );
   await client.exec(statements.join('\n'));
+  await seedCatalogueWatermarkSingleton(client);
 
   const suffix = Date.now().toString();
   const [org] = await database
