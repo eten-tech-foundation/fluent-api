@@ -308,7 +308,11 @@ describe('uploadRangeRecording', () => {
       const verse = result.data.takes.find((x) => x.id === 10);
       const peri = result.data.takes.find((x) => x.id === 11);
       expect(verse?.granularity).toBe('verse');
-      expect(verse?.startChapter).toBeNull();
+      // Selected-canonical hydration fills verse anchors from bible_texts on read.
+      expect(verse?.startChapter).toBe(1);
+      expect(verse?.startVerse).toBe(3);
+      expect(verse?.endChapter).toBe(1);
+      expect(verse?.endVerse).toBe(3);
       expect(peri?.granularity).toBe('pericope');
       expect(peri?.endVerse).toBe(8);
       expect(result.data.granularity).toBe('pericope');

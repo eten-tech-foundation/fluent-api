@@ -159,6 +159,35 @@ describe('verse-audio routes', () => {
   });
 
   describe('get /verse-audio (chapter list)', () => {
+    it('returns 401 when caller is unauthenticated', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
+      const res = await server.request(
+        '/verse-audio?projectUnitId=1&bibleId=9&bookId=1&chapterNumber=1',
+        { method: 'GET' }
+      );
+      expect(res.status).toBe(401);
+      expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when caller lacks access to the target project', async () => {
+      asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
+      vi.mocked(findGrantsByUserId).mockResolvedValue({
+        ok: true,
+        data: [{ orgId: 1, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }],
+      } as never);
+      const resolveIsProjectMember = (
+        await import('@/domains/projects/users/project-users.service')
+      ).resolveIsProjectMember;
+      vi.mocked(resolveIsProjectMember).mockResolvedValueOnce(false);
+
+      const res = await server.request(
+        '/verse-audio?projectUnitId=1&bibleId=9&bookId=1&chapterNumber=1',
+        { method: 'GET' }
+      );
+      expect(res.status).toBe(404);
+      expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
+    });
+
     it('returns 200 with chapter items and hasConflict rollup', async () => {
       asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
       (verseAudioService.listChapterRecordings as any).mockResolvedValue({
