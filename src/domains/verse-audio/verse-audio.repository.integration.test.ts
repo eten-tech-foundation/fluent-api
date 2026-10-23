@@ -4,6 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import {
+  installNextCatalogueWatermarkFunction,
+  seedCatalogueWatermarkSingleton,
+} from '@/db/testing/create-catalogue-schema';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import { updateTakeCoverageAndRecordingIfVersion } from './verse-audio.repository';
@@ -73,11 +77,13 @@ describe('updateTakeCoverageAndRecordingIfVersion (PGlite rollback)', () => {
   let takeId: number;
 
   beforeAll(async () => {
+    await installNextCatalogueWatermarkFunction(client);
     const statements = await generateMigration(
       generateDrizzleJson({}),
       generateDrizzleJson({
         organizations: schema.organizations,
         languages: schema.languages,
+        catalogue_watermark: schema.catalogue_watermark,
         authUser: schema.authUser,
         authSession: schema.authSession,
         users: schema.users,
@@ -104,6 +110,7 @@ describe('updateTakeCoverageAndRecordingIfVersion (PGlite rollback)', () => {
       })
     );
     await client.exec(statements.join('\n'));
+    await seedCatalogueWatermarkSingleton(client);
   }, 60_000);
 
   beforeEach(async () => {
