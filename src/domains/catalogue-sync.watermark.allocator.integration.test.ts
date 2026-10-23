@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
-import { createCatalogueTestSchema } from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import * as biblesRepo from '@/domains/bibles/bibles.repository';
 import * as booksRepo from '@/domains/books/books.repository';
 import * as languagesRepo from '@/domains/languages/languages.repository';
@@ -21,7 +21,7 @@ vi.mock('@/lib/logger', () => ({
 
 describe('catalogue watermark allocator paths (PGlite)', () => {
   beforeAll(async () => {
-    await createCatalogueTestSchema(client, {
+    await createTestSchema(client, {
       languages: schema.languages,
       books: schema.books,
       bible_books: schema.bible_books,
