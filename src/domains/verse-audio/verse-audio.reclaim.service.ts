@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
 import * as storageRepo from './storage-objects.repository';
-import * as repo from './verse-audio.repository';
+import * as takesRepo from './verse-audio-takes.repository';
 
 /**
  * Deletes objects nothing references any more and stamps their rows.
@@ -26,7 +26,7 @@ import * as repo from './verse-audio.repository';
 export async function reclaimOrphanedStorageObjects(): Promise<Result<number>> {
   // Independent of the orphan pass below: a persistent failure here must not
   // starve reclamation of objects left behind by deleted project units.
-  const pruned = await repo.pruneSupersededTakes(env.AUDIO_TAKE_RETENTION_MS);
+  const pruned = await takesRepo.pruneSupersededTakes(env.AUDIO_TAKE_RETENTION_MS);
   if (!pruned.ok) {
     logger.error({
       message: 'Superseded take prune failed; continuing to the orphan sweep',

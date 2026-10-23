@@ -1,4 +1,3 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { eq } from 'drizzle-orm';
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
@@ -8,10 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as draftSchema from '@/db/draft-comments.schema';
 import * as schema from '@/db/schema';
-import {
-  installNextCatalogueWatermarkFunction,
-  seedCatalogueWatermarkSingleton,
-} from '@/db/testing/create-catalogue-schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { deleteVerseAudio, isAudioStorageAvailable, uploadVerseAudio } from '@/lib/audio-storage';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ErrorCode } from '@/lib/types';
@@ -42,37 +38,30 @@ const audioBytes = Buffer.from('pglite-audio');
 
 describe('createAudioComment (PGlite + mocked storage)', () => {
   beforeAll(async () => {
-    await installNextCatalogueWatermarkFunction(client);
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        userStatusEnum: schema.userStatusEnum,
-        scriptDirectionEnum: schema.scriptDirectionEnum,
-        bibleProviderEnum: schema.bibleProviderEnum,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-        projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
-        projectStatusEnum: schema.projectStatusEnum,
-        milestoneTypeEnum: schema.milestoneTypeEnum,
-        authUser: schema.authUser,
-        authSession: schema.authSession,
-        users: schema.users,
-        organizations: schema.organizations,
-        languages: schema.languages,
-        catalogue_watermark: schema.catalogue_watermark,
-        books: schema.books,
-        pericope_sets: schema.pericope_sets,
-        pericope_verses: schema.pericope_verses,
-        bible_provider_resources: schema.bible_provider_resources,
-        bibles: schema.bibles,
-        projects: schema.projects,
-        project_units: schema.project_units,
-        chapter_assignments: schema.chapter_assignments,
-        bible_texts: schema.bible_texts,
-      })
-    );
-    await client.exec(statements.join('\n'));
-    await seedCatalogueWatermarkSingleton(client);
+    await createTestSchema(client, {
+      userStatusEnum: schema.userStatusEnum,
+      scriptDirectionEnum: schema.scriptDirectionEnum,
+      bibleProviderEnum: schema.bibleProviderEnum,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+      projectAssignmentStatusEnum: schema.projectAssignmentStatusEnum,
+      projectStatusEnum: schema.projectStatusEnum,
+      milestoneTypeEnum: schema.milestoneTypeEnum,
+      authUser: schema.authUser,
+      authSession: schema.authSession,
+      users: schema.users,
+      organizations: schema.organizations,
+      languages: schema.languages,
+      books: schema.books,
+      pericope_sets: schema.pericope_sets,
+      pericope_verses: schema.pericope_verses,
+      bible_provider_resources: schema.bible_provider_resources,
+      bibles: schema.bibles,
+      projects: schema.projects,
+      project_units: schema.project_units,
+      chapter_assignments: schema.chapter_assignments,
+      bible_texts: schema.bible_texts,
+    });
     const migrationSql = readFileSync(
       join(migrationDir, '0039_add_draft_chapter_comments.sql'),
       'utf8'

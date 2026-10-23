@@ -16,18 +16,9 @@ import type {
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
-import { mapForeignKeyViolation, takeSelection } from './verse-audio-takes.repository';
+import { takeSelection } from './verse-audio-takes.repository';
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
-
-export {
-  findTakeByContentHash,
-  getTakeById,
-  insertTake,
-  listTakesByRecordingIds,
-  listTakesForRecording,
-  pruneSupersededTakes,
-  takeSelection,
-} from './verse-audio-takes.repository';
 
 const recordSelection = {
   id: verse_audio_recordings.id,
