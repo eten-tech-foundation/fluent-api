@@ -16,6 +16,7 @@ const update = process.argv.includes('--update');
 // them placeholders. Nothing connects; knip only reads the configs' include patterns.
 const env = {
   ...process.env,
+  CI: 'true',
   DATABASE_URL: process.env.DATABASE_URL || 'postgres://localhost:5432/fluent',
   AQUIFER_API_KEY: process.env.AQUIFER_API_KEY || 'knip-placeholder',
 };
