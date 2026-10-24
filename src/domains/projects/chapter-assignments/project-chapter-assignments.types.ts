@@ -107,9 +107,6 @@ export const resetSelectedRequestSchema = z.object({
     }),
 });
 
-// Same wire shape as assign-selected so clients can reuse the progress mapper.
-export const resetSelectedResponseSchema = assignSelectedResponseSchema;
-
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type AssignmentUser = z.infer<typeof userResponseSchema>;

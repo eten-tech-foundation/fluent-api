@@ -20,7 +20,6 @@ import {
   chapterAssignmentProgressResponseSchema,
   chapterAssignmentResponseSchema,
   resetSelectedRequestSchema,
-  resetSelectedResponseSchema,
 } from './project-chapter-assignments.types';
 
 const projectIdParam = z.object({ projectId: z.coerce.number().int().positive() });
@@ -321,7 +320,8 @@ const resetSelectedRoute = createRoute({
     body: jsonContent(resetSelectedRequestSchema, 'Chapter assignment IDs to reset'),
   },
   responses: {
-    [HttpStatusCodes.OK]: jsonContent(resetSelectedResponseSchema, 'Success'),
+    // Same progress array shape as assign-selected.
+    [HttpStatusCodes.OK]: jsonContent(assignSelectedResponseSchema, 'Success'),
     [HttpStatusCodes.BAD_REQUEST]: jsonContent(
       createMessageObjectSchema('Bad Request'),
       'Invalid request data'
