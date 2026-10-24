@@ -28,7 +28,7 @@ import type { ChapterAssignmentsProgressFilters } from './chapter-assignments-pr
 
 type AssignmentProgressRow = Omit<
   ChapterAssignmentProgressInfo,
-  'textBibleKey' | 'selectedRecordingKey'
+  'textBibleKey' | 'selectedRecordingKey' | 'stageEnteredAt'
 > & {
   textBibleProvider: Provider;
   textBibleExternalId: string | null;
@@ -37,6 +37,11 @@ type AssignmentProgressRow = Omit<
   selectedRecordingExternalId: string | null;
 };
 
+type AssignmentProgressWithoutStageEnteredAt = Omit<
+  ChapterAssignmentProgressInfo,
+  'stageEnteredAt'
+>;
+
 function toAssignmentProgressInfo({
   textBibleProvider,
   textBibleExternalId,
@@ -44,7 +49,7 @@ function toAssignmentProgressInfo({
   selectedRecordingProvider,
   selectedRecordingExternalId,
   ...row
-}: AssignmentProgressRow): ChapterAssignmentProgressInfo {
+}: AssignmentProgressRow): AssignmentProgressWithoutStageEnteredAt {
   return {
     ...row,
     textBibleKey:
@@ -85,7 +90,7 @@ export function hasConflictRollupSql() {
 export async function findAssignmentsProgress(
   filters: ChapterAssignmentsProgressFilters,
   tx?: DbTransaction
-): Promise<Result<ChapterAssignmentProgressInfo[]>> {
+): Promise<Result<AssignmentProgressWithoutStageEnteredAt[]>> {
   try {
     const conn = tx ?? db;
     const assignedUser = alias(users, 'assignedUser');

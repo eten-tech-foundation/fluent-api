@@ -856,24 +856,16 @@ export const editorStateResourcesSchema = z
 // One row per user, a single Zod-typed JSONB blob. `.catch({})` so unknown/old
 // shapes parse as empty rather than throwing (W8). Surfaced via GET/PUT /self/settings.
 //
-// ⚠️ IMPLEMENTATION NOTE — full-replace today; ADD MERGE BEFORE A SECOND KEY ⚠️
-// `PUT /self/settings` is a deliberate **full-replace** of the whole blob
-// (last-writer-wins; no PATCH/ETags — §8.1/§8.3). That is safe ONLY while there
-// is exactly ONE key (`checkIgnoredWordPairs`): the client just GETs, edits the
-// one key, and PUTs the whole blob back. There is no server-side merge.
+// Write path is an **atomic partial merge** (API #434): `PUT /self/settings`
+// shallow-merges provided keys into the stored blob via a single JSONB upsert
+// (`||` + `jsonb_strip_nulls`). Absent keys stay untouched; an explicit `null`
+// value deletes only that key; `PUT { settings: {} }` is a no-op. Same-key
+// conflicts are last successfully server-saved write (no ETags / wall-clock).
+// Concurrent different-key writers must not use a naive JS read/merge/write.
 //
-// Because this is a plain `z.object`, the write schema **strips any unknown
-// key**, so a sibling setting cannot even reach the store today — which means
-// this object is the *only* gate: you literally cannot introduce a second
-// setting without editing THIS schema. So, before adding any second key here,
-// you MUST also make the write path merge instead of replace, or the
-// full-replace PUT will silently drop whichever key the caller didn't send.
-// Recommended at that point (in `self-settings.service.upsertSettings`):
-//   1. GET the existing stored blob for the user.
-//   2. Shallow-merge the incoming keys over it (set provided keys; treat an
-//      explicit `null` value as "delete this key"; leave absent keys untouched).
-//   3. Persist the merged blob.
-// Until then, keep the single-key full-replace contract.
+// Because this is a plain `z.object`, unknown top-level keys are **stripped** on
+// write — adding a new setting key still requires editing THIS schema (and
+// keeping the merge semantics above).
 // The bare object shape (no `.catch`). This is also the OpenAPI-facing schema:
 // the `.catch({})` wrapper below produces a `ZodCatch` node that
 // @asteasolutions/zod-to-openapi (under @hono/zod-openapi) cannot render — it
@@ -882,10 +874,18 @@ export const editorStateResourcesSchema = z
 // it adds/removes no fields, so the documented shape is identical either way.
 // Anything exposed on the OpenAPI surface must therefore embed THIS schema, not
 // the `.catch` variant. (Guarded by src/routes/doc.route.test.ts.)
+export const userSettingsDisplayModeSchema = z.enum(['verse', 'pericope']);
+
+// Shared so read/write schemas cannot drift on the verdict enum (FA-R1).
+export const checkIgnoredWordPairsSchema = z.record(z.string(), z.enum(['suppress', 'surface']));
+
 export const userSettingsObjectSchema = z.object({
   // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
   // pair string (e.g. "the the"); applies across all of the user's projects.
-  checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
+  // Mobile drafting unit preference (client defaults missing → verse). Stored
+  // only when set; normalized responses omit a deleted key (no null echo).
+  displayMode: userSettingsDisplayModeSchema.optional(),
 });
 
 // Read/storage schema: `.catch({})` so unknown/old shapes parse as empty rather
@@ -897,8 +897,13 @@ export const userSettingsSchema = userSettingsObjectSchema.catch({});
 // Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
 // (surfaced as a 422 VALIDATION_ERROR — a well-formed request whose contents fail
 // schema validation; see self-settings.service.upsertSettings) instead of being
-// silently swallowed.
-export const userSettingsWriteSchema = userSettingsObjectSchema;
+// silently swallowed. Explicit `null` deletes only `displayMode` (#434); clear
+// suppressions with `{ checkIgnoredWordPairs: {} }` — `null` there is 422.
+// Absent keys are not in the patch.
+export const userSettingsWriteSchema = z.object({
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
+  displayMode: userSettingsDisplayModeSchema.nullable().optional(),
+});
 
 export const user_chapter_assignment_editor_state = pgTable(
   'user_chapter_assignment_editor_state',

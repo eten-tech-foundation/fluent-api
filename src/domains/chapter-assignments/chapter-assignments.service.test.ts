@@ -53,6 +53,7 @@ vi.mock('./chapter-assignments.repository', () => ({
   flagClaimConflict: vi.fn(),
   insertStatusHistory: vi.fn(),
   insertUserAssignmentHistory: vi.fn(),
+  findStatusHistoryByAssignmentIds: vi.fn().mockResolvedValue(new Map()),
   update: vi.fn(),
   getContent: vi.fn(),
   insertSnapshot: vi.fn(),
@@ -586,14 +587,18 @@ describe('updateChapterAssignment conflict resolution', () => {
 });
 
 describe('toChapterAssignmentResponse', () => {
-  it('includes claim conflict fields in the response payload', () => {
-    const response = toChapterAssignmentResponse({
-      ...baseRecord,
-      hasClaimConflict: true,
-      claimConflictUserId: 5,
-    });
+  it('includes claim conflict fields and stageEnteredAt in the response payload', () => {
+    const response = toChapterAssignmentResponse(
+      {
+        ...baseRecord,
+        hasClaimConflict: true,
+        claimConflictUserId: 5,
+      },
+      '2026-01-02T00:00:00.000Z'
+    );
     expect(response.hasClaimConflict).toBe(true);
     expect(response.claimConflictUserId).toBe(5);
+    expect(response.stageEnteredAt).toBe('2026-01-02T00:00:00.000Z');
   });
 });
 

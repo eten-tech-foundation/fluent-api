@@ -3,7 +3,10 @@ import { z } from '@hono/zod-openapi';
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
-import { chapterAssignmentResponseSchema as sharedAssignmentSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
+import {
+  chapterAssignmentResponseSchema as sharedAssignmentSchema,
+  stageEnteredAtSchema,
+} from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── Shared response schemas ──────────────────────────────────────────────────
 
@@ -42,6 +45,7 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   submittedTime: z.date().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  stageEnteredAt: stageEnteredAtSchema,
   isAiEnabled: z.boolean(),
   hasConflict: z.boolean(),
 });

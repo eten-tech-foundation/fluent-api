@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result, USJDocument } from '@/lib/types';
 import type { VerseData } from '@/lib/usfm-converter';
@@ -21,6 +21,7 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, generateUSFMText } from '@/lib/usfm-converter';
 
 import type { PolicyChapterAssignment } from './chapter-assignments.policy';
+import type { StatusHistoryRow } from './chapter-assignments.stage-entered-at';
 import type {
   ChapterAssignmentRecord,
   ChapterAssignmentRecordWithOrg,
@@ -427,6 +428,41 @@ export async function deleteByProjectUnitAndBooks(
         inArray(chapter_assignments.bookId, bookIds)
       )
     );
+}
+
+/** Batch status history (createdAt ASC NULLS LAST, id ASC). Resolver rejects any null createdAt. */
+export async function findStatusHistoryByAssignmentIds(
+  assignmentIds: number[],
+  tx?: DbTransaction
+): Promise<Map<number, StatusHistoryRow[]>> {
+  const result = new Map<number, StatusHistoryRow[]>();
+  if (assignmentIds.length === 0) return result;
+
+  const conn = tx ?? db;
+  const rows = await conn
+    .select({
+      id: chapter_assignment_status_history.id,
+      chapterAssignmentId: chapter_assignment_status_history.chapterAssignmentId,
+      status: chapter_assignment_status_history.status,
+      createdAt: chapter_assignment_status_history.createdAt,
+    })
+    .from(chapter_assignment_status_history)
+    .where(inArray(chapter_assignment_status_history.chapterAssignmentId, assignmentIds))
+    .orderBy(
+      chapter_assignment_status_history.chapterAssignmentId,
+      sql`${chapter_assignment_status_history.createdAt} ASC NULLS LAST`,
+      asc(chapter_assignment_status_history.id)
+    );
+
+  for (const id of assignmentIds) result.set(id, []);
+  for (const row of rows) {
+    result.get(row.chapterAssignmentId)?.push({
+      id: row.id,
+      status: row.status,
+      createdAt: row.createdAt,
+    });
+  }
+  return result;
 }
 
 export async function insertStatusHistory(

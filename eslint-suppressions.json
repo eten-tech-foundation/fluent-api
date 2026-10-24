@@ -382,10 +382,7 @@
   },
   "src/domains/self/settings/self-settings.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 3
-    },
-    "ts/no-explicit-any": {
-      "count": 5
+      "count": 1
     }
   },
   "src/domains/source-audio/source-audio.route.test.ts": {
