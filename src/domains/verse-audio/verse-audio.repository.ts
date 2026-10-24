@@ -134,10 +134,15 @@ export type FirstRecordingOutcome = 'created' | 'concurrent' | 'link-conflict';
  * First-upload path as one transaction: insert recording + take + optional
  * active-take link. Prevents a GET between those writes from returning
  * `takes: []` while `downloadUrl` still resolves via `storageObjectId`.
+ *
+ * `linkActive: false` stores the take without selecting it: the recording keeps
+ * `activeTakeId: null` and `versionToken: 1`, and a concurrent winner is not
+ * marked conflicted.
  */
 export async function createFirstRecordingWithTake(
   recording: UpsertVerseAudioInput,
-  takeInput: Omit<InsertTakeInput, 'recordingId'>
+  takeInput: Omit<InsertTakeInput, 'recordingId'>,
+  options: { linkActive: boolean } = { linkActive: true }
 ): Promise<
   Result<{ outcome: FirstRecordingOutcome; record: VerseAudioRecord; take: VerseAudioTakeRecord }>
 > {
@@ -223,6 +228,14 @@ export async function createFirstRecordingWithTake(
           return current;
         }
         return ok({ outcome: 'concurrent', record: current.data, take });
+      }
+
+      if (!options.linkActive) {
+        const current = await loadRecord();
+        if (!current.ok) {
+          return current;
+        }
+        return ok({ outcome: 'created', record: current.data, take });
       }
 
       const [linked] = await tx

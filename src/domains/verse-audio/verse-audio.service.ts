@@ -2,9 +2,12 @@ import type { Result } from '@/lib/types';
 
 import { deleteVerseAudio } from '@/lib/audio-storage';
 import { logger } from '@/lib/logger';
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
+  DeleteTakeInput,
   ResolveConflictInput,
   VerseAudioTakeRecord,
   VerseAudioWithUrl,
@@ -130,6 +133,31 @@ export async function resolveConflict(
   return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }
 
+async function deleteTakeObject(
+  projectUnitId: number,
+  bibleTextId: number,
+  storageObjectId: number,
+  contentHash: string
+): Promise<void> {
+  const storage = await storageRepo.getById(storageObjectId);
+  const key = storage.ok
+    ? storage.data.key
+    : fallbackBlobKey(projectUnitId, bibleTextId, contentHash);
+
+  try {
+    await deleteVerseAudio(key);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Verse audio object delete failed; left for the reclaim sweep',
+      context: { key },
+    });
+    return;
+  }
+
+  await storageRepo.markDeleted(storageObjectId);
+}
+
 export async function deleteRecording(
   projectUnitId: number,
   bibleTextId: number
@@ -156,24 +184,51 @@ export async function deleteRecording(
     if (take.storageObjectId === null) {
       continue;
     }
-    const storage = await storageRepo.getById(take.storageObjectId);
-    const key = storage.ok
-      ? storage.data.key
-      : fallbackBlobKey(projectUnitId, bibleTextId, take.contentHash);
-
-    try {
-      await deleteVerseAudio(key);
-    } catch (error) {
-      logger.error({
-        cause: error,
-        message: 'Verse audio object delete failed; left for the reclaim sweep',
-        context: { key },
-      });
-      continue;
-    }
-
-    await storageRepo.markDeleted(take.storageObjectId);
+    await deleteTakeObject(projectUnitId, bibleTextId, take.storageObjectId, take.contentHash);
   }
 
   return ok(undefined);
+}
+
+/**
+ * Deletes a single take. Allowed for the take's uploader or a holder of
+ * `content:assign` at the project scope; anyone else gets FORBIDDEN. Deleting
+ * the active take promotes the newest remaining take (or clears it).
+ */
+export async function deleteTake(input: DeleteTakeInput): Promise<Result<VerseAudioWithUrl>> {
+  const recording = await repo.get(input.projectUnitId, input.bibleTextId);
+  if (!recording.ok) {
+    return recording;
+  }
+
+  const take = await takesRepo.getTakeById(input.takeId);
+  if (!take.ok) {
+    return take;
+  }
+  if (take.data.recordingId !== recording.data.id) {
+    return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+  }
+
+  const isOwner = take.data.uploadedBy === input.actor.id;
+  if (!isOwner && !authorize(input.actor, PERMISSIONS.CONTENT_ASSIGN, input.scope)) {
+    return err(ErrorCode.FORBIDDEN);
+  }
+
+  // Row first, bytes second (same order as deleteRecording): a failed object
+  // delete leaves an orphan for the reclaim sweep rather than a dangling take.
+  const deleted = await takesRepo.deleteTakeAndPromote(recording.data.id, input.takeId);
+  if (!deleted.ok) {
+    return deleted;
+  }
+
+  if (deleted.data.storageObjectId !== null) {
+    await deleteTakeObject(
+      input.projectUnitId,
+      input.bibleTextId,
+      deleted.data.storageObjectId,
+      deleted.data.contentHash
+    );
+  }
+
+  return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }

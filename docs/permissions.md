@@ -397,6 +397,19 @@ The most complex policy. The `edit` method enforces assignment-position rules an
 | `claim`                | `content:update` at scope | Denied if `content:assign`. Unassigned `not_started`: clean claim. Same user + `draft`: idempotent retry. Rival on non-`complete` status: durable conflict (`hasClaimConflict`, first-loser `claimConflictUserId`). Same-user non-`draft` or rival on `complete`: denied (404). |
 | `isParticipant`        | Delegates to `edit`       | —                                                                                                                                                                                                                                                                               |
 
+### Verse audio take delete
+
+`DELETE /verse-audio/{projectUnitId}/{bibleTextId}/takes/{takeId}` ([`verse-audio.service.ts`](../src/domains/verse-audio/verse-audio.service.ts) `deleteTake`)
+
+| Caller                                   | Result |
+| ---------------------------------------- | ------ |
+| Cannot read the project                  | 404    |
+| Take uploader (`uploadedBy === user.id`) | 200    |
+| `content:assign` at project scope        | 200    |
+| Any other project reader                 | 403    |
+
+Unknown take, or a take belonging to a different unit, is 404. Deleting the active take promotes the newest remaining take or clears `activeTakeId`.
+
 ### AiSuggestionsPolicy
 
 [`src/domains/ai-suggestions/ai-suggestions.policy.ts`](../src/domains/ai-suggestions/ai-suggestions.policy.ts)

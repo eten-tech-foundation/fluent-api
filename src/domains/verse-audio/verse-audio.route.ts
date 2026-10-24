@@ -70,6 +70,12 @@ const uploadVerseAudioRoute = createRoute({
             // 0 and reject it. This schema is enforced, not just documentation:
             // zod-openapi validates multipart bodies through the form validator.
             baseVersionToken: baseVersionTokenFormField,
+            // `z.coerce.boolean` would read the string 'false' as true.
+            activate: z.enum(['true', 'false']).optional().openapi({
+              description:
+                'Default true. When false the take is stored but activeTakeId, versionToken, and conflictStatus are left unchanged (non-selected take). Response takeId identifies the stored take.',
+              example: 'false',
+            }),
           }),
         },
       },
@@ -97,7 +103,7 @@ const uploadVerseAudioRoute = createRoute({
   },
   summary: 'Upload an audio take for a verse',
   description:
-    'Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients (deprecated escape hatch — logged as verse_audio_upload_legacy_no_token until mobile builds all send the field); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it — an upload can become the active take but never settles the conflict on its own.',
+    'Response always includes takeId (the take written or matched). activate=false stores a non-selected take without changing activeTakeId, versionToken, or conflictStatus; identical bytes return the existing takeId. Versioned upload: send baseVersionToken from the client’s last sync. Matching token replaces the active take; omitted token does the same for legacy clients (deprecated escape hatch, logged as verse_audio_upload_legacy_no_token until mobile builds all send the field); a present-but-stale token keeps both takes and marks conflict. Identical contentHash retries are idempotent (and promote a non-active matching take when the base is fresh). Once a unit is conflicted only the resolve endpoint clears it; an upload can become the active take but never settles the conflict on its own.',
 });
 
 server.openapi(uploadVerseAudioRoute, async (c) => {
@@ -139,6 +145,7 @@ server.openapi(uploadVerseAudioRoute, async (c) => {
     data,
     durationSeconds,
     baseVersionToken: baseToken.value,
+    activate: body.activate !== 'false',
   });
 
   if (!result.ok) {
@@ -348,4 +355,66 @@ server.openapi(deleteVerseAudioRoute, async (c) => {
   }
 
   return c.json({ message: 'Verse audio recording deleted' }, HttpStatusCodes.OK);
+});
+
+// ─── DELETE /verse-audio/{projectUnitId}/{bibleTextId}/takes/{takeId} ─────────
+
+const deleteVerseAudioTakeRoute = createRoute({
+  tags: ['Verse Audio'],
+  method: 'delete',
+  path: '/verse-audio/{projectUnitId}/{bibleTextId}/takes/{takeId}',
+  middleware: [
+    authenticateUser,
+    requireReadVerseAudioAccess(VERSE_AUDIO_ID_SOURCES.PARAMS),
+  ] as const,
+  request: {
+    params: verseAudioParamsSchema.extend({
+      takeId: z.coerce
+        .number()
+        .int()
+        .positive()
+        .openapi({
+          param: { name: 'takeId', in: 'path', required: true },
+          description: 'verse_audio_takes.id to delete',
+          example: 42,
+        }),
+    }),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: jsonContent(
+      verseAudioResponseSchema,
+      'Unit after the take was removed (activeTakeId promoted or cleared when the active take was deleted)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad request'),
+      'Invalid parameters'
+    ),
+    ...commonErrorResponses,
+  },
+  summary: 'Delete a single audio take',
+  description:
+    "Allowed for the take's uploader or a holder of content:assign on the project; other project readers get 403 (non-readers get 404). Removes the take row and its blob. Deleting the active take promotes the newest remaining take (versionToken advances), or clears activeTakeId when none remain. Deleting a non-active take leaves activeTakeId and versionToken unchanged. The whole-unit DELETE is unchanged.",
+});
+
+server.openapi(deleteVerseAudioTakeRoute, async (c) => {
+  if (!isAudioStorageAvailable()) {
+    return c.json(STORAGE_UNAVAILABLE_BODY, HttpStatusCodes.SERVICE_UNAVAILABLE);
+  }
+
+  const { projectUnitId, bibleTextId, takeId } = c.req.valid('param');
+  const user = c.get('user')!;
+  const project = c.get('project')!;
+
+  const result = await verseAudioService.deleteTake({
+    projectUnitId,
+    bibleTextId,
+    takeId,
+    actor: { id: user.id, grants: user.grants },
+    scope: { orgId: project.organization, projectId: project.id },
+  });
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  }
+
+  return c.json(result.data, HttpStatusCodes.OK);
 });
