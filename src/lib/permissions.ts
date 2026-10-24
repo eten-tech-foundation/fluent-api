@@ -25,6 +25,12 @@ export const PERMISSIONS = {
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
 
+  // ── Draft chapter comments (#458) ─────────────────────────────────────
+  // Comments-only write. Distinct from CONTENT_UPDATE so Observers can author
+  // without gaining draft/audio edit. Seed-mapped (source only) to Project
+  // Observer, Translator, and Project Manager — Matt-approved 2026-10-22.
+  COMMENT_WRITE: 'comment:write',
+
   // ── Organizations ───────────────────────────────────────────────────
   ORG_VIEW: 'org:view',
   ORG_CREATE: 'org:create',

@@ -156,6 +156,5 @@
   "types:src/lib/types.ts:AppRouteHandler",
   "types:src/lib/types.ts:EmailServiceResult",
   "types:src/lib/types.ts:InvitationEmailData",
-  "types:src/lib/usfm-verse-serializer.ts:USFMVerseBodyData",
-  "types:src/middlewares/role-auth.ts:ScopeResolver"
+  "types:src/lib/usfm-verse-serializer.ts:USFMVerseBodyData"
 ]
