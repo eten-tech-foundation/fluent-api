@@ -13,7 +13,6 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type { ChapterAssignmentWithAuthContext } from './chapter-assignments.repository';
 import type {
   ChapterAssignmentRecord,
-  ChapterAssignmentResponse,
   ChapterAssignmentStatus,
   CreateChapterAssignmentRequestData,
   UpdateChapterAssignmentRequestData,
@@ -21,6 +20,7 @@ import type {
 
 import { isIdempotentSelfClaim } from './chapter-assignments.policy';
 import * as repo from './chapter-assignments.repository';
+import { buildChapterAssignmentResponse } from './chapter-assignments.response';
 import {
   applyAutoTransition,
   recordStatusChange,
@@ -28,40 +28,24 @@ import {
 } from './chapter-assignments.transitions';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
-export function toChapterAssignmentResponse(
-  record: ChapterAssignmentRecord
-): ChapterAssignmentResponse {
-  return {
-    id: record.id,
-    projectUnitId: record.projectUnitId,
-    bibleId: record.bibleId,
-    bookId: record.bookId,
-    chapterNumber: record.chapterNumber,
-    assignedUserId: record.assignedUserId,
-    peerCheckerId: record.peerCheckerId,
-    status: record.status,
-    submittedTime: record.submittedTime,
-    hasClaimConflict: record.hasClaimConflict,
-    claimConflictUserId: record.claimConflictUserId,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
+export {
+  buildChapterAssignmentResponse,
+  buildChapterAssignmentResponses,
+  toChapterAssignmentResponse,
+} from './chapter-assignments.response';
+export { getStageEnteredAtByAssignmentIds } from './chapter-assignments.stage-entered-at.lookup';
 export function getChapterAssignment(id: number) {
   return repo.findByIdWithOrg(id);
 }
 
-// Fetch a chapter assignment with auth context for middleware policy evaluation.
+/** Auth-context load for middleware policy evaluation. */
 export function getChapterAssignmentWithAuthContext(
   id: number,
   userId: number
 ): Promise<Result<ChapterAssignmentWithAuthContext>> {
   return repo.findByIdWithAuthContext(id, userId);
 }
-
 export { getAssignmentsProgress } from './progress/chapter-assignments-progress.service';
-
 export function getAssignmentForVerse(projectUnitId: number, bibleTextId: number) {
   return repo.findForVerse(projectUnitId, bibleTextId);
 }
@@ -95,7 +79,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentReque
       }
 
       return ok({
-        response: toChapterAssignmentResponse(assignment),
+        response: await buildChapterAssignmentResponse(assignment, tx),
         shouldTriggerAi,
       });
     } catch (error) {
@@ -231,7 +215,7 @@ export async function updateChapterAssignment(
     await projectsService.touchProjectActivity(updated.projectUnitId, tx);
 
     return ok({
-      response: toChapterAssignmentResponse(updated),
+      response: await buildChapterAssignmentResponse(updated, tx),
       shouldTriggerAi,
     });
   };
@@ -328,7 +312,7 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
       if (!updated) {
         const latest = await repo.findById(chapterAssignmentId, tx);
         if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-        return ok(toChapterAssignmentResponse(latest));
+        return ok(await buildChapterAssignmentResponse(latest, tx));
       }
 
       await repo.insertSnapshot(tx, {
@@ -344,7 +328,7 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
         submittedTime,
       });
       await projectsService.touchProjectActivity(updated.projectUnitId, tx);
-      return ok(toChapterAssignmentResponse(updated));
+      return ok(await buildChapterAssignmentResponse(updated, tx));
     }
 
     await repo.insertSnapshot(tx, {
@@ -393,7 +377,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
         );
         await projectsService.recordProjectAssignmentActivity(record.projectUnitId, tx);
         return ok({
-          response: toChapterAssignmentResponse(record),
+          response: await buildChapterAssignmentResponse(record, tx),
           shouldTriggerAi: true,
         });
       }
@@ -404,7 +388,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
       // Same-user idempotency matches policy.claim (DRAFT only).
       if (isIdempotentSelfClaim(current, userId)) {
         return ok({
-          response: toChapterAssignmentResponse(current),
+          response: await buildChapterAssignmentResponse(current, tx),
           shouldTriggerAi: false,
         });
       }
@@ -415,7 +399,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
       const flagged = await repo.flagClaimConflict(id, userId, tx);
       if (flagged) {
         return ok({
-          response: toChapterAssignmentResponse(flagged),
+          response: await buildChapterAssignmentResponse(flagged, tx),
           shouldTriggerAi: false,
         });
       }
@@ -426,7 +410,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
       if (!latest) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
       if (isIdempotentSelfClaim(latest, userId)) {
         return ok({
-          response: toChapterAssignmentResponse(latest),
+          response: await buildChapterAssignmentResponse(latest, tx),
           shouldTriggerAi: false,
         });
       }
@@ -440,7 +424,7 @@ export async function claimChapterAssignment(id: number, userId: number) {
         const retried = await repo.flagClaimConflict(id, userId, tx);
         if (retried) {
           return ok({
-            response: toChapterAssignmentResponse(retried),
+            response: await buildChapterAssignmentResponse(retried, tx),
             shouldTriggerAi: false,
           });
         }

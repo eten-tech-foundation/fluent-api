@@ -84,6 +84,15 @@ describe('verse-audio service', () => {
         expect(result.data.takes).toHaveLength(1);
         expect(result.data.downloadUrl).toContain('https://r2.example/');
         expect(result.data.versionToken).toBe(1);
+        expect(result.data.activeTakeId).toBe(10);
+        expect(result.data.downloadUrl).toBe(result.data.takes[0]?.downloadUrl);
+        expect(result.data).toMatchObject({
+          granularity: 'verse',
+          startChapter: 1,
+          startVerse: 3,
+          endChapter: 1,
+          endVerse: 3,
+        });
       }
       // Hash-keyed objects derive the blob name — no storage_objects round trip.
       expect(storageRepo.getByIds).not.toHaveBeenCalled();

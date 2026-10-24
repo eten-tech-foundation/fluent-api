@@ -3,6 +3,7 @@ import { z } from '@hono/zod-openapi';
 import type { TtsLicenseStatus } from '@/domains/bibles/bibles.types';
 
 import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
+import { stageEnteredAtSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 export interface UserChapterAssignment {
@@ -33,6 +34,7 @@ export interface UserChapterAssignment {
   assignedUserId: number | null;
   peerCheckerId: number | null;
   updatedAt: string | null;
+  stageEnteredAt: string | null;
   isAiEnabled: boolean;
   hasClaimConflict: boolean;
   claimConflictUserId: number | null;
@@ -67,6 +69,7 @@ export const userChapterAssignmentResponseSchema = z.object({
   assignedUserId: z.number().int().nullable(),
   peerCheckerId: z.number().int().nullable(),
   updatedAt: z.string().nullable(),
+  stageEnteredAt: stageEnteredAtSchema,
   isAiEnabled: z.boolean(),
   hasClaimConflict: z.boolean(),
   claimConflictUserId: z.number().int().nullable(),
@@ -97,6 +100,7 @@ export const memberChapterAssignmentResponseSchema = z.object({
   submittedTime: z.date().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  stageEnteredAt: stageEnteredAtSchema,
   hasClaimConflict: z.boolean(),
   claimConflictUserId: z.number().int().nullable(),
 });

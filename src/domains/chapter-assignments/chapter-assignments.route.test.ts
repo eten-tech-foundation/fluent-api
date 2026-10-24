@@ -69,7 +69,14 @@ vi.mock('./chapter-assignments.service', () => ({
   getChapterAssignmentWithAuthContext: vi.fn(),
   claimChapterAssignment: vi.fn(),
   submitChapterAssignment: vi.fn(),
-  toChapterAssignmentResponse: vi.fn((record) => record),
+  toChapterAssignmentResponse: vi.fn((record, stageEnteredAt = null) => ({
+    ...record,
+    stageEnteredAt,
+  })),
+  buildChapterAssignmentResponse: vi.fn(async (record) => ({
+    ...record,
+    stageEnteredAt: null,
+  })),
 }));
 
 const TRANSLATOR = {
@@ -130,6 +137,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         submittedTime: null,
         hasClaimConflict: false,
         claimConflictUserId: null,
+        stageEnteredAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -160,6 +168,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         submittedTime: null,
         hasClaimConflict: true,
         claimConflictUserId: 10,
+        stageEnteredAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -189,6 +198,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         submittedTime: null,
         hasClaimConflict: true,
         claimConflictUserId: 10,
+        stageEnteredAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

@@ -40,6 +40,7 @@ const makeProgressInfo = (
   submittedTime: null,
   createdAt: null,
   updatedAt: null,
+  stageEnteredAt: null,
   isAiEnabled: false,
   hasClaimConflict: false,
   claimConflictUserId: null,
@@ -87,5 +88,12 @@ describe('toResponse', () => {
     );
     expect(response.hasClaimConflict).toBe(true);
     expect(response.claimConflictUserId).toBe(99);
+  });
+
+  it('propagates stageEnteredAt from progress rows (never invents a fallback)', () => {
+    expect(toResponse(makeProgressInfo({ stageEnteredAt: null })).stageEnteredAt).toBeNull();
+    expect(
+      toResponse(makeProgressInfo({ stageEnteredAt: '2026-01-04T12:00:00.000Z' })).stageEnteredAt
+    ).toBe('2026-01-04T12:00:00.000Z');
   });
 });

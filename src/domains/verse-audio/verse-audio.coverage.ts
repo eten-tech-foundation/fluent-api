@@ -45,6 +45,10 @@ export function rangesEqual(a: RangeCoverage, b: RangeCoverage): boolean {
 /**
  * Active coverage for conflict scanning. Pericope uses stored bounds; verse is a
  * single point at the bible_texts anchor (stored range columns stay null).
+ *
+ * When pericope bounds are null (anomalous), anchor-fills so overlap geometry
+ * stays defined. Wire hydration (`hydrateCoverageForWire`) deliberately does
+ * not — it passes nulls through rather than inventing a pericope span.
  */
 export function coverageFromActive(
   record: ActiveCoverageRecord,

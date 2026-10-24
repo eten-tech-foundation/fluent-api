@@ -314,10 +314,8 @@ const getChapterAssignmentRoute = createRoute({
 
 server.openapi(getChapterAssignmentRoute, async (c) => {
   const assignment = c.get('chapterAssignment')!;
-  return c.json(
-    chapterAssignmentService.toChapterAssignmentResponse(assignment),
-    HttpStatusCodes.OK
-  );
+  const response = await chapterAssignmentService.buildChapterAssignmentResponse(assignment);
+  return c.json(response, HttpStatusCodes.OK);
 });
 
 // ─── DELETE /chapter-assignments/:chapterAssignmentId ────────────────────────

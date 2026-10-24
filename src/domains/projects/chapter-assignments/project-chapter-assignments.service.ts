@@ -3,7 +3,6 @@ import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
-import { toChapterAssignmentResponse } from '@/domains/chapter-assignments/chapter-assignments.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import * as userProjectsService from '@/domains/users/projects/user-projects.service';
@@ -23,7 +22,7 @@ import * as repo from './project-chapter-assignments.repository';
 export async function getProjectChapterAssignments(projectId: number, milestoneId?: number) {
   const result = await repo.getByProject(projectId, milestoneId);
   if (!result.ok) return result;
-  return ok(result.data.map(toChapterAssignmentResponse));
+  return ok(await chapterAssignmentService.buildChapterAssignmentResponses(result.data));
 }
 
 export function deleteChapterAssignmentsByProject(projectId: number) {
@@ -62,6 +61,7 @@ function toChapterAssignmentProgressResponse(info: ChapterAssignmentProgressInfo
     createdAt: info.createdAt,
     updatedAt: info.updatedAt,
     submittedTime: info.submittedTime,
+    stageEnteredAt: info.stageEnteredAt,
     isAiEnabled: info.isAiEnabled,
     hasConflict: info.hasConflict,
   };
@@ -195,7 +195,10 @@ export async function assignSelectedChapters(
   }
 }
 
-function toMemberChapterAssignmentResponse(record: ChapterAssignmentWithProjectId) {
+function toMemberChapterAssignmentResponse(
+  record: ChapterAssignmentWithProjectId,
+  stageEnteredAt: string | null
+) {
   return {
     chapterAssignmentId: record.id,
     projectId: record.projectId,
@@ -209,6 +212,7 @@ function toMemberChapterAssignmentResponse(record: ChapterAssignmentWithProjectI
     submittedTime: record.submittedTime,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    stageEnteredAt,
     hasClaimConflict: record.hasClaimConflict,
     claimConflictUserId: record.claimConflictUserId,
   };
@@ -232,5 +236,13 @@ export async function getChapterAssignmentsByUserId(
   const result = await repo.getByProjects(projectIds, excludeProjectIds, updatedAfter);
   if (!result.ok) return result;
 
-  return ok(result.data.map(toMemberChapterAssignmentResponse));
+  const stageEnteredAtById = await chapterAssignmentService.getStageEnteredAtByAssignmentIds(
+    result.data.map((record) => ({ id: record.id, status: record.status }))
+  );
+
+  return ok(
+    result.data.map((record) =>
+      toMemberChapterAssignmentResponse(record, stageEnteredAtById.get(record.id) ?? null)
+    )
+  );
 }
