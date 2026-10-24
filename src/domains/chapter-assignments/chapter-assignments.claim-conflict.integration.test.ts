@@ -28,6 +28,7 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
     await createTestSchema(client, {
       chapter_assignments: schema.chapter_assignments,
       project_units: schema.project_units,
+      project_unit_bible_books: schema.project_unit_bible_books,
       milestoneTypeEnum: schema.milestoneTypeEnum,
       projectStatusEnum: schema.projectStatusEnum,
       projects: schema.projects,
@@ -75,6 +76,11 @@ describe('flagClaimConflict SQL CAS (PGlite)', () => {
       projectId: 1,
       name: 'Unit',
       type: 'text',
+    });
+    await database.insert(schema.project_unit_bible_books).values({
+      projectUnitId: 10,
+      bibleId: 1,
+      bookId: 1,
     });
   }, 30_000);
 

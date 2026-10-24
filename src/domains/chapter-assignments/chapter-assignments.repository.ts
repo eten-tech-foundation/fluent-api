@@ -135,6 +135,15 @@ export async function findByIdWithAuthContext(
   }
 }
 
+/**
+ * Resolve the chapter assignment that owns a verse.
+ *
+ * Invariant (#295): `bible_id` is part of the chapter key. Matching
+ * unit + book + chapter alone is wrong — a unit whose assignment bible
+ * differs from the verse's bible must not authorize. Returns
+ * `CHAPTER_ASSIGNMENT_NOT_FOUND` for that divergent state (same as a
+ * missing assignment), not a silent book/chapter match.
+ */
 export async function findForVerse(
   projectUnitId: number,
   bibleTextId: number
@@ -166,6 +175,7 @@ export async function findForVerse(
       .where(
         and(
           eq(chapter_assignments.projectUnitId, projectUnitId),
+          // #295 — bible_id is required; do not drop this predicate
           eq(chapter_assignments.bibleId, bibleText.bibleId),
           eq(chapter_assignments.bookId, bibleText.bookId),
           eq(chapter_assignments.chapterNumber, bibleText.chapterNumber)
