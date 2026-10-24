@@ -153,7 +153,8 @@ describe('uploadRangeRecording', () => {
     }
     expect(repo.createFirstRecordingWithTake).toHaveBeenCalledWith(
       expect.objectContaining(pericopeShape),
-      expect.objectContaining(pericopeShape)
+      expect.objectContaining(pericopeShape),
+      { linkActive: true }
     );
   });
 
@@ -251,7 +252,8 @@ describe('uploadRangeRecording', () => {
       expect.objectContaining({
         granularity: 'verse',
         startChapter: null,
-      })
+      }),
+      { linkActive: true }
     );
   });
 

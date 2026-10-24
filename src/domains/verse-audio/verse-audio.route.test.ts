@@ -89,6 +89,7 @@ vi.mock('./verse-audio.service', () => ({
   listChapterRecordings: vi.fn(),
   resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
+  deleteTake: vi.fn(),
 }));
 
 vi.mock('./verse-audio.range.service', () => ({
@@ -342,11 +343,14 @@ describe('verse-audio routes', () => {
   describe('put /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     // The form validator enforces the declared schema, while the handler reads
     // a separate parseBody result and repeats the guard as defence in depth.
-    function upload(baseVersionToken?: string) {
+    function upload(baseVersionToken?: string, activate?: string) {
       const form = new FormData();
       form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
       if (baseVersionToken !== undefined) {
         form.append('baseVersionToken', baseVersionToken);
+      }
+      if (activate !== undefined) {
+        form.append('activate', activate);
       }
       return server.request('/verse-audio/1/10', { method: 'PUT', body: form });
     }
@@ -390,6 +394,26 @@ describe('verse-audio routes', () => {
       expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
         expect.objectContaining({ baseVersionToken: 3 })
       );
+    });
+
+    it.each([
+      [undefined, true],
+      ['true', true],
+      ['false', false],
+    ])('forwards activate=%s as %s (default true)', async (value, expected) => {
+      const res = await upload('3', value);
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: expected })
+      );
+    });
+
+    it('rejects an activate value that is not true or false', async () => {
+      const res = await upload('3', 'no');
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRecording).not.toHaveBeenCalled();
     });
 
     it('returns 409 with currentVersionToken when concurrent cleanup invalidates an upload reference', async () => {
@@ -516,6 +540,42 @@ describe('verse-audio routes', () => {
 
       const res = await server.request('/verse-audio/1/10', { method: 'DELETE' });
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('delete /verse-audio/{projectUnitId}/{bibleTextId}/takes/{takeId}', () => {
+    const deleteTake = (takeId = '42') =>
+      server.request(`/verse-audio/1/10/takes/${takeId}`, { method: 'DELETE' });
+
+    beforeEach(() => asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]));
+
+    it('returns 200 with the unit and passes actor plus project scope', async () => {
+      vi.mocked(verseAudioService.deleteTake).mockResolvedValue(ok({ id: 1 }) as never);
+
+      const res = await deleteTake();
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.deleteTake).toHaveBeenCalledWith({
+        projectUnitId: 1,
+        bibleTextId: 10,
+        takeId: 42,
+        actor: expect.objectContaining({ id: APP_USER.id }),
+        scope: { orgId: 1, projectId: 1 },
+      });
+    });
+
+    it.each([
+      [ErrorCode.FORBIDDEN, 403],
+      [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
+    ])('maps %s to %i', async (code, status) => {
+      vi.mocked(verseAudioService.deleteTake).mockResolvedValue(err(code));
+
+      expect((await deleteTake()).status).toBe(status);
+    });
+
+    it('rejects a non-numeric takeId without calling the service', async () => {
+      expect((await deleteTake('abc')).status).toBe(400);
+      expect(verseAudioService.deleteTake).not.toHaveBeenCalled();
     });
   });
 });

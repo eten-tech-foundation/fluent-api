@@ -2,6 +2,8 @@ import type { Buffer } from 'node:buffer';
 
 import { z } from '@hono/zod-openapi';
 
+import type { AppPolicyUser, AuthScope } from '@/lib/types';
+
 // ── Limits & formats ─────────────────────────────────────────────────────────
 
 export const MAX_AUDIO_BYTES = 30 * 1024 * 1024; // 30 MB
@@ -134,6 +136,12 @@ export interface VerseAudioWithUrl {
   endChapter: number | null;
   endVerse: number | null;
   activeTakeId: number | null;
+  /**
+   * Take id produced or addressed by this write (upload). Always set on PUT
+   * upload responses so clients can persist server_take_id without guessing
+   * from activeTakeId when activate=false.
+   */
+  takeId?: number;
   verseNumber: number;
   /**
    * Short-lived URL for the exact active take (`takes[].id === activeTakeId`).
@@ -190,6 +198,11 @@ export interface UploadRecordingInput {
   baseVersionToken?: number;
   /** Take coverage. Defaults to single-verse (null range bounds). */
   shape?: VerseAudioCoverageShape;
+  /**
+   * When false, the take is stored but activeTakeId is left unchanged (default true).
+   * Mobile uses this for non-selected takes (#465 / fluent-mobile #716).
+   */
+  activate?: boolean;
 }
 
 export interface UploadRangeRecordingInput {
@@ -211,6 +224,15 @@ export interface ResolveConflictInput {
   projectUnitId: number;
   bibleTextId: number;
   takeId: number;
+}
+
+export interface DeleteTakeInput {
+  projectUnitId: number;
+  bibleTextId: number;
+  takeId: number;
+  actor: AppPolicyUser;
+  /** Project scope used for the `content:assign` override. */
+  scope: AuthScope;
 }
 
 // ── OpenAPI schemas ──────────────────────────────────────────────────────────
@@ -294,6 +316,10 @@ export const verseAudioResponseSchema = z.object({
   activeTakeId: z.number().int().nullable().openapi({
     description:
       'Selected take id. Clients must match takes[].id exactly; null or unmatched means selected audio is unavailable.',
+  }),
+  takeId: z.number().int().optional().openapi({
+    description:
+      'Take id for this upload write. Present on PUT upload; omitted on GET/list. Prefer over activeTakeId when activate=false.',
   }),
   verseNumber: z.number().int().openapi({
     description: 'Anchor verse number from bible_texts (listing order / identity aid).',

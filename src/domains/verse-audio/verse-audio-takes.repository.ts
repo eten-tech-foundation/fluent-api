@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -138,6 +138,107 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
     if (hasPostgresErrorCode(error, '23503')) {
       return mapForeignKeyViolation(error);
     }
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+interface DeletedTake {
+  storageObjectId: number | null;
+  contentHash: string;
+  /** Set when the deleted take was active: the promoted take id, or null when none remain. */
+  activeTakeId: number | null;
+  wasActive: boolean;
+}
+
+/**
+ * Deletes one take of a recording. When it was the active take, the newest
+ * remaining take is promoted (recording mirror fields follow it and
+ * versionToken advances); with no takes left the active take is cleared.
+ * Deleting a non-active take leaves the recording row and versionToken alone,
+ * matching non-activating uploads.
+ *
+ * The recording is locked first so a concurrent upload or resolve cannot
+ * promote the take while it is being removed.
+ */
+export async function deleteTakeAndPromote(
+  recordingId: number,
+  takeId: number
+): Promise<Result<DeletedTake>> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [recording] = await tx
+        .select({
+          id: verse_audio_recordings.id,
+          activeTakeId: verse_audio_recordings.activeTakeId,
+        })
+        .from(verse_audio_recordings)
+        .where(eq(verse_audio_recordings.id, recordingId))
+        .for('update');
+      if (!recording) {
+        return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+      }
+
+      const [deleted] = await tx
+        .delete(verse_audio_takes)
+        .where(
+          and(eq(verse_audio_takes.id, takeId), eq(verse_audio_takes.recordingId, recordingId))
+        )
+        .returning({
+          storageObjectId: verse_audio_takes.storageObjectId,
+          contentHash: verse_audio_takes.contentHash,
+        });
+      if (!deleted) {
+        return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+      }
+
+      const wasActive = recording.activeTakeId === takeId;
+      if (!wasActive) {
+        return ok({ ...deleted, activeTakeId: recording.activeTakeId, wasActive });
+      }
+
+      const [newest] = await tx
+        .select(takeSelection)
+        .from(verse_audio_takes)
+        .where(eq(verse_audio_takes.recordingId, recordingId))
+        .orderBy(desc(verse_audio_takes.createdAt), desc(verse_audio_takes.id))
+        .limit(1);
+
+      await tx
+        .update(verse_audio_recordings)
+        .set(
+          newest
+            ? {
+                activeTakeId: newest.id,
+                uploadedBy: newest.uploadedBy,
+                storageObjectId: newest.storageObjectId,
+                contentType: newest.contentType,
+                sizeBytes: newest.sizeBytes,
+                durationSeconds: newest.durationSeconds,
+                granularity: newest.granularity,
+                startChapter: newest.startChapter,
+                startVerse: newest.startVerse,
+                endChapter: newest.endChapter,
+                endVerse: newest.endVerse,
+                versionToken: sql`${verse_audio_recordings.versionToken} + 1`,
+                updatedAt: new Date(),
+              }
+            : {
+                activeTakeId: null,
+                storageObjectId: null,
+                versionToken: sql`${verse_audio_recordings.versionToken} + 1`,
+                updatedAt: new Date(),
+              }
+        )
+        .where(eq(verse_audio_recordings.id, recordingId));
+
+      return ok({ ...deleted, activeTakeId: newest?.id ?? null, wasActive });
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to delete verse audio take',
+      context: { recordingId, takeId },
+    });
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
