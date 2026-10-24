@@ -64,6 +64,12 @@ const uploadRangeVerseAudioRoute = createRoute({
               example: 12.5,
             }),
             baseVersionToken: baseVersionTokenFormField,
+            // `z.coerce.boolean` would read the string 'false' as true.
+            activate: z.enum(['true', 'false']).optional().openapi({
+              description:
+                'Default true. When false the take is stored but activeTakeId, versionToken, and conflictStatus are left unchanged (non-selected take). Response takeId identifies the stored take.',
+              example: 'false',
+            }),
             granularity: z.literal('pericope').openapi({
               description: 'Must be pericope for this route',
               example: 'pericope',
@@ -169,6 +175,7 @@ server.openapi(uploadRangeVerseAudioRoute, async (c) => {
     data,
     durationSeconds,
     baseVersionToken: baseToken.value,
+    activate: body.activate !== 'false',
     granularity: 'pericope',
     startChapter,
     startVerse,

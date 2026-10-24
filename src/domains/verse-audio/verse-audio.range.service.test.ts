@@ -158,6 +158,20 @@ describe('uploadRangeRecording', () => {
     );
   });
 
+  it('stores a non-selected pericope take without touching the active take when activate=false', async () => {
+    const rangeTake = { ...take, id: 21, ...pericopeShape, contentHash: hashOf(rangeInput.data) };
+    vi.mocked(repo.get).mockResolvedValue(ok({ ...record, versionToken: 3 }));
+    vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(null));
+    vi.mocked(repo.insertTake).mockResolvedValue(ok(rangeTake));
+
+    const result = await uploadRangeRecording({ ...rangeInput, activate: false });
+
+    expect(result.ok && result.data.takeId).toBe(21);
+    expect(repo.insertTake).toHaveBeenCalledWith(expect.objectContaining(pericopeShape));
+    expect(repo.updateRecordingStateIfVersion).not.toHaveBeenCalled();
+    expect(repo.markIntersectingCoverageConflicts).not.toHaveBeenCalled();
+  });
+
   it('rejects empty / zero / reversed / malformed ranges', async () => {
     for (const bad of [
       { startChapter: 0, startVerse: 1, endChapter: 1, endVerse: 2 },

@@ -240,6 +240,7 @@ describe('verse-audio routes', () => {
       if (fields.baseVersionToken !== undefined) {
         form.append('baseVersionToken', fields.baseVersionToken);
       }
+      if (fields.activate !== undefined) form.append('activate', fields.activate);
       return server.request('/verse-audio/1/range', { method: 'PUT', body: form });
     }
 
@@ -281,11 +282,19 @@ describe('verse-audio routes', () => {
           endChapter: 1,
           endVerse: 5,
           baseVersionToken: 2,
+          activate: true,
         })
       );
       const json = await res.json();
       expect(json.granularity).toBe('pericope');
       expect(json.endVerse).toBe(5);
+    });
+
+    it('forwards activate=false for a non-selected pericope take', async () => {
+      expect((await rangeUpload({ activate: 'false' })).status).toBe(200);
+      expect(rangeAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: false })
+      );
     });
 
     it('returns 400 when bibleTextId is missing from the form', async () => {

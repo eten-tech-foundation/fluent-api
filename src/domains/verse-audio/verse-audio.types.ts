@@ -213,6 +213,8 @@ export interface UploadRangeRecordingInput {
   data: Buffer;
   durationSeconds?: number;
   baseVersionToken?: number;
+  /** Default true. See UploadRecordingInput.activate. */
+  activate?: boolean;
   granularity: typeof VERSE_AUDIO_GRANULARITY.PERICOPE;
   startChapter: number;
   startVerse: number;
