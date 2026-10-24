@@ -148,6 +148,17 @@ export async function findProjectUnitIdsByAssignmentIds(
 
 export const MAX_CHAPTER_ASSIGNMENTS_PER_REQUEST = 1000;
 
+export async function findStatusesByIds(
+  ids: number[],
+  tx: DbTransaction
+): Promise<Array<{ id: number; status: string }>> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: chapter_assignments.id, status: chapter_assignments.status })
+    .from(chapter_assignments)
+    .where(inArray(chapter_assignments.id, ids));
+}
+
 export async function getByProjects(
   projectIds: number[],
   excludeProjectIds: number[] = [],

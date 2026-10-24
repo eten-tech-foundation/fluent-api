@@ -104,6 +104,11 @@ export const ChapterAssignmentPolicy = {
     return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
   },
 
+  resetStatus(user: AppPolicyUser, targetOrganizationId: number, targetProjectId: number): boolean {
+    const scope = { orgId: targetOrganizationId, projectId: targetProjectId };
+    return authorize(user, PERMISSIONS.CONTENT_ASSIGN, scope);
+  },
+
   view(
     user: AppPolicyUser,
     assignment: PolicyChapterAssignment,
