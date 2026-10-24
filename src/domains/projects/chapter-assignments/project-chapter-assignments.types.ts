@@ -96,6 +96,20 @@ export const assignSelectedResponseSchema = z
   .array(chapterAssignmentProgressResponseSchema)
   .openapi('AssignSelectedChapterAssignments');
 
+// ─── Reset-selected input / response ─────────────────────────────────────────
+
+export const resetSelectedRequestSchema = z.object({
+  chapterAssignmentIds: z
+    .array(z.number().int().positive())
+    .min(1, 'At least one assignment is required')
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Duplicate chapterAssignmentIds are not allowed',
+    }),
+});
+
+// Same wire shape as assign-selected so clients can reuse the progress mapper.
+export const resetSelectedResponseSchema = assignSelectedResponseSchema;
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type AssignmentUser = z.infer<typeof userResponseSchema>;
@@ -104,4 +118,5 @@ export type ChapterAssignmentProgress = z.infer<typeof chapterAssignmentProgress
 export type AssignUserInput = z.infer<typeof assignUserInputSchema>;
 export type AssignSelectedItem = z.infer<typeof assignSelectedItemSchema>;
 export type AssignSelectedRequest = z.infer<typeof assignSelectedRequestSchema>;
+export type ResetSelectedRequest = z.infer<typeof resetSelectedRequestSchema>;
 export type ChapterAssignmentWithProjectId = ChapterAssignmentRecord & { projectId: number };

@@ -103,7 +103,7 @@ export interface UpdateChapterAssignmentRequestData {
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: ChapterAssignmentStatus;
-  submittedTime?: Date;
+  submittedTime?: Date | null;
   isAiEnabled?: boolean;
   hasClaimConflict?: boolean;
   claimConflictUserId?: number | null;

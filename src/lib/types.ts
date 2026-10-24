@@ -69,6 +69,7 @@ export const ErrorCode = {
   USER_ALREADY_IN_PROJECT: 'USER_ALREADY_IN_PROJECT',
   // Business rule violations
   INVALID_STATUS_TRANSITION: 'INVALID_STATUS_TRANSITION',
+  CHAPTER_ASSIGNMENT_NOT_RESETTABLE: 'CHAPTER_ASSIGNMENT_NOT_RESETTABLE',
   USER_NOT_IN_ORGANIZATION: 'USER_NOT_IN_ORGANIZATION',
   USER_HAS_ASSIGNED_CONTENT: 'USER_HAS_ASSIGNED_CONTENT',
   CHAPTER_LIMIT_EXCEEDED: 'CHAPTER_LIMIT_EXCEEDED',
@@ -143,6 +144,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   DUPLICATE: 'Resource already exists',
   USER_ALREADY_IN_PROJECT: 'User is already assigned to this project',
   INVALID_STATUS_TRANSITION: 'Invalid status transition',
+  CHAPTER_ASSIGNMENT_NOT_RESETTABLE: 'Chapter assignment cannot be reset from its current status',
   USER_NOT_IN_ORGANIZATION: 'User does not belong to this organization',
   USER_HAS_ASSIGNED_CONTENT: 'User has content assigned and cannot be removed',
   CHAPTER_LIMIT_EXCEEDED: 'Chapter assignment limit exceeded',
@@ -199,6 +201,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   USER_ALREADY_IN_PROJECT: 409,
   VALIDATION_ERROR: 422,
   INVALID_STATUS_TRANSITION: 400,
+  CHAPTER_ASSIGNMENT_NOT_RESETTABLE: 409,
   USER_NOT_IN_ORGANIZATION: 400,
   USER_HAS_ASSIGNED_CONTENT: 400,
   CHAPTER_LIMIT_EXCEEDED: 400,

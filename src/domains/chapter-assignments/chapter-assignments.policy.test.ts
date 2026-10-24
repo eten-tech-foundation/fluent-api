@@ -130,6 +130,18 @@ describe('chapterAssignmentPolicy.claim', () => {
   });
 });
 
+describe('chapterAssignmentPolicy.resetStatus', () => {
+  it('allows a manager with content:assign at project scope', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_ASSIGN]);
+    expect(ChapterAssignmentPolicy.resetStatus(user, 1, 10)).toBe(true);
+  });
+
+  it('denies a translator with only content:update', () => {
+    const user = grant(1, 10, [PERMISSIONS.CONTENT_UPDATE]);
+    expect(ChapterAssignmentPolicy.resetStatus(user, 1, 10)).toBe(false);
+  });
+});
+
 describe('chapterAssignmentPolicy.edit / submit — open Peer Check', () => {
   const openPeerCheck = {
     ...baseAssignment,
