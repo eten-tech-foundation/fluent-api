@@ -70,9 +70,11 @@ function toAssignmentProgressInfo({
 
 /**
  * EXISTS subquery for assignment progress: true when any verse-audio unit in
- * this assignment's bible/book/chapter is conflicted. Scoping by
- * `chapter_assignments.bibleId` (not book/chapter alone) is what keeps a
- * conflict in another Bible from lighting up the rollup.
+ * this assignment's bible/book/chapter is conflicted.
+ *
+ * Invariant (#295): `bible_id` is part of the chapter key. Scoping by
+ * `chapter_assignments.bibleId` (not book/chapter alone) keeps a conflict
+ * in another Bible from lighting up this assignment's rollup.
  */
 export function hasConflictRollupSql() {
   return sql<boolean>`EXISTS (
@@ -170,6 +172,7 @@ export async function findAssignmentsProgress(
       .leftJoin(sourceLang, eq(projects.sourceLanguage, sourceLang.id))
       .leftJoin(assignedUser, eq(chapter_assignments.assignedUserId, assignedUser.id))
       .leftJoin(peerChecker, eq(chapter_assignments.peerCheckerId, peerChecker.id))
+      // #295 — bible_id is part of the chapter key; join must include it
       .innerJoin(
         bible_texts,
         and(
