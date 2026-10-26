@@ -300,11 +300,6 @@
       "count": 1
     }
   },
-  "src/domains/projects/chapter-assignments/project-chapter-assignments.route.reset-selected.test.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/domains/projects/chapter-assignments/project-chapter-assignments.service.ts": {
     "fluent-standards/no-cross-domain-repository": {
       "count": 1

@@ -1,6 +1,6 @@
 import type { SQL } from 'drizzle-orm/sql';
 
-import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { DbTransaction, Result } from '@/lib/types';
@@ -153,10 +153,14 @@ export async function findStatusesByIds(
   tx: DbTransaction
 ): Promise<Array<{ id: number; status: string }>> {
   if (ids.length === 0) return [];
+  // FOR UPDATE + ORDER BY id: eligibility check and reset must serialize against
+  // concurrent status changes, and overlapping resets must lock in a stable order.
   return tx
     .select({ id: chapter_assignments.id, status: chapter_assignments.status })
     .from(chapter_assignments)
-    .where(inArray(chapter_assignments.id, ids));
+    .where(inArray(chapter_assignments.id, ids))
+    .orderBy(asc(chapter_assignments.id))
+    .for('update');
 }
 
 export async function getByProjects(

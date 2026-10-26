@@ -21,23 +21,31 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-// FA-L7 exception: authenticateUser / project access middleware still touch `@/db`
-// at import time. The route under test mocks the service leaf.
-vi.mock('@/db', () => {
-  const query = {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue([{ activeOrgId: 1 }]),
-  };
-  return {
-    db: {
-      select: vi.fn(() => query),
-      insert: vi.fn(),
-      update: vi.fn(),
-      transaction: vi.fn(),
-    },
-  };
-});
+// Avoid FA-L7 (`vi.mock('@/db')`): global authenticate hits `@/db` for activeOrgId.
+// Stub it to populate session user from the already-mocked service/repository leaves.
+vi.mock('@/middlewares/authenticate', () => ({
+  authenticate: vi.fn(async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) {
+      await next();
+      return;
+    }
+    c.set('session', session);
+    const userResult = await getUserByEmail(session.user.email);
+    if (!userResult.ok) {
+      await next();
+      return;
+    }
+    const grantsResult = await findGrantsByUserId(userResult.data.id);
+    if (!grantsResult.ok) {
+      await next();
+      return;
+    }
+    c.set('activeOrgId', 1);
+    c.set('user', { ...userResult.data, grants: grantsResult.data });
+    await next();
+  }),
+}));
 
 vi.mock('@/domains/users/users.service', () => ({
   getUserByEmail: vi.fn(),
