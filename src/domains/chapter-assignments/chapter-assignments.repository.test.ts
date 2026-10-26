@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
 import { chapter_assignments } from '@/db/schema';
+import { err, ErrorCode } from '@/lib/types';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
@@ -78,6 +79,21 @@ describe('chapter-assignments.repository claim helpers', () => {
 
       expect(result).toEqual({ ok: true, data: assignment });
       expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
+    });
+
+    it('returns NOT_FOUND when no assignment matches the verse Bible (book/chapter alone is not enough)', async () => {
+      // Verse is bible 9 / book 1 / ch 4. An assignment on the same unit
+      // for book 1 / ch 4 under a *different* bible must not match (#295).
+      mockSelectChain.limit
+        .mockResolvedValueOnce([{ bibleId: 9, bookId: 1, chapterNumber: 4 }])
+        .mockResolvedValueOnce([]);
+
+      const result = await repo.findForVerse(12, 3401);
+
+      expect(result).toEqual(err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND));
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.bookId, 1);
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.chapterNumber, 4);
     });
   });
 

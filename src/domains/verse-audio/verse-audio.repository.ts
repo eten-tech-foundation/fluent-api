@@ -67,6 +67,13 @@ export async function get(
   }
 }
 
+/**
+ * List verse-audio recordings for one chapter.
+ *
+ * Invariant (#295): `bible_id` is part of the chapter key. Filter by
+ * bible as well as book/chapter so recordings from another bible on
+ * the same book/chapter stay out of this listing.
+ */
 export async function listByChapter(
   projectUnitId: number,
   bibleId: number,
@@ -81,6 +88,7 @@ export async function listByChapter(
       .where(
         and(
           eq(verse_audio_recordings.projectUnitId, projectUnitId),
+          // #295 — bible_id is required; do not drop this predicate
           eq(bible_texts.bibleId, bibleId),
           eq(bible_texts.bookId, bookId),
           eq(bible_texts.chapterNumber, chapterNumber)

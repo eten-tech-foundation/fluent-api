@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   json,
@@ -17,6 +18,7 @@ import {
   serial,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -413,7 +415,17 @@ export const project_unit_bible_books = pgTable(
       .$onUpdate(() => new Date()),
     deletedAt: timestamp('deleted_at'),
   },
-  (table) => [primaryKey({ columns: [table.projectUnitId, table.bookId] })]
+  (table) => [
+    primaryKey({ columns: [table.projectUnitId, table.bookId] }),
+    // Target for chapter_assignments composite FK (#295). Redundant with the PK
+    // for uniqueness, but Postgres/PGlite need a UNIQUE CONSTRAINT on exactly
+    // these columns — a uniqueIndex alone is not accepted as an FK target.
+    unique('uq_project_unit_bible_books_unit_book_bible').on(
+      table.projectUnitId,
+      table.bookId,
+      table.bibleId
+    ),
+  ]
 );
 
 export const bible_texts = pgTable(
@@ -752,6 +764,19 @@ export const chapter_assignments = pgTable(
       table.bookId,
       table.chapterNumber
     ),
+    // Assignments must reference the unit's book↔bible link (#295). ON UPDATE
+    // CASCADE keeps moveBookToMilestone's assignment reparent a no-op.
+    foreignKey({
+      name: 'fk_chapter_assignments_bible_book_link',
+      columns: [table.projectUnitId, table.bookId, table.bibleId],
+      foreignColumns: [
+        project_unit_bible_books.projectUnitId,
+        project_unit_bible_books.bookId,
+        project_unit_bible_books.bibleId,
+      ],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
     index('idx_chapter_assignments_assigned_user').on(table.assignedUserId),
     index('idx_chapter_assignments_peer_checker_status').on(table.peerCheckerId, table.status),
     index('idx_chapter_assignments_project_unit').on(table.projectUnitId),

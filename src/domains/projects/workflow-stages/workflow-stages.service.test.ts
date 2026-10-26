@@ -204,6 +204,11 @@ describe('workflow stages service (PGlite integration)', () => {
         projectId: PROJECT_ID,
         name: 'Milestone 1',
       });
+      await database.insert(schema.project_unit_bible_books).values({
+        projectUnitId: 11,
+        bibleId: 1,
+        bookId: 41,
+      });
       await database.insert(schema.chapter_assignments).values({
         id: 101,
         projectUnitId: 11,
@@ -413,6 +418,11 @@ describe('workflow stages service (PGlite integration)', () => {
         id: 10,
         projectId: PROJECT_ID,
         name: 'Milestone 1',
+      });
+      await database.insert(schema.project_unit_bible_books).values({
+        projectUnitId: 10,
+        bibleId: 1,
+        bookId: 41,
       });
       await database.insert(schema.chapter_assignments).values({
         id: 100,

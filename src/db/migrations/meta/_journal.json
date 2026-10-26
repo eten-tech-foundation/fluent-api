@@ -281,6 +281,13 @@
       "when": 1792616814332,
       "tag": "0039_add_verse_audio_range_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792682769108,
+      "tag": "0040_chapter_assignment_bible_fk",
+      "breakpoints": true
     }
   ]
 }
