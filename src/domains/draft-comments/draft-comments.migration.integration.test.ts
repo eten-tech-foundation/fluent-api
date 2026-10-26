@@ -55,6 +55,11 @@ async function seedMinimalGraph() {
     pericopeSetId: 1,
   });
   await database.insert(schema.project_units).values({ id: 1, projectId: 1, name: 'Unit' });
+  await database.insert(schema.project_unit_bible_books).values({
+    projectUnitId: 1,
+    bibleId: 1,
+    bookId: 40,
+  });
   await database.insert(schema.chapter_assignments).values({
     id: 1,
     projectUnitId: 1,
@@ -80,7 +85,7 @@ async function seedMinimalGraph() {
   });
 }
 
-describe('draft-comments migration 0040 (PGlite, disposable)', () => {
+describe('draft-comments migration 0041 (PGlite, disposable)', () => {
   beforeAll(async () => {
     await createTestSchema(client, {
       userStatusEnum: schema.userStatusEnum,
@@ -103,12 +108,13 @@ describe('draft-comments migration 0040 (PGlite, disposable)', () => {
       bibles: schema.bibles,
       projects: schema.projects,
       project_units: schema.project_units,
+      project_unit_bible_books: schema.project_unit_bible_books,
       chapter_assignments: schema.chapter_assignments,
       bible_texts: schema.bible_texts,
     });
 
     const migrationSql = readFileSync(
-      join(migrationDir, '0040_add_draft_chapter_comments.sql'),
+      join(migrationDir, '0041_add_draft_chapter_comments.sql'),
       'utf8'
     ).replaceAll('--> statement-breakpoint', '');
     await client.exec(migrationSql);

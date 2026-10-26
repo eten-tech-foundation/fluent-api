@@ -7,7 +7,6 @@ import { err, ErrorCode, ok } from '@/lib/types';
 import type {
   ChapterCommentAggregate,
   ChapterCommentResponse,
-  CommentAnchorInput,
   CreateReplyRequest,
   CreateTopLevelCommentRequest,
   ListChapterCommentsResponse,
@@ -29,35 +28,6 @@ export async function resolveCommentAssignmentScope(chapterAssignmentId: number)
     orgId: assignment.organizationId,
     projectId: assignment.projectId,
   };
-}
-
-async function resolveCreateAnchor(
-  assignment: NonNullable<Awaited<ReturnType<typeof repo.findAssignmentContext>>>,
-  anchor: CommentAnchorInput
-) {
-  const bibleText =
-    anchor.kind === 'verse' ? await repo.findBibleTextById(anchor.bibleTextId) : null;
-  const pericopeMembership =
-    anchor.kind === 'pericope' && assignment.pericopeSetId != null
-      ? await repo.findPericopeMembership(
-          assignment.pericopeSetId,
-          assignment.bookId,
-          assignment.chapterNumber,
-          anchor.pericopeNumber
-        )
-      : null;
-  return resolveAnchorSnapshot(
-    anchor,
-    {
-      projectId: assignment.projectId,
-      bibleId: assignment.bibleId,
-      bookId: assignment.bookId,
-      chapterNumber: assignment.chapterNumber,
-      pericopeSetId: assignment.pericopeSetId,
-    },
-    bibleText,
-    pericopeMembership
-  );
 }
 
 function bodyColumns(body: CreateTopLevelCommentRequest['body'] | CreateReplyRequest['body']): {
@@ -186,33 +156,75 @@ export async function createTopLevelComment(
   input: CreateTopLevelCommentRequest,
   roleDisplay: string | null = null
 ): Promise<Result<ChapterCommentResponse>> {
+  // Fast-fail outside the write lock (same shape as createAudioComment).
   const assignment = await repo.findAssignmentContext(chapterAssignmentId);
   if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
   const denied = denyWrite(user, assignment);
   if (denied) return denied;
 
-  const snapshot = await resolveCreateAnchor(assignment, input.anchor);
-  if ('error' in snapshot) return err(ErrorCode.INVALID_REFERENCE);
-
   const body = bodyColumns(input.body);
-  const row = await repo.insertComment({
-    projectId: assignment.projectId,
-    chapterAssignmentId,
-    authorUserId: user.id,
-    parentCommentId: null,
-    ...body,
-    anchorKind: snapshot.kind,
-    anchorBibleId: snapshot.bibleId,
-    anchorBookId: snapshot.bookId,
-    anchorChapterNumber: snapshot.chapterNumber,
-    anchorBibleTextId: snapshot.bibleTextId,
-    anchorVerseNumber: snapshot.verseNumber,
-    anchorPericopeSetId: snapshot.pericopeSetId,
-    anchorPericopeNumber: snapshot.pericopeNumber,
-    anchorPericopeTitle: snapshot.pericopeTitle,
-    connectionState: COMMENT_CONNECTION_STATE.CONNECTED,
+  const result = await runInTransaction(async (tx) => {
+    // Lock assignment+project, then revalidate the anchor before insert so a
+    // concurrent project pericope_set_id update cannot leave a stale connected row.
+    const liveAssignment = await repo.lockAssignmentWriteContext(chapterAssignmentId, tx);
+    if (!liveAssignment || liveAssignment.projectId !== assignment.projectId) {
+      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
+    }
+    const liveDenied = denyWrite(user, liveAssignment);
+    if (liveDenied) return liveDenied;
+
+    const bibleText =
+      input.anchor.kind === 'verse'
+        ? await repo.lockBibleTextById(input.anchor.bibleTextId, tx)
+        : null;
+    const pericopeMembership =
+      input.anchor.kind === 'pericope' && liveAssignment.pericopeSetId != null
+        ? await repo.lockPericopeMembership(
+            liveAssignment.pericopeSetId,
+            liveAssignment.bookId,
+            liveAssignment.chapterNumber,
+            input.anchor.pericopeNumber,
+            tx
+          )
+        : null;
+    const snapshot = resolveAnchorSnapshot(
+      input.anchor,
+      {
+        projectId: liveAssignment.projectId,
+        bibleId: liveAssignment.bibleId,
+        bookId: liveAssignment.bookId,
+        chapterNumber: liveAssignment.chapterNumber,
+        pericopeSetId: liveAssignment.pericopeSetId,
+      },
+      bibleText,
+      pericopeMembership
+    );
+    if ('error' in snapshot) return err(ErrorCode.INVALID_REFERENCE);
+
+    const row = await repo.insertComment(
+      {
+        projectId: liveAssignment.projectId,
+        chapterAssignmentId,
+        authorUserId: user.id,
+        parentCommentId: null,
+        ...body,
+        anchorKind: snapshot.kind,
+        anchorBibleId: snapshot.bibleId,
+        anchorBookId: snapshot.bookId,
+        anchorChapterNumber: snapshot.chapterNumber,
+        anchorBibleTextId: snapshot.bibleTextId,
+        anchorVerseNumber: snapshot.verseNumber,
+        anchorPericopeSetId: snapshot.pericopeSetId,
+        anchorPericopeNumber: snapshot.pericopeNumber,
+        anchorPericopeTitle: snapshot.pericopeTitle,
+        connectionState: COMMENT_CONNECTION_STATE.CONNECTED,
+      },
+      tx
+    );
+    return ok(row);
   });
-  return ok(await mapCommentRow(row, [], user.id, roleDisplay));
+  if (!result.ok) return result;
+  return ok(await mapCommentRow(result.data, [], user.id, roleDisplay));
 }
 
 export async function createReply(

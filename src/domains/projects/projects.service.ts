@@ -428,7 +428,7 @@ export async function updateProject(
       }
 
       // Pericope-set changes mark comments Unconnected via DB trigger in
-      // 0040_add_draft_chapter_comments (same transaction as this UPDATE).
+      // 0041_add_draft_chapter_comments (same transaction as this UPDATE).
       return ok(updatedProject);
     });
   } catch (error) {

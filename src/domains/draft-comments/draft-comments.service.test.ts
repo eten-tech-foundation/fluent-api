@@ -79,6 +79,7 @@ describe('draft-comments.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(repo.findAssignmentContext).mockResolvedValue(assignment);
+    vi.mocked(repo.lockAssignmentWriteContext).mockResolvedValue(assignment);
     vi.mocked(repo.findAuthorDisplay).mockResolvedValue({
       id: 5,
       firstName: 'Ada',
@@ -103,7 +104,7 @@ describe('draft-comments.service', () => {
   });
 
   it('creates top-level verse comment with immutable anchor snapshot', async () => {
-    vi.mocked(repo.findBibleTextById).mockResolvedValue({
+    vi.mocked(repo.lockBibleTextById).mockResolvedValue({
       id: 50,
       bibleId: 3,
       bookId: 40,
@@ -117,6 +118,7 @@ describe('draft-comments.service', () => {
       body: { kind: 'text', text: 'hello' },
     });
     expect(result.ok).toBe(true);
+    expect(repo.lockAssignmentWriteContext).toHaveBeenCalledWith(9, expect.anything());
     expect(repo.insertComment).toHaveBeenCalledWith(
       expect.objectContaining({
         anchorKind: 'verse',
@@ -124,7 +126,8 @@ describe('draft-comments.service', () => {
         anchorVerseNumber: 2,
         parentCommentId: null,
         bodyKind: 'text',
-      })
+      }),
+      expect.anything()
     );
   });
 
@@ -186,7 +189,7 @@ describe('draft-comments.service', () => {
   });
 
   it('creates pericope comment snapshotting public wire id 6_1', async () => {
-    vi.mocked(repo.findPericopeMembership).mockResolvedValue({
+    vi.mocked(repo.lockPericopeMembership).mockResolvedValue({
       pericopeSetId: 7,
       bookId: 40,
       chapterNumber: 1,
@@ -210,13 +213,14 @@ describe('draft-comments.service', () => {
       body: { kind: 'text', text: 'on 6_1' },
     });
     expect(result.ok).toBe(true);
-    expect(repo.findPericopeMembership).toHaveBeenCalledWith(7, 40, 1, '6_1');
+    expect(repo.lockPericopeMembership).toHaveBeenCalledWith(7, 40, 1, '6_1', expect.anything());
     expect(repo.insertComment).toHaveBeenCalledWith(
       expect.objectContaining({
         anchorKind: 'pericope',
         anchorPericopeNumber: '6_1',
         anchorPericopeSetId: 7,
-      })
+      }),
+      expect.anything()
     );
     if (result.ok) {
       expect(result.data.anchor.pericopeNumber).toBe('6_1');
@@ -224,7 +228,7 @@ describe('draft-comments.service', () => {
   });
 
   it('rejects unknown/mismatched public pericope id before insert', async () => {
-    vi.mocked(repo.findPericopeMembership).mockResolvedValue(null);
+    vi.mocked(repo.lockPericopeMembership).mockResolvedValue(null);
     const result = await createTopLevelComment(writer, 9, {
       anchor: { kind: 'pericope', pericopeNumber: '1' },
       body: { kind: 'text', text: 'nope' },

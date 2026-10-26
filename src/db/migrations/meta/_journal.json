@@ -285,8 +285,15 @@
     {
       "idx": 40,
       "version": "7",
-      "when": 1792616815332,
-      "tag": "0040_add_draft_chapter_comments",
+      "when": 1792682769108,
+      "tag": "0040_chapter_assignment_bible_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792682770108,
+      "tag": "0041_add_draft_chapter_comments",
       "breakpoints": true
     }
   ]

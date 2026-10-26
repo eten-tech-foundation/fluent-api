@@ -214,6 +214,22 @@ describe('draft-comments routes auth', () => {
     expect(res.status).toBe(404);
   });
 
+  it.each(['1.5', '0', 'foo'])(
+    'returns 404 for non-integer/non-positive chapterAssignmentId %s before scope lookup',
+    async (id) => {
+      asAuthenticatedUser([
+        {
+          orgId: 1,
+          projectId: 10,
+          permissions: new Set([PERMISSIONS.CONTENT_VIEW, PERMISSIONS.COMMENT_WRITE]),
+        },
+      ]);
+      const res = await server.request(`/chapter-assignments/${id}/comments`, { method: 'GET' });
+      expect(res.status).toBe(404);
+      expect(draftCommentsService.resolveCommentAssignmentScope).not.toHaveBeenCalled();
+    }
+  );
+
   it('returns 413 for oversize audio Content-Length before parseBody', async () => {
     asAuthenticatedUser([
       {

@@ -1,5 +1,5 @@
 {
-  "id": "700751de-2ab0-4f71-b558-c724c9171314",
+  "id": "6a7ddad4-639f-4a91-b210-cdde8ba1e969",
   "prevId": "b3ad94e1-58f2-4ce9-a27f-bbf2c3f4db17",
   "version": "7",
   "dialect": "postgresql",
@@ -2045,6 +2045,15 @@
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "fk_chapter_assignments_bible_book_link": {
+          "name": "fk_chapter_assignments_bible_book_link",
+          "tableFrom": "chapter_assignments",
+          "tableTo": "project_unit_bible_books",
+          "columnsFrom": ["project_unit_id", "book_id", "bible_id"],
+          "columnsTo": ["project_unit_id", "book_id", "bible_id"],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2527,7 +2536,13 @@
           "columns": ["project_unit_id", "book_id"]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "uq_project_unit_bible_books_unit_book_bible": {
+          "name": "uq_project_unit_bible_books_unit_book_bible",
+          "nullsNotDistinct": false,
+          "columns": ["project_unit_id", "book_id", "bible_id"]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -4104,431 +4119,6 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
-    },
-    "public.chapter_comment_reactions": {
-      "name": "chapter_comment_reactions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "comment_id": {
-          "name": "comment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "emoji": {
-          "name": "emoji",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "uq_chapter_comment_reaction_user": {
-          "name": "uq_chapter_comment_reaction_user",
-          "columns": [
-            {
-              "expression": "comment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_chapter_comment_reactions_comment": {
-          "name": "idx_chapter_comment_reactions_comment",
-          "columns": [
-            {
-              "expression": "comment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chapter_comment_reactions_comment_id_chapter_comments_id_fk": {
-          "name": "chapter_comment_reactions_comment_id_chapter_comments_id_fk",
-          "tableFrom": "chapter_comment_reactions",
-          "tableTo": "chapter_comments",
-          "columnsFrom": ["comment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chapter_comment_reactions_user_id_users_id_fk": {
-          "name": "chapter_comment_reactions_user_id_users_id_fk",
-          "tableFrom": "chapter_comment_reactions",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chapter_comments": {
-      "name": "chapter_comments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "project_id": {
-          "name": "project_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chapter_assignment_id": {
-          "name": "chapter_assignment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "author_user_id": {
-          "name": "author_user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "parent_comment_id": {
-          "name": "parent_comment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "body_kind": {
-          "name": "body_kind",
-          "type": "comment_body_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "body_text": {
-          "name": "body_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "emoji": {
-          "name": "emoji",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audio_storage_key": {
-          "name": "audio_storage_key",
-          "type": "varchar(512)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audio_content_type": {
-          "name": "audio_content_type",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audio_byte_size": {
-          "name": "audio_byte_size",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audio_duration_seconds": {
-          "name": "audio_duration_seconds",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "audio_content_hash": {
-          "name": "audio_content_hash",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_kind": {
-          "name": "anchor_kind",
-          "type": "comment_anchor_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_bible_id": {
-          "name": "anchor_bible_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_book_id": {
-          "name": "anchor_book_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_chapter_number": {
-          "name": "anchor_chapter_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "anchor_bible_text_id": {
-          "name": "anchor_bible_text_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_verse_number": {
-          "name": "anchor_verse_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_pericope_set_id": {
-          "name": "anchor_pericope_set_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_pericope_number": {
-          "name": "anchor_pericope_number",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anchor_pericope_title": {
-          "name": "anchor_pericope_title",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "connection_state": {
-          "name": "connection_state",
-          "type": "comment_connection_state",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'connected'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_chapter_comments_assignment_created": {
-          "name": "idx_chapter_comments_assignment_created",
-          "columns": [
-            {
-              "expression": "chapter_assignment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_chapter_comments_project_connection": {
-          "name": "idx_chapter_comments_project_connection",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "connection_state",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_chapter_comments_parent": {
-          "name": "idx_chapter_comments_parent",
-          "columns": [
-            {
-              "expression": "parent_comment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_chapter_comments_author_assignment": {
-          "name": "idx_chapter_comments_author_assignment",
-          "columns": [
-            {
-              "expression": "chapter_assignment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "author_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chapter_comments_project_id_projects_id_fk": {
-          "name": "chapter_comments_project_id_projects_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "projects",
-          "columnsFrom": ["project_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chapter_comments_chapter_assignment_id_chapter_assignments_id_fk": {
-          "name": "chapter_comments_chapter_assignment_id_chapter_assignments_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "chapter_assignments",
-          "columnsFrom": ["chapter_assignment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chapter_comments_author_user_id_users_id_fk": {
-          "name": "chapter_comments_author_user_id_users_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "users",
-          "columnsFrom": ["author_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chapter_comments_parent_comment_id_chapter_comments_id_fk": {
-          "name": "chapter_comments_parent_comment_id_chapter_comments_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "chapter_comments",
-          "columnsFrom": ["parent_comment_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chapter_comments_anchor_bible_id_bibles_id_fk": {
-          "name": "chapter_comments_anchor_bible_id_bibles_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "bibles",
-          "columnsFrom": ["anchor_bible_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chapter_comments_anchor_book_id_books_id_fk": {
-          "name": "chapter_comments_anchor_book_id_books_id_fk",
-          "tableFrom": "chapter_comments",
-          "tableTo": "books",
-          "columnsFrom": ["anchor_book_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "chapter_comments_body_exclusive": {
-          "name": "chapter_comments_body_exclusive",
-          "value": "(\n\t\t\t(\"body_kind\" = 'text'\n\t\t\tAND \"body_text\" IS NOT NULL\n\t\t\tAND btrim(\"body_text\") <> ''\n\t\t\tAND \"emoji\" IS NULL\n\t\t\tAND \"audio_storage_key\" IS NULL)\n\t\tOR (\n\t\t\t\"body_kind\" = 'emoji'\n\t\t\tAND \"emoji\" IS NOT NULL\n\t\t\tAND btrim(\"emoji\") <> ''\n\t\t\tAND \"body_text\" IS NULL\n\t\t\tAND \"audio_storage_key\" IS NULL)\n\t\tOR (\n\t\t\t\"body_kind\" = 'audio'\n\t\t\tAND \"audio_storage_key\" IS NOT NULL\n\t\t\tAND \"body_text\" IS NULL\n\t\t\tAND \"emoji\" IS NULL)\n\t)"
-        },
-        "chapter_comments_anchor_shape": {
-          "name": "chapter_comments_anchor_shape",
-          "value": "(\n\t\t\t(\"anchor_kind\" = 'verse'\n\t\t\tAND \"anchor_bible_text_id\" IS NOT NULL\n\t\t\tAND \"anchor_verse_number\" IS NOT NULL)\n\t\tOR (\n\t\t\t\"anchor_kind\" = 'pericope'\n\t\t\tAND \"anchor_pericope_set_id\" IS NOT NULL\n\t\t\tAND \"anchor_pericope_number\" IS NOT NULL\n\t\t\tAND btrim(\"anchor_pericope_number\") <> '')\n\t)"
-        }
-      },
-      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -4586,21 +4176,6 @@
       "name": "verse_audio_granularity",
       "schema": "public",
       "values": ["verse", "pericope"]
-    },
-    "public.comment_anchor_kind": {
-      "name": "comment_anchor_kind",
-      "schema": "public",
-      "values": ["verse", "pericope"]
-    },
-    "public.comment_body_kind": {
-      "name": "comment_body_kind",
-      "schema": "public",
-      "values": ["text", "audio", "emoji"]
-    },
-    "public.comment_connection_state": {
-      "name": "comment_connection_state",
-      "schema": "public",
-      "values": ["connected", "unconnected"]
     }
   },
   "schemas": {},

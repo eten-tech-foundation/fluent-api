@@ -40,13 +40,19 @@ const errorMessage = createMessageObjectSchema('Error');
 
 /** FA-R4: unknown/inaccessible assignment is 404 (not empty-scope 403). */
 const scopeFromChapterAssignment: ScopeResolver = async (c) => {
-  const chapterAssignmentId = Number(c.req.param('chapterAssignmentId'));
-  if (!Number.isFinite(chapterAssignmentId)) {
+  // Validate before DB: Zod param parsing runs after requirePermission, so
+  // non-integer / non-positive ids must not reach findAssignmentContext here.
+  const parsed = assignmentParams.safeParse({
+    chapterAssignmentId: c.req.param('chapterAssignmentId'),
+  });
+  if (!parsed.success) {
     throw new HTTPException(HttpStatusCodes.NOT_FOUND, {
       message: 'Chapter assignment not found',
     });
   }
-  const ctx = await draftCommentsService.resolveCommentAssignmentScope(chapterAssignmentId);
+  const ctx = await draftCommentsService.resolveCommentAssignmentScope(
+    parsed.data.chapterAssignmentId
+  );
   if (!ctx) {
     throw new HTTPException(HttpStatusCodes.NOT_FOUND, {
       message: 'Chapter assignment not found',
