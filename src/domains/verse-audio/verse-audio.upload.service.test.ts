@@ -426,6 +426,39 @@ describe('verse-audio service', () => {
       expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
       expect(result.ok && result.data.takeId).toBe(11);
     });
+
+  });
+
+  describe('concurrent first-upload races', () => {
+    it('retries on the existing-unit path when a concurrent winner left activeTakeId null', async () => {
+      const unlinked = { ...record, activeTakeId: null };
+      const promoted = { ...unlinked, activeTakeId: 11, versionToken: 2 };
+      const newData = Buffer.from('efgh');
+      const newHash = hashOf(newData);
+      const newTake = { ...take, contentHash: newHash, id: 11, storageObjectId: 56 };
+      vi.mocked(repo.get)
+        .mockResolvedValueOnce(err(ErrorCode.VERSE_AUDIO_NOT_FOUND))
+        .mockResolvedValueOnce(ok(unlinked))
+        .mockResolvedValue(ok(promoted));
+      vi.mocked(repo.createFirstRecordingWithTake).mockResolvedValue(
+        ok({ outcome: 'concurrent', record: unlinked, take: newTake })
+      );
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(newTake));
+      vi.mocked(repo.updateRecordingStateIfVersion).mockResolvedValue(
+        ok({ applied: true, record: promoted })
+      );
+      vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([newTake]));
+
+      const result = await uploadRecording({ ...uploadInput, data: newData, activate: true });
+
+      expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
+      expect(repo.findTakeByContentHash).toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.takeId).toBe(11);
+        expect(result.data.activeTakeId).toBe(11);
+      }
+    });
   });
 
   describe('takeId on activating uploads', () => {

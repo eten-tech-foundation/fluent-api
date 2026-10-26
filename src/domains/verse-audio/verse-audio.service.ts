@@ -16,11 +16,7 @@ import type {
 import * as storageRepo from './storage-objects.repository';
 import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
-import {
-  buildRecordingResponses,
-  fallbackBlobKey,
-  loadUnitResponse,
-} from './verse-audio.responses';
+import { buildRecordingResponses, loadUnitResponse } from './verse-audio.responses';
 import { shapeFromTake } from './verse-audio.shapes';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
@@ -139,23 +135,34 @@ async function deleteTakeObject(
   storageObjectId: number,
   contentHash: string
 ): Promise<void> {
-  const storage = await storageRepo.getById(storageObjectId);
-  const key = storage.ok
-    ? storage.data.key
-    : fallbackBlobKey(projectUnitId, bibleTextId, contentHash);
-
-  try {
-    await deleteVerseAudio(key);
-  } catch (error) {
+  // Lock + recheck references before deleting bytes. An activate=false upload can
+  // claim this storage row between take-row delete and bucket delete; without the
+  // lock we would wipe that new take's object.
+  const reclaimed = await storageRepo.reclaimOrphanIfUnreferenced(
+    storageObjectId,
+    0,
+    async (object) => {
+      try {
+        await deleteVerseAudio(object.key);
+      } catch (error) {
+        logger.error({
+          cause: error,
+          message: 'Verse audio object delete failed; left for the reclaim sweep',
+          context: { key: object.key },
+        });
+        throw error;
+      }
+    }
+  );
+  if (!reclaimed.ok) {
     logger.error({
-      cause: error,
-      message: 'Verse audio object delete failed; left for the reclaim sweep',
-      context: { key },
+      cause: reclaimed.error,
+      message: 'Verse audio storage reclaim failed; left for the reclaim sweep',
+      context: { storageObjectId, projectUnitId, bibleTextId, contentHash },
     });
-    return;
   }
-
-  await storageRepo.markDeleted(storageObjectId);
+  // ok(true): bytes+row removed. ok(false): still referenced or already gone —
+  // either way do not delete unlocked; the sweep handles true orphans.
 }
 
 export async function deleteRecording(

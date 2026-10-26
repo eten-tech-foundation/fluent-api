@@ -242,6 +242,12 @@ export async function uploadRecording(
     // Race loser: keep the winner's active take and surface ours as a conflict,
     // unless the identical bytes already became active (idempotent retry).
     if (created.data.outcome === 'concurrent') {
+      // Winner was activate=false (no active take). Re-enter the existing-unit
+      // path so this activating upload can promote via duplicate-hash / token
+      // rules instead of marking conflict with nothing to preserve.
+      if (created.data.record.activeTakeId == null) {
+        return uploadRecording(input);
+      }
       if (createdTakeId !== created.data.record.activeTakeId) {
         const marked = await repo.markConflictPreservingActive(created.data.record.id);
         if (!marked.ok) {

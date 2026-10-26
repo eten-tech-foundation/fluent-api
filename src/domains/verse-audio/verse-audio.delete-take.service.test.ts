@@ -25,6 +25,7 @@ vi.mock('./storage-objects.repository', () => ({
   getById: vi.fn(),
   getByIds: vi.fn(),
   markDeleted: vi.fn(),
+  reclaimOrphanIfUnreferenced: vi.fn(),
 }));
 
 vi.mock('./verse-audio.repository', () => ({
@@ -76,6 +77,18 @@ describe('deleteTake', () => {
     );
     vi.mocked(storageRepo.getByIds).mockResolvedValue(ok([]));
     vi.mocked(storageRepo.markDeleted).mockResolvedValue(ok(undefined));
+    vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockImplementation(
+      async (_id, _grace, deleteObject) => {
+        await deleteObject({
+          bucket: 'verse-audio',
+          createdAt: new Date(),
+          deletedAt: null,
+          id: 56,
+          key: 'k-56',
+        });
+        return ok(true);
+      }
+    );
     vi.mocked(takesRepo.deleteTakeAndPromote).mockResolvedValue(
       ok({ storageObjectId: 56, contentHash: 'other-hash', activeTakeId: 10, wasActive: false })
     );
@@ -85,8 +98,12 @@ describe('deleteTake', () => {
     const result = await deleteTake(input());
 
     expect(takesRepo.deleteTakeAndPromote).toHaveBeenCalledWith(1, 11);
+    expect(storageRepo.reclaimOrphanIfUnreferenced).toHaveBeenCalledWith(
+      56,
+      0,
+      expect.any(Function)
+    );
     expect(deleteVerseAudio).toHaveBeenCalledWith('k-56');
-    expect(storageRepo.markDeleted).toHaveBeenCalledWith(56);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.activeTakeId).toBe(10);
@@ -164,11 +181,21 @@ describe('deleteTake', () => {
   });
 
   it('still succeeds when the blob delete fails (left for the reclaim sweep)', async () => {
-    vi.mocked(deleteVerseAudio).mockRejectedValueOnce(new Error('r2 down'));
+    vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
 
     const result = await deleteTake(input());
 
     expect(result.ok).toBe(true);
-    expect(storageRepo.markDeleted).not.toHaveBeenCalled();
+  });
+
+  it('skips bucket delete when the storage row is still referenced', async () => {
+    vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockResolvedValueOnce(ok(false));
+
+    const result = await deleteTake(input());
+
+    expect(result.ok).toBe(true);
+    expect(deleteVerseAudio).not.toHaveBeenCalled();
   });
 });

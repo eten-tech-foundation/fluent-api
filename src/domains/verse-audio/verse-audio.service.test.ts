@@ -374,29 +374,26 @@ describe('verse-audio service', () => {
       vi.mocked(repo.get).mockResolvedValue(ok(record));
       vi.mocked(takesRepo.listTakesForRecording).mockResolvedValue(ok([take, secondTake]));
       vi.mocked(repo.remove).mockResolvedValue(ok(undefined));
-      vi.mocked(storageRepo.getById)
-        .mockResolvedValueOnce(
-          ok({
+      vi.mocked(storageRepo.reclaimOrphanIfUnreferenced).mockImplementation(
+        async (id, _grace, deleteObject) => {
+          await deleteObject({
             bucket: 'verse-audio',
             createdAt: new Date(),
             deletedAt: null,
-            id: 55,
-            key: `unit-12/text-3401/${take.contentHash}`,
-          })
-        )
-        .mockResolvedValueOnce(
-          ok({
-            bucket: 'verse-audio',
-            createdAt: new Date(),
-            deletedAt: null,
-            id: 56,
-            key: 'unit-12/text-3401/second-hash',
-          })
-        );
+            id,
+            key:
+              id === 55
+                ? `unit-12/text-3401/${take.contentHash}`
+                : 'unit-12/text-3401/second-hash',
+          });
+          return ok(true);
+        }
+      );
 
       const result = await deleteRecording(12, 3401);
 
       expect(repo.remove).toHaveBeenCalledWith(12, 3401);
+      expect(storageRepo.reclaimOrphanIfUnreferenced).toHaveBeenCalledTimes(2);
       expect(deleteVerseAudio).toHaveBeenCalledTimes(2);
       expect(deleteVerseAudio).toHaveBeenNthCalledWith(1, `unit-12/text-3401/${take.contentHash}`);
       expect(deleteVerseAudio).toHaveBeenNthCalledWith(2, 'unit-12/text-3401/second-hash');
