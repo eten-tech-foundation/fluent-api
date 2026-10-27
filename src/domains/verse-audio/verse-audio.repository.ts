@@ -8,43 +8,32 @@ import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
+import type { RecordingStatePatch } from './verse-audio.coverage-writes';
 import type {
   InsertTakeInput,
   UpsertVerseAudioInput,
-  VerseAudioConflictStatus,
   VerseAudioRecord,
   VerseAudioTakeRecord,
 } from './verse-audio.types';
 
-import { mapForeignKeyViolation, takeSelection } from './verse-audio-takes.repository';
+import { takeSelection } from './verse-audio-takes.repository';
+import { recordSelection } from './verse-audio.coverage-writes';
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
+export { findTakeByContentHash, insertTake } from './verse-audio-takes.repository';
 export {
-  findTakeByContentHash,
-  getTakeById,
-  insertTake,
-  listTakesByRecordingIds,
-  listTakesForRecording,
-  pruneSupersededTakes,
-  takeSelection,
-} from './verse-audio-takes.repository';
+  markIntersectingCoverageConflicts,
+  updateTakeCoverageAndRecordingIfVersion,
+} from './verse-audio.coverage-writes';
+export type { RecordingStatePatch } from './verse-audio.coverage-writes';
 
-const recordSelection = {
-  id: verse_audio_recordings.id,
-  projectUnitId: verse_audio_recordings.projectUnitId,
-  bibleTextId: verse_audio_recordings.bibleTextId,
-  uploadedBy: verse_audio_recordings.uploadedBy,
-  storageObjectId: verse_audio_recordings.storageObjectId,
-  contentType: verse_audio_recordings.contentType,
-  sizeBytes: verse_audio_recordings.sizeBytes,
-  durationSeconds: verse_audio_recordings.durationSeconds,
-  versionToken: verse_audio_recordings.versionToken,
-  conflictStatus: verse_audio_recordings.conflictStatus,
-  activeTakeId: verse_audio_recordings.activeTakeId,
-  createdAt: verse_audio_recordings.createdAt,
-  updatedAt: verse_audio_recordings.updatedAt,
-  verseNumber: bible_texts.verseNumber,
-};
+interface BibleTextAnchor {
+  id: number;
+  bookId: number;
+  chapterNumber: number;
+  verseNumber: number;
+}
 
 export async function get(
   projectUnitId: number,
@@ -78,6 +67,13 @@ export async function get(
   }
 }
 
+/**
+ * List verse-audio recordings for one chapter.
+ *
+ * Invariant (#295): `bible_id` is part of the chapter key. Filter by
+ * bible as well as book/chapter so recordings from another bible on
+ * the same book/chapter stay out of this listing.
+ */
 export async function listByChapter(
   projectUnitId: number,
   bibleId: number,
@@ -92,6 +88,7 @@ export async function listByChapter(
       .where(
         and(
           eq(verse_audio_recordings.projectUnitId, projectUnitId),
+          // #295 — bible_id is required; do not drop this predicate
           eq(bible_texts.bibleId, bibleId),
           eq(bible_texts.bookId, bookId),
           eq(bible_texts.chapterNumber, chapterNumber)
@@ -110,44 +107,31 @@ export async function listByChapter(
   }
 }
 
-/**
- * Insert-only unit create. On a concurrent first-upload race, reloads the
- * winner instead of overwriting its metadata / version token.
- */
-export async function insertRecording(
-  input: UpsertVerseAudioInput
-): Promise<Result<VerseAudioRecord>> {
+/** Loads book/chapter/verse for range-upload anchor validation. */
+export async function getBibleTextById(bibleTextId: number): Promise<Result<BibleTextAnchor>> {
   try {
     const [row] = await db
-      .insert(verse_audio_recordings)
-      .values(input)
-      .onConflictDoNothing({
-        target: [verse_audio_recordings.projectUnitId, verse_audio_recordings.bibleTextId],
+      .select({
+        id: bible_texts.id,
+        bookId: bible_texts.bookId,
+        chapterNumber: bible_texts.chapterNumber,
+        verseNumber: bible_texts.verseNumber,
       })
-      .returning();
+      .from(bible_texts)
+      .where(eq(bible_texts.id, bibleTextId))
+      .limit(1);
 
     if (!row) {
-      const existing = await get(input.projectUnitId, input.bibleTextId);
-      if (!existing.ok) {
-        return existing;
-      }
-      return ok(existing.data);
+      return err(ErrorCode.INVALID_REFERENCE);
     }
 
-    const result = await get(row.projectUnitId, row.bibleTextId);
-    if (!result.ok) {
-      return err(ErrorCode.INTERNAL_ERROR);
-    }
-    return ok(result.data);
+    return ok(row);
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to insert verse audio recording',
-      context: { input: { ...input, sizeBytes: input.sizeBytes } },
+      message: 'Failed to load bible text for verse audio',
+      context: { bibleTextId },
     });
-    if (hasPostgresErrorCode(error, '23503')) {
-      return mapForeignKeyViolation(error);
-    }
     return err(ErrorCode.INTERNAL_ERROR);
   }
 }
@@ -258,6 +242,11 @@ export async function createFirstRecordingWithTake(
           contentType: takeInput.contentType,
           sizeBytes: takeInput.sizeBytes,
           durationSeconds: takeInput.durationSeconds,
+          granularity: take.granularity,
+          startChapter: take.startChapter,
+          startVerse: take.startVerse,
+          endChapter: take.endChapter,
+          endVerse: take.endVerse,
           versionToken: 2,
           updatedAt: new Date(),
         })
@@ -317,18 +306,6 @@ export async function createFirstRecordingWithTake(
   }
 }
 
-export interface RecordingStatePatch {
-  uploadedBy?: number;
-  /** Pass `null` to clear; omit (`undefined`) to leave unchanged. */
-  storageObjectId?: number | null;
-  contentType?: string;
-  sizeBytes?: number;
-  durationSeconds?: number | null;
-  versionToken?: number;
-  conflictStatus?: VerseAudioConflictStatus;
-  activeTakeId?: number | null;
-}
-
 export interface UpdateIfVersionOptions {
   /** First-take link: only succeed while no active take is set yet. */
   requireNullActiveTake?: boolean;
@@ -383,7 +360,7 @@ export async function updateRecordingStateIfVersion(
 }
 
 /**
- * Flag conflict without touching active take (CAS-miss path).
+ * Flag conflict without changing the active take.
  *
  * Atomically increments versionToken and sets conflictStatus to 'conflict',
  * while preserving an intervening 'resolved' status so a racing upload cannot

@@ -284,6 +284,10 @@ const getBibleTextsRoute = createRoute({
     [HttpStatusCodes.BAD_REQUEST]: badRequestResponse,
     [HttpStatusCodes.UNAUTHORIZED]: unauthorizedResponse,
     [HttpStatusCodes.FORBIDDEN]: forbiddenResponse,
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'The Bible has no text for the requested book or chapter'
+    ),
     [HttpStatusCodes.BAD_GATEWAY]: badGatewayResponse,
     [HttpStatusCodes.INTERNAL_SERVER_ERROR]: internalErrorResponse,
   },

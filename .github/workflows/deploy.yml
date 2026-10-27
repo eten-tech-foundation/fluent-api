@@ -60,7 +60,7 @@ on:
         description: Number of health check attempts
         required: false
         type: number
-        default: 10
+        default: 20
       verify_interval:
         description: Seconds between health check attempts
         required: false
@@ -99,7 +99,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js version
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.14.0
           cache: npm
@@ -121,7 +121,7 @@ jobs:
           npm run db:migrate
 
       - name: Download artifact from build job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.artifact }}
           path: deployment/
@@ -139,6 +139,13 @@ jobs:
       # version. Azure serves the OLD app on / for a while after a deploy, so a
       # 200 there proves only that something is up; matching the version proves
       # the deploy actually landed.
+      #
+      # Attempts that get a fast version-mismatch response burn an attempt in
+      # ~interval seconds, while attempts that time out take max-time + interval
+      # -- so a HEALTHY old version answering during the swap exhausts the
+      # budget in far less wall-clock time than a dead site would. Size the
+      # budget for the fast-response case: observed package-mount + container
+      # swap on the Basic B1 apps takes ~2.5 min after OneDeploy returns.
       - name: Verify deployment
         env:
           URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}

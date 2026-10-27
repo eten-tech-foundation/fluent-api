@@ -5,6 +5,8 @@ import { z } from '@hono/zod-openapi';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
+  foreignKey,
   index,
   integer,
   json,
@@ -16,6 +18,7 @@ import {
   serial,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -46,6 +49,7 @@ export const verseAudioConflictStatusEnum = pgEnum('verse_audio_conflict_status'
   'conflict',
   'resolved',
 ]);
+export const verseAudioGranularityEnum = pgEnum('verse_audio_granularity', ['verse', 'pericope']);
 export const roles = pgTable('roles', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull().unique(),
@@ -162,6 +166,17 @@ export const users = pgTable('users', {
     .$onUpdate(() => new Date()),
 });
 
+// Shared commit-ordered revision allocator (migration 0038). Catalogue writes
+// must use next_catalogue_watermark(), never explicit client timestamps.
+export const catalogue_watermark = pgTable(
+  'catalogue_watermark',
+  {
+    id: boolean('id').primaryKey().default(true),
+    updatedAt: timestamp('updated_at').notNull(),
+  },
+  (table) => [check('catalogue_watermark_singleton', sql`${table.id} = true`)]
+);
+
 export const languages = pgTable('languages', {
   id: serial('id').primaryKey(),
   langName: varchar('lang_name', { length: 255 }).notNull(),
@@ -170,8 +185,8 @@ export const languages = pgTable('languages', {
   scriptDirection: scriptDirectionEnum('script_direction').default('ltr'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
+    .default(sql`next_catalogue_watermark()`)
+    .$onUpdate(() => sql`next_catalogue_watermark()`),
 });
 
 // ─── Pericope Tables ─────────────────────────────────────────────────────────
@@ -222,8 +237,8 @@ export const bibles = pgTable(
     }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at')
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+      .default(sql`next_catalogue_watermark()`)
+      .$onUpdate(() => sql`next_catalogue_watermark()`),
   },
   (table) => [
     // DBL identity: a given provider + externalId pair maps to exactly one row.
@@ -288,8 +303,8 @@ export const books = pgTable('books', {
   eng_display_name: varchar('eng_display_name', { length: 255 }).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => new Date()),
+    .default(sql`next_catalogue_watermark()`)
+    .$onUpdate(() => sql`next_catalogue_watermark()`),
 });
 
 export const pericope_verses = pgTable(
@@ -400,7 +415,17 @@ export const project_unit_bible_books = pgTable(
       .$onUpdate(() => new Date()),
     deletedAt: timestamp('deleted_at'),
   },
-  (table) => [primaryKey({ columns: [table.projectUnitId, table.bookId] })]
+  (table) => [
+    primaryKey({ columns: [table.projectUnitId, table.bookId] }),
+    // Target for chapter_assignments composite FK (#295). Redundant with the PK
+    // for uniqueness, but Postgres/PGlite need a UNIQUE CONSTRAINT on exactly
+    // these columns — a uniqueIndex alone is not accepted as an FK target.
+    unique('uq_project_unit_bible_books_unit_book_bible').on(
+      table.projectUnitId,
+      table.bookId,
+      table.bibleId
+    ),
+  ]
 );
 
 export const bible_texts = pgTable(
@@ -639,6 +664,15 @@ export const verse_audio_recordings = pgTable(
     /** Monotonic token clients send as baseVersionToken on upload. */
     versionToken: integer('version_token').notNull().default(1),
     conflictStatus: verseAudioConflictStatusEnum('conflict_status').notNull().default('clean'),
+    /**
+     * Coverage of the active take (denormalized). Per-take shape lives on
+     * verse_audio_takes so conflicted non-active takes keep their own range.
+     */
+    granularity: verseAudioGranularityEnum('granularity').notNull().default('verse'),
+    startChapter: integer('start_chapter'),
+    startVerse: integer('start_verse'),
+    endChapter: integer('end_chapter'),
+    endVerse: integer('end_verse'),
     /** Canonical take while clean; during conflict still points at the prior active take. */
     // eslint-disable-next-line ts/no-use-before-define -- circular FK with verse_audio_takes.recordingId
     activeTakeId: integer('active_take_id').references((): AnyPgColumn => verse_audio_takes.id, {
@@ -652,6 +686,7 @@ export const verse_audio_recordings = pgTable(
   },
   (table) => [
     uniqueIndex('uq_verse_audio_per_bible_text').on(table.projectUnitId, table.bibleTextId),
+    index('idx_verse_audio_recordings_project_unit').on(table.projectUnitId),
   ]
 );
 
@@ -678,6 +713,12 @@ export const verse_audio_takes = pgTable(
     durationSeconds: real('duration_seconds'),
     /** SHA-256 hex of the audio bytes — suppresses false conflicts on retry. */
     contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    /** Take coverage — retained when a conflicting take has a different verse/range shape. */
+    granularity: verseAudioGranularityEnum('granularity').notNull().default('verse'),
+    startChapter: integer('start_chapter'),
+    startVerse: integer('start_verse'),
+    endChapter: integer('end_chapter'),
+    endVerse: integer('end_verse'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -723,6 +764,19 @@ export const chapter_assignments = pgTable(
       table.bookId,
       table.chapterNumber
     ),
+    // Assignments must reference the unit's book↔bible link (#295). ON UPDATE
+    // CASCADE keeps moveBookToMilestone's assignment reparent a no-op.
+    foreignKey({
+      name: 'fk_chapter_assignments_bible_book_link',
+      columns: [table.projectUnitId, table.bookId, table.bibleId],
+      foreignColumns: [
+        project_unit_bible_books.projectUnitId,
+        project_unit_bible_books.bookId,
+        project_unit_bible_books.bibleId,
+      ],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
     index('idx_chapter_assignments_assigned_user').on(table.assignedUserId),
     index('idx_chapter_assignments_peer_checker_status').on(table.peerCheckerId, table.status),
     index('idx_chapter_assignments_project_unit').on(table.projectUnitId),
@@ -827,24 +881,16 @@ export const editorStateResourcesSchema = z
 // One row per user, a single Zod-typed JSONB blob. `.catch({})` so unknown/old
 // shapes parse as empty rather than throwing (W8). Surfaced via GET/PUT /self/settings.
 //
-// ⚠️ IMPLEMENTATION NOTE — full-replace today; ADD MERGE BEFORE A SECOND KEY ⚠️
-// `PUT /self/settings` is a deliberate **full-replace** of the whole blob
-// (last-writer-wins; no PATCH/ETags — §8.1/§8.3). That is safe ONLY while there
-// is exactly ONE key (`checkIgnoredWordPairs`): the client just GETs, edits the
-// one key, and PUTs the whole blob back. There is no server-side merge.
+// Write path is an **atomic partial merge** (API #434): `PUT /self/settings`
+// shallow-merges provided keys into the stored blob via a single JSONB upsert
+// (`||` + `jsonb_strip_nulls`). Absent keys stay untouched; an explicit `null`
+// value deletes only that key; `PUT { settings: {} }` is a no-op. Same-key
+// conflicts are last successfully server-saved write (no ETags / wall-clock).
+// Concurrent different-key writers must not use a naive JS read/merge/write.
 //
-// Because this is a plain `z.object`, the write schema **strips any unknown
-// key**, so a sibling setting cannot even reach the store today — which means
-// this object is the *only* gate: you literally cannot introduce a second
-// setting without editing THIS schema. So, before adding any second key here,
-// you MUST also make the write path merge instead of replace, or the
-// full-replace PUT will silently drop whichever key the caller didn't send.
-// Recommended at that point (in `self-settings.service.upsertSettings`):
-//   1. GET the existing stored blob for the user.
-//   2. Shallow-merge the incoming keys over it (set provided keys; treat an
-//      explicit `null` value as "delete this key"; leave absent keys untouched).
-//   3. Persist the merged blob.
-// Until then, keep the single-key full-replace contract.
+// Because this is a plain `z.object`, unknown top-level keys are **stripped** on
+// write — adding a new setting key still requires editing THIS schema (and
+// keeping the merge semantics above).
 // The bare object shape (no `.catch`). This is also the OpenAPI-facing schema:
 // the `.catch({})` wrapper below produces a `ZodCatch` node that
 // @asteasolutions/zod-to-openapi (under @hono/zod-openapi) cannot render — it
@@ -853,10 +899,18 @@ export const editorStateResourcesSchema = z
 // it adds/removes no fields, so the documented shape is identical either way.
 // Anything exposed on the OpenAPI surface must therefore embed THIS schema, not
 // the `.catch` variant. (Guarded by src/routes/doc.route.test.ts.)
+export const userSettingsDisplayModeSchema = z.enum(['verse', 'pericope']);
+
+// Shared so read/write schemas cannot drift on the verdict enum (FA-R1).
+export const checkIgnoredWordPairsSchema = z.record(z.string(), z.enum(['suppress', 'surface']));
+
 export const userSettingsObjectSchema = z.object({
   // Global "Ignore Everywhere" rules, keyed by the NFC-normalized repeated-word
   // pair string (e.g. "the the"); applies across all of the user's projects.
-  checkIgnoredWordPairs: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
+  // Mobile drafting unit preference (client defaults missing → verse). Stored
+  // only when set; normalized responses omit a deleted key (no null echo).
+  displayMode: userSettingsDisplayModeSchema.optional(),
 });
 
 // Read/storage schema: `.catch({})` so unknown/old shapes parse as empty rather
@@ -868,8 +922,13 @@ export const userSettingsSchema = userSettingsObjectSchema.catch({});
 // Strict write schema (no `.catch`): a malformed *incoming* PUT body is rejected
 // (surfaced as a 422 VALIDATION_ERROR — a well-formed request whose contents fail
 // schema validation; see self-settings.service.upsertSettings) instead of being
-// silently swallowed.
-export const userSettingsWriteSchema = userSettingsObjectSchema;
+// silently swallowed. Explicit `null` deletes only `displayMode` (#434); clear
+// suppressions with `{ checkIgnoredWordPairs: {} }` — `null` there is 422.
+// Absent keys are not in the patch.
+export const userSettingsWriteSchema = z.object({
+  checkIgnoredWordPairs: checkIgnoredWordPairsSchema.optional(),
+  displayMode: userSettingsDisplayModeSchema.nullable().optional(),
+});
 
 export const user_chapter_assignment_editor_state = pgTable(
   'user_chapter_assignment_editor_state',

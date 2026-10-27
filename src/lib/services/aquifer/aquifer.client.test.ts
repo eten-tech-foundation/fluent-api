@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import env from '@/env';
-import { ErrorCode } from '@/lib/types';
+import { logger } from '@/lib/logger';
+import { err, ErrorCode } from '@/lib/types';
 
 import {
+  AQUIFER_MAX_SEARCH_PAGES,
   getBibles,
   getBibleText,
   getResource,
@@ -283,8 +285,9 @@ describe('aquifer.client', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(101);
-        expect(result.data.at(-1)?.id).toBe(101);
+        expect(result.data.items).toHaveLength(101);
+        expect(result.data.items.at(-1)?.id).toBe(101);
+        expect(result.data.complete).toBe(true);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
@@ -307,9 +310,75 @@ describe('aquifer.client', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.data).toHaveLength(1);
+        expect(result.data.items).toHaveLength(1);
+        expect(result.data.complete).toBe(true);
       }
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks enumeration incomplete when the page ceiling is hit with a known higher total', async () => {
+      const fullPage = (offset: number) => ({
+        totalItemCount: AQUIFER_MAX_SEARCH_PAGES * 100 + 1,
+        returnedItemCount: 100,
+        offset,
+        items: Array.from({ length: 100 }, (_, index) => ({
+          ...searchItem,
+          id: offset + index + 1,
+          name: `item-${offset + index + 1}`,
+          localizedName: `Item ${offset + index + 1}`,
+        })),
+      });
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      for (let page = 0; page < AQUIFER_MAX_SEARCH_PAGES; page += 1) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(fullPage(page * 100)));
+      }
+
+      const result = await searchAllResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(AQUIFER_MAX_SEARCH_PAGES * 100);
+        expect(result.data.complete).toBe(false);
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(AQUIFER_MAX_SEARCH_PAGES);
+    });
+
+    it('marks enumeration complete when totalItemCount is reached exactly at the page ceiling', async () => {
+      const total = AQUIFER_MAX_SEARCH_PAGES * 100;
+      const fullPage = (offset: number) => ({
+        totalItemCount: total,
+        returnedItemCount: 100,
+        offset,
+        items: Array.from({ length: 100 }, (_, index) => ({
+          ...searchItem,
+          id: offset + index + 1,
+          name: `item-${offset + index + 1}`,
+          localizedName: `Item ${offset + index + 1}`,
+        })),
+      });
+      const fetchMock = vi.spyOn(globalThis, 'fetch');
+      for (let page = 0; page < AQUIFER_MAX_SEARCH_PAGES; page += 1) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(fullPage(page * 100)));
+      }
+
+      const result = await searchAllResources({
+        bookCode: 'MRK',
+        startChapter: 1,
+        endChapter: 1,
+        languageCode: 'eng',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.items).toHaveLength(total);
+        expect(result.data.complete).toBe(true);
+      }
+      expect(globalThis.fetch).toHaveBeenCalledTimes(AQUIFER_MAX_SEARCH_PAGES);
     });
   });
 
@@ -404,6 +473,59 @@ describe('aquifer.client', () => {
       if (result.ok) {
         expect(result.data.chapters[0]?.audio?.mp3?.size).toBeUndefined();
         expect(result.data.chapters[0]?.verses[0]?.text).toBeNull();
+      }
+    });
+
+    const missingBook = { aquiferBibleId: 101, bookCode: 'DEU', startChapter: 34, endChapter: 34 };
+
+    it('answers notFoundCode and logs the upstream 404 when the Bible has no text for the book', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ statusCode: 404, message: 'Not Found' }, 404)
+      );
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+
+      const result = await getBibleText(missingBook, {
+        notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND,
+      });
+
+      expect(result).toEqual(err(ErrorCode.BIBLE_BOOK_NOT_FOUND));
+      expect(warn).toHaveBeenCalledWith({
+        message: expect.stringContaining('HTTP 404 for GET /bibles/101/texts?BookCode=DEU'),
+        context: {
+          path: '/bibles/101/texts',
+          status: 404,
+          body: '{"statusCode":404,"message":"Not Found"}',
+        },
+      });
+    });
+
+    it('treats a 404 as an upstream failure when no notFoundCode is given', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ statusCode: 404, message: 'Not Found' }, 404)
+      );
+
+      const result = await getBibleText(missingBook);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('HTTP 404');
+      }
+    });
+
+    it('keeps a non-404 failure as an upstream failure even with notFoundCode', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ message: 'Upstream error' }, 500)
+      );
+
+      const result = await getBibleText(missingBook, {
+        notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE);
+        expect(result.error.message).toContain('HTTP 500');
       }
     });
   });

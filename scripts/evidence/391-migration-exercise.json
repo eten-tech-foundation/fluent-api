@@ -1,0 +1,173 @@
+{
+  "meta": {
+    "headHint": "run from checkout; see git rev-parse HEAD",
+    "migrationTag": "0039_add_verse_audio_range_metadata",
+    "when391": 1792429850384,
+    "noteWholePrOrder": "Scenario 4 sorts individual SQL by journal when and INTERLEAVES #379 migrations with #378. That is diagnostic only. Practical merge order is whole-PR units (see PR #391 coordination reply).",
+    "notExercised": [
+      "drizzle down / migration rollback SQL (none in contract)",
+      "live multi-connection PostgreSQL concurrency",
+      "shared/production databases"
+    ]
+  },
+  "upgrade": {
+    "applied": true,
+    "columnCount": 10,
+    "columns": [
+      {
+        "table_name": "verse_audio_recordings",
+        "column_name": "end_chapter",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_recordings",
+        "column_name": "end_verse",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_recordings",
+        "column_name": "granularity",
+        "udt_name": "verse_audio_granularity",
+        "is_nullable": "NO",
+        "column_default": "'verse'::verse_audio_granularity"
+      },
+      {
+        "table_name": "verse_audio_recordings",
+        "column_name": "start_chapter",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_recordings",
+        "column_name": "start_verse",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_takes",
+        "column_name": "end_chapter",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_takes",
+        "column_name": "end_verse",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_takes",
+        "column_name": "granularity",
+        "udt_name": "verse_audio_granularity",
+        "is_nullable": "NO",
+        "column_default": "'verse'::verse_audio_granularity"
+      },
+      {
+        "table_name": "verse_audio_takes",
+        "column_name": "start_chapter",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      },
+      {
+        "table_name": "verse_audio_takes",
+        "column_name": "start_verse",
+        "udt_name": "int4",
+        "is_nullable": "YES",
+        "column_default": null
+      }
+    ],
+    "index": [
+      {
+        "indexname": "idx_verse_audio_recordings_project_unit"
+      }
+    ],
+    "seededDefaults": {
+      "granularity": "verse",
+      "start_chapter": null
+    },
+    "ok": true
+  },
+  "repeat": {
+    "behavior": "Tracked re-run skips (when not > last created_at). Raw SQL second apply is not idempotent.",
+    "rawSecondApplyErrors": true,
+    "rawError": "repeat stmt[0] failed: type \"verse_audio_granularity\" already exists",
+    "trackedSecondApply": false,
+    "ok": true
+  },
+  "skipHazard391First": {
+    "behavior": "After #391 when is recorded, unchanged peer migrations with earlier when are silently skipped. Renumbering #391 alone on main does not fix peers that later land still carrying those earlier timestamps.",
+    "outcomes": [
+      {
+        "pr": 372,
+        "applied": false,
+        "lastCreatedAt": 1792429850384,
+        "when": 1791286548662,
+        "tag": "0034_verse_audio_conflict_status_resolved"
+      },
+      {
+        "pr": 379,
+        "applied": false,
+        "lastCreatedAt": 1792429850384,
+        "when": 1791491133531,
+        "tag": "0034_add_books_timestamps"
+      },
+      {
+        "pr": 378,
+        "applied": false,
+        "lastCreatedAt": 1792429850384,
+        "when": 1791540661231,
+        "tag": "0034_add_dynamic_workflow_stages"
+      },
+      {
+        "pr": 379,
+        "applied": false,
+        "lastCreatedAt": 1792429850384,
+        "when": 1791600000000,
+        "tag": "0035_bump_bibles_on_provider_resource_license"
+      }
+    ],
+    "hazardConfirmed": true,
+    "ok": true
+  },
+  "byWhenSqlDiagnostic": {
+    "warning": "Interleaves #379 SQL with #378 — not a practical PR merge order.",
+    "outcomes": [
+      {
+        "pr": 372,
+        "tag": "0034_verse_audio_conflict_status_resolved",
+        "applied": true
+      },
+      {
+        "pr": 379,
+        "tag": "0034_add_books_timestamps",
+        "applied": true
+      },
+      {
+        "pr": 378,
+        "tag": "0034_add_dynamic_workflow_stages",
+        "applied": true
+      },
+      {
+        "pr": 379,
+        "tag": "0035_bump_bibles_on_provider_resource_license",
+        "applied": true
+      },
+      {
+        "pr": 391,
+        "tag": "0039_add_verse_audio_range_metadata",
+        "applied": true
+      }
+    ],
+    "granularityPresent": true,
+    "ok": true
+  }
+}

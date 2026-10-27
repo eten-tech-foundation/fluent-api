@@ -42,10 +42,10 @@ the file to find the exact block.
 
 When a user is assigned a role, a row is written to `user_roles`:
 
-| userId | orgId | projectId | roleId          |
+| userId | orgId | projectId | roleId |
 | ------ | ----- | --------- | --------------- | ----------------------------------- |
-| 5      | 2     | null      | org_manager     | ← org-wide, CAN create projects     |
-| 5      | 2     | 9         | project_manager | ← project-pinned, CANNOT (normally) |
+| 5 | 2 | null | org_manager | ← org-wide, CAN create projects |
+| 5 | 2 | 9 | project_manager | ← project-pinned, CANNOT (normally) |
 
 At login, `findGrantsByUserId()` loads all rows and groups them into `Grant`
 objects: `{ orgId, projectId, permissions: Set<...> }`.

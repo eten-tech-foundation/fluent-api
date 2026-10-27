@@ -69,7 +69,14 @@ vi.mock('./chapter-assignments.service', () => ({
   getChapterAssignmentWithAuthContext: vi.fn(),
   claimChapterAssignment: vi.fn(),
   submitChapterAssignment: vi.fn(),
-  toChapterAssignmentResponse: vi.fn((record) => record),
+  toChapterAssignmentResponse: vi.fn((record, stageEnteredAt = null) => ({
+    ...record,
+    stageEnteredAt,
+  })),
+  buildChapterAssignmentResponse: vi.fn(async (record) => ({
+    ...record,
+    stageEnteredAt: null,
+  })),
 }));
 
 const TRANSLATOR = {
@@ -116,7 +123,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
 
   it('returns 200 with draft assignment when translator claims successfully', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
-    (chapterAssignmentService.claimChapterAssignment as any).mockResolvedValue({
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
       ok: true,
       data: {
         id: 1,
@@ -129,6 +136,8 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         status: 'draft',
         submittedTime: null,
         hasClaimConflict: false,
+        claimConflictUserId: null,
+        stageEnteredAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -145,7 +154,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
 
   it('returns 200 with hasClaimConflict when another user won the race', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
-    (chapterAssignmentService.claimChapterAssignment as any).mockResolvedValue({
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
       ok: true,
       data: {
         id: 1,
@@ -158,6 +167,8 @@ describe('pOST /chapter-assignments/:id/claim', () => {
         status: 'draft',
         submittedTime: null,
         hasClaimConflict: true,
+        claimConflictUserId: 10,
+        stageEnteredAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -167,9 +178,42 @@ describe('pOST /chapter-assignments/:id/claim', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.hasClaimConflict).toBe(true);
+    expect(body.claimConflictUserId).toBe(10);
+    expect(body.assignedUserId).toBe(99);
   });
 
-  it('returns 404 when chapter is already assigned to someone else (policy blocks)', async () => {
+  it('returns 200 with durable conflict when reconnecting after PM assign', async () => {
+    asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
+    vi.mocked(chapterAssignmentService.claimChapterAssignment).mockResolvedValue({
+      ok: true,
+      data: {
+        id: 1,
+        projectUnitId: 1,
+        bibleId: 1,
+        bookId: 1,
+        chapterNumber: 1,
+        assignedUserId: 99,
+        peerCheckerId: 88,
+        status: 'draft',
+        submittedTime: null,
+        hasClaimConflict: true,
+        claimConflictUserId: 10,
+        stageEnteredAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    const res = await claimChapter(1);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.hasClaimConflict).toBe(true);
+    expect(body.claimConflictUserId).toBe(10);
+    expect(body.assignedUserId).toBe(99);
+    expect(body.peerCheckerId).toBe(88);
+  });
+
+  it('returns 404 when claim access is denied (missing id / non-DRAFT / role)', async () => {
     asUser(TRANSLATOR, [PERMISSIONS.CONTENT_UPDATE]);
     allowClaimAccess.value = false;
 
