@@ -1,4 +1,7 @@
-import type { ChapterAssignmentProgressInfo } from '@/domains/chapter-assignments/chapter-assignments.types';
+import type {
+  ChapterAssignmentProgressInfo,
+  ChapterAssignmentStatus,
+} from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
@@ -6,6 +9,7 @@ import { runInTransaction } from '@/db/transaction';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { CHAPTER_ASSIGNMENT_STATUS } from '@/domains/chapter-assignments/chapter-assignments.types';
 import * as projectsService from '@/domains/projects/projects.service';
+import { lockProject } from '@/domains/projects/workflow-stages/workflow-stages.service';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import * as userProjectsService from '@/domains/users/projects/user-projects.service';
 import { logger } from '@/lib/logger';
@@ -198,7 +202,7 @@ export async function assignSelectedChapters(
   }
 }
 
-const RESETTABLE_STATUSES = new Set<string>([
+const RESETTABLE_STATUSES = new Set<ChapterAssignmentStatus>([
   CHAPTER_ASSIGNMENT_STATUS.DRAFT,
   CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
 ]);
@@ -207,14 +211,16 @@ export async function resetSelectedChapters(
   projectId: number,
   chapterAssignmentIds: ResetSelectedRequest['chapterAssignmentIds']
 ): Promise<Result<ChapterAssignmentProgress[]>> {
-  if (chapterAssignmentIds.length === 0) return ok([]);
-
   if (chapterAssignmentIds.length > repo.MAX_CHAPTER_ASSIGNMENTS_PER_REQUEST) {
     return err(ErrorCode.CHAPTER_LIMIT_EXCEEDED);
   }
 
   try {
     return await runInTransaction(async (tx) => {
+      // Match submitChapterAssignment lock order (project, then assignments) to avoid 40P01.
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
+
       const invalidAssignmentIds = await projectRepo.findAssignmentIdsNotInProject(
         projectId,
         chapterAssignmentIds,
@@ -239,9 +245,10 @@ export async function resetSelectedChapters(
         return err(ErrorCode.NOT_FOUND);
       }
 
-      const notResettable = chapterAssignmentIds.filter(
-        (id) => !RESETTABLE_STATUSES.has(statusById.get(id)!)
-      );
+      const notResettable = chapterAssignmentIds.filter((id) => {
+        const status = statusById.get(id);
+        return status === undefined || !RESETTABLE_STATUSES.has(status);
+      });
       if (notResettable.length > 0) {
         logger.warn('Chapter assignments are not resettable from their current status', {
           projectId,
@@ -252,6 +259,7 @@ export async function resetSelectedChapters(
       }
 
       const updatedIds: number[] = [];
+      // Sequential: each updateChapterAssignment shares this tx (and its project lock).
       for (const id of chapterAssignmentIds) {
         const result = await chapterAssignmentService.updateChapterAssignment(
           id,

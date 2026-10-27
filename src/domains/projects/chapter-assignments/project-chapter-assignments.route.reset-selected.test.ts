@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ProjectWithLanguageNames } from '@/domains/projects/projects.types';
 import type { Permission } from '@/lib/permissions';
 
 import { getProjectById } from '@/domains/projects/projects.service';
@@ -10,6 +11,7 @@ import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
+import { sampleProjects } from '@/test/utils/test-helpers';
 
 import * as service from './project-chapter-assignments.service';
 import './project-chapter-assignments.route';
@@ -77,7 +79,19 @@ vi.mock('./project-chapter-assignments.service', () => ({
   getChapterAssignmentsByUserId: vi.fn(),
 }));
 
-const project = { id: 1, organization: 1 };
+const project: ProjectWithLanguageNames = {
+  ...sampleProjects.projectWithLanguageNames1,
+  status: 'active',
+  sourceBibleId: null,
+  pericopeSetId: null,
+  lastActivityAt: null,
+  sourceLanguageId: sampleProjects.project1.sourceLanguage,
+  targetLanguageId: sampleProjects.project1.targetLanguage,
+  lastChapterActivity: null,
+  chapterStatusCounts: {},
+  milestoneCount: 0,
+  workflowConfig: [],
+};
 
 function asAuthenticatedUser(permissions: Permission[]) {
   vi.mocked(auth.api.getSession).mockResolvedValue({
@@ -123,7 +137,7 @@ function asAuthenticatedUser(permissions: Permission[]) {
       },
     ])
   );
-  vi.mocked(getProjectById).mockResolvedValue(ok(project as never));
+  vi.mocked(getProjectById).mockResolvedValue(ok(project));
   vi.mocked(resolveIsProjectMember).mockResolvedValue(true);
 }
 
@@ -162,6 +176,19 @@ describe('PATCH /projects/:projectId/chapter-assignments/reset-selected', () => 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
     expect(service.resetSelectedChapters).toHaveBeenCalledWith(1, [11, 12]);
+  });
+
+  it('maps NOT_FOUND to 404', async () => {
+    asAuthenticatedUser([
+      PERMISSIONS.CONTENT_ASSIGN,
+      PERMISSIONS.PROJECT_VIEW,
+      PERMISSIONS.PROJECT_UPDATE,
+    ]);
+    vi.mocked(service.resetSelectedChapters).mockResolvedValue(err(ErrorCode.NOT_FOUND));
+
+    const response = await resetSelected({ chapterAssignmentIds: [11] });
+
+    expect(response.status).toBe(404);
   });
 
   it('maps CHAPTER_ASSIGNMENT_NOT_RESETTABLE to 409', async () => {
