@@ -40,18 +40,24 @@ The browser sends only these selectors and bounded choices:
 
 Fluent API checks project access before resolving the complete ordered pericope from the project's
 configured source Bible. It places the exact reference-labelled canonical source wording in the BT
-question. Target-editor/draft text is not read by the Assistant request path and is not included in
-the browser request, BT question, Assistant cache, Assistant logs, fixtures, or telemetry.
+question. For BT's per-user queue and history slot, the API also sends a stable namespaced
+`fluent_{userId}` identifier derived from the authenticated Fluent numeric user id; the browser does
+not select it. Target-editor/draft text is not read by the Assistant request path and is not included
+in the browser request, BT question, Assistant cache, Assistant logs, fixtures, or telemetry.
 
 The distinction matters: this spike sends more than passage references. Existing or proposed copy
 that says the Assistant “uses only passage references” is inaccurate. The accurate statement is
 that it sends the configured canonical source passage and does not send the translator's target
-draft.
+draft. This slice has no freeform input. Future #406 typed/pasted messages will be transmitted as
+written and require their own explicit copy; they are not part of the current browser payload.
 
 Fluent stores only the completed generated Markdown and version/language metadata in the disposable
 cache. It does not separately store the source block or prompt. The cache key is a SHA-256 digest of
 the answer-affecting semantic inputs, including the exact source wording; the digest prevents reuse
-after a source change but does not grant permission to transmit the source.
+after a source change but does not grant permission to transmit the source. The BT user identifier is
+excluded from cache identity, so semantically identical completed artifacts may be reused across
+authorized users even though provider-side queue/history activity remains linkable across requests
+for each user.
 
 ## Demonstrated behavior
 
@@ -149,8 +155,10 @@ must confirm:
    Fluent → BT Servant → Cloudflare/Anthropic processing chain;
 2. the production operator/controller/processor relationship, hosting accounts, retention/deletion
    behavior, incident obligations, and required disclosure;
-3. whether an eligibility flag is required in the source/license table and who owns it; and
-4. corrected user-facing privacy and scope copy.
+3. whether the stable raw-derived `fluent_{userId}` provider mapping is acceptable or must be
+   replaced by a server-secret keyed mapping while retaining a stable per-user queue/history slot;
+4. whether an eligibility flag is required in the source/license table and who owns it; and
+5. corrected user-facing privacy and scope copy.
 
 If a source-license eligibility gate is chosen, it must run before an in-flight or completed cache
 lookup. A content hash cannot substitute for that authorization check.
