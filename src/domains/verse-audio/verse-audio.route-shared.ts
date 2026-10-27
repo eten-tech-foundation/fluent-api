@@ -52,6 +52,18 @@ export const baseVersionTokenFormField = z
     example: 1,
   });
 
+/**
+ * DELETE /takes/{takeId} query param — same wire shape as the upload form field,
+ * different stale-token semantics (409, not keep-both / mark conflict).
+ */
+export const baseVersionTokenQueryParam = baseVersionTokenFormField.openapi({
+  type: 'integer',
+  minimum: 1,
+  description:
+    'Optional CAS token for deleting the active take: matching or omitted promotes or clears, stale returns 409 with currentVersionToken, malformed returns 400. Ignored for non-active takes.',
+  example: 1,
+});
+
 /** Shared multipart `activate` field for verse and range upload routes. */
 export const activateFormField = z.enum(['true', 'false']).optional().openapi({
   description:

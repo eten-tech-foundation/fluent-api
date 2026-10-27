@@ -13,8 +13,6 @@ import type { InsertTakeInput, VerseAudioTakeRecord } from './verse-audio.types'
 import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-type Executor = typeof db | DbTransaction;
-
 interface LockedRecording {
   id: number;
   activeTakeId: number | null;
@@ -45,14 +43,16 @@ export const takeSelection = {
 };
 
 export async function listTakesByRecordingIds(
-  recordingIds: number[]
+  recordingIds: number[],
+  tx?: DbTransaction
 ): Promise<Result<VerseAudioTakeRecord[]>> {
   if (recordingIds.length === 0) {
     return ok([]);
   }
 
   try {
-    const takes = await db
+    const conn = tx ?? db;
+    const takes = await conn
       .select(takeSelection)
       .from(verse_audio_takes)
       .where(inArray(verse_audio_takes.recordingId, recordingIds))
@@ -270,24 +270,9 @@ export async function setActiveTake(
 
 export async function listTakesForRecording(
   recordingId: number,
-  executor: Executor = db
+  tx?: DbTransaction
 ): Promise<Result<VerseAudioTakeRecord[]>> {
-  try {
-    const takes = await executor
-      .select(takeSelection)
-      .from(verse_audio_takes)
-      .where(eq(verse_audio_takes.recordingId, recordingId))
-      .orderBy(asc(verse_audio_takes.createdAt), asc(verse_audio_takes.id));
-
-    return ok(takes);
-  } catch (error) {
-    logger.error({
-      cause: error,
-      message: 'Failed to list verse audio takes for recording',
-      context: { recordingId },
-    });
-    return err(ErrorCode.INTERNAL_ERROR);
-  }
+  return listTakesByRecordingIds([recordingId], tx);
 }
 
 /**

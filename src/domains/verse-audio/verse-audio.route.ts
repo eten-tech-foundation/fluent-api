@@ -18,6 +18,7 @@ import {
 import {
   activateFormField,
   baseVersionTokenFormField,
+  baseVersionTokenQueryParam,
   commonErrorResponses,
   parseActivate,
   parseOptionalBaseVersionToken,
@@ -378,9 +379,8 @@ const deleteVerseAudioTakeRoute = createRoute({
         }),
     }),
     query: z.object({
-      // Same four-state semantics as upload for active-take deletes; ignored for
-      // non-active takes. Empty string is treated as absent (legacy).
-      baseVersionToken: baseVersionTokenFormField,
+      // Empty string is treated as absent (legacy). Stale → 409, not upload conflict.
+      baseVersionToken: baseVersionTokenQueryParam,
     }),
   },
   responses: {
