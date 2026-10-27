@@ -9,7 +9,7 @@ it('creates the standalone completed-artifact table on a fresh database', async 
   const database = new PGlite();
   try {
     const migration = await readFile(
-      new URL('./migrations/0038_assistant_briefing_artifacts.sql', import.meta.url),
+      new URL('./migrations/0041_assistant_briefing_artifacts.sql', import.meta.url),
       'utf8'
     );
     await database.exec(migration);

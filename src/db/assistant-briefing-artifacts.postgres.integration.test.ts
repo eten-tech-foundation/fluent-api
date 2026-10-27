@@ -47,9 +47,8 @@ describe.skipIf(!connectionString)(
       // do not own pg-boss's schema.
       await sql`CREATE SCHEMA pgboss`;
       process.env.DATABASE_URL = connectionString!;
-      const { findCompletedBriefing, publishCompletedBriefing } = await import(
-        '@/domains/assistant/cache/assistant-cache.repository'
-      );
+      const { findCompletedBriefing, publishCompletedBriefing } =
+        await import('@/domains/assistant/cache/assistant-cache.repository');
       const artifact = {
         cacheKey: 'd'.repeat(64),
         markdown: 'real PostgreSQL cache proof',

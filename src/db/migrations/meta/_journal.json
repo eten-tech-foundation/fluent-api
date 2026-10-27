@@ -288,6 +288,13 @@
       "when": 1792682769108,
       "tag": "0040_chapter_assignment_bible_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793104925175,
+      "tag": "0041_assistant_briefing_artifacts",
+      "breakpoints": true
     }
   ]
 }

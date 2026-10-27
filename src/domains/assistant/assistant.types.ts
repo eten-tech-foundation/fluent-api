@@ -10,7 +10,4 @@ export const assistantBriefingRequestSchema = z.object({
 });
 
 export type BriefingServiceErrorCode =
-  | 'temporarily_unavailable'
-  | 'invalid_request'
-  | 'unsupported_language'
-  | 'context_too_large';
+  'temporarily_unavailable' | 'invalid_request' | 'unsupported_language' | 'context_too_large';
