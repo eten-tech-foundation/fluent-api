@@ -223,10 +223,11 @@ function joinSegments(segments: VerseSegment[]): { text: string; paragraphs: Ver
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
  * between its milestone and the next one, across paragraph boundaries. A bridged verse ("3-4")
  * is filed under its first number. Heading words, note apparatus and anything before the first
- * verse are not included in verse text. Supported headings are preserved as markers on the
- * following verse, and body paragraphs (prose, poetry, lists) as the verse's paragraph markers
- * (fluent-web#314); other unsupported structure remains available in the raw imported file. A
- * trailing heading has no following verse and remains only in the verbatim imported file.
+ * verse are not included in verse text; body-paragraph words left out that way are logged.
+ * Supported headings are preserved as markers on the following verse, and body paragraphs (prose,
+ * poetry, lists) as the verse's paragraph markers (fluent-web#314); other unsupported structure
+ * remains available in the raw imported file. A trailing heading has no following verse and
+ * remains only in the verbatim imported file.
  */
 export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   const verses: UsjVerseText[] = [];
@@ -237,6 +238,10 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   // The body paragraph being walked, and whether a verse number or words came first in it.
   // Null elsewhere, so a verse nested in a heading or an unsupported block opens no paragraph.
   let paragraph: { marker?: ParagraphMarker; hasContent: boolean } | null = null;
+  // Words a body paragraph holds while no verse is open (a list label under a heading, text above
+  // a chapter's first verse) belong to no row and stay in the raw file. fluent-web's save path
+  // gives them to the next verse, where a translator typed them; in a file they are usually labels.
+  const skipped = { chapters: new Set<number | null>(), characters: 0 };
 
   const flush = () => {
     if (!current) return;
@@ -265,7 +270,13 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   };
 
   const addText = (text: string) => {
-    if (!current) return;
+    if (!current) {
+      if (paragraph && text.trim() !== '') {
+        skipped.chapters.add(chapter);
+        skipped.characters += text.trim().length;
+      }
+      return;
+    }
     current.segments[current.segments.length - 1].text += text;
     if (paragraph && text.trim() !== '') paragraph.hasContent = true;
   };
@@ -376,6 +387,12 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
 
   walk(usj.content);
   flush();
+  if (skipped.characters > 0) {
+    logger.warn('Imported USFM text before a verse stays only in the raw file', {
+      chapters: [...skipped.chapters],
+      characters: skipped.characters,
+    });
+  }
   return ok(verses);
 }
 

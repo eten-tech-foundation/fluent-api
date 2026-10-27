@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
+import { versesOf } from './usfm-converter.test-fixtures';
 
 // Runs the real parser: these tests pin what usfm-grammar actually emits, not the type file.
 
@@ -26,14 +27,6 @@ const GENESIS = [
 
 /** The verse number opens a `\p` paragraph. */
 const P0 = { marker: 'p', offset: 0 };
-
-function versesOf(usfm: string) {
-  const usj = convertUSFMToUSJ(usfm);
-  if (!usj.ok) throw new Error(usj.error.message);
-  const verses = usjToVerseTexts(usj.data);
-  if (!verses.ok) throw new Error(verses.error.message);
-  return verses.data;
-}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -399,6 +392,7 @@ describe('list verse continuation', () => {
   );
 
   it('excludes list text before any verse and respects heading and chapter boundaries', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
     expect(
       versesOf(
         [
@@ -443,5 +437,9 @@ describe('list verse continuation', () => {
         markers: { paragraphs: [{ marker: 'li1', offset: 0 }] },
       },
     ]);
+    expect(warn).toHaveBeenCalledWith(
+      'Imported USFM text before a verse stays only in the raw file',
+      { chapters: [1, 2], characters: 52 }
+    );
   });
 });

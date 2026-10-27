@@ -102,8 +102,10 @@ export type MaterializeOutcome = 'materialized' | 'pending';
  * Turns one stored file into editable rows. translated_verses hangs off the source bible's
  * bible_texts, so this can only happen once that book's text has been ingested; before then it
  * reports `pending` and leaves the import untouched for the ingestion worker to finish. Verses
- * the source does not have (versification differences), or that have no imported text, are
- * skipped and counted, never invented.
+ * the source does not have (versification differences) are skipped and counted, never invented.
+ * A verse with no imported text is skipped and counted too, unless it carries markers (a heading,
+ * or a paragraph its number opens): that one is stored as a row with empty content, so export
+ * can rebuild the structure. Queries that ask whether a verse is translated check for words.
  */
 export async function materializeUsfmImport(
   row: { id: number; projectUnitId: number; bookId: number; usfm: string },

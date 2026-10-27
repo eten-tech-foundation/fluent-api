@@ -3,21 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { MAX_VERSE_PARAGRAPHS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 
-import { convertUSFMToUSJ, generateUSFMText, usjToVerseTexts } from './usfm-converter';
+import { generateUSFMText } from './usfm-converter';
+import { versesOf } from './usfm-converter.test-fixtures';
 
 vi.mock('@/lib/logger', () => ({
   logger: { warn: vi.fn(), error: vi.fn() },
 }));
 
 // Runs the real parser, like usfm-converter.usj-verses.test.ts.
-
-function versesOf(usfm: string) {
-  const usj = convertUSFMToUSJ(usfm);
-  if (!usj.ok) throw new Error(usj.error.message);
-  const verses = usjToVerseTexts(usj.data);
-  if (!verses.ok) throw new Error(verses.error.message);
-  return verses.data;
-}
 
 describe('paragraph structure (fluent-web#314)', () => {
   it('records which verses open a paragraph', () => {
@@ -106,6 +99,28 @@ describe('paragraph structure (fluent-web#314)', () => {
         },
       },
     ]);
+  });
+
+  it('leaves words before any open verse in the raw file and warns about them', () => {
+    const verses = versesOf(
+      '\\id JHN\n\\c 3\n\\s1 Jesus and Nicodemus\n\\p Before any verse.\n\\p\n\\v 1 One.'
+    );
+
+    expect(verses).toEqual([
+      {
+        chapterNumber: 3,
+        verseNumber: 1,
+        text: 'One.',
+        markers: {
+          headings: [{ marker: 's1', text: 'Jesus and Nicodemus' }],
+          paragraphs: [{ marker: 'p', offset: 0 }],
+        },
+      },
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Imported USFM text before a verse stays only in the raw file',
+      { chapters: [3], characters: 'Before any verse.'.length }
+    );
   });
 
   it('keeps the first paragraphs a row can store, and every word, and warns about the rest', () => {

@@ -100,12 +100,29 @@ Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
 well-formed tags remain valid passthrough data; for example, custom `\z...`
 markers do not produce grammar errors. Editable rows include prose and poetry body paragraphs, plus verses that start
 inside list or other non-heading paragraphs. Text before the first verse milestone
-in those paragraphs, and paragraphs with no milestone, stay in the original file.
+in those paragraphs, and paragraphs with no milestone, stay in the original file;
+the import logs a warning with the chapters and the character count when body
+paragraph text is left out this way.
 Tables, notes, figures and sidebars remain in the original file rather than being
 appended to a verse's prose.
 Supported headings attach to the next verse. Headings after the last verse
 remain on the raw import row; attaching them before the last verse would change
-source order. Import does not promise export/roundtrip support yet.
+source order.
+
+Each row also stores its body paragraphs in `markers.paragraphs`, in the same
+`{ marker, offset }` form the web editor saves: offset 0 when the verse number
+opens the paragraph, and the offset in the saved text when a paragraph starts
+inside the verse. A row holds at most `MAX_VERSE_PARAGRAPHS` (20); the import
+keeps the first 20 and logs a warning. A verse with no words that carries a
+heading or opens a paragraph is stored as a row with empty content, so the
+structure survives. AI look-ahead, chapter progress and the export book list
+count only rows with words as translated.
+
+Export rebuilds headings and body paragraphs from the rows, so those round-trip.
+Other markers (`\ip`, `\tr`, `\pb`, `\esb`, notes, figures, `\z*`) are not in
+the rows and export does not merge the raw file back, so the round trip is not
+lossless yet. That follow-up is tracked in
+[fluent-web #397](https://github.com/eten-tech-foundation/fluent-web/issues/397).
 
 The same marker-schema validation runs during initial parsing and delayed
 materialization. A heading collection over four items or a heading over 300
