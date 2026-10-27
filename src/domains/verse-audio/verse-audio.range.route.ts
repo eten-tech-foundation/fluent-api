@@ -12,8 +12,10 @@ import { server } from '@/server/server';
 import { requireEditVerseAudioAccess } from './verse-audio-auth.middleware';
 import * as rangeAudioService from './verse-audio.range.service';
 import {
+  activateFormField,
   baseVersionTokenFormField,
   commonErrorResponses,
+  parseActivate,
   parseOptionalBaseVersionToken,
   parsePositiveIntField,
   projectUnitIdParamSchema,
@@ -65,11 +67,7 @@ const uploadRangeVerseAudioRoute = createRoute({
             }),
             baseVersionToken: baseVersionTokenFormField,
             // `z.coerce.boolean` would read the string 'false' as true.
-            activate: z.enum(['true', 'false']).optional().openapi({
-              description:
-                'Default true. When false the take is stored but activeTakeId, versionToken, and conflictStatus are left unchanged (non-selected take). Response takeId identifies the stored take.',
-              example: 'false',
-            }),
+            activate: activateFormField,
             granularity: z.literal('pericope').openapi({
               description: 'Must be pericope for this route',
               example: 'pericope',
@@ -114,7 +112,7 @@ const uploadRangeVerseAudioRoute = createRoute({
   },
   summary: 'Upload a pericope / verse-range audio take',
   description:
-    'Accepts granularity=pericope with start/end chapter and verse. bibleTextId is the anchor (first verse) and must match startChapter/startVerse on bible_texts. Version/CAS semantics match single-verse upload. After a successful upload, other same-book recordings whose active coverage intersects this range are marked conflict without bumping their versionToken.',
+    'Accepts granularity=pericope with start/end chapter and verse. bibleTextId is the anchor (first verse) and must match startChapter/startVerse on bible_texts. Version/CAS semantics match single-verse upload, including activate=false (identical bytes return the existing takeId even when that take is already active). After a successful upload, other same-book recordings whose active coverage intersects this range are marked conflict without bumping their versionToken.',
 });
 
 server.openapi(uploadRangeVerseAudioRoute, async (c) => {
@@ -175,7 +173,7 @@ server.openapi(uploadRangeVerseAudioRoute, async (c) => {
     data,
     durationSeconds,
     baseVersionToken: baseToken.value,
-    activate: body.activate !== 'false',
+    activate: parseActivate(body.activate),
     granularity: 'pericope',
     startChapter,
     startVerse,

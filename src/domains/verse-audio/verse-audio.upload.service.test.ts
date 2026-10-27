@@ -388,6 +388,18 @@ describe('verse-audio service', () => {
       expect(result.ok && result.data.takeId).toBe(11);
     });
 
+    it('returns the active takeId when activate=false matches the active take bytes', async () => {
+      vi.mocked(repo.get).mockResolvedValue(ok(record));
+      vi.mocked(repo.findTakeByContentHash).mockResolvedValue(ok(take));
+
+      const result = await uploadRecording({ ...uploadInput, activate: false });
+
+      expect(uploadVerseAudio).not.toHaveBeenCalled();
+      expect(repo.insertTake).not.toHaveBeenCalled();
+      expect(result.ok && result.data.takeId).toBe(take.id);
+      expect(result.ok && result.data.activeTakeId).toBe(take.id);
+    });
+
     it('creates the first recording without linking an active take', async () => {
       const unlinked = { ...record, activeTakeId: null };
       vi.mocked(repo.get)
@@ -426,7 +438,6 @@ describe('verse-audio service', () => {
       expect(repo.markConflictPreservingActive).not.toHaveBeenCalled();
       expect(result.ok && result.data.takeId).toBe(11);
     });
-
   });
 
   describe('concurrent first-upload races', () => {

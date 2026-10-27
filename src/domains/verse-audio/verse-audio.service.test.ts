@@ -382,9 +382,7 @@ describe('verse-audio service', () => {
             deletedAt: null,
             id,
             key:
-              id === 55
-                ? `unit-12/text-3401/${take.contentHash}`
-                : 'unit-12/text-3401/second-hash',
+              id === 55 ? `unit-12/text-3401/${take.contentHash}` : 'unit-12/text-3401/second-hash',
           });
           return ok(true);
         }

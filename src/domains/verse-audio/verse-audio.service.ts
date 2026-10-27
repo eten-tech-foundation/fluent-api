@@ -1,5 +1,7 @@
 import type { Result } from '@/lib/types';
 
+import { runInTransaction } from '@/db/transaction';
+import env from '@/env';
 import { deleteVerseAudio } from '@/lib/audio-storage';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -137,21 +139,14 @@ async function deleteTakeObject(
 ): Promise<void> {
   // Lock + recheck references before deleting bytes. An activate=false upload can
   // claim this storage row between take-row delete and bucket delete; without the
-  // lock we would wipe that new take's object.
+  // lock we would wipe that new take's object. Grace matches the reclaim sweep so
+  // a revived claim (createdAt refreshed) is skipped until AUDIO_RECLAIM_GRACE_MS.
+  // deleteObject must reject to roll the reclaim txn back — do not swallow errors.
   const reclaimed = await storageRepo.reclaimOrphanIfUnreferenced(
     storageObjectId,
-    0,
+    env.AUDIO_RECLAIM_GRACE_MS,
     async (object) => {
-      try {
-        await deleteVerseAudio(object.key);
-      } catch (error) {
-        logger.error({
-          cause: error,
-          message: 'Verse audio object delete failed; left for the reclaim sweep',
-          context: { key: object.key },
-        });
-        throw error;
-      }
+      await deleteVerseAudio(object.key);
     }
   );
   if (!reclaimed.ok) {
@@ -161,8 +156,8 @@ async function deleteTakeObject(
       context: { storageObjectId, projectUnitId, bibleTextId, contentHash },
     });
   }
-  // ok(true): bytes+row removed. ok(false): still referenced or already gone —
-  // either way do not delete unlocked; the sweep handles true orphans.
+  // ok(true): bytes+row removed. ok(false): still referenced, too young, or already
+  // gone — either way do not delete unlocked; the sweep handles true orphans.
 }
 
 export async function deleteRecording(
@@ -197,18 +192,34 @@ export async function deleteRecording(
   return ok(undefined);
 }
 
+function newestTake(takes: VerseAudioTakeRecord[]): VerseAudioTakeRecord | null {
+  if (takes.length === 0) {
+    return null;
+  }
+  return [...takes].sort((a, b) => {
+    const byCreated = b.createdAt.getTime() - a.createdAt.getTime();
+    if (byCreated !== 0) {
+      return byCreated;
+    }
+    return b.id - a.id;
+  })[0]!;
+}
+
 /**
  * Deletes a single take. Allowed for the take's uploader or a holder of
  * `content:assign` at the project scope; anyone else gets FORBIDDEN. Deleting
- * the active take promotes the newest remaining take (or clears it).
+ * the active take promotes the newest remaining take (or clears it) via CAS on
+ * versionToken. Optional `baseVersionToken` is required for versioned clients
+ * when the take is active; absent is the legacy snapshot-under-lock path.
  */
 export async function deleteTake(input: DeleteTakeInput): Promise<Result<VerseAudioWithUrl>> {
-  const recording = await repo.get(input.projectUnitId, input.bibleTextId);
+  const [recording, take] = await Promise.all([
+    repo.get(input.projectUnitId, input.bibleTextId),
+    takesRepo.getTakeById(input.takeId),
+  ]);
   if (!recording.ok) {
     return recording;
   }
-
-  const take = await takesRepo.getTakeById(input.takeId);
   if (!take.ok) {
     return take;
   }
@@ -223,7 +234,48 @@ export async function deleteTake(input: DeleteTakeInput): Promise<Result<VerseAu
 
   // Row first, bytes second (same order as deleteRecording): a failed object
   // delete leaves an orphan for the reclaim sweep rather than a dangling take.
-  const deleted = await takesRepo.deleteTakeAndPromote(recording.data.id, input.takeId);
+  const deleted = await runInTransaction(async (tx) => {
+    const locked = await takesRepo.lockRecording(recording.data.id, tx);
+    if (!locked.ok) {
+      return locked;
+    }
+
+    const wasActive = locked.data.activeTakeId === input.takeId;
+    if (wasActive && input.baseVersionToken !== undefined) {
+      if (input.baseVersionToken !== locked.data.versionToken) {
+        return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+      }
+    }
+
+    const removed = await takesRepo.deleteTake(recording.data.id, input.takeId, tx);
+    if (!removed.ok) {
+      return removed;
+    }
+
+    if (!wasActive) {
+      return ok(removed.data);
+    }
+
+    // Legacy omitted-token path snapshots under the lock; versioned clients
+    // already matched above. Either way the promote/clear UPDATE is a CAS.
+    const expectedVersion = input.baseVersionToken ?? locked.data.versionToken;
+
+    const remaining = await takesRepo.listTakesForRecording(recording.data.id, tx);
+    if (!remaining.ok) {
+      return remaining;
+    }
+
+    const promoted = newestTake(remaining.data);
+    const set = await takesRepo.setActiveTake(recording.data.id, promoted, expectedVersion, tx);
+    if (!set.ok) {
+      return set;
+    }
+    if (!set.data.applied) {
+      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+    }
+
+    return ok(removed.data);
+  });
   if (!deleted.ok) {
     return deleted;
   }

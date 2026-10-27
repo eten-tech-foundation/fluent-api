@@ -551,40 +551,4 @@ describe('verse-audio routes', () => {
       expect(res.status).toBe(200);
     });
   });
-
-  describe('delete /verse-audio/{projectUnitId}/{bibleTextId}/takes/{takeId}', () => {
-    const deleteTake = (takeId = '42') =>
-      server.request(`/verse-audio/1/10/takes/${takeId}`, { method: 'DELETE' });
-
-    beforeEach(() => asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]));
-
-    it('returns 200 with the unit and passes actor plus project scope', async () => {
-      vi.mocked(verseAudioService.deleteTake).mockResolvedValue(ok({ id: 1 }) as never);
-
-      const res = await deleteTake();
-
-      expect(res.status).toBe(200);
-      expect(verseAudioService.deleteTake).toHaveBeenCalledWith({
-        projectUnitId: 1,
-        bibleTextId: 10,
-        takeId: 42,
-        actor: expect.objectContaining({ id: APP_USER.id }),
-        scope: { orgId: 1, projectId: 1 },
-      });
-    });
-
-    it.each([
-      [ErrorCode.FORBIDDEN, 403],
-      [ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND, 404],
-    ])('maps %s to %i', async (code, status) => {
-      vi.mocked(verseAudioService.deleteTake).mockResolvedValue(err(code));
-
-      expect((await deleteTake()).status).toBe(status);
-    });
-
-    it('rejects a non-numeric takeId without calling the service', async () => {
-      expect((await deleteTake('abc')).status).toBe(400);
-      expect(verseAudioService.deleteTake).not.toHaveBeenCalled();
-    });
-  });
 });

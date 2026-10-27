@@ -52,6 +52,18 @@ export const baseVersionTokenFormField = z
     example: 1,
   });
 
+/** Shared multipart `activate` field for verse and range upload routes. */
+export const activateFormField = z.enum(['true', 'false']).optional().openapi({
+  description:
+    'Default true. When false the take is stored but activeTakeId, versionToken, and conflictStatus are left unchanged (non-selected take). Response takeId identifies the stored take — including when identical bytes match an already-active take.',
+  example: 'false',
+});
+
+/** `activate` is true unless the client explicitly sends the string `false`. */
+export function parseActivate(raw: unknown): boolean {
+  return raw !== 'false';
+}
+
 export const commonErrorResponses = {
   [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
     createMessageObjectSchema('Unauthorized'),

@@ -235,6 +235,12 @@ export interface DeleteTakeInput {
   actor: AppPolicyUser;
   /** Project scope used for the `content:assign` override. */
   scope: AuthScope;
+  /**
+   * Optional CAS token when deleting the active take.
+   * Absent → legacy snapshot under the recording lock; present+stale → 409;
+   * malformed tokens are rejected at the route (400). Non-active deletes ignore it.
+   */
+  baseVersionToken?: number;
 }
 
 // ── OpenAPI schemas ──────────────────────────────────────────────────────────

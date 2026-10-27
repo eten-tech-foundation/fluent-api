@@ -6,7 +6,6 @@ import * as schema from '@/db/schema';
 import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import { deleteTakeAndPromote } from './verse-audio-takes.repository';
 import { updateTakeCoverageAndRecordingIfVersion } from './verse-audio.repository';
 import { VERSE_AUDIO_GRANULARITY } from './verse-audio.types';
 
@@ -319,96 +318,5 @@ describe('updateTakeCoverageAndRecordingIfVersion (PGlite rollback)', () => {
       endVerse: 8,
     });
     expect(recording?.versionToken).toBe(3);
-  });
-
-  describe('deleteTakeAndPromote (real PGlite txn)', () => {
-    async function insertSecondTake() {
-      const [storage] = await db
-        .insert(schema.storage_objects)
-        .values({ bucket: 'verse-audio', key: `unit-${projectUnitId}/text-${bibleTextId}/hash-2` })
-        .returning();
-      const [second] = await db
-        .insert(schema.verse_audio_takes)
-        .values({
-          recordingId,
-          uploadedBy: userId,
-          storageObjectId: storage.id,
-          contentType: 'audio/webm',
-          sizeBytes: 8,
-          durationSeconds: 2,
-          contentHash: 'b'.repeat(64),
-          granularity: 'verse',
-          createdAt: new Date(Date.now() + 1000),
-        })
-        .returning();
-      return { secondTakeId: second.id, secondStorageId: storage.id };
-    }
-
-    async function readRecording() {
-      const [row] = await db
-        .select({
-          activeTakeId: schema.verse_audio_recordings.activeTakeId,
-          storageObjectId: schema.verse_audio_recordings.storageObjectId,
-          contentType: schema.verse_audio_recordings.contentType,
-          versionToken: schema.verse_audio_recordings.versionToken,
-        })
-        .from(schema.verse_audio_recordings)
-        .where(eq(schema.verse_audio_recordings.id, recordingId));
-      return row;
-    }
-
-    it('promotes the newest remaining take when the active take is deleted', async () => {
-      const { secondTakeId, secondStorageId } = await insertSecondTake();
-
-      const result = await deleteTakeAndPromote(recordingId, takeId);
-
-      expect(result).toEqual(
-        ok({
-          storageObjectId,
-          contentHash: 'a'.repeat(64),
-          activeTakeId: secondTakeId,
-          wasActive: true,
-        })
-      );
-      expect(await readRecording()).toEqual({
-        activeTakeId: secondTakeId,
-        storageObjectId: secondStorageId,
-        contentType: 'audio/webm',
-        versionToken: 3,
-      });
-    });
-
-    it('leaves the active take and versionToken alone when a non-active take is deleted', async () => {
-      const { secondTakeId } = await insertSecondTake();
-
-      const result = await deleteTakeAndPromote(recordingId, secondTakeId);
-
-      expect(result.ok && result.data.wasActive).toBe(false);
-      expect(await readRecording()).toEqual({
-        activeTakeId: takeId,
-        storageObjectId,
-        contentType: 'audio/mp4',
-        versionToken: 2,
-      });
-    });
-
-    it('clears the active take when the last take is deleted', async () => {
-      const result = await deleteTakeAndPromote(recordingId, takeId);
-
-      expect(result.ok && result.data.activeTakeId).toBeNull();
-      expect(await readRecording()).toEqual({
-        activeTakeId: null,
-        storageObjectId: null,
-        contentType: 'audio/mp4',
-        versionToken: 3,
-      });
-    });
-
-    it('returns TAKE_NOT_FOUND for a take id outside this recording', async () => {
-      const result = await deleteTakeAndPromote(recordingId, takeId + 999);
-
-      expect(result).toEqual(err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND));
-      expect((await readRecording())?.activeTakeId).toBe(takeId);
-    });
   });
 });

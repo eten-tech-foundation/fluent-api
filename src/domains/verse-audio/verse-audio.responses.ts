@@ -34,11 +34,7 @@ function legacyBlobName(projectUnitId: number, bibleTextId: number): string {
   return `unit-${projectUnitId}/text-${bibleTextId}`;
 }
 
-export function fallbackBlobKey(
-  projectUnitId: number,
-  bibleTextId: number,
-  contentHash: string
-): string {
+function fallbackBlobKey(projectUnitId: number, bibleTextId: number, contentHash: string): string {
   return isLegacyContentHash(contentHash)
     ? legacyBlobName(projectUnitId, bibleTextId)
     : audioBlobName(projectUnitId, bibleTextId, contentHash);
