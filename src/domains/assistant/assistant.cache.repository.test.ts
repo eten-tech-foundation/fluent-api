@@ -83,7 +83,7 @@ beforeAll(async () => {
   client = new PGlite();
   databaseState.client = client;
   const migration = await readFile(
-    new URL('../../db/migrations/0038_assistant_briefing_artifacts.sql', import.meta.url),
+    new URL('../../db/migrations/0041_assistant_briefing_artifacts.sql', import.meta.url),
     'utf8'
   );
   await client.exec(migration);

@@ -113,9 +113,8 @@ it('force-destroys TLS sockets across repeated stalled postgres.js pool retireme
   process.on('unhandledRejection', onUnhandled);
 
   try {
-    const { assistantCacheOpenTransportCountForTests, findCompletedBriefing } = await import(
-      './cache/assistant-cache.repository'
-    );
+    const { assistantCacheOpenTransportCountForTests, findCompletedBriefing } =
+      await import('./cache/assistant-cache.repository');
     for (let generation = 0; generation < 3; generation++) {
       const started = Date.now();
       await expect(findCompletedBriefing(String(generation).repeat(64))).rejects.toThrow(
