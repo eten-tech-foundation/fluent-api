@@ -5,6 +5,8 @@ import type {
   UploadRecordingInput,
   VerseAudioRecord,
   VerseAudioTakeRecord,
+  VerseAudioTakeWithUrl,
+  VerseAudioWithUrl,
 } from './verse-audio.types';
 
 import { VERSE_AUDIO_CONFLICT_STATUS, VERSE_AUDIO_GRANULARITY } from './verse-audio.types';
@@ -60,4 +62,45 @@ export const uploadInput: UploadRecordingInput = {
   contentType: 'audio/mp4',
   data: Buffer.from('abcd'),
   durationSeconds: 12.5,
+};
+
+const takeWithUrl: VerseAudioTakeWithUrl = {
+  id: take.id,
+  uploadedBy: take.uploadedBy,
+  contentType: take.contentType,
+  sizeBytes: take.sizeBytes,
+  durationSeconds: take.durationSeconds,
+  contentHash: take.contentHash,
+  granularity: take.granularity,
+  startChapter: take.startChapter,
+  startVerse: take.startVerse,
+  endChapter: take.endChapter,
+  endVerse: take.endVerse,
+  downloadUrl: 'https://r2.example/k-55?sig=x',
+  createdAt: take.createdAt.toISOString(),
+  updatedAt: take.updatedAt.toISOString(),
+};
+
+/** Full route/service response fixture — prefer over partial casts. */
+export const recordWithUrl: VerseAudioWithUrl = {
+  id: record.id,
+  projectUnitId: record.projectUnitId,
+  bibleTextId: record.bibleTextId,
+  uploadedBy: record.uploadedBy,
+  contentType: record.contentType,
+  sizeBytes: record.sizeBytes,
+  durationSeconds: record.durationSeconds,
+  versionToken: record.versionToken,
+  conflictStatus: record.conflictStatus,
+  granularity: record.granularity,
+  startChapter: record.chapterNumber,
+  startVerse: record.verseNumber,
+  endChapter: record.chapterNumber,
+  endVerse: record.verseNumber,
+  activeTakeId: record.activeTakeId,
+  verseNumber: record.verseNumber,
+  downloadUrl: takeWithUrl.downloadUrl,
+  takes: [takeWithUrl],
+  createdAt: record.createdAt.toISOString(),
+  updatedAt: record.updatedAt.toISOString(),
 };
