@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { MAX_VERSE_PARAGRAPHS } from '@/db/schema';
+import { logger } from '@/lib/logger';
 
 import { convertUSFMToUSJ, generateUSFMText, usjToVerseTexts } from './usfm-converter';
+
+vi.mock('@/lib/logger', () => ({
+  logger: { warn: vi.fn(), error: vi.fn() },
+}));
 
 // Runs the real parser, like usfm-converter.usj-verses.test.ts.
 
@@ -99,6 +106,25 @@ describe('paragraph structure (fluent-web#314)', () => {
         },
       },
     ]);
+  });
+
+  it('keeps the first paragraphs a row can store, and every word, and warns about the rest', () => {
+    const words = Array.from({ length: MAX_VERSE_PARAGRAPHS + 2 }, (_, i) => `w${i}`);
+    const breaks = words.slice(1).map((word) => `\\p ${word}`);
+    const [verse] = versesOf(`\\id JHN\n\\c 3\n\\p\n\\v 1 ${words[0]}\n${breaks.join('\n')}`);
+
+    expect(verse.text).toBe(words.join(' '));
+    const paragraphs = verse.markers?.paragraphs ?? [];
+    expect(paragraphs).toHaveLength(MAX_VERSE_PARAGRAPHS);
+    expect(verse.text.slice(paragraphs[MAX_VERSE_PARAGRAPHS - 1].offset)).toMatch(
+      new RegExp(`^w${MAX_VERSE_PARAGRAPHS - 1} `)
+    );
+    expect(logger.warn).toHaveBeenCalledWith('Imported USFM verse kept only its first paragraphs', {
+      chapterNumber: 3,
+      verseNumber: 1,
+      paragraphs: MAX_VERSE_PARAGRAPHS + 2,
+      kept: MAX_VERSE_PARAGRAPHS,
+    });
   });
 
   it('exports the imported paragraphs back where the file had them', () => {

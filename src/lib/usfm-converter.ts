@@ -3,7 +3,7 @@ import usfmGrammar from 'usfm-grammar';
 import type { VerseMarkers } from '@/db/schema';
 import type { Result, USJDocument, USJNode } from '@/lib/types';
 
-import { USFM_HEADING_MARKERS, USFM_PARAGRAPH_MARKERS } from '@/db/schema';
+import { MAX_VERSE_PARAGRAPHS, USFM_HEADING_MARKERS, USFM_PARAGRAPH_MARKERS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { isUSFMSemanticDivisionMarker, serializeUSFMVerseBody } from '@/lib/usfm-verse-serializer';
@@ -166,9 +166,6 @@ const paragraphMarkers = new Set<string>(USFM_PARAGRAPH_MARKERS);
 const isParagraphMarker = (marker: string): marker is ParagraphMarker =>
   paragraphMarkers.has(marker);
 
-/** The most paragraph entries one verse row may store (verseMarkersSchema). */
-const MAX_VERSE_PARAGRAPHS = 20;
-
 /** One stretch of a verse inside a single paragraph. */
 interface VerseSegment {
   text: string;
@@ -217,7 +214,7 @@ function joinSegments(segments: VerseSegment[]): { text: string; paragraphs: Ver
 
   return {
     text: kept.map((segment) => segment.text).join(' '),
-    paragraphs: paragraphs.slice(0, MAX_VERSE_PARAGRAPHS),
+    paragraphs,
   };
 }
 
@@ -243,7 +240,17 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
 
   const flush = () => {
     if (!current) return;
-    const { text, paragraphs } = joinSegments(current.segments);
+    const { text, paragraphs: found } = joinSegments(current.segments);
+    // A row stores at most MAX_VERSE_PARAGRAPHS; rejecting the verse would fail the whole file.
+    const paragraphs = found.slice(0, MAX_VERSE_PARAGRAPHS);
+    if (found.length > paragraphs.length) {
+      logger.warn('Imported USFM verse kept only its first paragraphs', {
+        chapterNumber: current.chapterNumber,
+        verseNumber: current.verseNumber,
+        paragraphs: found.length,
+        kept: paragraphs.length,
+      });
+    }
     const markers = {
       ...(current.headings ? { headings: current.headings } : {}),
       ...(paragraphs.length > 0 ? { paragraphs } : {}),
