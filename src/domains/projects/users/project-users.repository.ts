@@ -367,8 +367,7 @@ export async function updateProjectUserRole(
   projectId: number,
   userId: number,
   roleId: number,
-  roleName: string,
-  _createdBy: number | null
+  roleName: string
 ): Promise<
   Result<{
     projectId: number;
