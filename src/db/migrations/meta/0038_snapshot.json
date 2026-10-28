@@ -1,5 +1,5 @@
 {
-  "id": "57208503-5afd-4fb6-8528-9bcfc0dcd7a2",
+  "id": "ef6ffedd-3c0d-4574-9347-c1c80ec93254",
   "prevId": "362faffe-16e3-4844-a202-18e2f79af637",
   "version": "7",
   "dialect": "postgresql",
@@ -1400,7 +1400,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {
@@ -1498,7 +1498,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -1513,6 +1513,37 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.catalogue_watermark": {
+      "name": "catalogue_watermark",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "boolean",
+          "primaryKey": true,
+          "notNull": true,
+          "default": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "catalogue_watermark_singleton": {
+          "name": "catalogue_watermark_singleton",
+          "value": "\"catalogue_watermark\".\"id\" = true"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.chapter_assignment_assigned_user_history": {
@@ -2070,7 +2101,7 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "default": "next_catalogue_watermark()"
         }
       },
       "indexes": {},
@@ -2634,13 +2665,6 @@
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "status": {
           "name": "status",

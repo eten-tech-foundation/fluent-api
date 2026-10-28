@@ -1,9 +1,9 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { asc, eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
 import { project_workflow_stages } from '@/db/schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { ErrorCode } from '@/lib/types';
 
 import {
@@ -63,11 +63,7 @@ async function seedProject(id = PROJECT_ID) {
 
 describe('workflow stages service (PGlite integration)', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson(schema)
-    );
-    await client.exec(statements.join('\n'));
+    await createTestSchema(client, schema);
     await seedBaseEntities();
   });
 
@@ -207,6 +203,11 @@ describe('workflow stages service (PGlite integration)', () => {
         id: 11,
         projectId: PROJECT_ID,
         name: 'Milestone 1',
+      });
+      await database.insert(schema.project_unit_bible_books).values({
+        projectUnitId: 11,
+        bibleId: 1,
+        bookId: 41,
       });
       await database.insert(schema.chapter_assignments).values({
         id: 101,
@@ -417,6 +418,11 @@ describe('workflow stages service (PGlite integration)', () => {
         id: 10,
         projectId: PROJECT_ID,
         name: 'Milestone 1',
+      });
+      await database.insert(schema.project_unit_bible_books).values({
+        projectUnitId: 10,
+        bibleId: 1,
+        bookId: 41,
       });
       await database.insert(schema.chapter_assignments).values({
         id: 100,

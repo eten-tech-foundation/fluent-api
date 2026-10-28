@@ -295,15 +295,44 @@ describe('aquifer-resources routes', () => {
       );
 
       expect(res.status).toBe(200);
-      expect(aquiferClient.getBibleText).toHaveBeenCalledWith({
-        aquiferBibleId: 1,
-        bookCode: 'MRK',
-        startChapter: 1,
-        endChapter: 1,
-        includeAudio: undefined,
-      });
+      expect(aquiferClient.getBibleText).toHaveBeenCalledWith(
+        {
+          aquiferBibleId: 1,
+          bookCode: 'MRK',
+          startChapter: 1,
+          endChapter: 1,
+          includeAudio: undefined,
+        },
+        { notFoundCode: ErrorCode.BIBLE_BOOK_NOT_FOUND }
+      );
       const data = await res.json();
       expect(data).toEqual(mockText);
+    });
+
+    it('returns 404 when the Bible has no text for the book', async () => {
+      authenticateUserMock();
+      vi.mocked(aquiferClient.getBibleText).mockResolvedValue(err(ErrorCode.BIBLE_BOOK_NOT_FOUND));
+
+      const res = await server.request(
+        '/aquifer/bibles/101/texts?bookCode=DEU&startChapter=34&endChapter=34'
+      );
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ message: 'Bible book not found' });
+    });
+
+    it('returns 502 Bad Gateway when Aquifer fails', async () => {
+      authenticateUserMock();
+      vi.mocked(aquiferClient.getBibleText).mockResolvedValue(
+        err(ErrorCode.AQUIFER_SERVICE_UNAVAILABLE)
+      );
+
+      const res = await server.request(
+        '/aquifer/bibles/101/texts?bookCode=DEU&startChapter=34&endChapter=34'
+      );
+
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ message: 'Aquifer service is unavailable' });
     });
   });
 });

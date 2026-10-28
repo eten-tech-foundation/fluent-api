@@ -7,7 +7,7 @@ import { user_settings } from '@/db/schema';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
-import type { UpsertUserSettingsInput, UserSettings } from './self-settings.types';
+import type { MergeUserSettingsInput, UserSettings } from './self-settings.types';
 
 export interface UserSettingsRow {
   settings: UserSettings | null;
@@ -36,15 +36,33 @@ export async function findByUser(userId: number): Promise<Result<UserSettingsRow
   }
 }
 
-export async function upsert(input: UpsertUserSettingsInput): Promise<Result<UserSettingsRow>> {
+/**
+ * Atomically shallow-merge `patch` into the user's settings JSONB blob.
+ *
+ * - Insert path: store `jsonb_strip_nulls(patch)` (nulls never persist).
+ * - Update path: `jsonb_strip_nulls(COALESCE(existing, {}) || patch)` so
+ *   concurrent different-key writers retain each other's keys and an explicit
+ *   JSON `null` deletes that key (service validation allows null only for
+ *   `displayMode`). Uses one upsert statement — not a JS read/merge/write —
+ *   including first-row creation races.
+ */
+export async function mergePatch(input: MergeUserSettingsInput): Promise<Result<UserSettingsRow>> {
+  const patchJson = JSON.stringify(input.patch);
+
   try {
     const [result] = await db
       .insert(user_settings)
-      .values({ userId: input.userId, settings: input.settings })
+      .values({
+        userId: input.userId,
+        // Bound JSON text → jsonb, strip deletion-nulls for the insert row.
+        settings: sql`jsonb_strip_nulls(${patchJson}::jsonb)`,
+      })
       .onConflictDoUpdate({
         target: user_settings.userId,
         set: {
-          settings: sql`excluded.settings`,
+          // Must merge the raw patch (nulls intact), not excluded.settings —
+          // the insert values already strip nulls, which would lose deletes.
+          settings: sql`jsonb_strip_nulls(COALESCE(${user_settings.settings}, '{}'::jsonb) || ${patchJson}::jsonb)`,
           updatedAt: sql`now()`,
         },
       })
@@ -57,7 +75,7 @@ export async function upsert(input: UpsertUserSettingsInput): Promise<Result<Use
   } catch (error) {
     logger.error({
       cause: error,
-      message: 'Failed to upsert user settings',
+      message: 'Failed to merge user settings',
       context: { userId: input.userId },
     });
     return err(ErrorCode.INTERNAL_ERROR);

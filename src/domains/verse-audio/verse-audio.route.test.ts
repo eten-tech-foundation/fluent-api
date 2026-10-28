@@ -5,10 +5,12 @@ import { getUserByEmail } from '@/domains/users/users.service';
 import { isAudioStorageAvailable } from '@/lib/audio-storage';
 import { auth } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/permissions';
-import { err, ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 
+import * as rangeAudioService from './verse-audio.range.service';
 import * as verseAudioService from './verse-audio.service';
+import './verse-audio.range.route';
 import './verse-audio.route';
 
 vi.mock('@/lib/auth', () => ({
@@ -87,6 +89,11 @@ vi.mock('./verse-audio.service', () => ({
   listChapterRecordings: vi.fn(),
   resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
+  deleteTake: vi.fn(),
+}));
+
+vi.mock('./verse-audio.range.service', () => ({
+  uploadRangeRecording: vi.fn(),
 }));
 
 const APP_USER = {
@@ -98,15 +105,15 @@ const APP_USER = {
 function asAuthenticatedUser(
   permissions: string[] = [PERMISSIONS.PROJECT_VIEW, PERMISSIONS.CONTENT_UPDATE]
 ) {
-  (auth.api.getSession as any).mockResolvedValue({
+  vi.mocked(auth.api.getSession).mockResolvedValue({
     session: { id: 's1', updatedAt: new Date(), expiresAt: new Date(Date.now() + 1e9) },
     user: { email: APP_USER.email },
-  });
-  (getUserByEmail as any).mockResolvedValue({ ok: true, data: APP_USER });
-  (findGrantsByUserId as any).mockResolvedValue({
+  } as never);
+  vi.mocked(getUserByEmail).mockResolvedValue({ ok: true, data: APP_USER } as never);
+  vi.mocked(findGrantsByUserId).mockResolvedValue({
     ok: true,
     data: [{ orgId: 1, projectId: 1, permissions: new Set(permissions) }],
-  });
+  } as never);
 }
 
 describe('verse-audio routes', () => {
@@ -117,7 +124,7 @@ describe('verse-audio routes', () => {
 
   describe('get /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     it('returns 401 when caller is unauthenticated', async () => {
-      (auth.api.getSession as any).mockResolvedValue(null);
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
       const res = await server.request('/verse-audio/1/10', { method: 'GET' });
       expect(res.status).toBe(401);
     });
@@ -153,6 +160,35 @@ describe('verse-audio routes', () => {
   });
 
   describe('get /verse-audio (chapter list)', () => {
+    it('returns 401 when caller is unauthenticated', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
+      const res = await server.request(
+        '/verse-audio?projectUnitId=1&bibleId=9&bookId=1&chapterNumber=1',
+        { method: 'GET' }
+      );
+      expect(res.status).toBe(401);
+      expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when caller lacks access to the target project', async () => {
+      asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
+      vi.mocked(findGrantsByUserId).mockResolvedValue({
+        ok: true,
+        data: [{ orgId: 1, projectId: 999, permissions: new Set([PERMISSIONS.PROJECT_VIEW]) }],
+      } as never);
+      const resolveIsProjectMember = (
+        await import('@/domains/projects/users/project-users.service')
+      ).resolveIsProjectMember;
+      vi.mocked(resolveIsProjectMember).mockResolvedValueOnce(false);
+
+      const res = await server.request(
+        '/verse-audio?projectUnitId=1&bibleId=9&bookId=1&chapterNumber=1',
+        { method: 'GET' }
+      );
+      expect(res.status).toBe(404);
+      expect(verseAudioService.listChapterRecordings).not.toHaveBeenCalled();
+    });
+
     it('returns 200 with chapter items and hasConflict rollup', async () => {
       asAuthenticatedUser([PERMISSIONS.PROJECT_VIEW]);
       (verseAudioService.listChapterRecordings as any).mockResolvedValue({
@@ -186,14 +222,144 @@ describe('verse-audio routes', () => {
     });
   });
 
+  describe('put /verse-audio/{projectUnitId}/range', () => {
+    function rangeUpload(
+      fields: Record<string, string> = {},
+      options: { includeFile?: boolean } = {}
+    ) {
+      const form = new FormData();
+      if (options.includeFile !== false) {
+        form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
+      }
+      form.append('granularity', fields.granularity ?? 'pericope');
+      form.append('bibleTextId', fields.bibleTextId ?? '10');
+      form.append('startChapter', fields.startChapter ?? '1');
+      form.append('startVerse', fields.startVerse ?? '1');
+      form.append('endChapter', fields.endChapter ?? '1');
+      form.append('endVerse', fields.endVerse ?? '5');
+      if (fields.baseVersionToken !== undefined) {
+        form.append('baseVersionToken', fields.baseVersionToken);
+      }
+      if (fields.activate !== undefined) form.append('activate', fields.activate);
+      return server.request('/verse-audio/1/range', { method: 'PUT', body: form });
+    }
+
+    beforeEach(() => {
+      asAuthenticatedUser([PERMISSIONS.CONTENT_UPDATE]);
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
+        ok({
+          id: 1,
+          projectUnitId: 1,
+          bibleTextId: 10,
+          granularity: 'pericope',
+          startChapter: 1,
+          startVerse: 1,
+          endChapter: 1,
+          endVerse: 5,
+          versionToken: 2,
+        } as never)
+      );
+    });
+
+    it('returns 401 when caller is unauthenticated', async () => {
+      vi.mocked(auth.api.getSession).mockResolvedValue(null as never);
+      const res = await rangeUpload();
+      expect(res.status).toBe(401);
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 and forwards range fields on happy path', async () => {
+      const res = await rangeUpload({ baseVersionToken: '2' });
+
+      expect(res.status).toBe(200);
+      expect(rangeAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectUnitId: 1,
+          bibleTextId: 10,
+          granularity: 'pericope',
+          startChapter: 1,
+          startVerse: 1,
+          endChapter: 1,
+          endVerse: 5,
+          baseVersionToken: 2,
+          activate: true,
+        })
+      );
+      const json = await res.json();
+      expect(json.granularity).toBe('pericope');
+      expect(json.endVerse).toBe(5);
+    });
+
+    it('forwards activate=false for a non-selected pericope take', async () => {
+      expect((await rangeUpload({ activate: 'false' })).status).toBe(200);
+      expect(rangeAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: false })
+      );
+    });
+
+    it('returns 400 when bibleTextId is missing from the form', async () => {
+      const form = new FormData();
+      form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
+      form.append('granularity', 'pericope');
+      form.append('startChapter', '1');
+      form.append('startVerse', '1');
+      form.append('endChapter', '1');
+      form.append('endVerse', '5');
+
+      const res = await server.request('/verse-audio/1/range', { method: 'PUT', body: form });
+
+      expect(res.status).toBe(400);
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when range bounds are not positive integers', async () => {
+      const res = await rangeUpload({ startChapter: '0' });
+      expect(res.status).toBe(400);
+      expect(rangeAudioService.uploadRangeRecording).not.toHaveBeenCalled();
+    });
+
+    it('maps service VALIDATION_ERROR to 422', async () => {
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
+        err(ErrorCode.VALIDATION_ERROR)
+      );
+
+      const res = await rangeUpload({ startVerse: '9', endVerse: '2' });
+
+      expect(res.status).toBe(422);
+    });
+
+    it('maps INVALID_REFERENCE (anchor mismatch) to 400', async () => {
+      vi.mocked(rangeAudioService.uploadRangeRecording).mockResolvedValue(
+        err(ErrorCode.INVALID_REFERENCE)
+      );
+
+      const res = await rangeUpload();
+
+      expect(res.status).toBe(400);
+    });
+
+    it('gates EDIT with form bibleTextId via chapter assignment', async () => {
+      const getAssignmentForVerse = (
+        await import('@/domains/chapter-assignments/chapter-assignments.service')
+      ).getAssignmentForVerse;
+
+      await rangeUpload({ bibleTextId: '42' });
+
+      expect(getAssignmentForVerse).toHaveBeenCalledWith(1, 42);
+    });
+  });
+
   describe('put /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     // The form validator enforces the declared schema, while the handler reads
     // a separate parseBody result and repeats the guard as defence in depth.
-    function upload(baseVersionToken?: string) {
+    function upload(baseVersionToken?: string, activate?: string) {
       const form = new FormData();
       form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
       if (baseVersionToken !== undefined) {
         form.append('baseVersionToken', baseVersionToken);
+      }
+      if (activate !== undefined) {
+        form.append('activate', activate);
       }
       return server.request('/verse-audio/1/10', { method: 'PUT', body: form });
     }
@@ -237,6 +403,26 @@ describe('verse-audio routes', () => {
       expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
         expect.objectContaining({ baseVersionToken: 3 })
       );
+    });
+
+    it.each([
+      [undefined, true],
+      ['true', true],
+      ['false', false],
+    ])('forwards activate=%s as %s (default true)', async (value, expected) => {
+      const res = await upload('3', value);
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: expected })
+      );
+    });
+
+    it('rejects an activate value that is not true or false', async () => {
+      const res = await upload('3', 'no');
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRecording).not.toHaveBeenCalled();
     });
 
     it('returns 409 with currentVersionToken when concurrent cleanup invalidates an upload reference', async () => {

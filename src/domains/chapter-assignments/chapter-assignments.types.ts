@@ -33,9 +33,6 @@ export type FixedChapterStatus =
   (typeof CHAPTER_ASSIGNMENT_STATUS)[keyof typeof CHAPTER_ASSIGNMENT_STATUS];
 export type ChapterAssignmentStatus = FixedChapterStatus | (string & {});
 
-/** Max age of a rival claim (via `updated_at`) for the race-loser policy branch. */
-export const CLAIM_RACE_WINDOW_MS = 5 * 60 * 1000;
-
 // ─── DB-derived types ─────────────────────────────────────────────────────────
 
 export type ChapterAssignmentRecord = z.infer<typeof selectChapterAssignmentsSchema>;
@@ -79,6 +76,11 @@ export interface ChapterAssignmentProgressInfo {
   submittedTime: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  /**
+   * ISO-8601 time the assignment entered its current status from status history,
+   * or null when that entry cannot be proven. See `stageEnteredAtSchema`.
+   */
+  stageEnteredAt: string | null;
   isAiEnabled: boolean;
   hasClaimConflict: boolean;
   claimConflictUserId: number | null;
@@ -101,7 +103,7 @@ export interface UpdateChapterAssignmentRequestData {
   assignedUserId?: number | null;
   peerCheckerId?: number | null;
   status?: ChapterAssignmentStatus;
-  submittedTime?: Date;
+  submittedTime?: Date | null;
   isAiEnabled?: boolean;
   hasClaimConflict?: boolean;
   claimConflictUserId?: number | null;
@@ -112,6 +114,12 @@ export const updateChapterAssignmentAiStatusSchema = z.object({
 });
 
 // ─── API response schema ──────────────────────────────────────────────────────
+
+/** ISO-8601 datetime or null — truthful current-stage entry from status history. */
+export const stageEnteredAtSchema = z.string().datetime().nullable().openapi({
+  description:
+    'ISO-8601 time when this assignment entered its current status, from chapter_assignment_status_history only. Null when there is no history, any history row has a null createdAt (conservative: unknown timestamps make stage entry unprovable), or the latest history status does not match the current status. Never derived from assignment createdAt, updatedAt, submittedTime, or activity. When every history createdAt is non-null: order by createdAt ASC, id ASC; value is the start of the trailing contiguous run of the current status (re-entry uses the latest run; repeated same-status rows do not reset entry).',
+});
 
 export const chapterAssignmentResponseSchema = z.object({
   id: z.number().int(),
@@ -127,6 +135,7 @@ export const chapterAssignmentResponseSchema = z.object({
   claimConflictUserId: z.number().int().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  stageEnteredAt: stageEnteredAtSchema,
 });
 
 export type ChapterAssignmentResponse = z.infer<typeof chapterAssignmentResponseSchema>;

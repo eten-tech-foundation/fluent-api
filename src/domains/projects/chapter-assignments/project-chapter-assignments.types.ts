@@ -3,7 +3,10 @@ import { z } from '@hono/zod-openapi';
 import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
 
 import { ttsLicenseStatusSchema } from '@/domains/bibles/bibles.types';
-import { chapterAssignmentResponseSchema as sharedAssignmentSchema } from '@/domains/chapter-assignments/chapter-assignments.types';
+import {
+  chapterAssignmentResponseSchema as sharedAssignmentSchema,
+  stageEnteredAtSchema,
+} from '@/domains/chapter-assignments/chapter-assignments.types';
 
 // ─── Shared response schemas ──────────────────────────────────────────────────
 
@@ -42,6 +45,7 @@ export const chapterAssignmentProgressResponseSchema = z.object({
   submittedTime: z.date().nullable(),
   createdAt: z.date().nullable(),
   updatedAt: z.date().nullable(),
+  stageEnteredAt: stageEnteredAtSchema,
   isAiEnabled: z.boolean(),
   hasConflict: z.boolean(),
 });
@@ -92,6 +96,17 @@ export const assignSelectedResponseSchema = z
   .array(chapterAssignmentProgressResponseSchema)
   .openapi('AssignSelectedChapterAssignments');
 
+// ─── Reset-selected input / response ─────────────────────────────────────────
+
+export const resetSelectedRequestSchema = z.object({
+  chapterAssignmentIds: z
+    .array(z.number().int().positive())
+    .min(1, 'At least one assignment is required')
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Duplicate chapterAssignmentIds are not allowed',
+    }),
+});
+
 // ─── Inferred types ───────────────────────────────────────────────────────────
 
 export type AssignmentUser = z.infer<typeof userResponseSchema>;
@@ -100,4 +115,5 @@ export type ChapterAssignmentProgress = z.infer<typeof chapterAssignmentProgress
 export type AssignUserInput = z.infer<typeof assignUserInputSchema>;
 export type AssignSelectedItem = z.infer<typeof assignSelectedItemSchema>;
 export type AssignSelectedRequest = z.infer<typeof assignSelectedRequestSchema>;
+export type ResetSelectedRequest = z.infer<typeof resetSelectedRequestSchema>;
 export type ChapterAssignmentWithProjectId = ChapterAssignmentRecord & { projectId: number };

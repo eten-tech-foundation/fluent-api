@@ -13,7 +13,7 @@ import {
   translated_verses,
   users,
 } from '@/db/schema';
-import { findAssignmentsProgress } from '@/domains/chapter-assignments/chapter-assignments.repository';
+import { findAssignmentsProgress } from '@/domains/chapter-assignments/progress/chapter-assignments-progress.repository';
 import { getChapterPericopes } from '@/domains/pericopes/pericopes.service';
 import { getAssignedChaptersByUserId } from '@/domains/users/chapter-assignments/users-chapter-assignments.service';
 import { auth } from '@/lib/auth';

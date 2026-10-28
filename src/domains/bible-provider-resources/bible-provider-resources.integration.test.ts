@@ -1,7 +1,7 @@
-import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/db/schema';
+import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 
 import { getByIds, getByProviderIdentities } from './bible-provider-resources.repository';
 
@@ -19,15 +19,11 @@ vi.mock('@/lib/logger', () => ({
 
 describe('bible provider resource batch queries', () => {
   beforeAll(async () => {
-    const statements = await generateMigration(
-      generateDrizzleJson({}),
-      generateDrizzleJson({
-        bible_provider_resources: schema.bible_provider_resources,
-        resourceProviderEnum: schema.resourceProviderEnum,
-        ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
-      })
-    );
-    await client.exec(statements.join('\n'));
+    await createTestSchema(client, {
+      bible_provider_resources: schema.bible_provider_resources,
+      resourceProviderEnum: schema.resourceProviderEnum,
+      ttsLicenseStatusEnum: schema.ttsLicenseStatusEnum,
+    });
   }, 30_000);
 
   beforeEach(async () => {

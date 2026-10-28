@@ -271,8 +271,29 @@
     {
       "idx": 38,
       "version": "7",
-      "when": 1792157767843,
-      "tag": "0038_project-units-metadata",
+      "when": 1792616814331,
+      "tag": "0038_catalogue_watermark_allocator",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1792616814332,
+      "tag": "0039_add_verse_audio_range_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792682769108,
+      "tag": "0040_chapter_assignment_bible_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793203825085,
+      "tag": "0041_project-units-metadata",
       "breakpoints": true
     }
   ]

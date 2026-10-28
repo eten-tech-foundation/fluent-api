@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as usersService from '@/domains/users/users.service';
+import { ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import * as repo from './project-users.repository';
-import { addProjectUsers, updateProjectUserRole } from './project-users.service';
+import { addProjectUsers, getProjectUsers, updateProjectUserRole } from './project-users.service';
 
 vi.mock('./project-users.repository', () => ({
   getProjectUsers: vi.fn(),
@@ -23,6 +24,98 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 describe('project-users service', () => {
+  describe('getProjectUsers', () => {
+    const projectId = 1;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('maps grant rows to the response contract', async () => {
+      vi.mocked(repo.getProjectUsers).mockResolvedValue(
+        ok([
+          {
+            userId: 10,
+            username: 'alice',
+            roleId: 3,
+            roleName: ROLES.PROJECT_TRANSLATOR,
+            createdAt: new Date('2026-01-01'),
+          },
+          {
+            userId: 20,
+            username: 'bob',
+            roleId: 4,
+            roleName: ROLES.PROJECT_OBSERVER,
+            createdAt: null,
+          },
+        ])
+      );
+
+      const result = await getProjectUsers(projectId);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toEqual([
+          {
+            projectId,
+            userId: 10,
+            displayName: 'alice',
+            roleID: 3,
+            roleName: 'Project Translator',
+            createdAt: new Date('2026-01-01'),
+          },
+          {
+            projectId,
+            userId: 20,
+            displayName: 'bob',
+            roleID: 4,
+            roleName: 'Project Observer',
+            createdAt: null,
+          },
+        ]);
+      }
+    });
+
+    it('returns one record per user, keeping the highest-priority project role', async () => {
+      vi.mocked(repo.getProjectUsers).mockResolvedValue(
+        ok([
+          {
+            userId: 10,
+            username: 'alice',
+            roleId: 3,
+            roleName: ROLES.PROJECT_TRANSLATOR,
+            createdAt: null,
+          },
+          {
+            userId: 10,
+            username: 'alice',
+            roleId: 2,
+            roleName: ROLES.PROJECT_MANAGER,
+            createdAt: null,
+          },
+        ])
+      );
+
+      const result = await getProjectUsers(projectId);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].roleID).toBe(2);
+        expect(result.data[0].roleName).toBe(ROLES.PROJECT_MANAGER);
+      }
+    });
+
+    it('passes through repository errors', async () => {
+      vi.mocked(repo.getProjectUsers).mockResolvedValue(err(ErrorCode.PROJECT_NOT_FOUND));
+
+      const result = await getProjectUsers(projectId);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe(ErrorCode.PROJECT_NOT_FOUND);
+    });
+  });
+
   describe('addProjectUsers', () => {
     const projectId = 1;
     const roleId = 3;
@@ -184,13 +277,7 @@ describe('project-users service', () => {
           roleID: roleId,
         });
       }
-      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(
-        projectId,
-        userId,
-        roleId,
-        roleName,
-        createdBy
-      );
+      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(projectId, userId, roleId, roleName);
     });
   });
 });

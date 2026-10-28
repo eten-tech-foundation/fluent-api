@@ -1,34 +1,27 @@
 import { and, asc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { verse_audio_recordings, verse_audio_takes } from '@/db/schema';
-import { getPostgresConstraintName, hasPostgresErrorCode } from '@/lib/db-errors';
+import { hasPostgresErrorCode } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { InsertTakeInput, VerseAudioTakeRecord } from './verse-audio.types';
 
+import { mapForeignKeyViolation } from './verse-audio.errors';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
-/** Storage-object FKs that fail when reclaim races an insert/promotion. */
-const RETRYABLE_STORAGE_FK_CONSTRAINTS = new Set([
-  'verse_audio_takes_storage_object_id_storage_objects_id_fk',
-  'verse_audio_recordings_storage_object_id_storage_objects_id_fk',
-  'verse_audio_recordings_active_take_id_verse_audio_takes_id_fk',
-]);
+interface LockedRecording {
+  id: number;
+  activeTakeId: number | null;
+  versionToken: number;
+}
 
-export function mapForeignKeyViolation(error: unknown): Result<never> {
-  const constraint = getPostgresConstraintName(error) ?? '';
-  if (RETRYABLE_STORAGE_FK_CONSTRAINTS.has(constraint) || constraint.includes('storage_object')) {
-    // Reclamation / prune deleted the referenced row; safe to reload and retry.
-    return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
-  }
-  if (constraint.includes('recording_id')) {
-    return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
-  }
-  return err(ErrorCode.INTERNAL_ERROR);
+interface DeletedTakeRow {
+  storageObjectId: number | null;
+  contentHash: string;
 }
 
 export const takeSelection = {
@@ -40,19 +33,26 @@ export const takeSelection = {
   sizeBytes: verse_audio_takes.sizeBytes,
   durationSeconds: verse_audio_takes.durationSeconds,
   contentHash: verse_audio_takes.contentHash,
+  granularity: verse_audio_takes.granularity,
+  startChapter: verse_audio_takes.startChapter,
+  startVerse: verse_audio_takes.startVerse,
+  endChapter: verse_audio_takes.endChapter,
+  endVerse: verse_audio_takes.endVerse,
   createdAt: verse_audio_takes.createdAt,
   updatedAt: verse_audio_takes.updatedAt,
 };
 
 export async function listTakesByRecordingIds(
-  recordingIds: number[]
+  recordingIds: number[],
+  tx?: DbTransaction
 ): Promise<Result<VerseAudioTakeRecord[]>> {
   if (recordingIds.length === 0) {
     return ok([]);
   }
 
   try {
-    const takes = await db
+    const conn = tx ?? db;
+    const takes = await conn
       .select(takeSelection)
       .from(verse_audio_takes)
       .where(inArray(verse_audio_takes.recordingId, recordingIds))
@@ -155,10 +155,124 @@ export async function insertTake(input: InsertTakeInput): Promise<Result<VerseAu
   }
 }
 
+/** Lock the recording row so delete + promote/clear stay serialised. */
+export async function lockRecording(
+  recordingId: number,
+  tx: DbTransaction
+): Promise<Result<LockedRecording>> {
+  try {
+    const [recording] = await tx
+      .select({
+        id: verse_audio_recordings.id,
+        activeTakeId: verse_audio_recordings.activeTakeId,
+        versionToken: verse_audio_recordings.versionToken,
+      })
+      .from(verse_audio_recordings)
+      .where(eq(verse_audio_recordings.id, recordingId))
+      .for('update');
+    if (!recording) {
+      return err(ErrorCode.VERSE_AUDIO_NOT_FOUND);
+    }
+    return ok(recording);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to lock verse audio recording',
+      context: { recordingId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/** Delete one take row belonging to `recordingId`. */
+export async function deleteTake(
+  recordingId: number,
+  takeId: number,
+  tx: DbTransaction
+): Promise<Result<DeletedTakeRow>> {
+  try {
+    const [deleted] = await tx
+      .delete(verse_audio_takes)
+      .where(and(eq(verse_audio_takes.id, takeId), eq(verse_audio_takes.recordingId, recordingId)))
+      .returning({
+        storageObjectId: verse_audio_takes.storageObjectId,
+        contentHash: verse_audio_takes.contentHash,
+      });
+    if (!deleted) {
+      return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+    }
+    return ok(deleted);
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to delete verse audio take',
+      context: { recordingId, takeId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+/**
+ * CAS-promote or clear the active take. `conflictStatus` is intentionally left
+ * alone (delete-while-conflict keeps the flag; coverage is not re-checked).
+ */
+export async function setActiveTake(
+  recordingId: number,
+  take: VerseAudioTakeRecord | null,
+  expectedVersionToken: number,
+  tx: DbTransaction
+): Promise<Result<{ applied: boolean }>> {
+  try {
+    const [row] = await tx
+      .update(verse_audio_recordings)
+      .set(
+        take
+          ? {
+              activeTakeId: take.id,
+              uploadedBy: take.uploadedBy,
+              storageObjectId: take.storageObjectId,
+              contentType: take.contentType,
+              sizeBytes: take.sizeBytes,
+              durationSeconds: take.durationSeconds,
+              granularity: take.granularity,
+              startChapter: take.startChapter,
+              startVerse: take.startVerse,
+              endChapter: take.endChapter,
+              endVerse: take.endVerse,
+              versionToken: expectedVersionToken + 1,
+              updatedAt: new Date(),
+            }
+          : {
+              activeTakeId: null,
+              storageObjectId: null,
+              versionToken: expectedVersionToken + 1,
+              updatedAt: new Date(),
+            }
+      )
+      .where(
+        and(
+          eq(verse_audio_recordings.id, recordingId),
+          eq(verse_audio_recordings.versionToken, expectedVersionToken)
+        )
+      )
+      .returning({ id: verse_audio_recordings.id });
+
+    return ok({ applied: row !== undefined });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to set verse audio active take',
+      context: { recordingId, takeId: take?.id ?? null, expectedVersionToken },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 export async function listTakesForRecording(
-  recordingId: number
+  recordingId: number,
+  tx?: DbTransaction
 ): Promise<Result<VerseAudioTakeRecord[]>> {
-  return listTakesByRecordingIds([recordingId]);
+  return listTakesByRecordingIds([recordingId], tx);
 }
 
 /**

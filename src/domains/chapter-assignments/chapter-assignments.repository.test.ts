@@ -1,58 +1,12 @@
-import type { SQL } from 'drizzle-orm';
-
 import { eq, ne } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db';
-import { bibles, chapter_assignments } from '@/db/schema';
-import { VERSE_AUDIO_CONFLICT_STATUS } from '@/domains/verse-audio/verse-audio.types';
-import { ErrorCode } from '@/lib/types';
+import { chapter_assignments } from '@/db/schema';
+import { err, ErrorCode } from '@/lib/types';
 
 import * as repo from './chapter-assignments.repository';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
-
-/** Walks Drizzle SQL chunks for stable substring assertions in unit tests. */
-function sqlText(fragment: SQL): string {
-  const parts: string[] = [];
-  const walk = (chunk: unknown): void => {
-    if (chunk == null) {
-      return;
-    }
-    if (typeof chunk === 'string') {
-      parts.push(chunk);
-      return;
-    }
-    if (typeof chunk !== 'object') {
-      parts.push(String(chunk));
-      return;
-    }
-    if ('value' in chunk && Array.isArray((chunk as { value: unknown }).value)) {
-      for (const piece of (chunk as { value: unknown[] }).value) {
-        walk(piece);
-      }
-      return;
-    }
-    if ('queryChunks' in chunk && Array.isArray((chunk as SQL).queryChunks)) {
-      for (const piece of (chunk as SQL).queryChunks) {
-        walk(piece);
-      }
-    }
-  };
-  walk(fragment);
-  return parts.join('');
-}
-
-function buildProgressSelectChain(rows: unknown[]) {
-  const orderBy = vi.fn().mockResolvedValue(rows);
-  const groupBy = vi.fn().mockReturnValue({ orderBy });
-  return {
-    from: vi.fn().mockReturnThis(),
-    innerJoin: vi.fn().mockReturnThis(),
-    leftJoin: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    groupBy,
-  };
-}
 
 const { mockDbSelect, mockSelectChain, mockUpdateChain } = vi.hoisted(() => {
   const dbSelect = vi.fn<(selection?: unknown) => unknown>();
@@ -83,6 +37,7 @@ vi.mock('drizzle-orm', async (importOriginal) => {
     and: vi.fn((...args) => args),
     or: vi.fn((...args) => args),
     isNull: vi.fn((col) => col),
+    isNotNull: vi.fn((col) => ['isNotNull', col]),
   };
 });
 
@@ -125,171 +80,20 @@ describe('chapter-assignments.repository claim helpers', () => {
       expect(result).toEqual({ ok: true, data: assignment });
       expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
     });
-  });
 
-  describe('hasConflictRollupSql', () => {
-    it('correlates verse bible to the assignment bible so other-Bible conflicts are excluded', () => {
-      const fragment = repo.hasConflictRollupSql();
-      const text = sqlText(fragment);
+    it('returns NOT_FOUND when no assignment matches the verse Bible (book/chapter alone is not enough)', async () => {
+      // Verse is bible 9 / book 1 / ch 4. An assignment on the same unit
+      // for book 1 / ch 4 under a *different* bible must not match (#295).
+      mockSelectChain.limit
+        .mockResolvedValueOnce([{ bibleId: 9, bookId: 1, chapterNumber: 4 }])
+        .mockResolvedValueOnce([]);
 
-      expect(text).toContain('bt.bible_id');
-      expect(text).toContain('bt.book_id');
-      expect(text).toContain('bt.chapter_number');
-      expect(text).toContain('var.project_unit_id');
-      expect(text).toContain('var.conflict_status');
-      expect(text).not.toMatch(/conflict_status\s*=\s*'conflict'/);
-      expect(VERSE_AUDIO_CONFLICT_STATUS.CONFLICT).toBe('conflict');
-    });
+      const result = await repo.findForVerse(12, 3401);
 
-    it('filters strictly on conflict status so clean and resolved recordings are excluded', () => {
-      const fragment = repo.hasConflictRollupSql();
-      const text = sqlText(fragment);
-
-      expect(text).toMatch(/var\.conflict_status\s*=\s*conflict/);
-      expect(text).not.toContain('resolved');
-      expect(text).not.toContain('clean');
-    });
-  });
-
-  it('groups the Bible primary key when selecting license fields alongside verse counts', async () => {
-    const chain = buildProgressSelectChain([]);
-    mockDbSelect.mockReturnValue(chain);
-
-    expect(await repo.findAssignmentsProgress({ projectId: 3 })).toEqual({ ok: true, data: [] });
-    expect(db.select).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ttsLicenseStatus: expect.anything(),
-        textBibleProvider: expect.anything(),
-        textBibleExternalId: expect.anything(),
-        selectedRecordingProvider: expect.anything(),
-        selectedRecordingExternalId: expect.anything(),
-      })
-    );
-    // PostgreSQL recognizes functional dependency on the primary key, not on
-    // the Bible's UNIQUE name. Without this the real query fails with 42803.
-    expect(chain.groupBy.mock.calls[0]).toContain(bibles.id);
-  });
-
-  it('returns an operation failure when the assignment query fails', async () => {
-    const chain = buildProgressSelectChain([]);
-    chain.groupBy.mockReturnValue({
-      orderBy: vi.fn().mockRejectedValue(new Error('database unavailable')),
-    });
-    mockDbSelect.mockReturnValue(chain);
-
-    const result = await repo.findAssignmentsProgress({ projectId: 3 });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe(ErrorCode.INTERNAL_ERROR);
-  });
-
-  describe('findAssignmentsProgress hasConflict rollup', () => {
-    it('surfaces hasConflict per assignment row from the bible-scoped EXISTS', async () => {
-      const rows = [
-        {
-          assignmentId: 1,
-          projectId: 3,
-          projectName: 'P',
-          projectUnitId: 12,
-          bibleId: 9,
-          bibleName: 'Target',
-          ttsLicenseStatus: 'allowed',
-          textBibleProvider: 'dbl',
-          textBibleExternalId: 'opaque-text-ID',
-          selectedRecordingId: 20,
-          selectedRecordingProvider: 'aquifer',
-          selectedRecordingExternalId: '20',
-          bookId: 1,
-          bookCode: 'JHN',
-          bookNameEng: 'John',
-          chapterNumber: 3,
-          status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
-          targetLanguage: 'en',
-          targetLangCode: 'eng',
-          sourceLangCode: 'grc',
-          totalVerses: 1,
-          completedVerses: 0,
-          assignedUserId: 5,
-          assignedUserDisplayName: 'u',
-          peerCheckerId: null,
-          peerCheckerDisplayName: null,
-          submittedTime: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isAiEnabled: false,
-          hasClaimConflict: false,
-          claimConflictUserId: null,
-          hasConflict: true,
-        },
-        {
-          assignmentId: 2,
-          projectId: 3,
-          projectName: 'P',
-          projectUnitId: 12,
-          bibleId: 10,
-          bibleName: 'Source',
-          ttsLicenseStatus: 'unknown',
-          textBibleProvider: 'dbl',
-          textBibleExternalId: null,
-          selectedRecordingId: 88,
-          selectedRecordingProvider: 'youversion',
-          selectedRecordingExternalId: '88',
-          bookId: 1,
-          bookCode: 'JHN',
-          bookNameEng: 'John',
-          chapterNumber: 3,
-          status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
-          targetLanguage: 'en',
-          targetLangCode: 'eng',
-          sourceLangCode: 'grc',
-          totalVerses: 1,
-          completedVerses: 0,
-          assignedUserId: 5,
-          assignedUserDisplayName: 'u',
-          peerCheckerId: null,
-          peerCheckerDisplayName: null,
-          submittedTime: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isAiEnabled: false,
-          hasClaimConflict: false,
-          claimConflictUserId: null,
-          hasConflict: false,
-        },
-      ];
-
-      let selection: Record<string, unknown> | undefined;
-      vi.mocked(db.select).mockImplementation((sel) => {
-        selection = sel as Record<string, unknown>;
-        return buildProgressSelectChain(rows) as any;
-      });
-
-      const result = await repo.findAssignmentsProgress({ projectId: 3 });
-
-      expect(selection?.hasConflict).toBeDefined();
-      expect(sqlText(selection!.hasConflict as SQL)).toContain('bt.bible_id');
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data).toHaveLength(2);
-        expect(result.data.map(({ assignmentId }) => assignmentId)).toEqual([1, 2]);
-        expect(result.data.find((r) => r.bibleId === 9)).toMatchObject({
-          hasConflict: true,
-          textBibleKey: 'dbl-opaque-text-ID',
-          selectedRecordingKey: 'aq-20',
-        });
-        expect(result.data.find((r) => r.bibleId === 10)).toMatchObject({
-          hasConflict: false,
-          textBibleKey: null,
-          selectedRecordingKey: 'yv-88',
-        });
-        for (const row of result.data) {
-          expect(row).not.toHaveProperty('textBibleProvider');
-          expect(row).not.toHaveProperty('textBibleExternalId');
-          expect(row).not.toHaveProperty('selectedRecordingId');
-          expect(row).not.toHaveProperty('selectedRecordingProvider');
-          expect(row).not.toHaveProperty('selectedRecordingExternalId');
-        }
-      }
+      expect(result).toEqual(err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND));
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.bibleId, 9);
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.bookId, 1);
+      expect(eq).toHaveBeenCalledWith(chapter_assignments.chapterNumber, 4);
     });
   });
 
@@ -388,17 +192,70 @@ describe('chapter-assignments.repository claim helpers', () => {
   });
 
   describe('flagClaimConflict', () => {
-    it('sets hasClaimConflict and claimConflictUserId', async () => {
+    it('sets hasClaimConflict and latches claimConflictUserId under rival non-complete CAS', async () => {
       const record = { id: 1, hasClaimConflict: true, claimConflictUserId: 5 };
       mockUpdateChain.returning.mockResolvedValueOnce([record]);
 
       const result = await repo.flagClaimConflict(1, 5, mockTx());
 
       expect(result).toEqual(record);
-      expect(mockUpdateChain.set).toHaveBeenCalledWith({
-        hasClaimConflict: true,
-        claimConflictUserId: 5,
-      });
+      expect(mockUpdateChain.set).toHaveBeenCalledWith(
+        expect.objectContaining({ hasClaimConflict: true })
+      );
+      expect(mockUpdateChain.where).toHaveBeenCalledWith([
+        [chapter_assignments.id, 1],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 5],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
+      ]);
+      expect(ne).toHaveBeenCalledWith(chapter_assignments.assignedUserId, 5);
+      expect(ne).toHaveBeenCalledWith(
+        chapter_assignments.status,
+        CHAPTER_ASSIGNMENT_STATUS.COMPLETE
+      );
+    });
+
+    it('uses COALESCE so a later claimant does not overwrite claimConflictUserId', async () => {
+      mockUpdateChain.returning
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }])
+        .mockResolvedValueOnce([{ id: 1, hasClaimConflict: true, claimConflictUserId: 5 }]);
+
+      await repo.flagClaimConflict(1, 5, mockTx());
+      await repo.flagClaimConflict(1, 11, mockTx());
+
+      const firstSet = mockUpdateChain.set.mock.calls[0]?.[0] as {
+        hasClaimConflict: boolean;
+        claimConflictUserId: unknown;
+      };
+      const secondSet = mockUpdateChain.set.mock.calls[1]?.[0] as {
+        hasClaimConflict: boolean;
+        claimConflictUserId: unknown;
+      };
+      expect(firstSet.hasClaimConflict).toBe(true);
+      expect(secondSet.hasClaimConflict).toBe(true);
+      // Both writes use SQL COALESCE rather than a bare scalar overwrite.
+      expect(firstSet.claimConflictUserId).not.toBe(5);
+      expect(secondSet.claimConflictUserId).not.toBe(11);
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(1, [
+        [chapter_assignments.id, 1],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 5],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
+      ]);
+      expect(mockUpdateChain.where).toHaveBeenNthCalledWith(2, [
+        [chapter_assignments.id, 1],
+        ['isNotNull', chapter_assignments.assignedUserId],
+        [chapter_assignments.assignedUserId, 11],
+        [chapter_assignments.status, CHAPTER_ASSIGNMENT_STATUS.COMPLETE],
+      ]);
+    });
+
+    it('returns null when the rival-assignee CAS misses', async () => {
+      mockUpdateChain.returning.mockResolvedValueOnce([]);
+
+      const result = await repo.flagClaimConflict(1, 5, mockTx());
+
+      expect(result).toBeNull();
     });
   });
 });

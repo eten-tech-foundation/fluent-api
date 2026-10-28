@@ -1,10 +1,11 @@
-import { and, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import {
   bible_books,
+  books,
   chapter_assignments,
   project_unit_bible_books,
   project_unit_usfm_imports,
@@ -353,11 +354,30 @@ export async function getValidBookIdsForBible(bibleId: number): Promise<number[]
 }
 
 export async function insertProjectUnitRecord(
-  unitData: { projectId: number; status: 'not_started' | 'in_progress' | 'completed' },
+  unitData: {
+    projectId: number;
+    status: 'not_started' | 'in_progress' | 'completed';
+    name: string;
+  },
   tx: DbTransaction
 ) {
   const [projectUnit] = await tx.insert(project_units).values(unitData).returning();
   return projectUnit;
+}
+
+/**
+ * English display names of the given books, ordered by book ID like the project book list.
+ * Book IDs are in canonical order only because the books seed inserts Genesis to Revelation in
+ * that order. The schema does not enforce it, and a book that DBL sync adds later sorts last.
+ */
+export async function getBookDisplayNames(bookIds: number[], tx: DbTransaction): Promise<string[]> {
+  if (bookIds.length === 0) return [];
+  const rows = await tx
+    .select({ name: books.eng_display_name })
+    .from(books)
+    .where(inArray(books.id, bookIds))
+    .orderBy(asc(books.id));
+  return rows.map((row) => row.name);
 }
 
 export async function insertBibleBookLinks(

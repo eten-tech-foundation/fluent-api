@@ -81,6 +81,11 @@ describe('userSettingsSchema — user-global settings blob (W8)', () => {
     expect(userSettingsSchema.parse(blob)).toEqual(blob);
   });
 
+  it('round-trips displayMode', () => {
+    const blob = { displayMode: 'pericope' as const };
+    expect(userSettingsSchema.parse(blob)).toEqual(blob);
+  });
+
   it('.catch({}) — an unknown/old top-level shape collapses to {} rather than throwing', () => {
     expect(userSettingsSchema.parse({ checkIgnoredWordPairs: 'not-a-record' })).toEqual({});
     expect(userSettingsSchema.parse('totally wrong')).toEqual({});
@@ -91,14 +96,33 @@ describe('userSettingsWriteSchema — strict write path (A4)', () => {
   // The write schema is deliberately the strict object schema WITHOUT the
   // `.catch({})` fallback used on the read path. A malformed write must be
   // surfaced (the route maps this to a 422) rather than silently swallowed
-  // and persisted as an empty blob.
+  // and persisted as an empty blob. Explicit null deletes displayMode only.
   it('accepts a well-formed write blob', () => {
     const blob = { checkIgnoredWordPairs: { 'the the': 'suppress' as const } };
     expect(userSettingsWriteSchema.parse(blob)).toEqual(blob);
   });
 
+  it('accepts displayMode and explicit null delete', () => {
+    expect(userSettingsWriteSchema.parse({ displayMode: 'verse' })).toEqual({
+      displayMode: 'verse',
+    });
+    expect(userSettingsWriteSchema.parse({ displayMode: null })).toEqual({ displayMode: null });
+  });
+
+  it('rejects checkIgnoredWordPairs null (clear via {}; null-delete is displayMode-only)', () => {
+    expect(() => userSettingsWriteSchema.parse({ checkIgnoredWordPairs: null })).toThrow();
+  });
+
   it('accepts an empty write blob', () => {
     expect(userSettingsWriteSchema.parse({})).toEqual({});
+  });
+
+  it('strips unknown keys rather than rejecting', () => {
+    expect(userSettingsWriteSchema.parse({ someFutureKey: 1 })).toEqual({});
+  });
+
+  it('rejects an invalid displayMode rather than collapsing to {}', () => {
+    expect(() => userSettingsWriteSchema.parse({ displayMode: 'chapter' })).toThrow();
   });
 
   it('rejects an invalid verdict value rather than collapsing to {}', () => {

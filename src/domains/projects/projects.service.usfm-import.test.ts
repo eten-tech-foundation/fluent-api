@@ -43,6 +43,7 @@ vi.mock('@/lib/queue', () => ({
 
 vi.mock('./projects.repository', () => ({
   getValidBookIdsForBible: vi.fn(),
+  getBookDisplayNames: vi.fn(),
   insertProjectRecord: vi.fn(),
   insertProjectUnitRecord: vi.fn(),
   insertBibleBookLinks: vi.fn(),
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx as never));
   vi.mocked(repo.getValidBookIdsForBible).mockResolvedValue([1, 40, 99]);
+  vi.mocked(repo.getBookDisplayNames).mockResolvedValue(['Genesis', 'Matthew']);
   vi.mocked(repo.insertProjectRecord).mockResolvedValue({ id: 500 } as never);
   vi.mocked(repo.insertProjectUnitRecord).mockResolvedValue({ id: 600 } as never);
   vi.mocked(createChapterAssignmentForProjectUnit).mockResolvedValue(ok([]));
@@ -422,5 +424,68 @@ describe('uSFM creation retry and milestone compatibility', () => {
     });
     expect(db.transaction).not.toHaveBeenCalled();
     expect(usfmImportService.parseUsfmFiles).not.toHaveBeenCalled();
+  });
+
+  it('names the imported milestone after the books in the files', async () => {
+    expect(await createProject({ ...BASE, usfmFiles: FILES })).toEqual(ok({ id: 500 }));
+    expect(repo.getBookDisplayNames).toHaveBeenCalledWith([1, 40], mockTx);
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
+      { projectId: 500, status: 'not_started', name: 'Genesis, Matthew' },
+      mockTx
+    );
+  });
+
+  it('names the legacy initial milestone after its requested books', async () => {
+    vi.mocked(repo.getBookDisplayNames).mockResolvedValue(['Psalms']);
+    expect(await createProject(BASE)).toEqual(ok({ id: 500 }));
+    expect(repo.getBookDisplayNames).toHaveBeenCalledWith([99], mockTx);
+    expect(repo.insertProjectUnitRecord).toHaveBeenCalledWith(
+      { projectId: 500, status: 'not_started', name: 'Psalms' },
+      mockTx
+    );
+  });
+});
+
+describe('the initial milestone name', () => {
+  async function initialMilestoneNameFor(bookNames: string[]) {
+    vi.mocked(repo.getBookDisplayNames).mockResolvedValue(bookNames);
+    expect(await createProject(BASE)).toEqual(ok({ id: 500 }));
+    return vi.mocked(repo.insertProjectUnitRecord).mock.lastCall?.[0].name ?? '';
+  }
+
+  it('lists the books when they fit the column', async () => {
+    expect(await initialMilestoneNameFor(['Mark'])).toBe('Mark');
+    expect(await initialMilestoneNameFor(['Genesis', 'Exodus', 'Leviticus'])).toBe(
+      'Genesis, Exodus, Leviticus'
+    );
+  });
+
+  it('collapses a list too long for the column to its first and last book', async () => {
+    const books = Array.from({ length: 40 }, (_, index) => `Book number ${index + 1}`);
+    const name = await initialMilestoneNameFor(books);
+    expect(name).toBe('Book number 1 – Book number 40 (40 books)');
+    expect(name.length).toBeLessThanOrEqual(255);
+  });
+
+  it('shortens the first and last names when even the collapsed form would not fit', async () => {
+    const books = ['A'.repeat(200), 'Mark', 'Luke', 'Z'.repeat(200)];
+    const name = await initialMilestoneNameFor(books);
+    expect(name.length).toBeLessThanOrEqual(255);
+    expect(name).toMatch(/^A+… – Z+… \(4 books\)$/);
+  });
+
+  it('shortens a single book name that does not fit', async () => {
+    const name = await initialMilestoneNameFor(['B'.repeat(300)]);
+    expect(name).toHaveLength(255);
+    expect(name.endsWith('…')).toBe(true);
+  });
+
+  // 𝔸 and 𝔹 sit outside the Basic Multilingual Plane, so each is two UTF-16 code units. The odd
+  // leading character puts a code-unit cut in the middle of a pair.
+  it('counts characters rather than code units, so it never splits a surrogate pair', async () => {
+    expect(await initialMilestoneNameFor([`x${'𝔸'.repeat(300)}`])).toBe(`x${'𝔸'.repeat(253)}…`);
+    expect(
+      await initialMilestoneNameFor([`x${'𝔸'.repeat(200)}`, 'Mark', 'Luke', `y${'𝔹'.repeat(200)}`])
+    ).toBe(`x${'𝔸'.repeat(119)}… – y${'𝔹'.repeat(119)}… (4 books)`);
   });
 });
