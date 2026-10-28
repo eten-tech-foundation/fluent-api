@@ -1,10 +1,52 @@
+import type { Result } from '@/lib/types';
+
 import * as usersService from '@/domains/users/users.service';
+import { ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
+
+import type { ProjectUserRecord } from './project-users.types';
 
 import * as repo from './project-users.repository';
 
-export function getProjectUsers(projectId: number) {
-  return repo.getProjectUsers(projectId);
+const PROJECT_ROLE_PRIORITY: Record<string, number> = {
+  [ROLES.PROJECT_MANAGER]: 3,
+  [ROLES.PROJECT_TRANSLATOR]: 2,
+  [ROLES.PROJECT_OBSERVER]: 1,
+};
+
+// A user may hold several project-level grants in one project (the unique index
+// allows one row per role); the effective grant is the one with the
+// highest-priority project role.
+function resolveEffectiveProjectGrant(
+  rows: repo.ProjectUserGrantRow[]
+): repo.ProjectUserGrantRow[] {
+  const byUser = new Map<number, repo.ProjectUserGrantRow>();
+  for (const row of rows) {
+    const existing = byUser.get(row.userId);
+    if (
+      !existing ||
+      (PROJECT_ROLE_PRIORITY[row.roleName] ?? 0) > (PROJECT_ROLE_PRIORITY[existing.roleName] ?? 0)
+    ) {
+      byUser.set(row.userId, row);
+    }
+  }
+  return [...byUser.values()];
+}
+
+export async function getProjectUsers(projectId: number): Promise<Result<ProjectUserRecord[]>> {
+  const result = await repo.getProjectUsers(projectId);
+  if (!result.ok) return result;
+
+  return ok(
+    resolveEffectiveProjectGrant(result.data).map((r) => ({
+      projectId,
+      userId: r.userId,
+      displayName: r.username,
+      roleID: r.roleId,
+      roleName: r.roleName,
+      createdAt: r.createdAt,
+    }))
+  );
 }
 
 export async function addProjectUsers(

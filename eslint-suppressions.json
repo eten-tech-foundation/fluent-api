@@ -342,9 +342,6 @@
   "src/domains/projects/users/project-users.repository.ts": {
     "fluent-standards/no-cross-domain-repository": {
       "count": 2
-    },
-    "ts/no-explicit-any": {
-      "count": 3
     }
   },
   "src/domains/projects/users/project-users.service.test.ts": {

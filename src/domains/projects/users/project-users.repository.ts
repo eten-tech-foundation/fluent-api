@@ -23,67 +23,49 @@ import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import { getRoleId } from '@/domains/user-roles/user-roles.service';
 import { handleConstraintError } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
-import { ROLES } from '@/lib/roles';
+import { PROJECT_ROLES, ROLES } from '@/lib/roles';
 import { err, ErrorCode, ok } from '@/lib/types';
-
-import type { ProjectUserRecord } from './project-users.types';
 
 // Repository functions
 
-export async function getProjectUsers(projectId: number): Promise<Result<ProjectUserRecord[]>> {
-  try {
-    const [project] = await db
-      .select({ organization: projects.organization })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
-    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+export interface ProjectUserGrantRow {
+  userId: number;
+  username: string;
+  roleId: number;
+  roleName: string;
+  createdAt: Date | null;
+}
 
-    // Exclude the Org Member anchor role (zero permissions, backend-only, never shown in UI).
-    const orgMemberRoleId = await getRoleId(ROLES.ORG_MEMBER);
+async function findProjectOrganization(projectId: number): Promise<number | null> {
+  const [project] = await db
+    .select({ organization: projects.organization })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  return project?.organization ?? null;
+}
+
+export async function getProjectUsers(projectId: number): Promise<Result<ProjectUserGrantRow[]>> {
+  try {
+    if ((await findProjectOrganization(projectId)) === null) {
+      return err(ErrorCode.PROJECT_NOT_FOUND);
+    }
 
     const rows = await db
       .select({
-        projectId: user_roles.projectId,
         userId: user_roles.userId,
-        displayName: users.username,
-        roleID: user_roles.roleId,
+        username: users.username,
+        roleId: user_roles.roleId,
         roleName: roles.name,
         createdAt: user_roles.createdAt,
       })
       .from(user_roles)
       .innerJoin(users, eq(user_roles.userId, users.id))
       .innerJoin(roles, eq(roles.id, user_roles.roleId))
-      .where(
-        and(
-          eq(user_roles.projectId, projectId),
-          // Exclude Org Member anchor rows — they carry zero permissions and are not displayed.
-          sql`${user_roles.roleId} != ${orgMemberRoleId}`
-        )
-      )
+      .where(and(eq(user_roles.projectId, projectId), inArray(roles.name, PROJECT_ROLES)))
       .orderBy(users.username);
 
-    const [pmId, ptId, poId] = await Promise.all([
-      getRoleId(ROLES.PROJECT_MANAGER),
-      getRoleId(ROLES.PROJECT_TRANSLATOR),
-      getRoleId(ROLES.PROJECT_OBSERVER),
-    ]);
-    const rolePriorityMap = new Map<number, number>([
-      [pmId, 3],
-      [ptId, 2],
-      [poId, 1],
-    ]);
-    const getRolePriority = (roleId: number) => rolePriorityMap.get(roleId) ?? 0;
-
-    const uniqueUsers = new Map<number, (typeof rows)[number]>();
-    for (const r of rows) {
-      const existing = uniqueUsers.get(r.userId);
-      if (!existing || getRolePriority(r.roleID) > getRolePriority(existing.roleID)) {
-        uniqueUsers.set(r.userId, r);
-      }
-    }
-
-    return ok(Array.from(uniqueUsers.values()) as any);
+    return ok(rows);
   } catch (error) {
     logger.error({
       cause: error,
@@ -113,15 +95,11 @@ export async function addProjectUsers(
 > {
   if (userIds.length === 0) return ok([]);
   try {
-    const [project] = await db
-      .select({ organization: projects.organization })
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .limit(1);
-    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+    const orgId = await findProjectOrganization(projectId);
+    if (orgId === null) return err(ErrorCode.PROJECT_NOT_FOUND);
 
     // Verify all userIds belong to the project's organization to prevent cross-tenant membership leaks
-    const memberIds = await findUserIdsInOrg(project.organization, userIds);
+    const memberIds = await findUserIdsInOrg(orgId, userIds);
     const nonMember = userIds.find((id) => !memberIds.has(id));
     if (nonMember) {
       return err(ErrorCode.USER_NOT_FOUND);
@@ -144,7 +122,7 @@ export async function addProjectUsers(
         userIds.map((userId) => ({
           projectId,
           userId,
-          orgId: project.organization,
+          orgId,
           roleId,
           createdBy,
         }))
@@ -156,7 +134,7 @@ export async function addProjectUsers(
         createdAt: user_roles.createdAt,
       });
 
-    return ok(inserted.map((r) => ({ ...r, roleName })) as any);
+    return ok(inserted.map((r) => ({ ...r, projectId: r.projectId ?? projectId, roleName })));
   } catch (error) {
     const constraintResult = handleConstraintError(error);
     if (!constraintResult.ok && constraintResult.error.code === ErrorCode.DUPLICATE) {
@@ -417,7 +395,7 @@ export async function updateProjectUserRole(
       }
 
       await clearObserverAssignments();
-      return ok({ ...updated, roleName } as any);
+      return ok({ ...updated, projectId: updated.projectId ?? projectId, roleName });
     });
   } catch (error) {
     logger.error({

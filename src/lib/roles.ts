@@ -8,3 +8,10 @@ export const ROLES = {
 } as const;
 
 export type RoleName = (typeof ROLES)[keyof typeof ROLES];
+
+// The roles carried by project-scoped grants (user_roles.projectId set).
+export const PROJECT_ROLES: RoleName[] = [
+  ROLES.PROJECT_MANAGER,
+  ROLES.PROJECT_TRANSLATOR,
+  ROLES.PROJECT_OBSERVER,
+];
