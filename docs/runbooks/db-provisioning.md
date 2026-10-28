@@ -1,10 +1,10 @@
 # DB Provisioning (Dev / QA)
 
-Quick "how do I actually run this" guide for the three dev/qa DB scripts.
+Quick "how do I actually run this" guide for the dev/qa DB scripts.
 For the full role/schema/grant reference, see
 [`db-provisioning-and-setup.md`](../db-provisioning-and-setup.md).
 
-## The three scripts, in order
+## The scripts, in order
 
 ```text
 1. provision-db.ts                → one-time-ish, superuser, idempotent
@@ -13,13 +13,18 @@ For the full role/schema/grant reference, see
 2. setup.ts                       → every deploy / data reset
    (npm run db:setup:<env>)          Runs Drizzle migrations, then seeds.
 
-3. cleanup-legacy-provisioning.ts → one-time, run manually, one-way
+3. reset-db.ts                    → manual clean-slate reset, confirm-gated
+   (npm run db:reset:<env>)          Drops public/drizzle/pgboss, recreates,
+                                    then runs script 2 unchanged. Never
+                                    touches the ai schema.
+
+4. cleanup-legacy-provisioning.ts → one-time, run manually, one-way
    (no npm script — run directly)   Drops the legacy pre-separation roles.
 ```
 
-Only #2 runs automatically (as part of deploy). #1 and #3 are run by hand,
-against a specific environment, when that environment's roles need to
-change.
+Only #2 runs automatically (as part of deploy). The others are run by hand,
+against a specific environment, when that environment's roles or data need
+to change.
 
 ## 1. `provision-db.ts`
 
@@ -94,7 +99,38 @@ If you only need to confirm migrations apply cleanly without seeding,
 `npm run db:migrate` alone uses the same `MIGRATIONS_DATABASE_URL` and is
 idempotent.
 
-## 3. `cleanup-legacy-provisioning.ts`
+QA takes no `DEV_*` credential vars — every QA account uses one shared
+committed hash (`QA_DEMO_PASSWORD_HASH` in `src/db/seeds/demo/qa-spec.ts`),
+so `QA_DATABASE_URL` + `MIGRATIONS_DATABASE_URL` are the whole env.
+
+## 3. `reset-db.ts`
+
+**Assumes:** `provision-db.ts` has already run — and specifically that it
+has run _since_ it gained `GRANT api_user TO api_migrator` (the DDL role
+needs membership in `api_user` to drop the `api_user`-owned `pgboss`
+schema). Databases provisioned before that change need
+`npm run db:provision:<env>` re-run once first.
+
+**Minimum env vars:** `MIGRATIONS_DATABASE_URL` for the drop/recreate and
+migrations, plus the usual runtime URL (`DEV_DATABASE_URL` /
+`QA_DATABASE_URL`) for the seed stage it delegates to `setup.ts`.
+
+**Run:**
+
+```sh
+SETUP_ENV=qa npm run db:reset:qa    # or db:reset:dev
+```
+
+`SETUP_ENV` must be `dev` or `qa` — the script refuses `local` and points
+at `docker compose down -v` instead. It prints the masked target URL +
+database name and proceeds only when you type the exact database name;
+there is no `--yes`/`--force` flag. It drops `public`, `drizzle`, and
+`pgboss` with `CASCADE` (the `ai` schema is never touched), recreates
+`public` (owner `api_migrator`) and `pgboss` (owner `api_user`), restores
+the `api_migrator → api_user` default privileges that the drop destroys,
+then runs `setup.ts` — migrations + all seeds, unchanged.
+
+## 4. `cleanup-legacy-provisioning.ts`
 
 **Assumes, and checks before doing anything:** `provision-db.ts` has
 already run and reassigned every legacy-owned object — schemas, tables,
@@ -132,4 +168,6 @@ out to still need them.
 
 Always: `provision-db.ts` → (app cutover to new role names) →
 `cleanup-legacy-provisioning.ts`. Running cleanup before cutover risks
-dropping a role a running service still connects as.
+dropping a role a running service still connects as. `reset-db.ts` can run
+any time after provisioning — it leaves roles alone and only rebuilds the
+application schemas.
