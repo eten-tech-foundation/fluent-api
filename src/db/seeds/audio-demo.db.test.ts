@@ -83,7 +83,7 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     expect(await list.json()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ abbreviation: 'BSB', ttsLicenseStatus: 'allowed' }),
-        expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'unknown' }),
+        expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'allowed' }),
       ])
     );
   });

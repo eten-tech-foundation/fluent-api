@@ -159,16 +159,22 @@ export async function seedSpecBibles(ctx: DemoCtx) {
     if (toInsert.length) await db.insert(bible_books).values(toInsert);
   }
 
-  // Resolve bible abbreviations referenced by projects (may be reference data).
+  // Resolve bible abbreviations referenced by projects (may be reference
+  // data). Spec bibles were already resolved by upstream identity above — a
+  // by-abbreviation hit on those keys can be a *different* row (e.g. bare
+  // 'BSB' vs the adopted 'BSB-bba9f4'), so only look up unresolved keys.
   const abbrevs = new Set<string>([
     ...(ctx.spec.bibles ?? []).map((b) => b.abbreviation),
     ...ctx.spec.projects.map((p) => p.sourceBible),
   ]);
-  const rows = await db
-    .select({ id: bibles.id, abbreviation: bibles.abbreviation })
-    .from(bibles)
-    .where(inArray(bibles.abbreviation, [...abbrevs]));
-  for (const r of rows) ctx.bibles.set(r.abbreviation, r.id);
+  const unresolved = [...abbrevs].filter((a) => !ctx.bibles.has(a));
+  if (unresolved.length) {
+    const rows = await db
+      .select({ id: bibles.id, abbreviation: bibles.abbreviation })
+      .from(bibles)
+      .where(inArray(bibles.abbreviation, unresolved));
+    for (const r of rows) ctx.bibles.set(r.abbreviation, r.id);
+  }
   const missing = [...abbrevs].filter((a) => !ctx.bibles.has(a));
   if (missing.length) {
     throw new Error(`Unknown bibles: ${missing.join(', ')} — not in spec or reference data`);

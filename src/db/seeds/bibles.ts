@@ -96,7 +96,9 @@ async function seedIrvGujarati() {
   let bibleId: number;
   if (holder) {
     bibleId = holder.id;
-    if (!holder.hasAudio || holder.audioResourceId !== recording.id) {
+    // A curated recording selection wins on rerun — only fill audio fields
+    // when unset.
+    if (holder.audioResourceId === null) {
       await db
         .update(bibles)
         .set({ hasAudio: true, audioResourceId: recording.id })
@@ -137,19 +139,16 @@ async function seedIrvGujarati() {
     }
     bibleId = bible.id;
 
-    if (
-      bible.externalId !== IRV_BIBLE.externalId ||
-      !bible.hasAudio ||
-      bible.audioResourceId !== recording.id
-    ) {
-      await db
-        .update(bibles)
-        .set({
-          externalId: IRV_BIBLE.externalId,
-          hasAudio: true,
-          audioResourceId: recording.id,
-        })
-        .where(eq(bibles.id, bible.id));
+    const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
+    if (bible.externalId !== IRV_BIBLE.externalId) patch.externalId = IRV_BIBLE.externalId;
+    // Same curated-selection rule as the holder branch — audio fields fill
+    // only when unset.
+    if (bible.audioResourceId === null) {
+      patch.hasAudio = true;
+      patch.audioResourceId = recording.id;
+    }
+    if (Object.keys(patch).length) {
+      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     }
   }
 
@@ -257,7 +256,9 @@ async function seedBereanStandardBible() {
   let bibleId: number;
   if (holder) {
     bibleId = holder.id;
-    if (holder.audioResourceId !== recording.id) {
+    // A curated recording selection wins on rerun — only fill audio fields
+    // when unset.
+    if (holder.audioResourceId === null) {
       await db
         .update(bibles)
         .set({ audioResourceId: recording.id })
@@ -297,11 +298,13 @@ async function seedBereanStandardBible() {
     }
     bibleId = bible.id;
 
-    if (bible.externalId !== BSB_BIBLE.externalId || bible.audioResourceId !== recording.id) {
-      await db
-        .update(bibles)
-        .set({ externalId: BSB_BIBLE.externalId, audioResourceId: recording.id })
-        .where(eq(bibles.id, bible.id));
+    const patch: { externalId?: string; audioResourceId?: number } = {};
+    if (bible.externalId !== BSB_BIBLE.externalId) patch.externalId = BSB_BIBLE.externalId;
+    // Same curated-selection rule as the holder branch — audio fields fill
+    // only when unset.
+    if (bible.audioResourceId === null) patch.audioResourceId = recording.id;
+    if (Object.keys(patch).length) {
+      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     }
   }
 
