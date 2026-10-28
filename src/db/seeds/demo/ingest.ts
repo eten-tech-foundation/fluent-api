@@ -13,7 +13,7 @@ import type { DemoSpec } from './types';
  * the engine. One job per milestone carries every book lacking `bible_texts`
  * rows, matching the batched `DblIngestTextJob.bookCodes` shape.
  */
-export interface IngestJobPlan {
+interface IngestJobPlan {
   projectKey: string;
   milestoneKey: string;
   bibleAbbrev: string;
@@ -21,7 +21,7 @@ export interface IngestJobPlan {
 }
 
 /** The slice of the seed context `seedIngestJobs` resolves spec keys against. */
-export interface IngestCtx {
+interface IngestCtx {
   spec: DemoSpec;
   bibles: Map<string, number>; // abbreviation → bibles.id
   books: Map<string, number>; // code → books.id

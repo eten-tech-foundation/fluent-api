@@ -1,6 +1,6 @@
 import type { DemoChapter, DemoChapterStatus } from './types';
 
-export interface SpreadOptions {
+interface SpreadOptions {
   /**
    * Two user keys who peer-check each other's chapters. When a chapter lands
    * on one member, `peerChecker` is set to the other.

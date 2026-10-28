@@ -2,14 +2,14 @@ import type { DemoSpec } from './types';
 
 import { spread } from './spread';
 
-export interface DevUserCredential {
+interface DevUserCredential {
   email: string;
   username: string;
   password?: string;
   passwordHash?: string;
 }
 
-export interface DevCredentials {
+interface DevCredentials {
   pm: DevUserCredential;
   translators: DevUserCredential[];
 }
