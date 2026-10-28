@@ -105,11 +105,24 @@ async function seedIrvGujarati() {
         .where(eq(bibles.id, holder.id));
     }
   } else {
+    // The bare abbreviation may already hold a *different* upstream identity
+    // (e.g. a catalogue-synced row on QA) — don't claim it. Use the same
+    // collision suffix as the demo seed so both seeds converge on one row.
+    let abbreviation: string = IRV_BIBLE.abbreviation;
+    const [existing] = await db
+      .select({ externalId: bibles.externalId })
+      .from(bibles)
+      .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
+      .limit(1);
+    if (existing?.externalId && existing.externalId !== IRV_BIBLE.externalId) {
+      abbreviation = `${IRV_BIBLE.abbreviation}-${IRV_BIBLE.externalId.slice(0, 6)}`;
+    }
+
     await db
       .insert(bibles)
       .values({
         name: IRV_BIBLE.name,
-        abbreviation: IRV_BIBLE.abbreviation,
+        abbreviation,
         languageId: language.id,
         externalId: IRV_BIBLE.externalId,
         hasAudio: true,
@@ -125,7 +138,7 @@ async function seedIrvGujarati() {
         audioResourceId: bibles.audioResourceId,
       })
       .from(bibles)
-      .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
+      .where(eq(bibles.abbreviation, abbreviation))
       .limit(1);
 
     if (!bible) {
@@ -133,7 +146,7 @@ async function seedIrvGujarati() {
     }
     if (bible.externalId && bible.externalId !== IRV_BIBLE.externalId) {
       throw new Error(
-        `Bible "${IRV_BIBLE.abbreviation}" holds a different upstream identity ` +
+        `Bible "${abbreviation}" holds a different upstream identity ` +
           `(${bible.externalId}) — reconcile it manually before seeding.`
       );
     }
@@ -265,11 +278,24 @@ async function seedBereanStandardBible() {
         .where(eq(bibles.id, holder.id));
     }
   } else {
+    // Same collision handling as the IRV branch above — a bare 'BSB' row
+    // owned by a different upstream identity gets left alone, and the seed
+    // row lands on the demo seed's suffixed convention instead of throwing.
+    let abbreviation: string = BSB_BIBLE.abbreviation;
+    const [existing] = await db
+      .select({ externalId: bibles.externalId })
+      .from(bibles)
+      .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
+      .limit(1);
+    if (existing?.externalId && existing.externalId !== BSB_BIBLE.externalId) {
+      abbreviation = `${BSB_BIBLE.abbreviation}-${BSB_BIBLE.externalId.slice(0, 6)}`;
+    }
+
     await db
       .insert(bibles)
       .values({
         name: BSB_BIBLE.name,
-        abbreviation: BSB_BIBLE.abbreviation,
+        abbreviation,
         languageId: language.id,
         provider: 'dbl',
         externalId: BSB_BIBLE.externalId,
@@ -284,7 +310,7 @@ async function seedBereanStandardBible() {
         audioResourceId: bibles.audioResourceId,
       })
       .from(bibles)
-      .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
+      .where(eq(bibles.abbreviation, abbreviation))
       .limit(1);
 
     if (!bible) {
@@ -292,7 +318,7 @@ async function seedBereanStandardBible() {
     }
     if (bible.externalId && bible.externalId !== BSB_BIBLE.externalId) {
       throw new Error(
-        `Bible "${BSB_BIBLE.abbreviation}" holds a different upstream identity ` +
+        `Bible "${abbreviation}" holds a different upstream identity ` +
           `(${bible.externalId}) — reconcile it manually before seeding.`
       );
     }
