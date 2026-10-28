@@ -56,25 +56,19 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
       .innerJoin(roles, eq(roles.id, user_roles.roleId))
       .where(
         and(
-          // Include project-pinned grants for this project OR org-wide grants for the project's org.
-          or(
-            eq(user_roles.projectId, projectId),
-            and(isNull(user_roles.projectId), eq(user_roles.orgId, project.organization))
-          ),
+          eq(user_roles.projectId, projectId),
           // Exclude Org Member anchor rows — they carry zero permissions and are not displayed.
           sql`${user_roles.roleId} != ${orgMemberRoleId}`
         )
       )
       .orderBy(users.username);
 
-    const [orgMgrId, pmId, ptId, poId] = await Promise.all([
-      getRoleId(ROLES.ORG_MANAGER),
+    const [pmId, ptId, poId] = await Promise.all([
       getRoleId(ROLES.PROJECT_MANAGER),
       getRoleId(ROLES.PROJECT_TRANSLATOR),
       getRoleId(ROLES.PROJECT_OBSERVER),
     ]);
     const rolePriorityMap = new Map<number, number>([
-      [orgMgrId, 4],
       [pmId, 3],
       [ptId, 2],
       [poId, 1],
@@ -84,22 +78,12 @@ export async function getProjectUsers(projectId: number): Promise<Result<Project
     const uniqueUsers = new Map<number, (typeof rows)[number]>();
     for (const r of rows) {
       const existing = uniqueUsers.get(r.userId);
-      if (
-        !existing ||
-        (r.projectId !== null && existing.projectId === null) ||
-        (Boolean(r.projectId) === Boolean(existing.projectId) &&
-          getRolePriority(r.roleID) > getRolePriority(existing.roleID))
-      ) {
+      if (!existing || getRolePriority(r.roleID) > getRolePriority(existing.roleID)) {
         uniqueUsers.set(r.userId, r);
       }
     }
 
-    // Map `projectId: null` to `projectId` for the UI.
-    const projectUsers = Array.from(uniqueUsers.values()).map((r) => ({
-      ...r,
-      projectId: r.projectId ?? projectId,
-    }));
-    return ok(projectUsers as any);
+    return ok(Array.from(uniqueUsers.values()) as any);
   } catch (error) {
     logger.error({
       cause: error,
@@ -383,8 +367,7 @@ export async function updateProjectUserRole(
   projectId: number,
   userId: number,
   roleId: number,
-  roleName: string,
-  createdBy: number | null
+  roleName: string
 ): Promise<
   Result<{
     projectId: number;
@@ -429,62 +412,12 @@ export async function updateProjectUserRole(
           createdAt: user_roles.createdAt,
         });
 
-      if (updated) {
-        await clearObserverAssignments();
-        return ok({ ...updated, roleName } as any);
-      }
-
-      // If no project-pinned row exists, check if the user is a member of the project
-      const [project] = await tx
-        .select({ organization: projects.organization })
-        .from(projects)
-        .where(eq(projects.id, projectId))
-        .limit(1);
-
-      if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
-
-      const isMember = await resolveIsProjectMember(projectId, userId);
-      if (!isMember) {
+      if (!updated) {
         return err(ErrorCode.USER_NOT_IN_PROJECT);
       }
 
-      // Insert project-pinned grant row for this user
-      const [inserted] = await tx
-        .insert(user_roles)
-        .values({
-          userId,
-          orgId: project.organization,
-          projectId,
-          roleId,
-          createdBy,
-        })
-        .onConflictDoNothing()
-        .returning({
-          projectId: user_roles.projectId,
-          userId: user_roles.userId,
-          roleId: user_roles.roleId,
-          createdAt: user_roles.createdAt,
-        });
-
-      if (!inserted) {
-        const [existingRow] = await tx
-          .select({
-            projectId: user_roles.projectId,
-            userId: user_roles.userId,
-            roleId: user_roles.roleId,
-            createdAt: user_roles.createdAt,
-          })
-          .from(user_roles)
-          .where(and(eq(user_roles.projectId, projectId), eq(user_roles.userId, userId)))
-          .limit(1);
-
-        if (!existingRow) return err(ErrorCode.USER_NOT_IN_PROJECT);
-        await clearObserverAssignments();
-        return ok({ ...existingRow, roleName } as any);
-      }
-
       await clearObserverAssignments();
-      return ok({ ...inserted, roleName } as any);
+      return ok({ ...updated, roleName } as any);
     });
   } catch (error) {
     logger.error({

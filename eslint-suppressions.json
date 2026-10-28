@@ -344,7 +344,7 @@
       "count": 2
     },
     "ts/no-explicit-any": {
-      "count": 5
+      "count": 3
     }
   },
   "src/domains/projects/users/project-users.service.test.ts": {

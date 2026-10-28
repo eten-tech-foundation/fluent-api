@@ -184,13 +184,7 @@ describe('project-users service', () => {
           roleID: roleId,
         });
       }
-      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(
-        projectId,
-        userId,
-        roleId,
-        roleName,
-        createdBy
-      );
+      expect(repo.updateProjectUserRole).toHaveBeenCalledWith(projectId, userId, roleId, roleName);
     });
   });
 });
