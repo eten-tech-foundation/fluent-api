@@ -544,6 +544,9 @@ export const verseHeadingSchema = z
     message: 'semantic division markers cannot carry heading text',
   });
 
+/** The most paragraph entries one verse row may store. */
+export const MAX_VERSE_PARAGRAPHS = 20;
+
 export const verseMarkersSchema = z
   .object({
     /** Heading blocks emitted before this verse, in order. */
@@ -560,7 +563,7 @@ export const verseMarkersSchema = z
         })
       )
       .min(1)
-      .max(20)
+      .max(MAX_VERSE_PARAGRAPHS)
       .optional()
       .superRefine((paragraphs, ctx) => {
         if (!paragraphs) return;

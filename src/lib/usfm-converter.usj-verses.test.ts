@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { ok } from '@/lib/types';
 
 import { convertUSFMToUSJ, usjToVerseTexts } from './usfm-converter';
+import { versesOf } from './usfm-converter.test-fixtures';
 
 // Runs the real parser: these tests pin what usfm-grammar actually emits, not the type file.
 
@@ -24,13 +25,8 @@ const GENESIS = [
   '\\v 1 Chapter two.',
 ].join('\n');
 
-function versesOf(usfm: string) {
-  const usj = convertUSFMToUSJ(usfm);
-  if (!usj.ok) throw new Error(usj.error.message);
-  const verses = usjToVerseTexts(usj.data);
-  if (!verses.ok) throw new Error(verses.error.message);
-  return verses.data;
-}
+/** The verse number opens a `\p` paragraph. */
+const P0 = { marker: 'p', offset: 0 };
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -67,12 +63,12 @@ describe('usjToVerseTexts (#419)', () => {
     );
 
     expect(verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      { chapterNumber: 1, verseNumber: 1, text: 'First.', markers: { paragraphs: [P0] } },
       {
         chapterNumber: 1,
         verseNumber: 2,
         text: 'Second.',
-        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }], paragraphs: [P0] },
       },
     ]);
   });
@@ -91,6 +87,7 @@ describe('usjToVerseTexts (#419)', () => {
           { marker: 'ms1', text: 'Book One' },
           { marker: 's1', text: 'The Creation' },
         ],
+        paragraphs: [P0],
       },
     });
   });
@@ -101,12 +98,12 @@ describe('usjToVerseTexts (#419)', () => {
     );
 
     expect(verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'First.' },
+      { chapterNumber: 1, verseNumber: 1, text: 'First.', markers: { paragraphs: [P0] } },
       {
         chapterNumber: 2,
         verseNumber: 1,
         text: 'Second.',
-        markers: { headings: [{ marker: 's1', text: 'A New Chapter' }] },
+        markers: { headings: [{ marker: 's1', text: 'A New Chapter' }], paragraphs: [P0] },
       },
     ]);
   });
@@ -173,7 +170,12 @@ describe('usjToVerseTexts (#419)', () => {
     );
 
     expect(verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'In the beginning God created.' },
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'In the beginning God created.',
+        markers: { paragraphs: [P0] },
+      },
       { chapterNumber: 1, verseNumber: 2, text: 'The earth was formless.' },
     ]);
     expect(warn).toHaveBeenCalledWith('Unsupported USJ node while extracting verse text', {
@@ -198,8 +200,8 @@ describe('usjToVerseTexts (#419)', () => {
     );
 
     expect(verses).toEqual([
-      { chapterNumber: 1, verseNumber: 1, text: 'Before.' },
-      { chapterNumber: 1, verseNumber: 2, text: 'After.' },
+      { chapterNumber: 1, verseNumber: 1, text: 'Before.', markers: { paragraphs: [P0] } },
+      { chapterNumber: 1, verseNumber: 2, text: 'After.', markers: { paragraphs: [P0] } },
     ]);
   });
 
@@ -213,7 +215,7 @@ describe('usjToVerseTexts (#419)', () => {
 
     expect(usjToVerseTexts(usj.data)).toEqual({
       ok: true,
-      data: [{ chapterNumber: 1, verseNumber: 1, text: 'First.' }],
+      data: [{ chapterNumber: 1, verseNumber: 1, text: 'First.', markers: { paragraphs: [P0] } }],
     });
   });
   it('keeps table and page break text out of the surrounding editable verses', () => {
@@ -242,8 +244,13 @@ describe('usjToVerseTexts (#419)', () => {
     expect(usjToVerseTexts(usj)).toEqual({
       ok: true,
       data: [
-        { chapterNumber: 1, verseNumber: 1, text: 'First.' },
-        { chapterNumber: 1, verseNumber: 2, text: 'Second.' },
+        { chapterNumber: 1, verseNumber: 1, text: 'First.', markers: { paragraphs: [P0] } },
+        {
+          chapterNumber: 1,
+          verseNumber: 2,
+          text: 'Second.',
+          markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+        },
       ],
     });
   });
@@ -269,7 +276,12 @@ describe('usjToVerseTexts (#419)', () => {
     };
     expect(usjToVerseTexts(usj)).toEqual(
       ok([
-        { chapterNumber: 1, verseNumber: 1, text: 'First. Continued.' },
+        {
+          chapterNumber: 1,
+          verseNumber: 1,
+          text: 'First. Continued.',
+          markers: { paragraphs: [P0, { marker: 'p', offset: 7 }] },
+        },
         { chapterNumber: 1, verseNumber: 2, text: 'Second.' },
       ])
     );
@@ -281,9 +293,14 @@ describe('verses inside list paragraphs', () => {
     expect(
       versesOf('\\id GEN\n\\c 1\n\\p\n\\v 2 Before.\n\\li1 \\v 3 Listed.\n\\p\n\\v 4 After.')
     ).toEqual([
-      { chapterNumber: 1, verseNumber: 2, text: 'Before.' },
-      { chapterNumber: 1, verseNumber: 3, text: 'Listed.' },
-      { chapterNumber: 1, verseNumber: 4, text: 'After.' },
+      { chapterNumber: 1, verseNumber: 2, text: 'Before.', markers: { paragraphs: [P0] } },
+      {
+        chapterNumber: 1,
+        verseNumber: 3,
+        text: 'Listed.',
+        markers: { paragraphs: [{ marker: 'li1', offset: 0 }] },
+      },
+      { chapterNumber: 1, verseNumber: 4, text: 'After.', markers: { paragraphs: [P0] } },
     ]);
   });
 
@@ -314,9 +331,19 @@ describe('verses inside list paragraphs', () => {
       })
     ).toEqual(
       ok([
-        { chapterNumber: 1, verseNumber: 2, text: 'Before. Continued.' },
-        { chapterNumber: 1, verseNumber: 3, text: 'Listed. Unnumbered continuation.' },
-        { chapterNumber: 1, verseNumber: 4, text: 'After.' },
+        {
+          chapterNumber: 1,
+          verseNumber: 2,
+          text: 'Before. Continued.',
+          markers: { paragraphs: [P0, { marker: 'li1', offset: 8 }] },
+        },
+        {
+          chapterNumber: 1,
+          verseNumber: 3,
+          text: 'Listed. Unnumbered continuation.',
+          markers: { paragraphs: [{ marker: 'li1', offset: 8 }] },
+        },
+        { chapterNumber: 1, verseNumber: 4, text: 'After.', markers: { paragraphs: [P0] } },
       ])
     );
   });
@@ -338,13 +365,34 @@ describe('list verse continuation', () => {
           ].join('\n')
         )
       ).toEqual([
-        { chapterNumber: 1, verseNumber: 5, text: 'From Reuben, Elizur son of Shedeur;' },
-        { chapterNumber: 1, verseNumber: 6, text: 'From Simeon, Shelumiel son of Zurishaddai.' },
+        {
+          chapterNumber: 1,
+          verseNumber: 5,
+          text: 'From Reuben, Elizur son of Shedeur;',
+          markers: {
+            paragraphs: [
+              { marker: 'li1', offset: 0 },
+              { marker, offset: 13 },
+            ],
+          },
+        },
+        {
+          chapterNumber: 1,
+          verseNumber: 6,
+          text: 'From Simeon, Shelumiel son of Zurishaddai.',
+          markers: {
+            paragraphs: [
+              { marker: 'li1', offset: 0 },
+              { marker: 'li2', offset: 13 },
+            ],
+          },
+        },
       ]);
     }
   );
 
   it('excludes list text before any verse and respects heading and chapter boundaries', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
     expect(
       versesOf(
         [
@@ -362,14 +410,36 @@ describe('list verse continuation', () => {
         ].join('\n')
       )
     ).toEqual([
-      { chapterNumber: 1, verseNumber: 5, text: 'From Reuben, Elizur son of Shedeur;' },
+      {
+        chapterNumber: 1,
+        verseNumber: 5,
+        text: 'From Reuben, Elizur son of Shedeur;',
+        markers: {
+          paragraphs: [
+            { marker: 'li1', offset: 0 },
+            { marker: 'li2', offset: 13 },
+          ],
+        },
+      },
       {
         chapterNumber: 1,
         verseNumber: 6,
         text: 'From Simeon.',
-        markers: { headings: [{ marker: 's1', text: 'Next section' }] },
+        markers: {
+          headings: [{ marker: 's1', text: 'Next section' }],
+          paragraphs: [{ marker: 'li1', offset: 0 }],
+        },
       },
-      { chapterNumber: 2, verseNumber: 1, text: 'New chapter.' },
+      {
+        chapterNumber: 2,
+        verseNumber: 1,
+        text: 'New chapter.',
+        markers: { paragraphs: [{ marker: 'li1', offset: 0 }] },
+      },
     ]);
+    expect(warn).toHaveBeenCalledWith(
+      'Imported USFM text before a verse stays only in the raw file',
+      { chapters: [1, 2], characters: 52 }
+    );
   });
 });
