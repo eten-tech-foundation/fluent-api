@@ -244,12 +244,15 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   let pendingHeadings: VerseHeadings = [];
   // The body paragraph being walked, and whether a verse number or words came first in it.
   // Null elsewhere, so a verse nested in a heading or an unsupported block opens no paragraph.
+  // `hasWords` also counts words left out because no verse was open yet; `hasContent` does not,
+  // since a verse after such words still opens the paragraph.
   let paragraph: {
     marker?: ParagraphMarker;
     hasContent: boolean;
+    hasWords: boolean;
     afterEmptyParagraph: boolean;
   } | null = null;
-  // The block just walked was a body \p with nothing in it.
+  // The node just walked was a body \p with no verse number and no words in it.
   let emptyParagraphBefore = false;
   // Words a body paragraph holds while no verse is open (a list label under a heading, text above
   // a chapter's first verse) belong to no row and stay in the raw file. fluent-web's save path
@@ -283,6 +286,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
   };
 
   const addText = (text: string) => {
+    if (paragraph && text.trim() !== '') paragraph.hasWords = true;
     if (!current) {
       if (paragraph && text.trim() !== '') {
         skipped.chapters.add(chapter);
@@ -302,6 +306,10 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
 
   const walk = (nodes: (USJNode | string)[]) => {
     for (const node of nodes) {
+      // An empty \p is kept only by the paragraph that comes right after it.
+      if (typeof node === 'string' ? node.trim() !== '' : node.type !== 'para') {
+        emptyParagraphBefore = false;
+      }
       if (typeof node === 'string') {
         addText(node);
         continue;
@@ -309,7 +317,6 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
       switch (node.type) {
         case 'chapter': {
           flush();
-          emptyParagraphBefore = false;
           const number = Number.parseInt(node.number, 10);
           chapter = Number.isFinite(number) ? number : null;
           break;
@@ -319,6 +326,8 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           const number = Number.parseInt(node.number, 10);
           if (chapter !== null && Number.isFinite(number)) {
             const opensParagraph = paragraph !== null && !paragraph.hasContent;
+            // Only a line that starts with its verse number keeps the empty \p before it.
+            const startsLine = opensParagraph && !paragraph?.hasWords;
             current = {
               chapterNumber: chapter,
               verseNumber: number,
@@ -327,7 +336,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
                   text: '',
                   marker: paragraph?.marker,
                   openedByVerse: opensParagraph,
-                  afterEmptyParagraph: opensParagraph && paragraph?.afterEmptyParagraph,
+                  afterEmptyParagraph: startsLine && paragraph?.afterEmptyParagraph,
                 },
               ],
               ...(pendingHeadings.length > 0 ? { headings: pendingHeadings } : {}),
@@ -357,13 +366,15 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
               const opened = {
                 marker: isParagraphMarker(node.marker) ? node.marker : undefined,
                 hasContent: false,
+                hasWords: false,
                 afterEmptyParagraph,
               };
               paragraph = opened;
               // The open verse continues into this paragraph until a verse number comes first.
               current?.segments.push({ text: '', marker: opened.marker, openedByVerse: false });
               walk(node.content);
-              emptyParagraphBefore = opened.marker === 'p' && !opened.hasContent;
+              emptyParagraphBefore =
+                opened.marker === 'p' && !opened.hasContent && !opened.hasWords;
               paragraph = null;
             } else {
               // Unsupported paragraphs can still contain real verses.

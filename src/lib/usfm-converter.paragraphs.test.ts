@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { VerseMarkers } from '@/db/schema';
+import type { USJDocument, USJNode } from '@/lib/types';
+
 import { MAX_VERSE_PARAGRAPHS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 
-import { generateUSFMText } from './usfm-converter';
+import { generateUSFMText, usjToVerseTexts } from './usfm-converter';
 import { versesOf } from './usfm-converter.test-fixtures';
+
+type VerseParagraphs = NonNullable<NonNullable<VerseMarkers>['paragraphs']>;
 
 vi.mock('@/lib/logger', () => ({
   logger: { warn: vi.fn(), error: vi.fn() },
@@ -178,7 +183,7 @@ describe('paragraph structure (fluent-web#314)', () => {
 
 // The USFM spec's \p followed by \q: a paragraph that starts with a poetry line.
 describe('an empty \\p before a poetry line (fluent-web#530)', () => {
-  const opensWithPoetry = (verseNumber: number, text: string, more: object[] = []) => ({
+  const opensWithPoetry = (verseNumber: number, text: string, more: VerseParagraphs = []) => ({
     chapterNumber: 1,
     verseNumber,
     text,
@@ -209,6 +214,57 @@ describe('an empty \\p before a poetry line (fluent-web#530)', () => {
     expect(verse.markers).toEqual({
       headings: [{ marker: 's1', text: 'A song' }],
       ...opensWithPoetry(1, 'One.').markers,
+    });
+  });
+
+  // Kasey and CodeRabbit on fluent-api#473: words before the first verse are left out of the rows,
+  // but they still mean the paragraph is not empty, and that the line does not open with \v.
+  it('keeps no \\p when the paragraph before the line holds words', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p Introductory text.\n\\q1\n\\v 1 One.')).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it('keeps no \\p when the line holds words before its verse number', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p\n\\q1 Label words\n\\v 1 One.')).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it.each<[string, USJNode]>([
+    ['a character marker', { type: 'char', marker: 'nd', content: ['Lord'] }],
+    ['a verse number', { type: 'verse', marker: 'v', number: '1' }],
+    ['stray text', 'Stray words.' as unknown as USJNode],
+    ['an unknown block', { type: 'table', content: [] } as unknown as USJNode],
+  ])('keeps no \\p when %s comes between it and the line', (_, between) => {
+    const usj: USJDocument = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'chapter', marker: 'c', number: '1' },
+        { type: 'para', marker: 'p', content: [] },
+        between,
+        {
+          type: 'para',
+          marker: 'q1',
+          content: [{ type: 'verse', marker: 'v', number: '2' }, 'Two.'],
+        },
+      ],
+    };
+    const result = usjToVerseTexts(usj);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.data.find((verse) => verse.verseNumber === 2)?.markers).toEqual({
+      paragraphs: [{ marker: 'q1', offset: 0 }],
     });
   });
 
