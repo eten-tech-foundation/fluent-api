@@ -33,30 +33,38 @@ export async function seedSpecBibles(ctx: DemoCtx) {
     // Provider-resource identities — the text row backs the TTS license
     // gate (`bibleKey` lookups), the audio row is the selectable recording.
     // Bare provider ids only; the `dbl-…` bibleKey form lives in responses.
-    const upsertResource = async (externalId: string) => {
-      const [row] = await db
+    // Insert-only like seeds/bibles.ts: spec values seed a missing row, but
+    // an existing row's license state and display name are operator-owned —
+    // a reseed never rewrites them.
+    const ensureResource = async (externalId: string, displayName: string) => {
+      await db
         .insert(bible_provider_resources)
         .values({
           provider: 'dbl',
           externalId,
           ttsLicenseStatus: spec.ttsLicenseStatus ?? 'unknown',
           licenseNotice: spec.licenseNotice,
-          displayName: spec.name,
+          displayName,
         })
-        .onConflictDoUpdate({
-          target: [bible_provider_resources.provider, bible_provider_resources.externalId],
-          set: {
-            ttsLicenseStatus: spec.ttsLicenseStatus ?? 'unknown',
-            licenseNotice: spec.licenseNotice,
-            displayName: spec.name,
-          },
-        })
-        .returning({ id: bible_provider_resources.id });
+        .onConflictDoNothing();
+      const [row] = await db
+        .select({ id: bible_provider_resources.id })
+        .from(bible_provider_resources)
+        .where(
+          and(
+            eq(bible_provider_resources.provider, 'dbl'),
+            eq(bible_provider_resources.externalId, externalId)
+          )
+        )
+        .limit(1);
+      if (!row) {
+        throw new Error(`provider resource dbl/${externalId} missing after insert`);
+      }
       return row.id;
     };
-    if (spec.externalId) await upsertResource(spec.externalId);
+    if (spec.externalId) await ensureResource(spec.externalId, spec.name);
     const audioResourceId = spec.audioExternalId
-      ? await upsertResource(spec.audioExternalId)
+      ? await ensureResource(spec.audioExternalId, `${spec.name} audio`)
       : undefined;
 
     // (provider, externalId) is the canonical upstream identity — resolve the
@@ -132,15 +140,18 @@ export async function seedSpecBibles(ctx: DemoCtx) {
         });
       console.log(`  bible ${abbreviation}`);
     } else {
-      // Spec-provided values win on reconcile; omitted spec values leave
-      // whatever the row already has. externalId is only ever claimed onto a
-      // row whose identity is NULL — a differing non-null one exited above.
+      // Spec-provided values win on reconcile — except the operator-owned
+      // audio selection below; omitted spec values leave whatever the row
+      // already has. externalId is only ever claimed onto a row whose
+      // identity is NULL — a differing non-null one exited above.
       const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
       if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
         patch.externalId = spec.externalId;
       if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
         patch.hasAudio = spec.hasAudio;
-      if (audioResourceId !== undefined && bible.audioResourceId !== audioResourceId)
+      // Same curated-selection rule as seeds/bibles.ts — an operator-chosen
+      // recording isn't seed-owned drift, so spec audio only fills an empty slot.
+      if (audioResourceId !== undefined && bible.audioResourceId === null)
         patch.audioResourceId = audioResourceId;
       if (Object.keys(patch).length)
         await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));

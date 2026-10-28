@@ -24,6 +24,7 @@ export async function seedSpecMilestones(ctx: DemoCtx) {
             sql`${project_units.metadata}->>'seed' = ${seedTag}`
           )
         )
+        .orderBy(project_units.id)
         .limit(1);
       if (!existing) {
         const [candidate] = await db

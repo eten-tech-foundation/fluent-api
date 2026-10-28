@@ -29,11 +29,12 @@ export const BSB_BIBLE = {
 export const BSB_BOOK_CODES = ['JHN'] as const;
 
 /**
- * The catalogue sync's collision convention (dbl-bible-sync.ts): when a bare
- * abbreviation is taken by a different upstream identity, the row lands under
- * `${base}-${externalId-prefix}` capped at the column's 50 chars (base capped
- * at 40 to leave room for the suffix). Seeds follow it so all seed paths and
- * the sync converge on the same abbreviation.
+ * The catalogue sync's suffix shape for abbreviation collisions
+ * (dbl-bible-sync.ts): `${base}-${externalId-prefix}` capped at the column's
+ * 50 chars, base capped at 40 to leave room for the suffix. The sync itself
+ * dedupes case-insensitively inside a batch and appends a `-N` counter on
+ * repeat collisions — seeds don't need either: they resolve collisions by
+ * upstream identity and throw only on a genuine second collision.
  */
 export function suffixedAbbreviation(abbreviation: string, externalId: string): string {
   return `${abbreviation.slice(0, 40)}-${externalId.slice(0, 6)}`.slice(0, 50);

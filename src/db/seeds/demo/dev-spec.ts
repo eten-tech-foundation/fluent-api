@@ -41,8 +41,9 @@ export function devSpec(creds: DevCredentials): DemoSpec {
     // The project resolves `sourceBible: 'IRV'` by upstream identity, not bare
     // abbreviation — declaring it here keeps the project pinned to the real
     // IRV row even where 'IRV' is a catalogue-synced foreign row (or missing).
-    // ttsLicenseStatus/licenseNotice must match what seeds/bibles.ts writes,
-    // because the spec's provider-resource upsert overwrites them on conflict.
+    // Declared license/audio values seed a missing row only — the engine is
+    // insert-only on provider resources and fill-when-null on audioResourceId,
+    // so operator edits survive reruns.
     bibles: [
       {
         abbreviation: IRV_BIBLE.abbreviation,

@@ -56,6 +56,7 @@ export async function seedSpecProjects(ctx: DemoCtx) {
       .select()
       .from(projects)
       .where(and(eq(projects.organization, orgId), sql`${projects.metadata}->>'seed' = ${seedTag}`))
+      .orderBy(projects.id)
       .limit(1);
     if (!existing) {
       // Rows seeded before the marker existed carry it nowhere — adopt an

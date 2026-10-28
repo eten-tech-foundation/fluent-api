@@ -105,6 +105,9 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
           .where(
             and(eq(authAccount.userId, targetAuthUserId), eq(authAccount.providerId, 'credential'))
           )
+          // (userId, providerId) isn't unique at the schema level — order so
+          // rotation touches the oldest credential row consistently.
+          .orderBy(authAccount.createdAt)
           .limit(1);
         if (credential) {
           await tx

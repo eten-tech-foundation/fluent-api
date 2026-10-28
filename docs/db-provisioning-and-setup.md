@@ -158,6 +158,8 @@ Committed plaintext defaults — local Docker only, never reused elsewhere.
 
 | Username      | Email           | Password    | Role Grants                                        |
 | ------------- | --------------- | ----------- | -------------------------------------------------- |
+| `superadmin`  | sa@fluent.local | `sa@123456` | SuperAdmin (global)                                |
+| `orgmanager`  | om@fluent.local | `om@123456` | Org Manager + Org Member (Fluent Dev)              |
 | `devpm`       | pm@fluent.local | `pm@123456` | Project Manager (Gujarati → English — GEN & EXO)   |
 | `translator`  | t@fluent.local  | `t@123456`  | Project Translator (same project); peer-check pair |
 | `translator2` | t2@fluent.local | `t@123456`  | Project Translator (same project); peer-check pair |
@@ -166,7 +168,8 @@ Committed plaintext defaults — local Docker only, never reused elsewhere.
 
 Same shape as local — `Fluent Dev` org, one GEN+EXO project — but all
 credentials come from env vars (`DEV_PM_EMAIL`, `DEV_PM_PASSWORD`,
-`DEV_SEED_PASSWORD`); nothing is committed.
+`DEV_SEED_PASSWORD`); nothing is committed. Dev deliberately has no
+SuperAdmin or Org Manager account — only the PM and translator roster.
 
 | Username      | Email                | Password            | Role Grants                                      |
 | ------------- | -------------------- | ------------------- | ------------------------------------------------ |
