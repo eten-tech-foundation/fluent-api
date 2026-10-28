@@ -59,6 +59,27 @@ describe('verseMarkersSchema', () => {
       }).success
     ).toBe(false);
   });
+
+  // fluent-web#530: a paragraph can start with a poetry line, written `\p` then `\q1 \v 3`.
+  it('accepts an empty \\p opening right before the line the verse starts', () => {
+    const markers = {
+      paragraphs: [
+        { marker: 'p', offset: 0 },
+        { marker: 'q1', offset: 0 },
+        { marker: 'q2', offset: 12 },
+      ],
+    };
+    expect(verseMarkersSchema.parse(markers)).toEqual(markers);
+  });
+
+  it.each([
+    ['two lines with no \\p first', ['q1', 'q2']],
+    ['a \\p before another \\p', ['p', 'p']],
+    ['three paragraphs', ['p', 'q1', 'q2']],
+  ])('rejects %s at the verse start', (_, markers) => {
+    const paragraphs = markers.map((marker) => ({ marker, offset: 0 }));
+    expect(verseMarkersSchema.safeParse({ paragraphs }).success).toBe(false);
+  });
 });
 
 describe('insertTranslatedVersesSchema with markers', () => {

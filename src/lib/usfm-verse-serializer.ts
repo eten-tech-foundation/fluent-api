@@ -25,7 +25,9 @@ export function serializeUSFMVerseBody(verse: USFMVerseBodyData, isChapterStart:
   const paragraphs = (verse.markers?.paragraphs ?? []).filter(
     (paragraph) => paragraph.offset === 0 || paragraph.offset < content.length
   );
-  const opening = paragraphs.find((paragraph) => paragraph.offset === 0);
+  // Usually one; two when an empty \p comes right before the verse's own line, such as `\p` then
+  // `\q1` for a paragraph that starts with a poetry line (fluent-web#530).
+  const openings = paragraphs.filter((paragraph) => paragraph.offset === 0);
 
   let body = '';
   for (const heading of headings) {
@@ -34,8 +36,8 @@ export function serializeUSFMVerseBody(verse: USFMVerseBodyData, isChapterStart:
       : `\\${heading.marker} ${heading.text}\n`;
   }
 
-  if (opening) {
-    body += `\\${opening.marker}\n`;
+  if (openings.length > 0) {
+    for (const opening of openings) body += `\\${opening.marker}\n`;
   } else if (isChapterStart || headings.length > 0) {
     // A heading is a block of its own. The verse that follows still needs a body
     // paragraph, including when the heading appears in the middle of a chapter.

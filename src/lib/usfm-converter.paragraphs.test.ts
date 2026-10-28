@@ -175,3 +175,95 @@ describe('paragraph structure (fluent-web#314)', () => {
     expect(versesOf(exported)).toEqual(imported);
   });
 });
+
+// The USFM spec's \p followed by \q: a paragraph that starts with a poetry line.
+describe('an empty \\p before a poetry line (fluent-web#530)', () => {
+  const opensWithPoetry = (verseNumber: number, text: string, more: object[] = []) => ({
+    chapterNumber: 1,
+    verseNumber,
+    text,
+    markers: {
+      paragraphs: [{ marker: 'p', offset: 0 }, { marker: 'q1', offset: 0 }, ...more],
+    },
+  });
+
+  it('keeps the \\p for the verse whose line comes right after it', () => {
+    expect(
+      versesOf('\\id MRK\n\\c 1\n\\p\n\\v 1 One.\n\\p\n\\q1\n\\v 2 Two,\n\\q2 still two.')
+    ).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+      opensWithPoetry(2, 'Two, still two.', [{ marker: 'q2', offset: 5 }]),
+    ]);
+  });
+
+  it('keeps it at the start of a chapter and after a heading', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p\n\\q1\n\\v 1 One.')).toEqual([
+      opensWithPoetry(1, 'One.'),
+    ]);
+    const [verse] = versesOf('\\id PSA\n\\c 1\n\\s1 A song\n\\p\n\\q1\n\\v 1 One.');
+    expect(verse.markers).toEqual({
+      headings: [{ marker: 's1', text: 'A song' }],
+      ...opensWithPoetry(1, 'One.').markers,
+    });
+  });
+
+  it('drops an empty paragraph anywhere else, as before', () => {
+    // Before a line a verse only continues into, before another \p, and an empty \q1.
+    expect(
+      versesOf(
+        '\\id PSA\n\\c 1\n\\q1\n\\v 1 One,\n\\p\n\\q2 still one.\n\\p\n\\p\n\\v 2 Two.\n\\q1\n\\p\n\\v 3 Three.'
+      )
+    ).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One, still one.',
+        markers: {
+          paragraphs: [
+            { marker: 'q1', offset: 0 },
+            { marker: 'q2', offset: 5 },
+          ],
+        },
+      },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Two.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+      {
+        chapterNumber: 1,
+        verseNumber: 3,
+        text: 'Three.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it('exports it back where the file had it', () => {
+    const usfm =
+      '\\id MRK\n\\c 1\n\\p\n\\v 1 One.\n\\p\n\\q1\n\\v 2 Two,\n\\q2 still two.\n\\p\n\\v 3 Three.';
+    const imported = versesOf(usfm);
+    const exported = generateUSFMText(
+      imported.map((verse) => ({
+        bookId: 41,
+        bookCode: 'MRK',
+        bookName: 'Mark',
+        chapterNumber: verse.chapterNumber,
+        verseNumber: verse.verseNumber,
+        translatedContent: verse.text,
+        markers: verse.markers,
+      }))
+    );
+
+    expect(exported).toContain(
+      '\\v 1 One.\n\\p\n\\q1\n\\v 2 Two, \n\\q2\nstill two.\n\\p\n\\v 3 Three.'
+    );
+    expect(versesOf(exported)).toEqual(imported);
+  });
+});
