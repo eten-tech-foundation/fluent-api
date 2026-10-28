@@ -17,10 +17,10 @@ export function canSuggestPericopeTitle(
 ): boolean {
   return Boolean(
     context.isAiEnabled &&
-      group.startsPericope &&
-      group.sourceTitle &&
-      group.verses.length &&
-      !group.verses[0].hasAuthoredHeading
+    group.startsPericope &&
+    group.sourceTitle &&
+    group.verses.length &&
+    !group.verses[0].hasAuthoredHeading
   );
 }
 
