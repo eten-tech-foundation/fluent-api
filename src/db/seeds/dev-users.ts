@@ -44,22 +44,28 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
 
   await db.transaction(async (tx) => {
     // ── Resolve existing account or create a new one ─────────────────────
+    // orderBy keeps adoption deterministic: the email constraint is
+    // case-sensitive, so lower(email) can match more than one row — adopt
+    // the oldest consistently.
     const [existingAuthUser] = await tx
       .select({ id: authUser.id, email: authUser.email })
       .from(authUser)
       .where(sql`lower(${authUser.email}) = ${email}`)
+      .orderBy(authUser.createdAt)
       .limit(1);
 
     const [existingUserByEmail] = await tx
       .select({ id: users.id, authUserId: users.authUserId, email: users.email })
       .from(users)
       .where(sql`lower(${users.email}) = ${email}`)
+      .orderBy(users.id)
       .limit(1);
 
     const [existingUserByUsername] = await tx
       .select({ id: users.id })
       .from(users)
       .where(eq(users.username, input.username))
+      .orderBy(users.id)
       .limit(1);
 
     if (existingAuthUser || existingUserByEmail) {
@@ -67,7 +73,7 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
       const resolvedAppUser = existingUserByEmail;
 
       if (!resolvedAppUser) {
-        console.log(`Skipping ${input.email} — auth_user exists but no matching users row.`);
+        console.warn(`Skipping ${input.email} — auth_user exists but no matching users row.`);
         return;
       }
 
@@ -89,22 +95,41 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
           .where(eq(users.id, resolvedAppUser.id));
       }
 
-      // Password rotation: update stored password hash on reconcile
+      // Password rotation: converge the credential account. An existing user
+      // without one (e.g. an SSO-only account) gets it inserted — every seed
+      // account must be able to sign in with the seeded password.
       if (targetAuthUserId) {
-        await tx
-          .update(authAccount)
-          .set({
-            password: hashedPassword,
-            updatedAt: new Date(),
-          })
+        const [credential] = await tx
+          .select({ id: authAccount.id })
+          .from(authAccount)
           .where(
             and(eq(authAccount.userId, targetAuthUserId), eq(authAccount.providerId, 'credential'))
-          );
+          )
+          .limit(1);
+        if (credential) {
+          await tx
+            .update(authAccount)
+            .set({
+              password: hashedPassword,
+              updatedAt: new Date(),
+            })
+            .where(eq(authAccount.id, credential.id));
+        } else {
+          await tx.insert(authAccount).values({
+            id: crypto.randomUUID(),
+            userId: targetAuthUserId,
+            accountId: email,
+            providerId: 'credential',
+            password: hashedPassword,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
       }
 
-      console.log(`User ${email} reconciled (roles & password updated).`);
+      console.log(`User ${email} reconciled (password updated).`);
     } else if (existingUserByUsername) {
-      console.log(`Skipping ${input.username} — username already taken by a different user.`);
+      console.warn(`Skipping ${input.username} — username already taken by a different user.`);
     } else {
       // Create new account.
       await tx.insert(authUser).values({

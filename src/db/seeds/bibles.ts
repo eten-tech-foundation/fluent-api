@@ -4,28 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { db } from '@/db';
 import { bible_books, bible_provider_resources, bibles, books, languages } from '@/db/schema';
 
-const IRV_BIBLE = {
-  name: 'IRV Gujarati',
-  abbreviation: 'IRV',
-  languageCode: 'guj',
-  // API.Bible catalogue ids (public identifiers, not credentials): the text
-  // bible and its selected audio recording — real Gujarati IRV audio.
-  externalId: 'a3644a98420c2703-01',
-  audioExternalId: '2abea5341ec34814-01',
-  licenseNotice: 'Indian Revised Version (IRV) © 2019 Bridge Connectivity Solutions. CC BY-SA 4.0.',
-} as const;
-
-const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;
-
-// Offline text fixture is DBL BSB; its explicitly selected recording is Aquifer BSB.
-const BSB_BIBLE = {
-  name: 'Berean Standard Bible',
-  abbreviation: 'BSB',
-  languageCode: 'eng',
-  externalId: 'bba9f40183526463-01',
-} as const;
-
-const BSB_BOOK_CODES = ['JHN'] as const;
+import {
+  BSB_BIBLE,
+  BSB_BOOK_CODES,
+  IRV_BIBLE,
+  IRV_BOOK_CODES,
+  suffixedAbbreviation,
+} from './reference-bibles';
 
 export async function seedBibles() {
   await seedIrvGujarati();
@@ -115,7 +100,7 @@ async function seedIrvGujarati() {
       .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
       .limit(1);
     if (existing?.externalId && existing.externalId !== IRV_BIBLE.externalId) {
-      abbreviation = `${IRV_BIBLE.abbreviation}-${IRV_BIBLE.externalId.slice(0, 6)}`;
+      abbreviation = suffixedAbbreviation(IRV_BIBLE.abbreviation, IRV_BIBLE.externalId);
     }
 
     await db
@@ -288,7 +273,7 @@ async function seedBereanStandardBible() {
       .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
       .limit(1);
     if (existing?.externalId && existing.externalId !== BSB_BIBLE.externalId) {
-      abbreviation = `${BSB_BIBLE.abbreviation}-${BSB_BIBLE.externalId.slice(0, 6)}`;
+      abbreviation = suffixedAbbreviation(BSB_BIBLE.abbreviation, BSB_BIBLE.externalId);
     }
 
     await db

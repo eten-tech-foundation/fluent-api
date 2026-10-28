@@ -66,6 +66,8 @@ export async function seedSpecProjects(ctx: DemoCtx) {
         .select()
         .from(projects)
         .where(and(eq(projects.name, project.name), eq(projects.organization, orgId)))
+        // (name, org) isn't unique — order so adoption picks the oldest match.
+        .orderBy(projects.id)
         .limit(1);
       if (candidate) {
         const marked = (candidate.metadata as Record<string, unknown> | null)?.seed;

@@ -1,3 +1,5 @@
+import { isProjectRole } from '@/lib/roles';
+
 import type { DemoSpec } from './types';
 
 /**
@@ -11,13 +13,6 @@ export interface GrantPlan {
   orgKey: string | null;
   projectKey: string | null;
 }
-
-/** Role names that are only ever valid at project scope. */
-export const PROJECT_SCOPED_ROLE_NAMES = new Set([
-  'Project Manager',
-  'Project Translator',
-  'Project Observer',
-]);
 
 /**
  * Expands a spec's users into the full set of desired grant rows, matching the
@@ -73,5 +68,5 @@ export function isStaleProjectRoleGrant(grant: {
   roleName: string;
   projectKey: string | null;
 }): boolean {
-  return PROJECT_SCOPED_ROLE_NAMES.has(grant.roleName) && grant.projectKey === null;
+  return isProjectRole(grant.roleName) && grant.projectKey === null;
 }

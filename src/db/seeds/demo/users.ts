@@ -24,7 +24,7 @@ export async function seedSpecUsers(ctx: DemoCtx) {
       createdBy: actorKey ? (ctx.users.get(actorKey) ?? null) : null,
     });
     if (appUserId === null) {
-      console.log(`  skipped ${user.key} (${user.email})`);
+      console.warn(`  skipped ${user.key} (${user.email})`);
       continue;
     }
     ctx.users.set(user.key, appUserId);

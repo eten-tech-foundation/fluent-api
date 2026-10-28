@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { isProjectRole } from '@/lib/roles';
+
 import type { DemoBook } from './types';
 
-import { buildGrantPlan, PROJECT_SCOPED_ROLE_NAMES } from './grants';
+import { buildGrantPlan } from './grants';
 import { QA_DEMO_PASSWORD_HASH, qaSpec } from './qa-spec';
 
 function bookOf(projectKey: string, milestoneKey: string): DemoBook[] {
@@ -66,7 +68,7 @@ describe('qaSpec', () => {
 
   it('scopes every project-level role grant to org + project', () => {
     const plan = buildGrantPlan(qaSpec);
-    const projectRoles = plan.filter((g) => PROJECT_SCOPED_ROLE_NAMES.has(g.roleName));
+    const projectRoles = plan.filter((g) => isProjectRole(g.roleName));
     expect(projectRoles.length).toBeGreaterThan(0);
     for (const grant of projectRoles) {
       expect(grant.projectKey).not.toBeNull();

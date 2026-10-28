@@ -71,7 +71,7 @@ export function planIngestJobs(
  */
 export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
   if (!env.DBL_API_KEY) {
-    console.log('  ingest jobs: skipped — DBL_API_KEY is not set');
+    console.warn('  ingest jobs: skipped — DBL_API_KEY is not set');
     return;
   }
 
@@ -92,7 +92,7 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
   );
   const noExternalId = abbrevs.filter((a) => !externalIds.get(a));
   if (noExternalId.length) {
-    console.log(`  ingest jobs: skipping ${noExternalId.join(', ')} — no bibles.externalId`);
+    console.warn(`  ingest jobs: skipping ${noExternalId.join(', ')} — no bibles.externalId`);
   }
 
   // bible_books.textIngestedAt is the codebase's ingest-complete marker:
@@ -114,7 +114,7 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
   }
 
   const boss = await initializeQueue().catch(async (e: Error) => {
-    console.log(`  ingest jobs: queue unavailable, skipping (${e.message})`);
+    console.warn(`  ingest jobs: queue unavailable, skipping (${e.message})`);
     // initializeQueue caches `boss` before start() finishes — clear a
     // possibly-poisoned singleton so the seed process can exit cleanly.
     await stopQueue().catch(() => {});
@@ -129,7 +129,7 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
     try {
       await ensureWorkerQueue(boss, QUEUE_NAMES.DBL_INGEST_TEXT);
     } catch (e) {
-      console.log(`  ingest jobs: queue setup failed (${(e as Error).message}) — skipping`);
+      console.warn(`  ingest jobs: queue setup failed (${(e as Error).message}) — skipping`);
       return;
     }
     for (const job of jobs) {
@@ -151,7 +151,9 @@ export async function seedIngestJobs(ctx: IngestCtx): Promise<void> {
             : `  ingest job ${job.milestoneKey} already queued (deduped)`
         );
       } catch (e) {
-        console.log(`  ingest job ${job.milestoneKey} failed to enqueue (${(e as Error).message})`);
+        console.warn(
+          `  ingest job ${job.milestoneKey} failed to enqueue (${(e as Error).message})`
+        );
       }
     }
   } finally {

@@ -1,5 +1,6 @@
 import type { milestoneTypeEnum, projectStatusEnum, ttsLicenseStatusEnum } from '@/db/schema';
 import type { DEFAULT_WORKFLOW } from '@/domains/projects/workflow-stages/workflow-stages.constants';
+import type { ProjectRole } from '@/lib/roles';
 
 /**
  * Declarative demo-world spec, interpreted by `seedDemoSpec` in `engine.ts`.
@@ -20,7 +21,7 @@ export type DemoMilestoneStatus = (typeof projectStatusEnum.enumValues)[number];
 /** Org-scoped roles a spec user may hold inside one org. */
 export type DemoOrgRole = 'Org Member' | 'Org Manager';
 /** Project-scoped roles — always pinned to a project, never org-scoped. */
-export type DemoProjectRole = 'Project Manager' | 'Project Translator' | 'Project Observer';
+export type DemoProjectRole = ProjectRole;
 export type DemoGlobalRole = 'SuperAdmin';
 
 export interface DemoOrganization {

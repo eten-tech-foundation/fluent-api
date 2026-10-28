@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { bible_books, bible_provider_resources, bibles, books } from '@/db/schema';
+import { suffixedAbbreviation } from '@/db/seeds/reference-bibles';
 
 import type { DemoCtx } from './context';
 
@@ -111,7 +112,7 @@ export async function seedSpecBibles(ctx: DemoCtx) {
         // Mirror the catalogue sync's collision-suffix convention so the new
         // row reads the same way as sync-generated ones (and next run's holder
         // lookup finds it by externalId).
-        if (taken) abbreviation = `${spec.abbreviation}-${spec.externalId.slice(0, 6)}`;
+        if (taken) abbreviation = suffixedAbbreviation(spec.abbreviation, spec.externalId);
       }
       [bible] = await db
         .insert(bibles)

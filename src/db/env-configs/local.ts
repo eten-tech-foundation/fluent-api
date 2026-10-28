@@ -7,7 +7,7 @@
  * `environment:` block in compose.yaml, so the container already has it.
  *
  * Credentials are intentionally plain / local-only defaults.
- * Three seed users are created so a developer can exercise all role flows
+ * Five seed users are created so a developer can exercise all role flows
  * immediately without manual setup.
  */
 import { devSpec } from '@/db/seeds/demo/dev-spec';
@@ -21,6 +21,8 @@ export const config: EnvConfig = {
   // No databaseUrl here — compose.yaml injects DATABASE_URL into the container.
 
   demoSpec: devSpec({
+    superadmin: { email: 'sa@fluent.local', username: 'superadmin', password: 'sa@123456' },
+    orgManager: { email: 'om@fluent.local', username: 'orgmanager', password: 'om@123456' },
     pm: { email: 'pm@fluent.local', username: 'devpm', password: 'pm@123456' },
     translators: [
       { email: 't@fluent.local', username: 'translator', password: 't@123456' },

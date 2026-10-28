@@ -32,6 +32,8 @@ export async function seedSpecMilestones(ctx: DemoCtx) {
           .where(
             and(eq(project_units.projectId, projectId), eq(project_units.name, milestone.name))
           )
+          // (projectId, name) isn't unique — order so adoption picks the oldest match.
+          .orderBy(project_units.id)
           .limit(1);
         if (candidate && (candidate.metadata as Record<string, unknown> | null)?.seed == null) {
           existing = candidate;
