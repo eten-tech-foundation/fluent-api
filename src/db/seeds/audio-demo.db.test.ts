@@ -25,11 +25,13 @@ import '@/domains/source-audio/source-audio.route';
 import { AUDIO_DEMO_SEED, seedAudioDemo } from './audio-demo';
 import { seedBsbBibleTexts } from './bible-texts-bsb';
 import { seedBibles } from './bibles';
+import { findSpecProjectManager } from './demo';
 
 const localUser = (() => {
-  const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
-  if (!user) throw new Error('Local test config needs a configured project manager.');
-  return user;
+  const user = findSpecProjectManager(localConfig.demoSpec);
+  if (!user?.password)
+    throw new Error('Local test config needs a configured project manager with a password.');
+  return { email: user.email, password: user.password };
 })();
 
 async function fixture() {
@@ -81,7 +83,7 @@ describe('seeded BSB audio fixture (real database and authentication)', () => {
     expect(await list.json()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ abbreviation: 'BSB', ttsLicenseStatus: 'allowed' }),
-        expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'unknown' }),
+        expect.objectContaining({ abbreviation: 'IRV', ttsLicenseStatus: 'allowed' }),
       ])
     );
   });
