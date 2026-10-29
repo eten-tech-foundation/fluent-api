@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { project_unit_bible_books, project_units } from '@/db/schema';
@@ -11,44 +11,15 @@ export async function seedSpecMilestones(ctx: DemoCtx) {
   for (const project of ctx.spec.projects) {
     const projectId = ctx.projects.get(project.key)!;
     for (const milestone of project.milestones) {
-      // Same seed-marker convention as projects above: key reconciles on the
-      // spec identity; a (projectId, name) match is adopted only when unmarked
-      // so a spec rename never duplicates a milestone with all its links.
-      const seedTag = `demo:${project.key}/${milestone.key}`;
-      let [existing] = await db
+      // Reconciled by (projectId, name). Not unique — order so a rerun keeps
+      // picking the oldest match. Renaming a milestone in the spec or by hand
+      // just seeds a fresh one; demo data is disposable (reset, don't repair).
+      const [existing] = await db
         .select()
         .from(project_units)
-        .where(
-          and(
-            eq(project_units.projectId, projectId),
-            sql`${project_units.metadata}->>'seed' = ${seedTag}`
-          )
-        )
+        .where(and(eq(project_units.projectId, projectId), eq(project_units.name, milestone.name)))
         .orderBy(project_units.id)
         .limit(1);
-      if (!existing) {
-        const [candidate] = await db
-          .select()
-          .from(project_units)
-          .where(
-            and(eq(project_units.projectId, projectId), eq(project_units.name, milestone.name))
-          )
-          // (projectId, name) isn't unique — order so adoption picks the oldest match.
-          .orderBy(project_units.id)
-          .limit(1);
-        if (candidate && (candidate.metadata as Record<string, unknown> | null)?.seed == null) {
-          existing = candidate;
-          await db
-            .update(project_units)
-            .set({
-              metadata: {
-                ...((candidate.metadata as Record<string, unknown>) ?? {}),
-                seed: seedTag,
-              },
-            })
-            .where(eq(project_units.id, candidate.id));
-        }
-      }
 
       const want = {
         type: milestone.type ?? 'text',
@@ -59,7 +30,7 @@ export async function seedSpecMilestones(ctx: DemoCtx) {
       if (!existing) {
         const [row] = await db
           .insert(project_units)
-          .values({ projectId, name: milestone.name, metadata: { seed: seedTag }, ...want })
+          .values({ projectId, name: milestone.name, ...want })
           .returning({ id: project_units.id });
         ctx.milestones.set(`${project.key}/${milestone.key}`, row.id);
         console.log(`  milestone ${milestone.name} (${project.name})`);
@@ -68,7 +39,6 @@ export async function seedSpecMilestones(ctx: DemoCtx) {
 
       ctx.milestones.set(`${project.key}/${milestone.key}`, existing.id);
       const drifted: Partial<typeof project_units.$inferInsert> = {};
-      if (existing.name !== milestone.name) drifted.name = milestone.name;
       if (existing.type !== want.type) drifted.type = want.type;
       if (existing.status !== want.status) drifted.status = want.status;
       if (existing.connectivityProfile !== want.connectivityProfile) {

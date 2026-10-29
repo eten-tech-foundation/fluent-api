@@ -1,1 +1,0 @@
-ALTER TABLE "project_units" ADD COLUMN "metadata" jsonb DEFAULT '{}'::jsonb NOT NULL;
