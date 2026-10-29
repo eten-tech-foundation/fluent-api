@@ -42,8 +42,8 @@ export function devSpec(creds: DevCredentials): DemoSpec {
     // abbreviation — declaring it here keeps the project pinned to the real
     // IRV row even where 'IRV' is a catalogue-synced foreign row (or missing).
     // Declared license/audio values seed a missing row only — the engine is
-    // insert-only on provider resources and fill-when-null on audioResourceId,
-    // so operator edits survive reruns.
+    // insert-only on provider resources and fills hasAudio/audioResourceId only
+    // while the audio slot is empty, so operator edits survive reruns.
     bibles: [
       {
         abbreviation: IRV_BIBLE.abbreviation,

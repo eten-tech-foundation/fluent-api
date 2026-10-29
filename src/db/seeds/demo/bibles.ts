@@ -1,8 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
+import type { SeedBibleRow } from '@/db/seeds/bible-identity';
+
 import { db } from '@/db';
 import { bible_books, bible_provider_resources, bibles, books } from '@/db/schema';
-import { suffixedAbbreviation } from '@/db/seeds/reference-bibles';
+import { resolveBibleByIdentity } from '@/db/seeds/bible-identity';
 
 import type { DemoCtx } from './context';
 
@@ -67,65 +69,32 @@ export async function seedSpecBibles(ctx: DemoCtx) {
       ? await ensureResource(spec.audioExternalId, `${spec.name} audio`)
       : undefined;
 
-    // (provider, externalId) is the canonical upstream identity — resolve the
-    // holder first. A catalogue sync may already own it under a different
-    // abbreviation (e.g. QA's 'BSB-bba9f4' when 'BSB' itself is a different
-    // upstream row); stamping the same external_id on a second row violates
-    // idx_bibles_provider_external_id.
-    let bible:
-      | {
-          id: number;
-          hasAudio: boolean;
-          externalId: string | null;
-          audioResourceId: number | null;
-        }
-      | undefined;
-    if (spec.externalId) {
-      [bible] = await db
-        .select({
-          id: bibles.id,
-          hasAudio: bibles.hasAudio,
-          externalId: bibles.externalId,
-          audioResourceId: bibles.audioResourceId,
-        })
-        .from(bibles)
-        .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, spec.externalId)))
-        .limit(1);
-    }
-    if (!bible) {
-      [bible] = await db
-        .select({
-          id: bibles.id,
-          hasAudio: bibles.hasAudio,
-          externalId: bibles.externalId,
-          audioResourceId: bibles.audioResourceId,
-        })
-        .from(bibles)
-        .where(eq(bibles.abbreviation, spec.abbreviation))
-        .limit(1);
-      // An abbreviation row claiming a *different* upstream identity is left
-      // untouched — the spec bible gets its own row instead.
-      if (bible?.externalId && spec.externalId && bible.externalId !== spec.externalId) {
-        bible = undefined;
+    // Resolve by upstream identity (shared with seeds/bibles.ts so both
+    // converge on one row — see resolveBibleByIdentity).
+    const resolved = await resolveBibleByIdentity(spec);
+    let bible: SeedBibleRow;
+    if (resolved.existing) {
+      bible = resolved.existing;
+      // Spec-provided externalId wins on reconcile (only ever claimed onto a
+      // row whose identity is NULL). Audio state follows the same
+      // curated-selection rule as seeds/bibles.ts: an operator-chosen
+      // recording or hasAudio flag isn't seed-owned drift, so spec audio
+      // values only fill an empty audio slot.
+      const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
+      if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
+        patch.externalId = spec.externalId;
+      if (bible.audioResourceId === null) {
+        if (audioResourceId !== undefined) patch.audioResourceId = audioResourceId;
+        if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
+          patch.hasAudio = spec.hasAudio;
       }
-    }
-    if (!bible) {
-      let abbreviation = spec.abbreviation;
-      if (spec.externalId) {
-        const [taken] = await db
-          .select({ id: bibles.id })
-          .from(bibles)
-          .where(eq(bibles.abbreviation, spec.abbreviation))
-          .limit(1);
-        // Mirror the catalogue sync's collision-suffix convention so the new
-        // row reads the same way as sync-generated ones (and next run's holder
-        // lookup finds it by externalId).
-        if (taken) abbreviation = suffixedAbbreviation(spec.abbreviation, spec.externalId);
-      }
+      if (Object.keys(patch).length)
+        await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
+    } else {
       [bible] = await db
         .insert(bibles)
         .values({
-          abbreviation,
+          abbreviation: resolved.abbreviation,
           name: spec.name,
           languageId,
           externalId: spec.externalId,
@@ -134,27 +103,12 @@ export async function seedSpecBibles(ctx: DemoCtx) {
         })
         .returning({
           id: bibles.id,
-          hasAudio: bibles.hasAudio,
+          abbreviation: bibles.abbreviation,
           externalId: bibles.externalId,
+          hasAudio: bibles.hasAudio,
           audioResourceId: bibles.audioResourceId,
         });
-      console.log(`  bible ${abbreviation}`);
-    } else {
-      // Spec-provided values win on reconcile — except the operator-owned
-      // audio selection below; omitted spec values leave whatever the row
-      // already has. externalId is only ever claimed onto a row whose
-      // identity is NULL — a differing non-null one exited above.
-      const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
-      if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
-        patch.externalId = spec.externalId;
-      if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
-        patch.hasAudio = spec.hasAudio;
-      // Same curated-selection rule as seeds/bibles.ts — an operator-chosen
-      // recording isn't seed-owned drift, so spec audio only fills an empty slot.
-      if (audioResourceId !== undefined && bible.audioResourceId === null)
-        patch.audioResourceId = audioResourceId;
-      if (Object.keys(patch).length)
-        await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
+      console.log(`  bible ${resolved.abbreviation}`);
     }
     ctx.bibles.set(spec.abbreviation, bible.id);
 

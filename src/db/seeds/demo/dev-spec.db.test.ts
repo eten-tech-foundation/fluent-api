@@ -9,11 +9,11 @@ import { IRV_BIBLE } from '@/db/seeds/reference-bibles';
 
 import { seedDemoSpec } from './index';
 
-let irv: { id: number; audioResourceId: number | null };
+let irv: { id: number; hasAudio: boolean; audioResourceId: number | null };
 
 beforeAll(async () => {
   const [bible] = await db
-    .select({ id: bibles.id, audioResourceId: bibles.audioResourceId })
+    .select({ id: bibles.id, hasAudio: bibles.hasAudio, audioResourceId: bibles.audioResourceId })
     .from(bibles)
     .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, IRV_BIBLE.externalId)));
   if (!bible) throw new Error('Run local db:setup before DB tests');
@@ -51,8 +51,11 @@ describe('seedDemoSpec on the local spec (real database)', () => {
       .returning();
     try {
       // Operator actions a reseed must not undo: pick a different recording,
-      // block the TTS license, rename the audio resource.
-      await db.update(bibles).set({ audioResourceId: alternate.id }).where(eq(bibles.id, irv.id));
+      // turn audio off, block the TTS license, rename the audio resource.
+      await db
+        .update(bibles)
+        .set({ audioResourceId: alternate.id, hasAudio: false })
+        .where(eq(bibles.id, irv.id));
       await db
         .update(bible_provider_resources)
         .set({ ttsLicenseStatus: 'forbidden', licenseNotice: 'operator note' })
@@ -66,6 +69,7 @@ describe('seedDemoSpec on the local spec (real database)', () => {
 
       const [after] = await db.select().from(bibles).where(eq(bibles.id, irv.id));
       expect(after.audioResourceId).toBe(alternate.id);
+      expect(after.hasAudio).toBe(false);
       const [afterText] = await db
         .select()
         .from(bible_provider_resources)
@@ -80,7 +84,7 @@ describe('seedDemoSpec on the local spec (real database)', () => {
     } finally {
       await db
         .update(bibles)
-        .set({ audioResourceId: irv.audioResourceId })
+        .set({ audioResourceId: irv.audioResourceId, hasAudio: irv.hasAudio })
         .where(eq(bibles.id, irv.id));
       await db
         .update(bible_provider_resources)

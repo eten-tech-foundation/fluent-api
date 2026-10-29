@@ -4,13 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { db } from '@/db';
 import { bible_books, bible_provider_resources, bibles, books, languages } from '@/db/schema';
 
-import {
-  BSB_BIBLE,
-  BSB_BOOK_CODES,
-  IRV_BIBLE,
-  IRV_BOOK_CODES,
-  suffixedAbbreviation,
-} from './reference-bibles';
+import { resolveBibleByIdentity } from './bible-identity';
+import { BSB_BIBLE, BSB_BOOK_CODES, IRV_BIBLE, IRV_BOOK_CODES } from './reference-bibles';
 
 export async function seedBibles() {
   await seedIrvGujarati();
@@ -62,85 +57,21 @@ async function seedIrvGujarati() {
     );
   if (!recording) throw new Error('IRV audio recording resource missing');
 
-  // 3. Resolve the bible row by upstream identity first: (provider,
-  // externalId) is canonical — a catalogue sync may already own it under a
-  // different abbreviation (e.g. QA's IRVGuj). Adopt the holder rather than
-  // stamp the same external_id on a second row, which would violate
-  // idx_bibles_provider_external_id. When unowned, claim it on the 'IRV'
-  // abbreviation row (or create that row fresh).
-  const [holder] = await db
-    .select({
-      id: bibles.id,
-      hasAudio: bibles.hasAudio,
-      audioResourceId: bibles.audioResourceId,
-    })
-    .from(bibles)
-    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, IRV_BIBLE.externalId)))
-    .limit(1);
+  // 3. Resolve the bible row by upstream identity (see resolveBibleByIdentity)
+  // and reconcile it, or create it fresh.
+  const resolved = await resolveBibleByIdentity({
+    abbreviation: IRV_BIBLE.abbreviation,
+    externalId: IRV_BIBLE.externalId,
+  });
 
   let bibleId: number;
-  if (holder) {
-    bibleId = holder.id;
-    // A curated recording selection wins on rerun — only fill audio fields
-    // when unset.
-    if (holder.audioResourceId === null) {
-      await db
-        .update(bibles)
-        .set({ hasAudio: true, audioResourceId: recording.id })
-        .where(eq(bibles.id, holder.id));
-    }
-  } else {
-    // The bare abbreviation may already hold a *different* upstream identity
-    // (e.g. a catalogue-synced row on QA) — don't claim it. Use the same
-    // collision suffix as the demo seed so both seeds converge on one row.
-    let abbreviation: string = IRV_BIBLE.abbreviation;
-    const [existing] = await db
-      .select({ externalId: bibles.externalId })
-      .from(bibles)
-      .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
-      .limit(1);
-    if (existing?.externalId && existing.externalId !== IRV_BIBLE.externalId) {
-      abbreviation = suffixedAbbreviation(IRV_BIBLE.abbreviation, IRV_BIBLE.externalId);
-    }
-
-    await db
-      .insert(bibles)
-      .values({
-        name: IRV_BIBLE.name,
-        abbreviation,
-        languageId: language.id,
-        externalId: IRV_BIBLE.externalId,
-        hasAudio: true,
-        audioResourceId: recording.id,
-      })
-      .onConflictDoNothing({ target: bibles.abbreviation });
-
-    const [bible] = await db
-      .select({
-        id: bibles.id,
-        externalId: bibles.externalId,
-        hasAudio: bibles.hasAudio,
-        audioResourceId: bibles.audioResourceId,
-      })
-      .from(bibles)
-      .where(eq(bibles.abbreviation, abbreviation))
-      .limit(1);
-
-    if (!bible) {
-      throw new Error('IRV bible not found after insert.');
-    }
-    if (bible.externalId && bible.externalId !== IRV_BIBLE.externalId) {
-      throw new Error(
-        `Bible "${abbreviation}" holds a different upstream identity ` +
-          `(${bible.externalId}) — reconcile it manually before seeding.`
-      );
-    }
+  if (resolved.existing) {
+    const bible = resolved.existing;
     bibleId = bible.id;
-
     const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
     if (bible.externalId !== IRV_BIBLE.externalId) patch.externalId = IRV_BIBLE.externalId;
-    // Same curated-selection rule as the holder branch — audio fields fill
-    // only when unset.
+    // A curated recording selection wins on rerun — only fill audio fields
+    // when unset.
     if (bible.audioResourceId === null) {
       patch.hasAudio = true;
       patch.audioResourceId = recording.id;
@@ -148,6 +79,19 @@ async function seedIrvGujarati() {
     if (Object.keys(patch).length) {
       await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     }
+  } else {
+    const [bible] = await db
+      .insert(bibles)
+      .values({
+        name: IRV_BIBLE.name,
+        abbreviation: resolved.abbreviation,
+        languageId: language.id,
+        externalId: IRV_BIBLE.externalId,
+        hasAudio: true,
+        audioResourceId: recording.id,
+      })
+      .returning({ id: bibles.id });
+    bibleId = bible.id;
   }
 
   // 4. Resolve GEN + EXO book ids.
@@ -242,81 +186,37 @@ async function seedBereanStandardBible() {
     throw new Error(`Language "${BSB_BIBLE.languageCode}" not found. Run seedLanguages first.`);
   }
 
-  // Resolve by upstream identity first (same adopt/claim split as the IRV
-  // seed above): a catalogue sync may own bba9f… under a suffixed
-  // abbreviation while the bare 'BSB' row points at a different upstream id.
-  const [holder] = await db
-    .select({ id: bibles.id, audioResourceId: bibles.audioResourceId })
-    .from(bibles)
-    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, BSB_BIBLE.externalId)))
-    .limit(1);
+  // Same adopt/claim/suffix resolution as the IRV seed above.
+  const resolved = await resolveBibleByIdentity({
+    abbreviation: BSB_BIBLE.abbreviation,
+    externalId: BSB_BIBLE.externalId,
+  });
 
   let bibleId: number;
-  if (holder) {
-    bibleId = holder.id;
+  if (resolved.existing) {
+    const bible = resolved.existing;
+    bibleId = bible.id;
+    const patch: { externalId?: string; audioResourceId?: number } = {};
+    if (bible.externalId !== BSB_BIBLE.externalId) patch.externalId = BSB_BIBLE.externalId;
     // A curated recording selection wins on rerun — only fill audio fields
     // when unset.
-    if (holder.audioResourceId === null) {
-      await db
-        .update(bibles)
-        .set({ audioResourceId: recording.id })
-        .where(eq(bibles.id, holder.id));
+    if (bible.audioResourceId === null) patch.audioResourceId = recording.id;
+    if (Object.keys(patch).length) {
+      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     }
   } else {
-    // Same collision handling as the IRV branch above — a bare 'BSB' row
-    // owned by a different upstream identity gets left alone, and the seed
-    // row lands on the demo seed's suffixed convention instead of throwing.
-    let abbreviation: string = BSB_BIBLE.abbreviation;
-    const [existing] = await db
-      .select({ externalId: bibles.externalId })
-      .from(bibles)
-      .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
-      .limit(1);
-    if (existing?.externalId && existing.externalId !== BSB_BIBLE.externalId) {
-      abbreviation = suffixedAbbreviation(BSB_BIBLE.abbreviation, BSB_BIBLE.externalId);
-    }
-
-    await db
+    const [bible] = await db
       .insert(bibles)
       .values({
         name: BSB_BIBLE.name,
-        abbreviation,
+        abbreviation: resolved.abbreviation,
         languageId: language.id,
         provider: 'dbl',
         externalId: BSB_BIBLE.externalId,
         audioResourceId: recording.id,
       })
-      .onConflictDoNothing({ target: bibles.abbreviation });
-
-    const [bible] = await db
-      .select({
-        id: bibles.id,
-        externalId: bibles.externalId,
-        audioResourceId: bibles.audioResourceId,
-      })
-      .from(bibles)
-      .where(eq(bibles.abbreviation, abbreviation))
-      .limit(1);
-
-    if (!bible) {
-      throw new Error('BSB bible not found after insert.');
-    }
-    if (bible.externalId && bible.externalId !== BSB_BIBLE.externalId) {
-      throw new Error(
-        `Bible "${abbreviation}" holds a different upstream identity ` +
-          `(${bible.externalId}) — reconcile it manually before seeding.`
-      );
-    }
+      .returning({ id: bibles.id });
     bibleId = bible.id;
-
-    const patch: { externalId?: string; audioResourceId?: number } = {};
-    if (bible.externalId !== BSB_BIBLE.externalId) patch.externalId = BSB_BIBLE.externalId;
-    // Same curated-selection rule as the holder branch — audio fields fill
-    // only when unset.
-    if (bible.audioResourceId === null) patch.audioResourceId = recording.id;
-    if (Object.keys(patch).length) {
-      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
-    }
   }
 
   const bookRows = await db
