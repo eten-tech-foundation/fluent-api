@@ -108,7 +108,7 @@
     "tsc-alias": "1.9.7",
     "tsx": "4.23.15",
     "typescript": "5.8.3",
-    "vitest": "3.2.7"
+    "vitest": "5.0.5"
   },
   "overrides": {
     "@better-auth/core": "1.6.30",
