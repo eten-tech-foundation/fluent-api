@@ -92,7 +92,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
-    "@antfu/eslint-config": "4.18.0",
+    "@antfu/eslint-config": "9.5.1",
     "@electric-sql/pglite": "0.5.10",
     "@types/archiver": "6.0.3",
     "@types/node": "24.1.0",
