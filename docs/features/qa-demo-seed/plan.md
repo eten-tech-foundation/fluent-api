@@ -113,7 +113,7 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 ### Reference rows the demo seed reconciles
 
 - Languages: `nya` (Chichewa), `wol` (Wolof) — `onConflictDoNothing` on `langCodeIso6393`.
-- Bibles: `BSB` (Berean Standard Bible, eng) linked to MRK/JHN/JAS via `bible_books`; `WEB` (World English Bible, eng, `bibles.hasAudio=true`) linked to RUT/JON. `externalId` left NULL until the DBL ids are supplied (follow-on) — audio UI renders, playback degrades gracefully without it. **The `bible_books` links are required before milestone creation** — the app validates milestone bookIds against them (`getValidBookIdsForBible`).
+- Bibles: `BSB` (Berean Standard Bible, eng) linked to MRK/JHN/JAS via `bible_books`; `WEB` (World English Bible, eng, `bibles.hasAudio=true`) linked to RUT/JON. `externalId` carries the API.Bible catalogue ids from Task 9 (BSB `bba9f40183526463-01`, WEB `9879dbb7cfe39e4d-01`; WEB also declares its DBL audio recording). Do not leave them NULL — `planIngestJobs` drops every milestone whose source bible has no `externalId`, so BSB/WEB source text would never ingest. **The `bible_books` links are required before milestone creation** — the app validates milestone bookIds against them (`getValidBookIdsForBible`).
 - Bible text: none in this plan — `bible_texts` rows for these bibles land with the follow-on data file (see Follow-Ons).
 
 ## File Structure
@@ -131,7 +131,7 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - Modify: `src/db/env-configs/dev.ts` — `demoSpec: devSpec(envCreds)`; `seedUsers` getter retires (Task 3)
 - Modify: `src/db/env-configs/local.ts` — `demoSpec: devSpec(localCreds)` (Task 3)
 - Modify: `src/db/seeds/dev-users.ts` — becomes the shared user+grant writer: accepts `passwordHash`, per-user org memberships + org-scoped + project-scoped grants (Task 5)
-- Modify: `src/db/scripts/setup.ts` — step 10: `if (config.demoSpec) await seedDemoSpec(config.demoSpec)` (Task 7)
+- Modify: `src/db/scripts/setup.ts` — final demo-spec stage (`[9/9]`): `if (config.demoSpec) await seedDemoSpec(config.demoSpec)` (Task 7)
 - Modify: `package.json` — `db:hash-password`, `db:reset:dev`, `db:reset:qa`, `db:seed:demo:dev`, `db:seed:demo:qa` (Tasks 1, 2, 7)
 - Modify: `docs/db-provisioning-and-setup.md` — document reset command + demo seed (Task 8)
 - Create: `CONTEXT.md` — glossary (done alongside this plan)
@@ -145,7 +145,7 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 
 - [ ] **Step 1:** Script reads the password from a hidden prompt (TTY) or stdin (piped) — never `process.argv`, which lands in shell history/process list — calls `hashPassword` from `better-auth/crypto`, prints the hash. Usage line on empty input.
 - [ ] **Step 2:** Add `"db:hash-password": "npx tsx src/db/scripts/hash-password.ts"` to package.json scripts.
-- [ ] **Step 3:** Verify: `printf '%s' 'test123' | npm run db:hash-password` prints a hash (never pass the password via argv — shell history/process list); paste output through `verifyPassword` in a `tsx -e` one-liner to confirm it verifies.
+- [ ] **Step 3:** Verify: `printf '%s' "$THROWAWAY_PASSWORD" | npm run db:hash-password` (any throwaway value exported in your shell — never a real password, never written into this doc) prints a hash (never pass the password via argv — shell history/process list); paste output through `verifyPassword` in a `tsx -e` one-liner to confirm it verifies.
 - [ ] **Step 4:** Hand to user — they run it on the real shared password and return only the hash string for Task 3's `QA_DEMO_PASSWORD_HASH` constant.
 
 ### Task 2: `db:reset:dev` / `db:reset:qa`
@@ -155,7 +155,7 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - [ ] **Step 1:** Resolve `SETUP_ENV` — accept only `dev|qa`, exit 1 otherwise with a message pointing local users at `docker compose down -v`.
 - [ ] **Step 2:** Load `src/db/env-configs/<env>.ts`; require `MIGRATIONS_DATABASE_URL` (DDL-capable `api_migrator`), error if unset.
 - [ ] **Step 3:** Print masked URL + parsed db name; `readline` prompt requiring the operator to type the exact database name to continue; abort on mismatch.
-- [ ] **Step 4:** As one postgres.js connection: `DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS pgboss CASCADE; CREATE SCHEMA public; CREATE SCHEMA pgboss AUTHORIZATION api_user;` — identifiers quoted server-side via `quote_ident` (same pattern as `provision-db.ts`). Do NOT touch `ai`.
+- [ ] **Step 4:** As one postgres.js connection: `DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS pgboss CASCADE; CREATE SCHEMA public; CREATE SCHEMA pgboss AUTHORIZATION api_user;` — identifiers quoted server-side via `quote_ident` (same pattern as `provision-db.ts`). Do NOT touch `ai`. Dropping `public` also drops `provision-db.ts`'s schema-scoped default privileges, so in the same connection (as `api_migrator`, the new schema's owner) restore `api_user`'s runtime access before setup creates tables: `GRANT USAGE ON SCHEMA public TO api_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO api_user;`. Re-running `provision-db.ts` is not an option here — it needs the bootstrap superuser.
 - [ ] **Step 5:** `execSync('npx tsx src/db/scripts/setup.ts', { env: { ...process.env, SETUP_ENV } })` — the existing setup pipeline (migrations + all seeds incl. demoSpec) runs against the fresh schemas.
 - [ ] **Step 6:** Add `db:reset:dev` / `db:reset:qa` scripts.
 - [ ] **Step 7:** Verify against **dev first**: `npm run db:reset:dev`, confirm prompt appears, abort works, full run leaves dev migrated + re-seeded.
@@ -204,14 +204,14 @@ Every user except the SuperAdmins also gets the `Org Member` anchor grant per or
 - [ ] **Step 1:** Insert projects (idempotent by name+org) with language/org FK resolution; set `sourceBibleId` (from spec `sourceBible`), `pericopeSetId` (resolve spec `pericopeSet` name → `pericope_sets.id`), `createdBy` = org's OM (else superadmin), `status='active'`.
 - [ ] **Step 2:** Insert milestones — `project_units` rows idempotent by `(projectId, name)` (no unique constraint exists; dedupe via lookup), writing `name`, `type` (default `'text'`), `status` (default `'in_progress'`), `connectivityProfile`. Register `milestoneKey→id` in the resolution context.
 - [ ] **Step 3:** Insert `project_unit_bible_books` links (`projectUnitId`, `bibleId` = project's `sourceBibleId`, `bookId`); PK is `(project_unit_id, book_id)` — on conflict do nothing **unless** the existing row is soft-deleted, in which case set `deletedAt=NULL` (restore, mirroring `createMilestone`'s move-back semantics).
-- [ ] **Step 4:** Insert `chapter_assignments` directly — do NOT call `chapterAssignmentsService.createChapterAssignmentForProjectUnit`: it discovers chapters from `bible_texts`, and the demo bibles have no texts until Follow-On 1, so it would produce zero rows. Generate rows for each spec chapter (`projectUnitId` = milestone id, `bibleId`, `bookId`, `chapterNumber`, `status`, `assignedUserId`, `peerCheckerId`, `isAiEnabled`). Insert one `chapter_assignment_status_history` row per assignment (the seeded status) so history views aren't empty — mirroring the service's initial-history write. Respect `uq_chapter_assignment_per_chapter`; on reconcile, update status/assignee/peerChecker/isAiEnabled rather than skip.
+- [ ] **Step 4:** Insert `chapter_assignments` directly — do NOT call `chapterAssignmentsService.createChapterAssignmentForProjectUnit`: it discovers chapters from `bible_texts`, and the demo bibles have no texts until Follow-On 1, so it would produce zero rows. Generate rows for each spec chapter (`projectUnitId` = milestone id, `bibleId`, `bookId`, `chapterNumber`, `status`, `assignedUserId`, `peerCheckerId`, `isAiEnabled`). Insert one `chapter_assignment_status_history` row per assignment (the seeded status) so history views aren't empty — mirroring the service's initial-history write. Respect `uq_chapter_assignment_per_chapter`; on reconcile, update status/assignee/peerChecker/isAiEnabled rather than skip. History on reconcile: an unchanged row writes no history; a status change writes one `chapter_assignment_status_history` row; a change to a non-null `assignedTo`/`peerChecker` writes one `chapter_assignment_assigned_user_history` row (role `drafter`/`peer_checker`, the effective status). Clearing an assignee (spec omits it) is supported: the column is set to NULL and no assigned-user history row is written. The table records assignments only (`assigned_user_id` is NOT NULL), matching the app's `insertUserAssignmentHistory`.
 - [ ] **Step 5:** Then apply Task 5's project-scoped grants (projectIds now resolvable).
 
 ### Task 7: Wire into setup + scripts
 
 **Files:** Modify `src/db/scripts/setup.ts`, `package.json`
 
-- [ ] **Step 1:** Replace the `seedDevUsers(config.seedUsers, config.orgName)` call at step 5 with `seedDemoSpec` when `config.demoSpec` is present (all three envs now provide one); keep the old call path only if a config lacks `demoSpec` — or remove `seedUsers` entirely and always require `demoSpec`. Prefer removal: one code path.
+- [ ] **Step 1:** Remove the `seedDevUsers(config.seedUsers, config.orgName)` user-seed step; users are seeded only by the single demo-spec stage at the end of setup (`[9/9]`, after reference data), which calls `seedDemoSpec(config.demoSpec)` when present (all three envs now provide one). Remove `seedUsers` entirely. One code path, one call site.
 - [ ] **Step 2:** Add `db:seed:demo:dev` / `db:seed:demo:qa` standalone scripts.
 - [ ] **Step 3:** `npm run typecheck && npm run lint` clean.
 
