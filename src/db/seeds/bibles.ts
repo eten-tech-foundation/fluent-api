@@ -4,23 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { db } from '@/db';
 import { bible_books, bible_provider_resources, bibles, books, languages } from '@/db/schema';
 
-const IRV_BIBLE = {
-  name: 'IRV Gujarati',
-  abbreviation: 'IRV',
-  languageCode: 'guj',
-} as const;
-
-const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;
-
-// Offline text fixture is DBL BSB; its explicitly selected recording is Aquifer BSB.
-const BSB_BIBLE = {
-  name: 'Berean Standard Bible',
-  abbreviation: 'BSB',
-  languageCode: 'eng',
-  externalId: 'bba9f40183526463-01',
-} as const;
-
-const BSB_BOOK_CODES = ['JHN'] as const;
+import { resolveBibleByIdentity } from './bible-identity';
+import { BSB_BIBLE, BSB_BOOK_CODES, IRV_BIBLE, IRV_BOOK_CODES } from './reference-bibles';
 
 export async function seedBibles() {
   await seedIrvGujarati();
@@ -39,27 +24,78 @@ async function seedIrvGujarati() {
     throw new Error(`Language "${IRV_BIBLE.languageCode}" not found. Run seedLanguages first.`);
   }
 
-  // 2. Insert the bible (idempotent via unique abbreviation).
+  // 2. Provider-resource identities — the text row backs the TTS license
+  // gate (bibleKey lookups), the audio row is the selected recording.
   await db
-    .insert(bibles)
-    .values({
-      name: IRV_BIBLE.name,
-      abbreviation: IRV_BIBLE.abbreviation,
-      languageId: language.id,
-    })
-    .onConflictDoNothing({ target: bibles.abbreviation });
+    .insert(bible_provider_resources)
+    .values([
+      {
+        provider: 'dbl',
+        externalId: IRV_BIBLE.externalId,
+        ttsLicenseStatus: 'allowed',
+        licenseNotice: IRV_BIBLE.licenseNotice,
+        displayName: IRV_BIBLE.name,
+      },
+      {
+        provider: 'dbl',
+        externalId: IRV_BIBLE.audioExternalId,
+        ttsLicenseStatus: 'allowed',
+        licenseNotice: IRV_BIBLE.licenseNotice,
+        displayName: `${IRV_BIBLE.name} audio`,
+      },
+    ])
+    .onConflictDoNothing();
 
-  const [bible] = await db
-    .select({ id: bibles.id })
-    .from(bibles)
-    .where(eq(bibles.abbreviation, IRV_BIBLE.abbreviation))
-    .limit(1);
+  const [recording] = await db
+    .select()
+    .from(bible_provider_resources)
+    .where(
+      and(
+        eq(bible_provider_resources.provider, 'dbl'),
+        eq(bible_provider_resources.externalId, IRV_BIBLE.audioExternalId)
+      )
+    );
+  if (!recording) throw new Error('IRV audio recording resource missing');
 
-  if (!bible) {
-    throw new Error('IRV bible not found after insert.');
+  // 3. Resolve the bible row by upstream identity (see resolveBibleByIdentity)
+  // and reconcile it, or create it fresh.
+  const resolved = await resolveBibleByIdentity({
+    abbreviation: IRV_BIBLE.abbreviation,
+    name: IRV_BIBLE.name,
+    externalId: IRV_BIBLE.externalId,
+  });
+
+  let bibleId: number;
+  if (resolved.existing) {
+    const bible = resolved.existing;
+    bibleId = bible.id;
+    const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
+    if (bible.externalId !== IRV_BIBLE.externalId) patch.externalId = IRV_BIBLE.externalId;
+    // A curated recording selection wins on rerun — only fill audio fields
+    // when unset.
+    if (bible.audioResourceId === null) {
+      patch.hasAudio = true;
+      patch.audioResourceId = recording.id;
+    }
+    if (Object.keys(patch).length) {
+      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
+    }
+  } else {
+    const [bible] = await db
+      .insert(bibles)
+      .values({
+        name: resolved.name,
+        abbreviation: resolved.abbreviation,
+        languageId: language.id,
+        externalId: IRV_BIBLE.externalId,
+        hasAudio: true,
+        audioResourceId: recording.id,
+      })
+      .returning({ id: bibles.id });
+    bibleId = bible.id;
   }
 
-  // 3. Resolve GEN + EXO book ids.
+  // 4. Resolve GEN + EXO book ids.
   const bookRows = await db
     .select({ id: books.id, code: books.code })
     .from(books)
@@ -89,22 +125,22 @@ async function seedIrvGujarati() {
     throw new Error(`Book(s) not found: ${missing.join(', ')}. Run seedBooks first.`);
   }
 
-  // 4. Link bible -> books (idempotent; table has no unique constraint).
+  // 5. Link bible -> books (idempotent; table has no unique constraint).
   const existingLinks = await db
     .select({ bookId: bible_books.bookId })
     .from(bible_books)
-    .where(eq(bible_books.bibleId, bible.id));
+    .where(eq(bible_books.bibleId, bibleId));
   const linkedBookIds = new Set(existingLinks.map((l) => l.bookId));
 
   const linksToInsert = IRV_BOOK_CODES.map((code) => idByCode.get(code) as number)
     .filter((bookId) => !linkedBookIds.has(bookId))
-    .map((bookId) => ({ bibleId: bible.id, bookId }));
+    .map((bookId) => ({ bibleId, bookId }));
 
   if (linksToInsert.length > 0) {
     await db.insert(bible_books).values(linksToInsert);
   }
 
-  console.log(`Bibles seeded. (IRV id=${bible.id}, ${linksToInsert.length} new book link(s))`);
+  console.log(`Bibles seeded. (IRV id=${bibleId}, ${linksToInsert.length} new book link(s))`);
 }
 
 /**
@@ -151,26 +187,38 @@ async function seedBereanStandardBible() {
     throw new Error(`Language "${BSB_BIBLE.languageCode}" not found. Run seedLanguages first.`);
   }
 
-  await db
-    .insert(bibles)
-    .values({
-      name: BSB_BIBLE.name,
-      abbreviation: BSB_BIBLE.abbreviation,
-      languageId: language.id,
-      provider: 'dbl',
-      externalId: BSB_BIBLE.externalId,
-      audioResourceId: recording.id,
-    })
-    .onConflictDoNothing({ target: bibles.abbreviation });
+  // Same adopt/claim/suffix resolution as the IRV seed above.
+  const resolved = await resolveBibleByIdentity({
+    abbreviation: BSB_BIBLE.abbreviation,
+    name: BSB_BIBLE.name,
+    externalId: BSB_BIBLE.externalId,
+  });
 
-  const [bible] = await db
-    .select({ id: bibles.id })
-    .from(bibles)
-    .where(eq(bibles.abbreviation, BSB_BIBLE.abbreviation))
-    .limit(1);
-
-  if (!bible) {
-    throw new Error('BSB bible not found after insert.');
+  let bibleId: number;
+  if (resolved.existing) {
+    const bible = resolved.existing;
+    bibleId = bible.id;
+    const patch: { externalId?: string; audioResourceId?: number } = {};
+    if (bible.externalId !== BSB_BIBLE.externalId) patch.externalId = BSB_BIBLE.externalId;
+    // A curated recording selection wins on rerun — only fill audio fields
+    // when unset.
+    if (bible.audioResourceId === null) patch.audioResourceId = recording.id;
+    if (Object.keys(patch).length) {
+      await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
+    }
+  } else {
+    const [bible] = await db
+      .insert(bibles)
+      .values({
+        name: resolved.name,
+        abbreviation: resolved.abbreviation,
+        languageId: language.id,
+        provider: 'dbl',
+        externalId: BSB_BIBLE.externalId,
+        audioResourceId: recording.id,
+      })
+      .returning({ id: bibles.id });
+    bibleId = bible.id;
   }
 
   const bookRows = await db
@@ -191,19 +239,19 @@ async function seedBereanStandardBible() {
   const existingLinks = await db
     .select({ bookId: bible_books.bookId })
     .from(bible_books)
-    .where(eq(bible_books.bibleId, bible.id));
+    .where(eq(bible_books.bibleId, bibleId));
   const linkedBookIds = new Set(existingLinks.map((l) => l.bookId));
 
   const linksToInsert = BSB_BOOK_CODES.map((code) => idByCode.get(code) as number)
     .filter((bookId) => !linkedBookIds.has(bookId))
-    .map((bookId) => ({ bibleId: bible.id, bookId }));
+    .map((bookId) => ({ bibleId, bookId }));
 
   if (linksToInsert.length > 0) {
     await db.insert(bible_books).values(linksToInsert);
   }
 
   console.log(
-    `Bibles seeded. (BSB id=${bible.id}, audioResourceId=${recording.id}, ` +
+    `Bibles seeded. (BSB id=${bibleId}, audioResourceId=${recording.id}, ` +
       `${linksToInsert.length} new book link(s))`
   );
 }
