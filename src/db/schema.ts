@@ -491,6 +491,8 @@ export const USFM_PARAGRAPH_MARKERS = [
 // USJ paragraph context carried per verse row. `paragraphs` lists where new
 // paragraphs open inside this verse's content: offset 0 means the verse itself
 // opens a paragraph; a mid-text offset splits the verse across two paragraphs.
+// A `p` at offset 0 may come before a second offset-0 entry: an empty \p right
+// before the verse's own line, such as a poetry line (fluent-web#530).
 // Null/absent = legacy row = no structure known; the USFM export then falls
 // back to a single \p per chapter, exactly as before this column existed.
 /**
@@ -568,10 +570,19 @@ export const verseMarkersSchema = z
       .superRefine((paragraphs, ctx) => {
         if (!paragraphs) return;
         for (let i = 1; i < paragraphs.length; i++) {
-          if (paragraphs[i].offset <= paragraphs[i - 1].offset) {
+          // The one shared offset: an empty \p right before the line the verse opens, written
+          // `\p` then `\q1 \v 3` (a paragraph that starts with a poetry line, fluent-web#530).
+          const pBeforeVerseLine =
+            i === 1 &&
+            paragraphs[0].marker === 'p' &&
+            paragraphs[0].offset === 0 &&
+            paragraphs[1].marker !== 'p' &&
+            paragraphs[1].offset === 0;
+          if (paragraphs[i].offset <= paragraphs[i - 1].offset && !pBeforeVerseLine) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: 'paragraph offsets must be strictly increasing',
+              message:
+                'paragraph offsets must be strictly increasing, except a p at offset 0 right before the line the verse opens',
             });
             break;
           }

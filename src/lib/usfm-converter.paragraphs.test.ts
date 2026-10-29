@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { VerseMarkers } from '@/db/schema';
+import type { USJDocument, USJNode } from '@/lib/types';
+
 import { MAX_VERSE_PARAGRAPHS } from '@/db/schema';
 import { logger } from '@/lib/logger';
 
-import { generateUSFMText } from './usfm-converter';
+import { generateUSFMText, usjToVerseTexts } from './usfm-converter';
 import { versesOf } from './usfm-converter.test-fixtures';
+
+type VerseParagraphs = NonNullable<NonNullable<VerseMarkers>['paragraphs']>;
 
 vi.mock('@/lib/logger', () => ({
   logger: { warn: vi.fn(), error: vi.fn() },
@@ -172,6 +177,149 @@ describe('paragraph structure (fluent-web#314)', () => {
       }))
     );
 
+    expect(versesOf(exported)).toEqual(imported);
+  });
+});
+
+// The USFM spec's \p followed by \q: a paragraph that starts with a poetry line.
+describe('an empty \\p before a poetry line (fluent-web#530)', () => {
+  const opensWithPoetry = (verseNumber: number, text: string, more: VerseParagraphs = []) => ({
+    chapterNumber: 1,
+    verseNumber,
+    text,
+    markers: {
+      paragraphs: [{ marker: 'p', offset: 0 }, { marker: 'q1', offset: 0 }, ...more],
+    },
+  });
+
+  it('keeps the \\p for the verse whose line comes right after it', () => {
+    expect(
+      versesOf('\\id MRK\n\\c 1\n\\p\n\\v 1 One.\n\\p\n\\q1\n\\v 2 Two,\n\\q2 still two.')
+    ).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+      opensWithPoetry(2, 'Two, still two.', [{ marker: 'q2', offset: 5 }]),
+    ]);
+  });
+
+  it('keeps it at the start of a chapter and after a heading', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p\n\\q1\n\\v 1 One.')).toEqual([
+      opensWithPoetry(1, 'One.'),
+    ]);
+    const [verse] = versesOf('\\id PSA\n\\c 1\n\\s1 A song\n\\p\n\\q1\n\\v 1 One.');
+    expect(verse.markers).toEqual({
+      headings: [{ marker: 's1', text: 'A song' }],
+      ...opensWithPoetry(1, 'One.').markers,
+    });
+  });
+
+  // Kasey and CodeRabbit on fluent-api#473: words before the first verse are left out of the rows,
+  // but they still mean the paragraph is not empty, and that the line does not open with \v.
+  it('keeps no \\p when the paragraph before the line holds words', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p Introductory text.\n\\q1\n\\v 1 One.')).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it('keeps no \\p when the line holds words before its verse number', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p\n\\q1 Label words\n\\v 1 One.')).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One.',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it.each<[string, USJNode]>([
+    ['a character marker', { type: 'char', marker: 'nd', content: ['Lord'] }],
+    ['a verse number', { type: 'verse', marker: 'v', number: '1' }],
+    ['stray text', 'Stray words.' as unknown as USJNode],
+    ['an unknown block', { type: 'table', content: [] } as unknown as USJNode],
+  ])('keeps no \\p when %s comes between it and the line', (_, between) => {
+    const usj: USJDocument = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'chapter', marker: 'c', number: '1' },
+        { type: 'para', marker: 'p', content: [] },
+        between,
+        {
+          type: 'para',
+          marker: 'q1',
+          content: [{ type: 'verse', marker: 'v', number: '2' }, 'Two.'],
+        },
+      ],
+    };
+    const result = usjToVerseTexts(usj);
+    if (!result.ok) throw new Error(result.error.message);
+    expect(result.data.find((verse) => verse.verseNumber === 2)?.markers).toEqual({
+      paragraphs: [{ marker: 'q1', offset: 0 }],
+    });
+  });
+
+  it('drops an empty paragraph anywhere else, as before', () => {
+    // Before a line a verse only continues into, before another \p, and an empty \q1.
+    expect(
+      versesOf(
+        '\\id PSA\n\\c 1\n\\q1\n\\v 1 One,\n\\p\n\\q2 still one.\n\\p\n\\p\n\\v 2 Two.\n\\q1\n\\p\n\\v 3 Three.'
+      )
+    ).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'One, still one.',
+        markers: {
+          paragraphs: [
+            { marker: 'q1', offset: 0 },
+            { marker: 'q2', offset: 5 },
+          ],
+        },
+      },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'Two.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+      {
+        chapterNumber: 1,
+        verseNumber: 3,
+        text: 'Three.',
+        markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+      },
+    ]);
+  });
+
+  it('exports it back where the file had it', () => {
+    const usfm =
+      '\\id MRK\n\\c 1\n\\p\n\\v 1 One.\n\\p\n\\q1\n\\v 2 Two,\n\\q2 still two.\n\\p\n\\v 3 Three.';
+    const imported = versesOf(usfm);
+    const exported = generateUSFMText(
+      imported.map((verse) => ({
+        bookId: 41,
+        bookCode: 'MRK',
+        bookName: 'Mark',
+        chapterNumber: verse.chapterNumber,
+        verseNumber: verse.verseNumber,
+        translatedContent: verse.text,
+        markers: verse.markers,
+      }))
+    );
+
+    expect(exported).toContain(
+      '\\v 1 One.\n\\p\n\\q1\n\\v 2 Two, \n\\q2\nstill two.\n\\p\n\\v 3 Three.'
+    );
     expect(versesOf(exported)).toEqual(imported);
   });
 });

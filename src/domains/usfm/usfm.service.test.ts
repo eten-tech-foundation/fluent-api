@@ -112,6 +112,41 @@ describe('createUSFMStreamForBook', () => {
     expect(usfm).toContain('\\c 1\n\\p\n\\v 1 In the beginning.\n\\q1\n\\v 2 Poetry line.\n');
   });
 
+  // fluent-web#530: a paragraph that starts with a poetry line, as in the spec's `\p` then `\q`.
+  it('writes an empty \\p before the line a mid-chapter verse opens with', async () => {
+    const usfm = await renderUSFM([
+      verse({ verseNumber: 1 }),
+      verse({
+        verseNumber: 2,
+        translatedContent: 'Poetry line.',
+        markers: {
+          paragraphs: [
+            { marker: 'p', offset: 0 },
+            { marker: 'q1', offset: 0 },
+          ],
+        },
+      }),
+    ]);
+
+    expect(usfm).toContain('\\v 1 In the beginning.\n\\p\n\\q1\n\\v 2 Poetry line.\n');
+  });
+
+  it('writes it at the start of a chapter in place of the default \\p', async () => {
+    const usfm = await renderUSFM([
+      verse({
+        markers: {
+          paragraphs: [
+            { marker: 'p', offset: 0 },
+            { marker: 'q1', offset: 0 },
+          ],
+        },
+      }),
+    ]);
+
+    expect(usfm).toContain('\\c 1\n\\p\n\\q1\n\\v 1 In the beginning.\n');
+    expect(usfm).not.toContain('\\p\n\\p');
+  });
+
   it('ignores offsets beyond the verse content instead of corrupting the output', async () => {
     const usfm = await renderUSFM([
       verse({

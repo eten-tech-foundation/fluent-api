@@ -112,7 +112,13 @@ source order.
 Each row also stores its body paragraphs in `markers.paragraphs`, in the same
 `{ marker, offset }` form the web editor saves: offset 0 when the verse number
 opens the paragraph, and the offset in the saved text when a paragraph starts
-inside the verse. A row holds at most `MAX_VERSE_PARAGRAPHS` (20); the import
+inside the verse. An empty `\p` right before a line that starts with a verse
+number, as in `\p` then `\q1 \v 3` (a paragraph that starts with a poetry line),
+is kept as a `p` at offset 0 ahead of the line's own marker. A `\p` with words in
+it is not empty, even when the words come before the chapter's first verse and
+stay out of the rows. Any other paragraph with no words has nothing to anchor it
+and is dropped.
+A row holds at most `MAX_VERSE_PARAGRAPHS` (20); the import
 keeps the first 20 and logs a warning. A verse with no words that carries a
 heading or opens a paragraph is stored as a row with empty content, so the
 structure survives. AI look-ahead, chapter progress and the export book list
