@@ -61,6 +61,7 @@ async function seedIrvGujarati() {
   // and reconcile it, or create it fresh.
   const resolved = await resolveBibleByIdentity({
     abbreviation: IRV_BIBLE.abbreviation,
+    name: IRV_BIBLE.name,
     externalId: IRV_BIBLE.externalId,
   });
 
@@ -83,7 +84,7 @@ async function seedIrvGujarati() {
     const [bible] = await db
       .insert(bibles)
       .values({
-        name: IRV_BIBLE.name,
+        name: resolved.name,
         abbreviation: resolved.abbreviation,
         languageId: language.id,
         externalId: IRV_BIBLE.externalId,
@@ -189,6 +190,7 @@ async function seedBereanStandardBible() {
   // Same adopt/claim/suffix resolution as the IRV seed above.
   const resolved = await resolveBibleByIdentity({
     abbreviation: BSB_BIBLE.abbreviation,
+    name: BSB_BIBLE.name,
     externalId: BSB_BIBLE.externalId,
   });
 
@@ -208,7 +210,7 @@ async function seedBereanStandardBible() {
     const [bible] = await db
       .insert(bibles)
       .values({
-        name: BSB_BIBLE.name,
+        name: resolved.name,
         abbreviation: resolved.abbreviation,
         languageId: language.id,
         provider: 'dbl',

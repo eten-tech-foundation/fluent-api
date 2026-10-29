@@ -51,7 +51,7 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
       .select({ id: authUser.id, email: authUser.email })
       .from(authUser)
       .where(sql`lower(${authUser.email}) = ${email}`)
-      .orderBy(authUser.createdAt)
+      .orderBy(authUser.createdAt, authUser.id)
       .limit(1);
 
     const [existingUserByEmail] = await tx
@@ -106,8 +106,9 @@ export async function reconcileSeedUser(input: ReconcileSeedUserInput): Promise<
             and(eq(authAccount.userId, targetAuthUserId), eq(authAccount.providerId, 'credential'))
           )
           // (userId, providerId) isn't unique at the schema level — order so
-          // rotation touches the oldest credential row consistently.
-          .orderBy(authAccount.createdAt)
+          // rotation touches the oldest credential row consistently (id breaks
+          // createdAt ties).
+          .orderBy(authAccount.createdAt, authAccount.id)
           .limit(1);
         if (credential) {
           await tx

@@ -7,6 +7,7 @@ import { bible_books, bible_provider_resources, bibles, books } from '@/db/schem
 import { resolveBibleByIdentity } from '@/db/seeds/bible-identity';
 
 import type { DemoCtx } from './context';
+import type { DemoBible } from './types';
 
 // ─── Stage 3: bibles + book links ───────────────────────────────────────────
 
@@ -75,19 +76,7 @@ export async function seedSpecBibles(ctx: DemoCtx) {
     let bible: SeedBibleRow;
     if (resolved.existing) {
       bible = resolved.existing;
-      // Spec-provided externalId wins on reconcile (only ever claimed onto a
-      // row whose identity is NULL). Audio state follows the same
-      // curated-selection rule as seeds/bibles.ts: an operator-chosen
-      // recording or hasAudio flag isn't seed-owned drift, so spec audio
-      // values only fill an empty audio slot.
-      const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
-      if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
-        patch.externalId = spec.externalId;
-      if (bible.audioResourceId === null) {
-        if (audioResourceId !== undefined) patch.audioResourceId = audioResourceId;
-        if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
-          patch.hasAudio = spec.hasAudio;
-      }
+      const patch = demoBiblePatch(bible, spec, audioResourceId);
       if (Object.keys(patch).length)
         await db.update(bibles).set(patch).where(eq(bibles.id, bible.id));
     } else {
@@ -95,7 +84,7 @@ export async function seedSpecBibles(ctx: DemoCtx) {
         .insert(bibles)
         .values({
           abbreviation: resolved.abbreviation,
-          name: spec.name,
+          name: resolved.name,
           languageId,
           externalId: spec.externalId,
           hasAudio: spec.hasAudio ?? false,
@@ -104,6 +93,7 @@ export async function seedSpecBibles(ctx: DemoCtx) {
         .returning({
           id: bibles.id,
           abbreviation: bibles.abbreviation,
+          name: bibles.name,
           externalId: bibles.externalId,
           hasAudio: bibles.hasAudio,
           audioResourceId: bibles.audioResourceId,
@@ -145,4 +135,28 @@ export async function seedSpecBibles(ctx: DemoCtx) {
   if (missing.length) {
     throw new Error(`Unknown bibles: ${missing.join(', ')} — not in spec or reference data`);
   }
+}
+
+/**
+ * The reconcile patch for an adopted spec bible. Spec-provided externalId wins
+ * (only ever claimed onto a row whose identity is NULL — resolution never
+ * adopts a row holding a different one). Audio state follows the same
+ * curated-selection rule as seeds/bibles.ts: an operator-chosen recording or
+ * hasAudio flag isn't seed-owned drift, so spec audio values only fill an
+ * empty audio slot.
+ */
+export function demoBiblePatch(
+  bible: Pick<SeedBibleRow, 'externalId' | 'hasAudio' | 'audioResourceId'>,
+  spec: Pick<DemoBible, 'externalId' | 'hasAudio'>,
+  audioResourceId: number | undefined
+): { externalId?: string; hasAudio?: boolean; audioResourceId?: number } {
+  const patch: { externalId?: string; hasAudio?: boolean; audioResourceId?: number } = {};
+  if (spec.externalId !== undefined && bible.externalId !== spec.externalId)
+    patch.externalId = spec.externalId;
+  if (bible.audioResourceId === null) {
+    if (audioResourceId !== undefined) patch.audioResourceId = audioResourceId;
+    if (spec.hasAudio !== undefined && bible.hasAudio !== spec.hasAudio)
+      patch.hasAudio = spec.hasAudio;
+  }
+  return patch;
 }
