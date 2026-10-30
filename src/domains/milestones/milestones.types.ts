@@ -2,7 +2,11 @@ import { z } from '@hono/zod-openapi';
 
 import { projectStatusEnum } from '@/db/schema';
 
-import { chapterStatusCountsSchema } from '../projects/projects.types';
+import {
+  chapterStatusCountsSchema,
+  usfmFileCheckSchema,
+  usfmFileToCheckSchema,
+} from '../projects/projects.types';
 
 export interface MilestoneSummaryRow {
   id: number;
@@ -106,6 +110,32 @@ export const projectIdParamSchema = z.object({
 export const milestonePathParamsSchema = projectIdParamSchema.extend({
   milestoneId: z.coerce.number().int().positive(),
 });
+
+// ─── Add Milestone USFM import (#418, #419, #420) ────────────────────────────
+
+export const checkMilestoneUsfmFilesSchema = z
+  .object({
+    files: z.array(usfmFileToCheckSchema).min(1),
+    // The books the dialog has accepted so far, so a second file for one of them is refused.
+    listedBookCodes: z.array(z.string().min(3).max(4)).optional(),
+  })
+  .openapi('MilestoneUsfmFilesToCheck');
+
+export const milestoneUsfmFileChecksSchema = z
+  .object({ files: z.array(usfmFileCheckSchema) })
+  .openapi('MilestoneUsfmFileChecks');
+
+export const importUsfmMilestoneSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    files: z.array(usfmFileToCheckSchema).min(1),
+  })
+  .openapi('UsfmMilestoneImport');
+
+// A refused import lists every file's verdict; a project with no Source Bible has none to list.
+export const rejectedUsfmImportSchema = z
+  .object({ message: z.string(), files: z.array(usfmFileCheckSchema).optional() })
+  .openapi('RejectedUsfmImport');
 
 export type Milestone = z.infer<typeof milestoneResponseSchema>;
 export type CreateMilestoneInput = z.infer<typeof createMilestoneSchema>;

@@ -391,6 +391,26 @@ export async function insertBibleBookLinks(
 
 // ─── Imported USFM (#419) ─────────────────────────────────────────────────────
 
+/**
+ * Every book the project holds, with the milestone it sits in. A book removed from its
+ * milestone keeps its row with `deletedAt` set, and its content stays in the project.
+ */
+export async function getProjectBookPlacements(
+  projectId: number,
+  tx: typeof db | DbTransaction = db
+) {
+  return tx
+    .select({
+      bookId: project_unit_bible_books.bookId,
+      milestoneName: project_units.name,
+      deletedAt: project_unit_bible_books.deletedAt,
+    })
+    .from(project_unit_bible_books)
+    .innerJoin(project_units, eq(project_units.id, project_unit_bible_books.projectUnitId))
+    .where(eq(project_units.projectId, projectId))
+    .orderBy(asc(project_unit_bible_books.bookId), asc(project_units.id));
+}
+
 export async function insertUsfmImports(
   rows: { projectUnitId: number; bookId: number; fileName: string; usfm: string }[],
   tx: DbTransaction

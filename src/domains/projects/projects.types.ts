@@ -46,6 +46,49 @@ export interface ParsedUsfmFile extends UsfmFileInput {
   verses: UsjVerseText[];
 }
 
+// The Add Milestone import (#418, #419, #420): one verdict per file, from the same detection and
+// parse that the import itself runs.
+
+export const usfmFileToCheckSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  // Empty is allowed so an empty file gets its own USFM_INVALID verdict instead of failing the batch.
+  usfm: z.string(),
+});
+
+export const USFM_FILE_PROBLEMS = [
+  'USFM_INVALID',
+  'USFM_BOOK_MISSING',
+  'USFM_BOOK_DUPLICATE',
+  'USFM_BOOK_EXISTS',
+  'USFM_BOOK_NOT_IN_SOURCE',
+] as const;
+
+export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(true),
+    bookCode: z.string(),
+    bookName: z.string(),
+  }),
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(false),
+    error: z.enum(USFM_FILE_PROBLEMS),
+    message: z.string(),
+    // Set once the book is known: every problem after USFM_INVALID and USFM_BOOK_MISSING.
+    bookCode: z.string().optional(),
+    bookName: z.string().optional(),
+    // USFM_BOOK_EXISTS only: the milestone that holds the book, or null when no milestone does.
+    milestoneName: z.string().nullable().optional(),
+    // USFM_BOOK_NOT_IN_SOURCE only: the project's Source Bible.
+    sourceBibleName: z.string().optional(),
+  }),
+]);
+
+export type UsfmFileToCheck = z.infer<typeof usfmFileToCheckSchema>;
+export type UsfmFileProblem = (typeof USFM_FILE_PROBLEMS)[number];
+export type UsfmFileCheck = z.infer<typeof usfmFileCheckSchema>;
+
 export const createProjectSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({

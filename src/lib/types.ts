@@ -88,6 +88,7 @@ export const ErrorCode = {
   USFM_INVALID: 'USFM_INVALID',
   USFM_BOOK_MISMATCH: 'USFM_BOOK_MISMATCH',
   USFM_BOOK_MISSING: 'USFM_BOOK_MISSING',
+  USFM_BOOK_EXISTS: 'USFM_BOOK_EXISTS',
   UNSUPPORTED_AUDIO_TYPE: 'UNSUPPORTED_AUDIO_TYPE',
   EMPTY_AUDIO_FILE: 'EMPTY_AUDIO_FILE',
   // External service errors
@@ -153,6 +154,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   USFM_INVALID: 'File is not valid USFM',
   USFM_BOOK_MISMATCH: 'USFM book code is invalid or does not match the uploaded file',
   USFM_BOOK_MISSING: 'Missing book data',
+  USFM_BOOK_EXISTS: 'A book in this import already exists in the project',
   AUTH_ERROR: 'Authentication service error',
   EMAIL_SERVICE_ERROR: 'Email service error',
   AI_SERVICE_UNAVAILABLE: 'AI service is unavailable',
@@ -210,6 +212,7 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   USFM_INVALID: 400,
   USFM_BOOK_MISMATCH: 400,
   USFM_BOOK_MISSING: 400,
+  USFM_BOOK_EXISTS: 409,
   PROJECT_HAS_MILESTONES: 409,
   NOT_FOUND: 404,
   PROJECT_NOT_FOUND: 404,
