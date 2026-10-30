@@ -46,7 +46,8 @@ export interface ParsedUsfmFile extends UsfmFileInput {
   verses: UsjVerseText[];
 }
 
-// The upload step's check (#418, #419): the same detection and parse as creation, nothing written.
+// The Add Milestone import (#418, #419, #420): one verdict per file, from the same detection and
+// parse that the import itself runs.
 
 export const usfmFileToCheckSchema = z.object({
   fileName: z.string().min(1).max(255),
@@ -54,14 +55,12 @@ export const usfmFileToCheckSchema = z.object({
   usfm: z.string(),
 });
 
-export const checkUsfmFilesSchema = z
-  .object({ files: z.array(usfmFileToCheckSchema).min(1) })
-  .openapi('UsfmFilesToCheck');
-
 export const USFM_FILE_PROBLEMS = [
   'USFM_INVALID',
   'USFM_BOOK_MISSING',
   'USFM_BOOK_DUPLICATE',
+  'USFM_BOOK_EXISTS',
+  'USFM_BOOK_NOT_IN_SOURCE',
 ] as const;
 
 export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
@@ -76,12 +75,15 @@ export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
     ok: z.literal(false),
     error: z.enum(USFM_FILE_PROBLEMS),
     message: z.string(),
+    // Set once the book is known: every problem after USFM_INVALID and USFM_BOOK_MISSING.
+    bookCode: z.string().optional(),
+    bookName: z.string().optional(),
+    // USFM_BOOK_EXISTS only: the milestone that holds the book, or null when no milestone does.
+    milestoneName: z.string().nullable().optional(),
+    // USFM_BOOK_NOT_IN_SOURCE only: the project's Source Bible.
+    sourceBibleName: z.string().optional(),
   }),
 ]);
-
-export const usfmFileChecksSchema = z
-  .object({ files: z.array(usfmFileCheckSchema) })
-  .openapi('UsfmFileChecks');
 
 export type UsfmFileToCheck = z.infer<typeof usfmFileToCheckSchema>;
 export type UsfmFileProblem = (typeof USFM_FILE_PROBLEMS)[number];

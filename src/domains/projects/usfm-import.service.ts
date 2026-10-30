@@ -7,7 +7,7 @@ import * as bibleTextsService from '@/domains/bibles/bible-texts/bible-texts.ser
 import * as booksService from '@/domains/books/books.service';
 import * as translatedVersesService from '@/domains/translated-verses/translated-verses.service';
 import { logger } from '@/lib/logger';
-import { err, ErrorCode, ErrorMessages, ok } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
 
 import type {
@@ -116,41 +116,153 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
   return ok(parsed);
 }
 
-const FILE_PROBLEM_MESSAGES: Record<UsfmFileProblem, string> = {
-  USFM_INVALID: ErrorMessages.USFM_INVALID,
-  USFM_BOOK_MISSING: ErrorMessages.USFM_BOOK_MISSING,
-  USFM_BOOK_DUPLICATE: 'Another file in this upload is for the same book',
-};
+/** The project an Add Milestone import goes into (#418, #419). */
+interface UsfmImportTarget {
+  projectId: number;
+  sourceBibleId: number;
+}
 
-function rejected(fileName: string, error: UsfmFileProblem): UsfmFileCheck {
-  return { fileName, ok: false, error, message: FILE_PROBLEM_MESSAGES[error] };
+/** Every file's verdict, plus the parsed files when all of them passed. */
+interface PreparedUsfmImport {
+  verdicts: UsfmFileCheck[];
+  accepted: ParsedUsfmFile[];
+}
+
+interface ImportFacts {
+  books: Map<string, { id: number; name: string }>;
+  sourceBibleName: string;
+  sourceBookIds: Set<number>;
+  // The milestone that holds each book; null when the book was removed from its milestone.
+  placements: Map<number, string | null>;
+}
+
+async function loadImportFacts(
+  target: UsfmImportTarget,
+  tx?: DbTransaction
+): Promise<Result<ImportFacts>> {
+  const [known, sourceBooks, placements] = await Promise.all([
+    booksService.getAllBooks(),
+    bibleBooksService.getBibleBooksByBibleId(target.sourceBibleId),
+    repo.getProjectBookPlacements(target.projectId, tx),
+  ]);
+  if (!known.ok) return known;
+  if (!sourceBooks.ok) return sourceBooks;
+
+  const placed = new Map<number, string | null>();
+  for (const row of placements) {
+    // A book in an active milestone is reported there, even if a removed row also exists.
+    if (row.deletedAt === null) placed.set(row.bookId, row.milestoneName);
+    else if (!placed.has(row.bookId)) placed.set(row.bookId, null);
+  }
+
+  return ok({
+    books: new Map(
+      known.data.map((book) => [book.code, { id: book.id, name: book.eng_display_name }])
+    ),
+    // Every row names the Bible; a Bible with no books has no name to give, and accepts nothing.
+    sourceBibleName: sourceBooks.data[0]?.bible.name ?? 'the Source Bible',
+    sourceBookIds: new Set(sourceBooks.data.map((row) => row.bookId)),
+    placements: placed,
+  });
+}
+
+function rejected(
+  fileName: string,
+  error: UsfmFileProblem,
+  book?: { code: string; name: string },
+  extra: { milestoneName?: string | null; sourceBibleName?: string } = {}
+): UsfmFileCheck {
+  const messages: Record<UsfmFileProblem, string> = {
+    USFM_INVALID: 'File is not a valid USFM file.',
+    USFM_BOOK_MISSING: 'Missing book data.',
+    USFM_BOOK_DUPLICATE: `${book?.name} was already added.`,
+    USFM_BOOK_EXISTS: extra.milestoneName
+      ? `${book?.name} already exists in ${extra.milestoneName}.`
+      : `${book?.name} already exists in this project.`,
+    USFM_BOOK_NOT_IN_SOURCE: `${book?.name} is not in ${extra.sourceBibleName}.`,
+  };
+  return {
+    fileName,
+    ok: false,
+    error,
+    message: messages[error],
+    ...(book && { bookCode: book.code, bookName: book.name }),
+    ...extra,
+  };
 }
 
 /**
- * The upload step's check (#418, #419): each file goes through the same book detection and
- * parse that project creation runs, nothing is written, and every file gets its own verdict so
- * the dialog can name the ones it rejects. #418 allows one file per book, so a book that two
- * files resolve to is reported on each file after the first.
+ * Checks files for an Add Milestone import (#418, #419) with the same detection and parse the
+ * import runs, and writes nothing. Each file gets its own verdict. A file is refused when it is
+ * not USFM, names no book, repeats a book already in the upload (`listedBookCodes` holds the
+ * books the dialog has accepted so far), holds a book the project already has in any milestone,
+ * removed ones included (an import never merges into existing content), or holds a book the
+ * project's Source Bible lacks.
  */
-export async function checkUsfmFiles(files: UsfmFileToCheck[]): Promise<Result<UsfmFileCheck[]>> {
-  const known = await booksService.getAllBooks();
-  if (!known.ok) return known;
-  const nameByCode = new Map(known.data.map((book) => [book.code, book.eng_display_name]));
-  const knownCodes = new Set(nameByCode.keys());
+export async function prepareUsfmImport(
+  target: UsfmImportTarget,
+  files: UsfmFileToCheck[],
+  listedBookCodes: string[] = [],
+  tx?: DbTransaction
+): Promise<Result<PreparedUsfmImport>> {
+  const facts = await loadImportFacts(target, tx);
+  if (!facts.ok) return facts;
+  const { books, placements, sourceBibleName, sourceBookIds } = facts.data;
+  const knownCodes = new Set(books.keys());
+  const listed = new Set(listedBookCodes.map((code) => code.trim().toUpperCase()));
 
-  const seen = new Set<string>();
-  return ok(
-    files.map(({ fileName, usfm }): UsfmFileCheck => {
-      const bookCode = detectBookCode(usfm, knownCodes);
-      if (!bookCode) {
-        return rejected(fileName, /\\[a-z]/i.test(usfm) ? 'USFM_BOOK_MISSING' : 'USFM_INVALID');
-      }
-      if (!parseImportVerses(usfm, bookCode).ok) return rejected(fileName, 'USFM_INVALID');
-      if (seen.has(bookCode)) return rejected(fileName, 'USFM_BOOK_DUPLICATE');
+  const verdicts: UsfmFileCheck[] = [];
+  const accepted: ParsedUsfmFile[] = [];
+  for (const { fileName, usfm } of files) {
+    const bookCode = detectBookCode(usfm, knownCodes);
+    if (!bookCode) {
+      verdicts.push(
+        rejected(fileName, /\\[a-z]/i.test(usfm) ? 'USFM_BOOK_MISSING' : 'USFM_INVALID')
+      );
+      continue;
+    }
+    const verses = parseImportVerses(usfm, bookCode);
+    if (!verses.ok) {
+      verdicts.push(rejected(fileName, 'USFM_INVALID'));
+      continue;
+    }
 
-      seen.add(bookCode);
-      return { fileName, ok: true, bookCode, bookName: nameByCode.get(bookCode) ?? bookCode };
-    })
+    // detectBookCode only returns codes from `books`, so the lookup always finds one.
+    const { id: bookId, name: bookName } = books.get(bookCode) ?? { id: 0, name: bookCode };
+    const book = { code: bookCode, name: bookName };
+    if (listed.has(bookCode)) {
+      verdicts.push(rejected(fileName, 'USFM_BOOK_DUPLICATE', book));
+    } else if (placements.has(bookId)) {
+      verdicts.push(
+        rejected(fileName, 'USFM_BOOK_EXISTS', book, { milestoneName: placements.get(bookId) })
+      );
+    } else if (!sourceBookIds.has(bookId)) {
+      verdicts.push(rejected(fileName, 'USFM_BOOK_NOT_IN_SOURCE', book, { sourceBibleName }));
+    } else {
+      listed.add(bookCode);
+      verdicts.push({ fileName, ok: true, bookCode, bookName });
+      accepted.push({ fileName, usfm, bookCode, bookId, verses: verses.data });
+    }
+  }
+
+  return ok({ verdicts, accepted });
+}
+
+/** The project's books, for re-checking an import inside the project lock. */
+export async function getBooksInProject(projectId: number, tx: DbTransaction) {
+  const rows = await repo.getProjectBookPlacements(projectId, tx);
+  return new Set(rows.map((row) => row.bookId));
+}
+
+/** Stores each imported file verbatim, the passthrough record of every tag (#419). */
+export async function recordUsfmImports(
+  projectUnitId: number,
+  files: ParsedUsfmFile[],
+  tx: DbTransaction
+) {
+  await repo.insertUsfmImports(
+    files.map(({ bookId, fileName, usfm }) => ({ projectUnitId, bookId, fileName, usfm })),
+    tx
   );
 }
 
