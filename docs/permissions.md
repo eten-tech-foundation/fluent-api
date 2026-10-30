@@ -25,6 +25,7 @@ This document describes the authorization system in `fluent-api`: how roles, per
   - [UserPolicy](#userpolicy)
   - [ChapterAssignmentPolicy](#chapterassignmentpolicy)
   - [AiSuggestionsPolicy](#aisuggestionspolicy)
+  - [DraftCommentPolicy](#draftcommentpolicy)
 - [Scope Resolvers](#scope-resolvers)
 - [activeOrgId](#activeorgid)
 - [User Invitation & Role Assignment](#user-invitation--role-assignment)
@@ -111,6 +112,9 @@ export const PERMISSIONS = {
   CONTENT_ASSIGN: 'content:assign',
   CONTENT_UPDATE: 'content:update',
 
+  // Draft chapter comments (distinct from content:update)
+  COMMENT_WRITE: 'comment:write',
+
   // Membership / role assignment
   MEMBERSHIP_REVOKE: 'membership:revoke',
   ROLE_ASSIGN_PROJECT: 'role:assign:project',
@@ -145,6 +149,7 @@ Derived from [`src/db/seeds/rbac.ts`](../src/db/seeds/rbac.ts). ✅ = granted, �
 | `content:view`            |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        ✅        |
 | `content:assign`          |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
 | `content:update`          |     ✅     |     ✅      |     —      |       ✅        |         ✅         |        —         |
+| `comment:write`           |     ✅     |      —      |     —      |       ✅        |         ✅         |        ✅        |
 | `membership:revoke`       |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
 | `role:assign:project`     |     ✅     |     ✅      |     —      |       ✅        |         —          |        —         |
 | `role:assign:org_manager` |     ✅     |      —      |     —      |        —        |         —          |        —         |
@@ -418,6 +423,21 @@ Unknown take, or a take belonging to a different unit, is 404. Deleting the acti
 | Method                                | Logic                                                             |
 | ------------------------------------- | ----------------------------------------------------------------- |
 | `canAccessProjectUnit(user, context)` | `project:view` OR `content:update` at `{orgId, projectId}` scope. |
+
+### DraftCommentPolicy
+
+[`src/domains/draft-comments/draft-comments.policy.ts`](../src/domains/draft-comments/draft-comments.policy.ts)
+
+Scoped grant checks for draft chapter comments. Never role-label-only. `comment:write` is distinct from `content:update`.
+
+| Method               | Logic                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `read(user, scope)`  | `content:view` at `{orgId, projectId}` (list + aggregate).                              |
+| `write(user, scope)` | `comment:write` at `{orgId, projectId}` (create / reply / react / comment-owned audio). |
+
+HTTP: unknown/missing assignment → 404 (`scopeFromChapterAssignment`); insufficient grant → 403
+(`requirePermission`). Service `denyWrite` (direct callers): missing read → 404; readable but no
+write → 403 — write routes usually hit middleware 403 first when `comment:write` is absent.
 
 ---
 

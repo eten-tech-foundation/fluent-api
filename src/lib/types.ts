@@ -107,6 +107,8 @@ export const ErrorCode = {
   // Feature domain errors
   LANGUAGE_NOT_FOUND: 'LANGUAGE_NOT_FOUND',
   PERICOPE_SET_NOT_FOUND: 'PERICOPE_SET_NOT_FOUND',
+  CHAPTER_COMMENT_NOT_FOUND: 'CHAPTER_COMMENT_NOT_FOUND',
+  COMMENT_AUDIO_STORAGE_UNAVAILABLE: 'COMMENT_AUDIO_STORAGE_UNAVAILABLE',
 } as const;
 
 // eslint-disable-next-line ts/no-redeclare
@@ -164,6 +166,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   DBL_AUDIO_CHAPTER_NOT_FOUND: 'DBL audio chapter not found',
   LANGUAGE_NOT_FOUND: 'Language not found',
   PERICOPE_SET_NOT_FOUND: 'Pericope set not found',
+  CHAPTER_COMMENT_NOT_FOUND: 'Chapter comment not found',
+  COMMENT_AUDIO_STORAGE_UNAVAILABLE: 'Comment audio storage is unavailable',
   // Workflow stage errors
   WORKFLOW_STAGE_NOT_FOUND: 'Workflow stage not found',
   WORKFLOW_STAGE_LIMIT_REACHED: 'Maximum number of configurable workflow stages reached',
@@ -192,6 +196,8 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   DBL_AUDIO_CHAPTER_NOT_FOUND: 404,
   LANGUAGE_NOT_FOUND: 404,
   PERICOPE_SET_NOT_FOUND: 404,
+  CHAPTER_COMMENT_NOT_FOUND: 404,
+  COMMENT_AUDIO_STORAGE_UNAVAILABLE: 503,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   CONFLICT: 409,
