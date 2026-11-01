@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 import type { RetainedBriefingProducer } from './assistant.cache';
 import type { BriefingEvent } from './assistant.client';
-import type { BriefingServiceErrorCode } from './assistant.types';
+import type { BriefingServiceErrorCode, PublicBriefingEvent } from './assistant.types';
 import type { CompletedBriefingArtifact } from './cache/assistant-cache.repository';
 
 import {
@@ -20,6 +20,8 @@ import {
   resolveGrounding,
   selectOutputLanguage,
 } from './assistant.config';
+import { resolveTurnContext } from './assistant.context';
+import { signBriefingDelivery } from './assistant.delivery';
 import { btUserId, buildBriefingPrompt, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import * as repo from './assistant.repository';
 import { assistantBriefingRequestSchema } from './assistant.types';
@@ -36,23 +38,6 @@ interface CreateBriefingInput {
   signal: AbortSignal;
   logger: AssistantLogger;
 }
-type PublicBriefingEvent =
-  | (Extract<BriefingEvent, { type: 'briefing_complete' }> & {
-      operationVersion: string;
-      cacheEpoch: string;
-      outputLanguage: string;
-      outputContractVersion: string;
-      cacheHit: boolean;
-    })
-  | BriefingEvent
-  | {
-      type: 'briefing_started';
-      attemptId: string;
-      operationVersion: string;
-      cacheEpoch: string;
-      outputContractVersion: string;
-      references: string[];
-    };
 type BriefingServiceResult =
   | { ok: false; code: BriefingServiceErrorCode; retryable: boolean }
   | { ok: true; events: AsyncGenerator<PublicBriefingEvent> };
@@ -215,6 +200,16 @@ export async function createPassageBriefing(
   });
   if (Buffer.byteLength(prompt) > config.budgets.maxInputBytes)
     return { ok: false, code: 'context_too_large', retryable: false };
+  const context = resolveTurnContext({
+    projectId: input.projectId,
+    passage,
+    config,
+    outputLanguage: parsed.data.outputLanguage,
+    resourceLanguage: grounding.resourceLanguage,
+    groundingInstruction: grounding.instruction,
+  });
+  const delivery = (events: AsyncGenerator<PublicBriefingEvent>) =>
+    signBriefingDelivery(events, input.userId, context);
   const attemptId = crypto.randomUUID();
   const contextHash = createHash('sha256')
     .update(
@@ -273,14 +268,16 @@ export async function createPassageBriefing(
   if (parsed.data.ignore_cache)
     return {
       ok: true,
-      events: privateEvents({
-        started,
-        client: createClient(),
-        request,
-        signal: input.signal,
-        metadata,
-        logTerminal,
-      }),
+      events: delivery(
+        privateEvents({
+          started,
+          client: createClient(),
+          request,
+          signal: input.signal,
+          metadata,
+          logTerminal,
+        })
+      ),
     };
   const cacheKey = briefingCacheKey({
     operationVersion: config.operationVersion,
@@ -315,7 +312,10 @@ export async function createPassageBriefing(
     input.logger.warn({ attemptId }, 'Assistant briefing cache cleanup failed')
   );
   if (completed)
-    return { ok: true, events: replayedEvents(started, completed, metadata, logTerminal) };
+    return {
+      ok: true,
+      events: delivery(replayedEvents(started, completed, metadata, logTerminal)),
+    };
   if (!producer) return { ok: false, code: 'temporarily_unavailable', retryable: true };
   if (installed) {
     const production = produceSharedBriefing({
@@ -340,6 +340,8 @@ export async function createPassageBriefing(
   }
   return {
     ok: true,
-    events: sharedEvents({ started, producer, signal: input.signal, metadata, logTerminal }),
+    events: delivery(
+      sharedEvents({ started, producer, signal: input.signal, metadata, logTerminal })
+    ),
   };
 }
