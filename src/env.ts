@@ -200,6 +200,7 @@ const EnvBaseSchema = z.object({
   ASSISTANT_PROFILE_VERSION: optionalAssistantValue,
   ASSISTANT_RESOURCE_POLICY_VERSION: optionalAssistantValue,
   ASSISTANT_CACHE_EPOCH: optionalAssistantValue,
+  ASSISTANT_HISTORY_WINDOW: optionalAssistantValue,
   ASSISTANT_RECEIPT_KEY_ID: optionalAssistantValue,
   ASSISTANT_RECEIPT_KEY_HEX: optionalAssistantValue,
   ASSISTANT_CONNECT_TIMEOUT_MS: optionalAssistantValue,

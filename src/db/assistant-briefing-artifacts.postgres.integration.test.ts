@@ -42,13 +42,22 @@ describe.skipIf(!connectionString)(
       WHERE table_schema = 'public' AND table_name = 'assistant_briefing_artifacts'
     `;
       expect(artifactTable).toEqual({ tableName: 'assistant_briefing_artifacts' });
+      const [turnTable] = await sql<{ tableName: string }[]>`
+        SELECT table_name AS "tableName" FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'assistant_turn_artifacts'
+      `;
+      expect(turnTable).toEqual({ tableName: 'assistant_turn_artifacts' });
 
       // Production provisioning creates this before the unchanged API boot; migrations intentionally
       // do not own pg-boss's schema.
       await sql`CREATE SCHEMA pgboss`;
       process.env.DATABASE_URL = connectionString!;
-      const { findCompletedBriefing, publishCompletedBriefing } =
-        await import('@/domains/assistant/cache/assistant-cache.repository');
+      const {
+        findCompletedBriefing,
+        publishCompletedBriefing,
+        findCompletedTurn,
+        publishCompletedTurn,
+      } = await import('@/domains/assistant/cache/assistant-cache.repository');
       const artifact = {
         cacheKey: 'd'.repeat(64),
         markdown: 'real PostgreSQL cache proof',
@@ -64,6 +73,15 @@ describe.skipIf(!connectionString)(
       expect(await publishCompletedBriefing(artifact)).toBe(true);
       expect(await findCompletedBriefing(artifact.cacheKey)).toMatchObject({
         markdown: artifact.markdown,
+      });
+      const turnKey = 'e'.repeat(64);
+      expect(
+        await publishCompletedTurn(turnKey, 'real PostgreSQL turn proof', 'fluent-turn-v1')
+      ).toBe(true);
+      expect(await publishCompletedTurn(turnKey, 'second writer', 'fluent-turn-v1')).toBe(false);
+      expect(await findCompletedTurn(turnKey)).toEqual({
+        markdown: 'real PostgreSQL turn proof',
+        outputContractVersion: 'fluent-turn-v1',
       });
       const { ensureAiSuggestionQueue, ensureExportQueues, initializeQueue, stopQueue } =
         await import('@/lib/queue');

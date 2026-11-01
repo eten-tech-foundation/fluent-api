@@ -45,6 +45,9 @@ vi.mock('./cache/assistant-cache.repository', () => ({
   findCompletedBriefing: vi.fn(async () => null),
   publishCompletedBriefing: vi.fn(async () => true),
   requestExpiredBriefingCleanup: vi.fn(),
+  findCompletedTurn: vi.fn(async () => null),
+  publishCompletedTurn: vi.fn(async () => true),
+  requestExpiredTurnCleanup: vi.fn(),
 }));
 
 export interface MockBtInstance {
