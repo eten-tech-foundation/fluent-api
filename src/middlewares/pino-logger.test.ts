@@ -1,7 +1,6 @@
-import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { pinoLogger } from './pino-logger';
+import createApp from '@/lib/create-app';
 
 const { logs } = vi.hoisted(() => ({ logs: [] as string[] }));
 
@@ -19,8 +18,7 @@ describe('http logging privacy', () => {
   it.each([200, 401, 500] as const)(
     'logs safe metadata without credentials or payloads for status %i',
     async (status) => {
-      const app = new Hono();
-      app.use(pinoLogger());
+      const app = createApp();
       app.onError((_error, c) => c.json({ error: 'provider-response-secret' }, 500));
       app.post('/assistant/conversation', async (c) => {
         const body = await c.req.json();
@@ -39,6 +37,7 @@ describe('http logging privacy', () => {
           Authorization: 'Bearer authorization-secret',
           'X-Api-Key': 'api-key-secret',
           'X-Receipt': 'request-receipt-secret',
+          'X-Request-Id': 'request-id-secret',
         },
         body: JSON.stringify({ question: 'private-question', receipt: 'private-receipt' }),
       });
@@ -48,7 +47,8 @@ describe('http logging privacy', () => {
       const entry = JSON.parse(logs[0]);
       expect(entry.req).toEqual({ method: 'POST', url: '/assistant/conversation' });
       expect(entry.res).toEqual({ status });
-      expect(entry.reqId).toEqual(expect.any(Number));
+      expect(entry.reqId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(response.headers.get('X-Request-Id')).toBe(entry.reqId);
       expect(entry.responseTime).toEqual(expect.any(Number));
       expect(entry.level).toBe(status === 500 ? 50 : 30);
       expect(entry.msg).toBe(status === 500 ? 'Request failed' : 'Request completed');

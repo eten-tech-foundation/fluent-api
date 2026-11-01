@@ -18,7 +18,11 @@ export function createRouter() {
 
 export default function createApp() {
   const app = createRouter();
-  app.use(requestId()).use(serveEmojiFavicon('📝')).use(pinoLogger());
+  // Always generate IDs locally: an inbound ID may contain sensitive user text.
+  app
+    .use(requestId({ limitLength: 0 }))
+    .use(serveEmojiFavicon('📝'))
+    .use(pinoLogger());
 
   app.notFound(notFound);
   app.onError(onError);
