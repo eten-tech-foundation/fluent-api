@@ -251,7 +251,9 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
   z.object({ protocol: z.literal(TURN_PROTOCOL), type: z.literal('context_changed') }).strict(),
 ]);
 
-// Add alongside existing briefing_started/delta/complete fields in chunk B.
+// Add alongside existing briefing_started/delta/complete fields. A delivery with no
+// signing configuration or oversized context/output instead sets continuationUnavailable.
+// Never use a previously signed prefix with later unsigned text.
 export const briefingIntegrityMetadataSchema = z
   .object({
     protocol: z.literal(TURN_PROTOCOL),

@@ -113,7 +113,7 @@ const briefingRoute = createRoute({
   middleware: [...guards],
   summary: 'Stream a grounded BT passage briefing',
   description:
-    'Streams normalized SSE events from the concrete BT passage-briefing operation. The server resolves canonical source text; browser-supplied draft text is not accepted or forwarded.',
+    'Streams normalized SSE events from the concrete BT passage-briefing operation. The server resolves canonical source text; browser-supplied draft text is not accepted or forwarded. Authorized deliveries add fluent-turn-v1 contextReceipt, operationId and accumulated prefix receipts when continuation signing is configured; otherwise continuationUnavailable explains why briefing remains read-only.',
   request: {
     params: projectParams,
     body: jsonContentRequired(

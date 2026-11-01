@@ -6,6 +6,15 @@ import { bible_texts, bibles, books, languages, pericope_verses, projects } from
 import type { SourceVerse } from './assistant.prompt';
 
 export interface PassageContext {
+  integritySource?: {
+    organizationId: number;
+    sourceBibleId: number;
+    provider: string;
+    externalId: string | null;
+    pericopeSetId: number | null;
+    membership: { number: string; section: number | null } | null;
+    members: { id: number; chapter: number; verse: number }[];
+  };
   sourceBible: string;
   sourceLanguageCode: string;
   verses: SourceVerse[];
@@ -47,6 +56,9 @@ export async function resolveCanonicalPassage(input: {
   const [project] = await db
     .select({
       sourceBibleId: projects.sourceBibleId,
+      organizationId: projects.organization,
+      provider: bibles.provider,
+      externalId: bibles.externalId,
       pericopeSetId: projects.pericopeSetId,
       sourceBible: bibles.name,
       sourceLanguageCode: languages.langCodeIso6393,
@@ -62,6 +74,15 @@ export async function resolveCanonicalPassage(input: {
     .from(books)
     .where(eq(books.code, input.bookCode.toUpperCase()));
   if (!book) return null;
+  const integritySource = {
+    organizationId: project.organizationId,
+    sourceBibleId: project.sourceBibleId,
+    provider: project.provider,
+    externalId: project.externalId,
+    pericopeSetId: project.pericopeSetId,
+    membership: null,
+    members: [],
+  };
 
   if (project.pericopeSetId) {
     const memberships = await db
@@ -86,6 +107,7 @@ export async function resolveCanonicalPassage(input: {
       });
       return verse
         ? {
+            integritySource,
             sourceBible: project.sourceBible,
             sourceLanguageCode: project.sourceLanguageCode,
             verses: [verse],
@@ -94,7 +116,11 @@ export async function resolveCanonicalPassage(input: {
     }
     const membership = memberships[0];
     const expected = await db
-      .select({ chapter: pericope_verses.chapterNumber, verse: pericope_verses.verseNumber })
+      .select({
+        id: pericope_verses.id,
+        chapter: pericope_verses.chapterNumber,
+        verse: pericope_verses.verseNumber,
+      })
       .from(pericope_verses)
       .where(
         and(
@@ -132,6 +158,7 @@ export async function resolveCanonicalPassage(input: {
     }
     if (!verses.length) return null;
     return {
+      integritySource: { ...integritySource, membership, members: expected },
       sourceBible: project.sourceBible,
       sourceLanguageCode: project.sourceLanguageCode,
       verses,
@@ -147,6 +174,7 @@ export async function resolveCanonicalPassage(input: {
   });
   return verse
     ? {
+        integritySource,
         sourceBible: project.sourceBible,
         sourceLanguageCode: project.sourceLanguageCode,
         verses: [verse],

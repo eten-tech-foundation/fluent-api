@@ -52,7 +52,7 @@ afterAll(async () => client.close());
 
 describe('canonical Assistant passage resolution', () => {
   it('returns the complete ordered cross-chapter pericope from real Drizzle queries', async () => {
-    await expect(resolveCanonicalPassage(input)).resolves.toEqual({
+    await expect(resolveCanonicalPassage(input)).resolves.toMatchObject({
       sourceBible: 'Canonical Source',
       sourceLanguageCode: 'eng',
       verses: [
@@ -61,6 +61,27 @@ describe('canonical Assistant passage resolution', () => {
         { bookCode: 'MAT', chapter: 5, verse: 2, text: 'third' },
       ],
     });
+  });
+
+  it('binds source identity and exact pericope membership independently of the active interior verse', async () => {
+    const first = await resolveCanonicalPassage(input);
+    const interior = await resolveCanonicalPassage({ ...input, chapter: 5, activeVerse: 1 });
+    expect(interior).toEqual(first);
+    expect(first?.integritySource).toMatchObject({
+      sourceBibleId: 9,
+      organizationId: 1,
+      pericopeSetId: 3,
+      membership: { number: '12', section: null },
+    });
+    await client.exec(
+      `UPDATE pericope_verses SET pericope_number = '13' WHERE pericope_number = '12'`
+    );
+    const changedMembership = await resolveCanonicalPassage(input);
+    expect(changedMembership?.verses).toEqual(first?.verses);
+    expect(changedMembership?.integritySource).not.toEqual(first?.integritySource);
+    await client.exec(`UPDATE bibles SET external_id = 'new-edition' WHERE id = 9`);
+    const changedBible = await resolveCanonicalPassage(input);
+    expect(changedBible?.integritySource).not.toEqual(changedMembership?.integritySource);
   });
 
   it('rejects canonical context without a project source-language code', async () => {
