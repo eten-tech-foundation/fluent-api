@@ -13,6 +13,11 @@ export type BriefingEvent =
   | { type: 'briefing_complete'; markdown: string }
   | { type: 'briefing_error'; code: BriefingFailureCode; retryable: boolean; retryAfter?: number };
 
+export interface BtHistoryPair {
+  user_message: string;
+  assistant_response: string;
+}
+
 interface ClientOptions {
   baseUrl: string;
   engineKey: string;
@@ -65,7 +70,12 @@ export class BtServantClient {
   constructor(private readonly options: ClientOptions) {}
 
   async *stream(
-    request: { userId: string; message: string; responseLanguageHint: string },
+    request: {
+      userId: string;
+      message: string;
+      responseLanguageHint: string;
+      history?: BtHistoryPair[];
+    },
     signal?: AbortSignal
   ): AsyncGenerator<BriefingEvent> {
     if (signal?.aborted) return;
@@ -100,7 +110,7 @@ export class BtServantClient {
           message_type: 'text',
           org: this.options.org,
           message: request.message,
-          history: [],
+          history: request.history ?? [],
           suppress_welcome: true,
           suppress_memory: true,
           response_language_hint: request.responseLanguageHint,
