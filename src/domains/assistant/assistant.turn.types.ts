@@ -1,6 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
-const TURN_PROTOCOL = 'fluent-turn-v1';
+export const TURN_PROTOCOL = 'fluent-turn-v1';
 export const TURN_LIMITS = {
   bodyBytes: 524_288,
   transcriptBytes: 393_216,

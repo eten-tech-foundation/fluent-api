@@ -9,7 +9,10 @@ import {
   BriefingCacheUnavailableError,
   cleanupExpiredBriefings,
   findCompletedBriefing,
+  findCompletedTurn,
   publishCompletedBriefing,
+  publishCompletedTurn,
+  requestExpiredTurnCleanup,
 } from './cache/assistant-cache.repository';
 
 const databaseState = vi.hoisted(() => ({
@@ -87,6 +90,12 @@ beforeAll(async () => {
     'utf8'
   );
   await client.exec(migration);
+  await client.exec(
+    await readFile(
+      new URL('../../db/migrations/0042_assistant_turn_artifacts.sql', import.meta.url),
+      'utf8'
+    )
+  );
 });
 
 afterEach(async () => {
@@ -212,4 +221,58 @@ describe('assistant completed briefing repository', () => {
     await Promise.resolve();
     expect(await findCompletedBriefing(late.cacheKey)).toBeNull();
   });
+});
+
+it('turn artifacts use DB expiry and conditional first winner without retaining inputs', async () => {
+  const key = randomBytes(32).toString('hex');
+  const winners = await Promise.all([
+    publishCompletedTurn(key, 'first', 'fluent-turn-v1'),
+    publishCompletedTurn(key, 'second', 'fluent-turn-v1'),
+  ]);
+  expect(winners.filter(Boolean)).toHaveLength(1);
+  expect(await findCompletedTurn(key)).toEqual({
+    markdown: 'first',
+    outputContractVersion: 'fluent-turn-v1',
+  });
+  await client.query(
+    "UPDATE assistant_turn_artifacts SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE cache_key = $1",
+    [key]
+  );
+  expect(await findCompletedTurn(key)).toBeNull();
+  expect(await publishCompletedTurn(key, 'new', 'fluent-turn-v1')).toBe(true);
+  expect(await findCompletedTurn(key)).toMatchObject({ markdown: 'new' });
+  const columns = await client.query<{ column_name: string }>(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'assistant_turn_artifacts' ORDER BY ordinal_position"
+  );
+  expect(columns.rows.map((row) => row.column_name)).toEqual([
+    'cache_key',
+    'markdown',
+    'output_contract_version',
+    'completed_at',
+    'expires_at',
+  ]);
+});
+
+it('cleans expired turn rows in a bounded batch without deleting live artifacts', async () => {
+  await client.query(`INSERT INTO assistant_turn_artifacts
+    (cache_key, markdown, output_contract_version, expires_at)
+    SELECT lpad(i::text, 64, '0'), 'expired', 'fluent-turn-v1', CURRENT_TIMESTAMP - INTERVAL '1 day'
+    FROM generate_series(1, 105) AS i`);
+  const onFailure = vi.fn();
+  requestExpiredTurnCleanup(onFailure);
+  await vi.waitFor(async () => {
+    const result = await client.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM assistant_turn_artifacts WHERE expires_at <= CURRENT_TIMESTAMP'
+    );
+    expect(result.rows[0].count).toBe(5);
+  });
+  expect(onFailure).not.toHaveBeenCalled();
+  requestExpiredTurnCleanup(onFailure);
+  expect(
+    (
+      await client.query<{ count: number }>(
+        'SELECT count(*)::int AS count FROM assistant_turn_artifacts WHERE expires_at <= CURRENT_TIMESTAMP'
+      )
+    ).rows[0].count
+  ).toBe(5);
 });

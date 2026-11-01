@@ -15,6 +15,9 @@ import { server } from '@/server/server';
 import type { BriefingServiceErrorCode } from './assistant.types';
 
 import { createPassageBriefing, getAssistantLanguages } from './assistant.service';
+import { admitTurnBody } from './assistant.turn.admission';
+import { createPassageTurn } from './assistant.turn.service';
+import { assistantTurnRequestSchema, TURN_PROTOCOL } from './assistant.turn.types';
 import { assistantBriefingRequestSchema } from './assistant.types';
 
 const guards = [
@@ -162,6 +165,85 @@ server.openapi(
           event: event.type,
           data: JSON.stringify(event),
         });
+      }
+    });
+  },
+  validationHook
+);
+
+const turnRoute = createRoute({
+  tags: ['Assistant'],
+  method: 'post',
+  path: '/projects/{projectId}/assistant/turns',
+  middleware: [...guards, admitTurnBody],
+  summary: 'Stream a grounded passage follow-up',
+  description:
+    'Verifies the complete visible transcript against freshly authorized source context. Reads exact completed artifacts; dont_cache defaults true and forbids sharing or publication on a miss. Streams atomic text and actor-bound prefix receipts without terminal text replacement.',
+  request: {
+    params: projectParams,
+    body: jsonContentRequired(
+      assistantTurnRequestSchema,
+      'Bounded signed visible branch and submission'
+    ),
+  },
+  responses: {
+    [HttpStatusCodes.OK]: {
+      content: { 'text/event-stream': { schema: z.string() } },
+      description:
+        'turn_started, turn_delta, and one terminal turn_complete or turn_error; context_changed occurs before start',
+    },
+    [HttpStatusCodes.BAD_REQUEST]: badRequest,
+    [HttpStatusCodes.UNAUTHORIZED]: messageError,
+    [HttpStatusCodes.FORBIDDEN]: messageError,
+    [HttpStatusCodes.NOT_FOUND]: messageError,
+    [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(
+      assistantErrorSchema,
+      'Raw body or context exceeds budget'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: messageError,
+    [HttpStatusCodes.SERVICE_UNAVAILABLE]: assistantUnavailable,
+  },
+});
+server.openapi(
+  turnRoute,
+  async (c) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    c.req.raw.signal.addEventListener('abort', abort, { once: true });
+    if (c.req.raw.signal.aborted) abort();
+    const result = await createPassageTurn({
+      projectId: c.req.valid('param').projectId,
+      userId: c.get('user')!.id,
+      body: c.req.valid('json'),
+      signal: controller.signal,
+      logger: c.get('logger'),
+    });
+    if (!result.ok && result.code !== 'context_changed') {
+      c.req.raw.signal.removeEventListener('abort', abort);
+      return c.json(
+        { code: result.code, retryable: result.retryable },
+        errorStatus(result.code) as never
+      );
+    }
+    return streamSSE(c, async (stream) => {
+      stream.onAbort(abort);
+      try {
+        if (!result.ok) {
+          const event = { protocol: TURN_PROTOCOL, type: 'context_changed' } as const;
+          await stream.writeSSE({ id: '1', event: event.type, data: JSON.stringify(event) });
+          return;
+        }
+        let id = 0;
+        for await (const event of result.events) {
+          await stream.writeSSE({
+            id: String(++id),
+            event: event.type,
+            data: JSON.stringify(event),
+          });
+        }
+      } finally {
+        abort();
+        c.req.raw.signal.removeEventListener('abort', abort);
       }
     });
   },

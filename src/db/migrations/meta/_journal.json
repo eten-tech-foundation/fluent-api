@@ -295,6 +295,13 @@
       "when": 1793104925175,
       "tag": "0041_assistant_briefing_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793566626019,
+      "tag": "0042_assistant_turn_artifacts",
+      "breakpoints": true
     }
   ]
 }

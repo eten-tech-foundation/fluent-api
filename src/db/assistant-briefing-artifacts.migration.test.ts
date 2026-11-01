@@ -52,6 +52,9 @@ it('applies the complete migration journal to a fresh PostgreSQL-compatible data
       `SELECT cache_key FROM assistant_briefing_artifacts WHERE expires_at > CURRENT_TIMESTAMP`
     );
     expect(rows).toEqual([]);
+    expect((await database.query('SELECT cache_key FROM assistant_turn_artifacts')).rows).toEqual(
+      []
+    );
   } finally {
     await database.close();
   }

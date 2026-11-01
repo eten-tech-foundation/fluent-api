@@ -429,6 +429,18 @@ export const project_unit_bible_books = pgTable(
   ]
 );
 
+export const assistant_turn_artifacts = pgTable(
+  'assistant_turn_artifacts',
+  {
+    cacheKey: char('cache_key', { length: 64 }).primaryKey(),
+    markdown: text('markdown').notNull(),
+    outputContractVersion: varchar('output_contract_version', { length: 64 }).notNull(),
+    completedAt: timestamp('completed_at').notNull().defaultNow(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (table) => [index('idx_assistant_turn_artifacts_expiry').on(table.expiresAt)]
+);
+
 /**
  * Disposable, content-addressed completions for the read-only Assistant passage briefing.
  * The key is a hash of answer-affecting input; tenant and user identity stay outside it so an

@@ -314,3 +314,72 @@ export function requestExpiredBriefingCleanup(onFailure: () => void): void {
       cleanupInFlight = null;
     });
 }
+
+interface CompletedTurnArtifact {
+  markdown: string;
+  outputContractVersion: string;
+}
+
+/** Turn artifacts deliberately contain no transcript, actor, source, or delivery receipts. */
+export async function findCompletedTurn(
+  cacheKey: string,
+  signal?: AbortSignal
+): Promise<CompletedTurnArtifact | null> {
+  const rows = await executeCacheQuery<CompletedTurnArtifact[]>({
+    text: `SELECT markdown, output_contract_version AS "outputContractVersion"
+      FROM assistant_turn_artifacts
+      WHERE cache_key = $1 AND expires_at > CURRENT_TIMESTAMP LIMIT 1`,
+    parameters: [cacheKey],
+    timeoutMs: ASSISTANT_CACHE_READ_TIMEOUT_MS,
+    timeoutReason: 'read_timeout',
+    signal,
+  });
+  return rows[0] ?? null;
+}
+
+export async function publishCompletedTurn(
+  cacheKey: string,
+  markdown: string,
+  outputContractVersion: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const rows = await executeCacheQuery<{ cacheKey: string }[]>({
+    text: `INSERT INTO assistant_turn_artifacts
+      (cache_key, markdown, output_contract_version, completed_at, expires_at)
+      VALUES ($1,$2,$3,CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second'))
+      ON CONFLICT (cache_key) DO UPDATE SET markdown = EXCLUDED.markdown,
+        output_contract_version = EXCLUDED.output_contract_version,
+        completed_at = CURRENT_TIMESTAMP,
+        expires_at = CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second')
+      WHERE assistant_turn_artifacts.expires_at <= CURRENT_TIMESTAMP
+      RETURNING cache_key AS "cacheKey"`,
+    parameters: [cacheKey, markdown, outputContractVersion],
+    timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
+    timeoutReason: 'write_timeout',
+    signal,
+  });
+  return rows.length === 1;
+}
+
+let turnCleanupStartedAt = 0;
+let turnCleanupInFlight = false;
+export function requestExpiredTurnCleanup(onFailure: () => void): void {
+  if (turnCleanupInFlight || Date.now() - turnCleanupStartedAt < CLEANUP_INTERVAL_MS) return;
+  turnCleanupStartedAt = Date.now();
+  turnCleanupInFlight = true;
+  void executeCacheQuery({
+    text: `WITH expired AS (SELECT cache_key FROM assistant_turn_artifacts
+      WHERE expires_at <= CURRENT_TIMESTAMP ORDER BY expires_at, cache_key LIMIT $1)
+      DELETE FROM assistant_turn_artifacts USING expired
+      WHERE assistant_turn_artifacts.cache_key = expired.cache_key
+        AND assistant_turn_artifacts.expires_at <= CURRENT_TIMESTAMP`,
+    parameters: [ASSISTANT_ARTIFACT_CLEANUP_BATCH],
+    timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
+    timeoutReason: 'write_timeout',
+  })
+    .catch(onFailure)
+    .finally(() => {
+      turnCleanupInFlight = false;
+    });
+}
