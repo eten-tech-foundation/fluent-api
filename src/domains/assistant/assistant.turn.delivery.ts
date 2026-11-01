@@ -25,7 +25,7 @@ export async function* boundedTurnEvents(events: AsyncIterable<BriefingEvent>) {
         markdown = next;
         if (event.delta) yield event;
       } else if (event.type === 'briefing_complete') {
-        yield event.markdown === markdown
+        yield event.markdown === markdown && markdown.trim().length > 0
           ? event
           : ({
               type: 'briefing_error',
