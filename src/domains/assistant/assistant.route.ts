@@ -15,6 +15,7 @@ import { server } from '@/server/server';
 import type { BriefingServiceErrorCode } from './assistant.types';
 
 import { createPassageBriefing, getAssistantLanguages } from './assistant.service';
+import { writeAssistantEvents } from './assistant.stream';
 import { admitTurnBody } from './assistant.turn.admission';
 import { createPassageTurn } from './assistant.turn.service';
 import { assistantTurnRequestSchema, TURN_PROTOCOL } from './assistant.turn.types';
@@ -127,7 +128,8 @@ const briefingRoute = createRoute({
   responses: {
     [HttpStatusCodes.OK]: {
       content: { 'text/event-stream': { schema: z.string() } },
-      description: 'briefing_started, briefing_delta, and one terminal briefing event',
+      description:
+        'briefing_started, briefing_delta, and one terminal briefing event; periodic safe SSE comments keep the connection active',
     },
     [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
@@ -158,14 +160,7 @@ server.openapi(
         errorStatus(result.code) as never
       );
     return streamSSE(c, async (stream) => {
-      let id = 0;
-      for await (const event of result.events) {
-        await stream.writeSSE({
-          id: String(++id),
-          event: event.type,
-          data: JSON.stringify(event),
-        });
-      }
+      await writeAssistantEvents(stream, result.events);
     });
   },
   validationHook
@@ -190,7 +185,7 @@ const turnRoute = createRoute({
     [HttpStatusCodes.OK]: {
       content: { 'text/event-stream': { schema: z.string() } },
       description:
-        'turn_started, turn_delta, and one terminal turn_complete or turn_error; context_changed occurs before start',
+        'turn_started, turn_delta, and one terminal turn_complete or turn_error; context_changed occurs before start; periodic safe SSE comments keep the connection active',
     },
     [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
@@ -233,14 +228,7 @@ server.openapi(
           await stream.writeSSE({ id: '1', event: event.type, data: JSON.stringify(event) });
           return;
         }
-        let id = 0;
-        for await (const event of result.events) {
-          await stream.writeSSE({
-            id: String(++id),
-            event: event.type,
-            data: JSON.stringify(event),
-          });
-        }
+        await writeAssistantEvents(stream, result.events);
       } finally {
         abort();
         c.req.raw.signal.removeEventListener('abort', abort);

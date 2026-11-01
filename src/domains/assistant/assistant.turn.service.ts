@@ -136,7 +136,8 @@ export async function createPassageTurn(input: TurnInput) {
       completed = await cacheRepo.findCompletedTurn(cacheKey, input.signal);
       if (
         completed &&
-        (completed.outputContractVersion !== TURN_PROTOCOL ||
+        (!completed.markdown.trim() ||
+          completed.outputContractVersion !== TURN_PROTOCOL ||
           completed.markdown.length > TURN_LIMITS.outputChars ||
           Buffer.byteLength(completed.markdown) > budgets.maxOutputBytes)
       ) {
