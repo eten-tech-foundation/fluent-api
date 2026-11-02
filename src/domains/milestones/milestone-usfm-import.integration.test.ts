@@ -4,6 +4,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import * as schema from '@/db/schema';
 import { createTestSchema } from '@/db/testing/create-catalogue-schema';
 import { asAuthenticatedUser } from '@/domains/pericopes/pericopes.test-fixtures';
+import * as projectsService from '@/domains/projects/projects.service';
+import { MAX_USFM_IMPORT_BYTES } from '@/domains/projects/projects.types';
 import * as usfmImportService from '@/domains/projects/usfm-import.service';
 import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
 import { auth } from '@/lib/auth';
@@ -34,6 +36,10 @@ vi.mock('@/lib/queue', async (importOriginal) => ({
 }));
 vi.mock('@/domains/users/users.service', () => ({ getUserByEmail: vi.fn() }));
 vi.mock('@/domains/user-roles/user-roles.repository', () => ({ findGrantsByUserId: vi.fn() }));
+vi.mock('@/domains/projects/projects.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/domains/projects/projects.service')>();
+  return { ...actual, lockProjectById: vi.fn(actual.lockProjectById) };
+});
 vi.mock('@/domains/projects/usfm-import.service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/domains/projects/usfm-import.service')>();
   return { ...actual, prepareUsfmImport: vi.fn(actual.prepareUsfmImport) };
@@ -162,6 +168,7 @@ describe('milestone USFM import (#418, #419, #420)', () => {
       bookName: 'Genesis',
     });
     expect(await units()).toHaveLength(2);
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('POST import creates one milestone from the files and keeps every tag', async () => {
@@ -262,6 +269,36 @@ describe('milestone USFM import (#418, #419, #420)', () => {
     expect(res.status).toBe(409);
     expect(await units()).toHaveLength(2);
   });
+
+  it('POST import answers 404 when the project is gone by the time it is locked', async () => {
+    vi.mocked(projectsService.lockProjectById).mockResolvedValueOnce(false);
+
+    const res = await post('import', {
+      name: 'Luke',
+      files: [{ fileName: 'LUK.usfm', usfm: LUK }],
+    });
+
+    expect(res.status).toBe(404);
+    expect(await database.select().from(schema.project_unit_usfm_imports)).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(['usfm-validation', 'import'])(
+    'POST %s refuses a body over the size limit',
+    async (path) => {
+      const res = await server.request(`/projects/10/milestones/${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': String(MAX_USFM_IMPORT_BYTES + 1),
+        },
+        body: JSON.stringify({ name: 'x', files: [{ fileName: 'a.usfm', usfm: LUK }] }),
+      });
+
+      expect(res.status).toBe(413);
+      expect(await units()).toHaveLength(2);
+    }
+  );
 
   it.each(['usfm-validation', 'import'])('POST %s requires a signed-in user', async (path) => {
     vi.mocked(auth.api.getSession).mockResolvedValue(null);

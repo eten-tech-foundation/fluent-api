@@ -1,11 +1,12 @@
 import { createRoute, z } from '@hono/zod-openapi';
+import { bodyLimit } from 'hono/body-limit';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent, jsonContentRequired } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { requireProjectAccess } from '@/domains/projects/project-auth.middleware';
-import { PROJECT_ACTIONS } from '@/domains/projects/projects.types';
+import { MAX_USFM_IMPORT_BYTES, PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
@@ -26,12 +27,29 @@ import {
 const validationErrorSchema = z.object({
   success: z.boolean(),
   error: z.object({
-    issues: z.array(z.object({ code: z.string(), path: z.array(z.string()), message: z.string() })),
+    // A failure inside `files` has the entry's index in its path.
+    issues: z.array(
+      z.object({
+        code: z.string(),
+        path: z.array(z.union([z.string(), z.number()])),
+        message: z.string(),
+      })
+    ),
     name: z.string(),
   }),
 });
 
+const TOO_LARGE = 'The files exceed the 50 MB limit for one request';
+
+// Stops a runaway upload before it is read and parsed; the schemas also cap each file and the
+// number of files.
+const usfmBodyLimit = bodyLimit({
+  maxSize: MAX_USFM_IMPORT_BYTES,
+  onError: (c) => c.json({ message: TOO_LARGE }, HttpStatusCodes.REQUEST_TOO_LONG),
+});
+
 const accessResponses = {
+  [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(createMessageObjectSchema(TOO_LARGE), TOO_LARGE),
   [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
     createMessageObjectSchema('Unauthorized'),
     'Authentication required'
@@ -61,6 +79,7 @@ const checkUsfmFilesRoute = createRoute({
     authenticateUser,
     requirePermission(PERMISSIONS.PROJECT_UPDATE),
     requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+    usfmBodyLimit,
   ] as const,
   summary: 'Check USFM files for a milestone import',
   description: [
@@ -113,6 +132,7 @@ const importUsfmMilestoneRoute = createRoute({
     authenticateUser,
     requirePermission(PERMISSIONS.PROJECT_UPDATE),
     requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+    usfmBodyLimit,
   ] as const,
   summary: 'Create a milestone from USFM files',
   description: [

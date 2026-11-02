@@ -49,10 +49,16 @@ export interface ParsedUsfmFile extends UsfmFileInput {
 // The Add Milestone import (#418, #419, #420): one verdict per file, from the same detection and
 // parse that the import itself runs.
 
+// Psalms, the longest book, is well under 1 MB of USFM, and a whole Bible has 66 books (plus the
+// deuterocanon). The caps leave room for both and stop a runaway upload before it is parsed.
+const MAX_USFM_FILE_CHARS = 5_000_000;
+export const MAX_USFM_FILES = 150;
+export const MAX_USFM_IMPORT_BYTES = 50 * 1024 * 1024;
+
 export const usfmFileToCheckSchema = z.object({
   fileName: z.string().min(1).max(255),
   // Empty is allowed so an empty file gets its own USFM_INVALID verdict instead of failing the batch.
-  usfm: z.string(),
+  usfm: z.string().max(MAX_USFM_FILE_CHARS),
 });
 
 export const USFM_FILE_PROBLEMS = [

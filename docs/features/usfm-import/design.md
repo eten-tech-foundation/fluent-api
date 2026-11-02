@@ -103,6 +103,9 @@ plus update access to the project):
   creates one milestone. It runs the same check first; if any file is refused,
   nothing is created and the 400 lists every verdict.
 
+Both routes take at most 150 files of up to 5 million characters each, and refuse a body over
+50 MB with a 413 before reading it.
+
 An import never merges into content the project already has, so a book in any
 milestone of the project is refused, including a book that was removed from its
 milestone and only sits in the project (`milestoneName: null`). Add Milestone's

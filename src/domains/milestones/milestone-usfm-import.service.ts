@@ -150,7 +150,9 @@ export async function importUsfmMilestone(
   if (verdicts.some((verdict) => !verdict.ok)) return ok({ kind: 'rejected', files: verdicts });
 
   const created = await runInTransaction(async (tx) => {
-    await projectsService.lockProjectById(projectId, tx);
+    // The project may have been deleted since the access check.
+    const locked = await projectsService.lockProjectById(projectId, tx);
+    if (!locked) return err(ErrorCode.PROJECT_NOT_FOUND);
 
     const inProject = await usfmImportService.getBooksInProject(projectId, tx);
     if (accepted.some((file) => inProject.has(file.bookId))) {

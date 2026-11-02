@@ -40,6 +40,8 @@ describe('bookCodeFromName (#418 fallback)', () => {
     ['oba', 'OBA'],
     ['JON', 'JON'],
     ['GEN Genesis', 'GEN'],
+    ['GEN.', 'GEN'],
+    ['Lev.', 'LEV'],
   ])('reads %j as a code first', (text, code) => {
     expect(bookCodeFromName(text, KNOWN)).toBe(code);
   });
@@ -56,6 +58,7 @@ describe('bookCodeFromName (#418 fallback)', () => {
     ['II Kings', '2KI'],
     ['Song of Songs', 'SNG'],
     ['The Book of Jonah', 'JON'],
+    ['The Book of Job', 'JOB'],
     ['The Gospel According to St. John', 'JHN'],
     ['The First Epistle of Paul to the Corinthians', '1CO'],
     ['Revelation of John', 'REV'],

@@ -4,6 +4,7 @@ import { projectStatusEnum } from '@/db/schema';
 
 import {
   chapterStatusCountsSchema,
+  MAX_USFM_FILES,
   usfmFileCheckSchema,
   usfmFileToCheckSchema,
 } from '../projects/projects.types';
@@ -115,9 +116,9 @@ export const milestonePathParamsSchema = projectIdParamSchema.extend({
 
 export const checkMilestoneUsfmFilesSchema = z
   .object({
-    files: z.array(usfmFileToCheckSchema).min(1),
+    files: z.array(usfmFileToCheckSchema).min(1).max(MAX_USFM_FILES),
     // The books the dialog has accepted so far, so a second file for one of them is refused.
-    listedBookCodes: z.array(z.string().min(3).max(4)).optional(),
+    listedBookCodes: z.array(z.string().min(3).max(4)).max(MAX_USFM_FILES).optional(),
   })
   .openapi('MilestoneUsfmFilesToCheck');
 
@@ -128,7 +129,7 @@ export const milestoneUsfmFileChecksSchema = z
 export const importUsfmMilestoneSchema = z
   .object({
     name: z.string().trim().min(1).max(255),
-    files: z.array(usfmFileToCheckSchema).min(1),
+    files: z.array(usfmFileToCheckSchema).min(1).max(MAX_USFM_FILES),
   })
   .openapi('UsfmMilestoneImport');
 

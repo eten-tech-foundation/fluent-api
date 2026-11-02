@@ -28,7 +28,8 @@ export const BOOK_NAMES: Readonly<Record<string, readonly string[]>> = {
   EZR: ['Ezra', 'एज्रा'],
   NEH: ['Nehemiah', 'नहेम्याह', 'नहे.'],
   EST: ['Esther', 'Esth', 'एस्तेर', 'एस्ते.'],
-  JOB: ['अय्यूब', 'अय्यू.'],
+  // A bare "Job" is the code itself, which bookCodeFromName already reads.
+  JOB: ['The Book of Job', 'अय्यूब', 'अय्यू.'],
   PSA: ['Psalms', 'Psalm', 'Ps', 'Pss', 'भजन संहिता', 'भज.'],
   PRO: ['Proverbs', 'Prov', 'Prv', 'नीतिवचन', 'नीति.'],
   ECC: ['Ecclesiastes', 'Eccl', 'Eccles', 'Qoheleth', 'Qoh', 'सभोपदेशक', 'सभो.'],
@@ -194,7 +195,8 @@ export function bookCodeFromName(
   text: string,
   knownCodes: ReadonlySet<string>
 ): string | undefined {
-  const firstWord = text.trim().split(/\s+/)[0]?.toUpperCase();
+  // "GEN." and "Lev." are codes too, written with a period.
+  const firstWord = text.trim().split(/\s+/)[0]?.replace(/\.$/, '').toUpperCase();
   if (firstWord && knownCodes.has(firstWord)) return firstWord;
 
   const code = CODE_BY_NAME.get(normalizeBookName(text));
