@@ -13,6 +13,10 @@ const PERMISSION_DEFINITIONS = [
   { name: PERMISSIONS.CONTENT_VIEW, description: 'View chapter assignment content' },
   { name: PERMISSIONS.CONTENT_ASSIGN, description: 'Assign chapter assignments' },
   { name: PERMISSIONS.CONTENT_UPDATE, description: 'Update chapter assignment content' },
+  {
+    name: PERMISSIONS.COMMENT_WRITE,
+    description: 'Create draft-chapter comments, replies, reactions, and comment audio',
+  },
   { name: PERMISSIONS.ORG_VIEW, description: 'View organizations' },
   { name: PERMISSIONS.ORG_CREATE, description: 'Create new organizations' },
   { name: PERMISSIONS.MEMBERSHIP_REVOKE, description: 'Revoke user memberships' },
@@ -51,6 +55,7 @@ const ROLE_PERMISSION_MAP = [
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_VIEW },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_ASSIGN },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.CONTENT_UPDATE },
+  { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.COMMENT_WRITE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.MEMBERSHIP_REVOKE },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.ROLE_ASSIGN_PROJECT },
   { roleName: ROLES.PROJECT_MANAGER, permissionName: PERMISSIONS.USER_VIEW },
@@ -61,12 +66,14 @@ const ROLE_PERMISSION_MAP = [
   { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.PROJECT_VIEW },
   { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.CONTENT_VIEW },
   { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.CONTENT_UPDATE },
+  { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.COMMENT_WRITE },
   { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.USER_VIEW },
   { roleName: ROLES.PROJECT_TRANSLATOR, permissionName: PERMISSIONS.USER_UPDATE },
 
-  // ── Observer: read-only access to project and content ─────────────────
+  // ── Observer: view + draft-chapter comments (not content:update) ───────
   { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.PROJECT_VIEW },
   { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.CONTENT_VIEW },
+  { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.COMMENT_WRITE },
   { roleName: ROLES.PROJECT_OBSERVER, permissionName: PERMISSIONS.USER_VIEW },
 ];
 

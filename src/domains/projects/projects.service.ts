@@ -432,6 +432,8 @@ export async function updateProject(
         return err(ErrorCode.PROJECT_NOT_FOUND);
       }
 
+      // Pericope-set changes mark comments Unconnected via DB trigger in
+      // 0041_add_draft_chapter_comments (same transaction as this UPDATE).
       return ok(updatedProject);
     });
   } catch (error) {
