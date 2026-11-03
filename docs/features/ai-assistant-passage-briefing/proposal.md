@@ -1,192 +1,258 @@
-# AI Assistant Passage Briefing Spike
+# Working Passage Assistant
 
-## Status
+## Scope and status
 
-This is a code-bearing spike proposal, not production approval. It demonstrates one concrete
-BT Servant-backed passage briefing across Fluent API and Fluent Web. Product, Bible-translation
-SME, licensing, privacy, and production-operations decisions listed below remain open.
+This coordinated API/Web implementation covers the Assistant shell (#402), passage briefing and
+suggested questions (#404), and temporary conversation (#406). The implementation is submitted for review with the limitations below; production ship gates remain open. It does not establish product/SME approval,
+production readiness, QA sign-off, or deployment.
 
-Related work: fluent-web
-[#402](https://github.com/eten-tech-foundation/fluent-web/issues/402) and
-[#404](https://github.com/eten-tech-foundation/fluent-web/issues/404). The spike does not complete
-[#403](https://github.com/eten-tech-foundation/fluent-web/issues/403),
-[#406](https://github.com/eten-tech-foundation/fluent-web/issues/406), or
-[#407](https://github.com/eten-tech-foundation/fluent-web/issues/407).
+Related requirements: fluent-web [#402](https://github.com/eten-tech-foundation/fluent-web/issues/402),
+[#404](https://github.com/eten-tech-foundation/fluent-web/issues/404), and
+[#406](https://github.com/eten-tech-foundation/fluent-web/issues/406).
+Settings [#403](https://github.com/eten-tech-foundation/fluent-web/issues/403) and first-use notice
+[#407](https://github.com/eten-tech-foundation/fluent-web/issues/407) remain outside this increment.
+Durable conversation history, attachments, automatic draft access, generated edits/actions,
+background agents, dynamic MCP, and additional providers are also excluded.
 
-## Proposal
+## Current limitations and follow-up
 
-Keep the first implementation deliberately concrete:
+As observed November 3, BT Servant 2.59.0 sends text answers as one final progress event.
+[Upstream change 458efb2](https://github.com/unfoldingWord/bt-servant-worker/pull/478)
+buffers text until the final iteration completes. Fluent renders received deltas, but current
+live briefings and follow-ups appear all at once after the loading indicator. No supported
+text-streaming opt-out was found. Earlier incremental-content timings below are historical,
+not evidence of current progressive display. Restoring that experience requires upstream coordination.
 
-- Fluent API authorizes the project request, resolves the canonical source-Bible passage, calls
-  BT Servant directly, normalizes its stream, and owns the disposable completed-artifact cache.
-- Fluent Web requests the briefing only while the Assistant pane is open, safely renders recognized
-  inline suggested-question macros as controls, isolates stale navigation results, and touches at
-  most the next pericope after the current result completes.
-- Do not introduce a reusable AI-backend interface from this single implementation. A second real
-  backend should supply the evidence for any shared boundary.
+Visual alignment is follow-up work: the current pane lacks the mockups' rounded enclosing
+border and separate Suggested Questions heading; button colors, exchange separators, icon,
+and Retry styling differ. The two-line composer accommodates longer questions and narrow panes.
+The selector follows the written requirement (below the passage header), which differs from
+the pictured ordering. Context-limit/interruption notices explain implemented behavior.
+The informational notice remains separate work under #407. This PR submits current behavior
+for review without correcting these departures.
 
-The proposed shape is requested, read-only assistance. It does not add freeform conversation,
-durable Assistant history, draft-aware analysis, generated edits, background agents, dynamic MCP,
-or a generalized prefetch scheduler.
+## Architecture and user behavior
 
-## Data boundary
+Fluent API authorizes project access, resolves the complete ordered canonical source-Bible pericope,
+calls BT Servant directly, normalizes its bounded stream, and owns disposable completed-artifact
+caches. There is no fluent-ai hop or generic provider framework. Web uses the API-owned supported
+language inventory, saved language preference, and source-language/English fallback.
 
-The browser sends only these selectors and bounded choices:
+The Assistant tab precedes Resources and remains independent of translation AI opt-out. The pane
+shows the canonical pericope header, language selector, briefing, suggested questions and conversation
+in a shared scroll area, with a composer pinned below it. Generation and Retry have visible controls.
+Safe Markdown is rendered from the accumulated source; unsafe HTML/URLs remain disabled. Complete
+recognized question macros become buttons; unknown or malformed syntax remains inert text.
 
-- project id, book code, chapter, and active verse;
-- output language;
-- a debug-only grounding-resource choice when the local force-on control is active; and
-- a cache-bypass flag when explicitly selected in the local debug controls.
+The prompt requests two short briefing paragraphs and three passage-specific questions in the
+selected language. Question count and placement are prompt conventions, not transport validation:
+a safe receipt-consistent document remains readable even when the model deviates. Product/SME
+acceptance must assess this limitation rather than infer compliance from parser tests.
 
-Fluent API checks project access before resolving the complete ordered pericope from the project's
-configured source Bible. It places the exact reference-labelled canonical source wording in the BT
-question. For BT's per-user queue and history slot, the API also sends a stable namespaced
-`fluent_{userId}` identifier derived from the authenticated Fluent numeric user id; the browser does
-not select it. Target-editor/draft text is not read by the Assistant request path and is not included
-in the browser request, BT question, Assistant cache, Assistant logs, fixtures, or telemetry.
+A question button submits its exact visible text through the same action as Enter/Send and preserves
+an existing unsent draft. Typed text is preserved apart from rejecting all-whitespace submissions;
+IME composition does not submit. Typed submission waits for a complete briefing unless an early
+suggested-question click has already established a signed frozen branch. The draft remains editable.
 
-The distinction matters: this spike sends more than passage references. Existing or proposed copy
-that says the Assistant “uses only passage references” is inaccurate. The accurate statement is
-that it sends the configured canonical source passage and does not send the translator's target
-draft. This slice has no freeform input. Future #406 typed/pasted messages will be transmitted as
-written and require their own explicit copy; they are not part of the current browser payload.
+A new question during generation freezes the visible prefix and starts a separate branch. Later
+output from the old attempt cannot alter that branch. Originally cacheable production may finish
+and publish its completed artifact; originally private production remains no-write. BT serializes
+work per user, so foreground interruption does not guarantee that the next answer starts immediately.
+There is no cancellation or queue-bypass guarantee.
 
-Fluent stores only the completed generated Markdown and version/language metadata in the disposable
-cache. It does not separately store the source block or prompt. The cache key is a SHA-256 digest of
-the answer-affecting semantic inputs, including the exact source wording; the digest prevents reuse
-after a source change but does not grant permission to transmit the source. The BT user identifier is
-excluded from cache identity, so semantically identical completed artifacts may be reused across
-authorized users even though provider-side queue/history activity remains linkable across requests
-for each user.
+Retry belongs only to the latest failed/interrupted user turn, keeps the same logical question,
+and excludes its failed attempt from provider history. A deliberate new question can include a
+nonempty signed partial answer, explicitly marked incomplete. Empty failures produce no history pair.
 
-## Demonstrated behavior
+One conversation owner lives for the drafting workspace, above panel remounts. Closing the sidebar
+or switching to Resources/Checks preserves the thread/draft and lets an already requested answer
+finish. Same-pericope verse navigation preserves it. Pericope/project changes, language/grounding
+changes, and Force fresh create a new boundary; A→B→A does not restore the earlier thread. Unresolved
+navigation disables stale interactions until canonical context is known. Reload, logout and workspace
+exit discard the conversation. A server context change refreshes the briefing and restores the pending
+question as an unsent draft requiring deliberate resubmission.
 
-### Streaming and presentation
+New briefing generation starts while the pane is open. After a current foreground completion,
+Web may touch exactly the next pericope; historical completions do not trigger it and it never
+recurses. This optimization has provider cost and can compete for the same user's queue slot.
 
-- The direct BT-specific client reconstructs arbitrary SSE splits, bounds connection/idle/total time,
-  frame size, input size, and output size, and accepts completion only when the final receipt agrees
-  with the streamed document.
-- Browser-visible failures use a small Fluent vocabulary and do not expose BT errors, prompt text,
-  source text, cache keys, or generated content in logs.
-- The Web client validates every normalized event, waits for clean EOF, rerenders the complete
-  Markdown source after each delta, rejects unsafe HTML/URLs, and renders malformed or unknown widget
-  syntax as inert text.
-- Real browser navigation with overlapping requests kept the newly selected pericope visible. The
-  older cacheable request completed into its own cache entry without replacing current content.
+## Data flow and integrity
 
-### Language and grounding
+Briefing requests contain canonical selectors, output language and bounded diagnostic choices.
+Turn requests additionally contain the frozen briefing, bounded ordered visible exchanges, signed
+context/output receipts and the explicitly submitted message. API does not accept browser-selected
+provider identity, credentials, source Bible wording, system policy or automatic editor context.
 
-Staging inventory exposed both English and Hindi resources; inventory alone does not establish
-coverage, approval, or quality. Controlled English/English, Hindi/Hindi, and Hindi-output/
-English-resource runs all completed and preserved exactly three widget macros.
+The API sends the exact reference-labelled configured source passage to BT Servant, together with
+the frozen briefing, projected history, and the current typed or suggested question. Text deliberately
+pasted into the Assistant, including draft translation, travels as user input. The Assistant does
+not automatically read or attach the target editor. Therefore neither “references only” nor an
+unqualified “draft text is never sent” accurately describes this capability.
 
-Exactly three questions is the requested prompt/inventory shape and the observed controlled-sample
-shape, not transport-level output validation. A receipt-consistent safe Markdown completion remains
-readable and cacheable when macros are missing or malformed; Web activates each complete recognized
-macro and leaves malformed or unknown syntax inert. The displayed question controls do not submit a
-follow-up in this slice—freeform/thread interaction remains #406 scope.
+The API derives stable `fluent_{userId}` from the authenticated numeric Fluent user id for BT's
+queue/history slot; the browser cannot select it. Activity is linkable across provider requests.
+That identity is excluded from semantic artifact keys and does not grant Fluent authority.
 
-Observed runs separated resource and output language as intended:
+`POST /projects/{projectId}/assistant/turns` repeats project authorization and canonical resolution
+before cache/provider access. HMAC-SHA256 receipts with a dedicated configured key bind authenticated
+actor and canonical context, including source content/references, language, resource scope and semantic
+versions. Each visible output prefix has a signed exact-source, sequence, completeness and logical
+branch binding. Web commits text and receipt together. API verifies the full submitted branch before
+projecting history; tampering, reordering, omitted middle exchanges and incompatible branches cannot
+be promoted to trusted assistant output. Receipts are integrity evidence, not access permission.
 
-| Case                               | Observed tool-language marker | Visible output                                              |
-| ---------------------------------- | ----------------------------- | ----------------------------------------------------------- |
-| English resources / English output | `en`                          | English, with identifiable English resource ids             |
-| Hindi resources / Hindi output     | `hi`                          | Devanagari, with identifiable Hindi resource ids            |
-| English resources / Hindi output   | `en`                          | Devanagari, retaining identifiable English-source citations |
+Cached artifacts contain no actor-specific receipts. Authorized deliveries receive fresh receipts;
+cache eviction does not invalidate an otherwise valid conversation. Missing receipt configuration
+makes turns unavailable while briefing remains usable. Key rotation deliberately invalidates previous
+receipts and requires a new briefing. Cache TTL is not a receipt lifetime. Keys and receipts are not
+logged.
 
-This is engineering evidence that the controls work. It is not a finding that the selected resource
-subset is approved, that every claim is properly grounded, that Hindi is natural or theologically
-precise, or that approval survives dynamic translation. Citation specificity varied, and samples
-included plausible but confident synthesis that requires qualified review.
+The concrete BT client receives API-built history, suppression flags and trusted operation/language
+instructions preceding labelled JSON user data. Literal user `#mode`/`@language` text is data rather
+than a leading transport command; this does not claim to solve model prompt injection generally.
 
-The API publishes its supported Assistant output-language inventory. Normal requests use the
-server-configured grounding mapping. The three-way grounding selector—configured behavior,
-same-as-output, or English resources—is local force-on diagnostics only, not a production user
-preference.
+The canonical passage, selected language, grounding policy and frozen briefing appear in every
+current provider message independently of the retained history window. After full transcript
+verification, the newest whole nonempty exchanges are retained in chronological order. Default
+`ASSISTANT_HISTORY_WINDOW` is five pairs, configurable from 1–50 and required to match the deployed
+provider configuration. Omitted-turn metadata drives the visible reduced-context notice. The full
+local transcript remains visible; there is no automatic summary or silent per-message truncation.
+Mandatory context that cannot fit returns `context_too_large` and preserves pending input.
 
-### Latency, cache, and prefetch
+## Bounded contract and operations
 
-The sample is engineering evidence, not an SLA or latency distribution.
+| Bound                                          | Turn contract maximum                    |
+| ---------------------------------------------- | ---------------------------------------- |
+| Raw request / serialized submitted turns       | 524,288 / 393,216 bytes                  |
+| Logical user turns / attempts per turn         | 50 / 4                                   |
+| Current input                                  | 4,000 characters and 16,000 UTF-8 bytes  |
+| Generated answer                               | 15,000 characters and 60,000 UTF-8 bytes |
+| Receipt                                        | 4,096 characters                         |
+| Canonical source / constructed current message | 32,000 / 48,000 bytes                    |
+| History field / serialized provider history    | 16,000 characters / 524,288 bytes        |
+| Frame                                          | 1,048,576 bytes                          |
+| Connect / idle / total                         | 10 / 45 / 180 seconds                    |
+
+Configured provider budgets may tighten these ceilings; the current message must also fit the
+configured input budget. Admission bounds apply before expensive receipt verification/provider use.
+A content-free SSE comment heartbeat every 15 seconds keeps the Web transport active while the
+upstream 45-second idle and 180-second total budgets still apply. Blank completions are rejected,
+not cached; pre-existing blank cache rows are ignored. There are no automatic retries.
+Only explicit validated completion means success; partial output
+stays readable on failure. Shared request/error logging uses content-free metadata and generated
+request ids rather than inbound identifiers or raw exceptions.
+
+## Artifact cache and retention
+
+Briefings and follow-up artifacts use distinct versioned storage; migration `0042` adds completed
+turn artifacts. Keys hash authorized canonical scope, exact normalized provider projection and
+answer-affecting policy/configuration. Execution ids, timestamps, signatures and user identity are
+excluded. Only successful completed generated Markdown and minimal version metadata are stored,
+with database-clock seven-day expiry, first-winner publication, bounded cleanup and shutdown.
+Inputs/transcripts, raw source blocks and receipts are not separately stored in these tables.
+Generated answers can quote source text or explicitly pasted input.
+
+For turns, `dont_cache` defaults true. An exact completed authorized match may still be read;
+a miss runs privately without joining or publishing a shared producer. False permits process-local
+same-key joining and successful-completion publication. Web sends false only for the first pristine
+suggested question after a completed briefing, before typed/partial interaction or earlier turns.
+Later suggestions, typed messages and partial branches are no-write. This hint is not authorization.
+The briefing debug `ignore_cache` bypass is different: it skips reads, joining and writes.
+Cross-replica miss duplication remains possible; no distributed coordinator is introduced.
+
+Conversation state exists only in browser memory, not localStorage, IndexedDB or briefing query data.
+Clearing the pane is not a promise to erase generated artifacts or external provider copies.
+Historical staging inspection found source-bearing questions and generated answers retained in BT
+per-user history despite `suppress_memory: true`. Inspected provider code also permitted bounded
+console/tail conversation records and a scrubbed downstream analytics path; a separate OTLP path
+recorded lengths. Deleting/replacing history did not establish deletion of those other copies.
+Current production retention/deletion terms still require owner confirmation.
+
+## Historical spike evidence — October 2026
+
+These observations belong to the original briefing spike, not current conversation acceptance.
+The proposal was introduced on 2026-10-20 at `a31eae0`, clarified at `8181580`, and updated for
+provider identity on 2026-10-27 at `7ec60d5`. Those dated identities remain historical facts.
 
 - Initial loose prompts took 34.9–108.4 seconds to first content and 72.2–146.7 seconds to complete.
-- The selected two-short-paragraph shape, with deeper work reserved for three questions, reduced one
-  cross-chapter comparison from 108.4 to 30.0 seconds for first content and from 146.7 to 46.1 seconds
-  for completion. Cold latency remains material.
-- Two simultaneous same-hash requests joined one process-local producer: first content at about
-  34.7 seconds, completion at about 49.0 seconds, one completed database row.
-- Immediate PostgreSQL hits completed in 28–110 milliseconds. Only a real completed-row hit is
-  labelled `cacheHit`; latency is not used to infer a hit.
-- Cache bypass performs no read, join, or write and does not replace the normal winner. Failure,
-  interruption, and incomplete output do not create a durable artifact.
-- A seven-day completed-artifact sample occupied 16,812 Markdown bytes across six rows; PostgreSQL
-  reported 10,592 bytes of row storage for those rows.
-- Process-local joining does not eliminate a cross-replica miss race. The evidence does not yet
-  justify distributed coordination.
+- The two-short-paragraph shape reduced one cross-chapter comparison from 108.4 to 30.0 seconds
+  first content and from 146.7 to 46.1 seconds completion.
+- Two same-hash observers joined one producer: about 34.7 seconds first content, 49.0 seconds
+  completion, and one completed database row. Immediate PostgreSQL hits took 28–110 milliseconds.
+- Six seven-day artifacts occupied 16,812 Markdown bytes; PostgreSQL reported 10,592 row bytes.
+- An abort-then-navigate successor waited 64.8 seconds for first content and 80.0 seconds to finish.
+  Two distinct Fluent users overlapped with first content around 36.5–37.5 seconds.
+- English/English, Hindi/Hindi, and Hindi-output/English-resource samples completed with three
+  recognized question macros and separated resource language from visible output language.
+  Citation specificity varied; plausible confident synthesis still required qualified review.
+- The 2026-10-27 post-rebase sample recorded 71 ms acknowledgement, 32.476 seconds first content,
+  and 44.810 seconds completion; an immediate repeat completed in 70 ms. These are samples, not SLAs.
 
-After a current foreground completion, Web may touch exactly the next pericope. Historical
-completions do not trigger it, and prefetch does not recurse. This bounded optimization can make the
-next navigation warm, but it has a real provider cost and can delay same-user work because BT
-serializes a user slot. In one abort-then-navigate observation, the successor waited 64.8 seconds for
-first content and 80.0 seconds to finish. Two distinct Fluent users ran in overlapping BT slots,
-reaching first content at about 36.5–37.5 seconds.
+## Current acceptance evidence — 2026-11-01
 
-The recommendation is to retain lazy generation, completed-artifact reuse, process-local same-hash
-joining, and the one-next-pericope touch for a measured production trial. Do not add broad prefill,
-a cross-key scheduler, distributed locking, or identity pooling without new evidence.
+Current local heads are API `a3659ac` and Web `af638a88`. The following acceptance contact was
+completed on 2026-11-01; conversation/interruption provider samples were captured before the final API heartbeat/blank-output
+correction (`cc0bd3b`) and dead-code cleanup (`a3659ac`). The cold/warm briefing check below
+was subsequently run at the corrected head; earlier samples are not relabelled as final-head runs.
 
-## Privacy, retention, and licensing
+- Authenticated local Web → API → BT completed seven turns. The first suggested answer reused a
+  completed artifact in 33 ms; six typed turns were no-write. The seventh submitted all six prior
+  turns, projected five exchanges, and reported one omitted exchange. Passage-speaker grounding
+  and the frozen briefing were preserved; no transcript appeared in local/session storage.
+- English and Hindi briefing samples each had two paragraphs before three questions. Hindi
+  contained Devanagari; changing language cleared the previous question and survived reload.
+  These samples do not establish general output conformance or language/SME quality approval.
+- An interruption froze a two-byte signed visible prefix. The next no-write turn acknowledged in
+  40 ms, first content arrived at 1,859 ms and completion at 2,192 ms. The idle comparison was
+  37 / 1,817 / 2,310 ms: a 42 ms first-content difference in this single sample. It does not establish
+  a typical queue penalty or guarantee. The original cacheable producer subsequently yielded a
+  5,615-byte completed artifact, replayed in 134 ms without rewriting the interrupted branch.
+- Deterministic browser checks covered hidden completion, same-pericope preservation, hidden
+  boundary reset, A→B→A, language change during streaming, exact-prefix interruption, early macro
+  pinning, late-event fencing, Retry, IME/exact text, draft preservation, reload and context reset.
+  Normal/narrow pane checks covered shared scrolling and pinned-composer fit at 352 and 248 pixels.
+- Deleting the matching briefing cache row did not invalidate an existing signed conversation:
+  a subsequent private turn completed in 3,464 ms with passage grounding. The turn-artifact count
+  remained three before and after, demonstrating no write for that request.
+- Runtime API logs over the sampled 45-minute window contained none of three synthetic submitted
+  inputs, receipt fields or request authorization headers. This bounded check supplements static
+  logging/storage/data-flow inspection; it does not establish provider-side deletion or retention.
+- Final Web normal gates passed with 2,178 tests, static checks and production build. Final branch
+  rebase was a no-op. Fresh disposable full-chain PostgreSQL migration and app boot passed;
+  the disposable database was removed.
 
-BT Servant staging persisted the source-bearing question and generated answer in per-user history
-despite `suppress_memory: true`. The deployed code also permits conversation text in bounded
-console/tail records and a scrubbed downstream analytics path; a separate OTLP path records lengths
-rather than text. Deleting or replacing BT history has not been proved to delete console/tail or
-downstream copies.
+Final corrected API `a3659ac` passed dependencies, lint, formatting, type checking and tests:
+1,871 passed, 16 skipped. The combined gate runner was terminated (exit 143) during build; a
+standalone production build on pinned Node 24.14 completed with exit 0. Independent dead-code
+checking retained the 154-entry baseline with no new entries. Web `af638a88` passed all normal
+gates and production build with 2,178 tests. Correction review passed eight focused tests; fresh
+assembled independent review of corrected code, evidence and this package was CLEAN with no findings.
 
-Public evidence places Fluent and BT Servant in the same ETEN mission ecosystem, while BT Servant is
-in unfoldingWord's technical custody and uses Cloudflare and Anthropic. That evidence does not prove
-one legal entity, one data controller, shared production accounts, or applicable retention and DPA
-terms. Treat this as an ETEN-ecosystem integration between partner-operated services until the
-responsible owners confirm otherwise.
+A final corrected-head authenticated cold/warm briefing check completed with identical 2,119-byte
+Markdown, two paragraphs and three question macros. Cold acknowledgement/first content/completion
+were 41 / 14,067 / 28,623 ms; warm values were 149 / 167 / 167 ms with explicit `cacheHit:true`.
+This final-head briefing check is distinct from the earlier seven-turn and interruption samples.
 
-Before production shipment, the responsible product/legal/privacy and Paul/Peter-area stakeholders
-must confirm:
+## Production ship gates
 
-1. whether each configured source Bible license permits transmitting its exact text through the
-   Fluent → BT Servant → Cloudflare/Anthropic processing chain;
-2. the production operator/controller/processor relationship, hosting accounts, retention/deletion
-   behavior, incident obligations, and required disclosure;
-3. whether the stable raw-derived `fluent_{userId}` provider mapping is acceptable or must be
-   replaced by a server-secret keyed mapping while retaining a stable per-user queue/history slot;
-4. whether an eligibility flag is required in the source/license table and who owns it; and
-5. corrected user-facing privacy and scope copy.
+Implementation acceptance does not close the following decisions:
 
-If a source-license eligibility gate is chosen, it must run before an in-flight or completed cache
-lookup. A content hash cannot substitute for that authorization check.
+- Product and Bible-translation SME approval of resource subset, citation/attribution rubric,
+  briefing/question shape, real narrow-pane interaction, and dynamic-translation quality/disclosure.
+- License permission for each configured Bible's exact text through Fluent → BT Servant →
+  Cloudflare/Anthropic; ownership and implementation of any source/license eligibility gate.
+  If required, eligibility must be checked before in-flight or completed cache lookup.
+- Confirm production operator/controller/processor relationships, hosting accounts, retention and
+  deletion, incident obligations and disclosures. Shared ETEN mission context does not establish
+  one legal entity or shared production accounts; BT is partner-operated in unfoldingWord custody.
+- Accept the stable raw-derived provider identifier or require a server-secret keyed stable mapping.
+- Approve Settings/notice/privacy/ToS/help copy that names canonical-source, stable-identifier and
+  explicit-message transmission, distinguishes no automatic editor access from pasted input,
+  and distinguishes pane clearing from cache/provider retention. #403/#407 are not completed here.
+  Material future draft access or retention changes require reviewing copy and notice re-display.
+- Decide whether a later project-manager language default/restriction is needed.
+- Assign credential/receipt-key/configuration owners, match the deployed history window, authorize
+  deployment, and approve monitoring thresholds, retention/deletion statement, rollout and rollback.
 
-## Product and SME decisions still open
-
-- Approve the grounding-resource subset and citation/attribution rubric.
-- Decide whether dynamically translated approved English resources retain their approval/confidence
-  and whether the UI needs a translation disclosure.
-- Review the requested two-short-paragraph shape (including one or two high-value observations) and
-  the proposed deeper-research role of three currently non-submitting question buttons in the real
-  narrow pane.
-- Decide whether Assistant output language later gets a project-manager default/restriction. If so,
-  use a narrow merge-safe project metadata mutation; do not overwrite unrelated metadata or misuse
-  global/user Settings.
-- Finalize the interaction and notice copy for #402–#407. In particular, correct the “only passage
-  references” statement before it ships.
-
-## Production hardening and rollout
-
-The spike already includes project authorization, fail-closed optional configuration, normalized
-failures, bounded inputs/streams/timeouts, safe Markdown, completion-only cache writes, explicit
-cache invalidation versions, bounded database admission, controlled shutdown, and content-free logs.
-
-Production remains gated on the decisions above plus credential/configuration ownership, deployment
-authorization, monitoring thresholds, a retention/deletion statement, and an owner-approved rollout
-and rollback plan. The feature flag should remain the deployment boundary until those gates close.
-
-The code should remain split into coordinated API and Web changes. One PR can carry this design
-narrative and the other can link to it; duplicating or generalizing the architecture would obscure
-the actual evidence.
+The feature flag remains the deployment boundary until these gates close. API and Web are
+coordinated PRs; this document is the shared design narrative rather than a second provider framework.
