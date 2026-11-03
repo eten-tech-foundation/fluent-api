@@ -1,3 +1,5 @@
+import type { Db } from 'pg-boss';
+
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,7 +40,7 @@ vi.mock('@/domains/users/users.service', () => ({ getUserByEmail: vi.fn() }));
 vi.mock('@/domains/user-roles/user-roles.repository', () => ({ findGrantsByUserId: vi.fn() }));
 vi.mock('@/domains/projects/projects.service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/domains/projects/projects.service')>();
-  return { ...actual, lockProjectById: vi.fn(actual.lockProjectById) };
+  return { ...actual, lockProjectSourceBible: vi.fn(actual.lockProjectSourceBible) };
 });
 vi.mock('@/domains/projects/usfm-import.service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/domains/projects/usfm-import.service')>();
@@ -80,6 +82,10 @@ async function seedProject() {
 }
 
 const units = () => database.select().from(schema.project_units).orderBy(schema.project_units.id);
+const queuedJobs = async () =>
+  (await client.query<{ data: string }>('SELECT data FROM test_jobs')).rows.map((row) =>
+    JSON.parse(row.data)
+  );
 
 describe('milestone USFM import (#418, #419, #420)', () => {
   beforeAll(async () => {
@@ -93,21 +99,24 @@ describe('milestone USFM import (#418, #419, #420)', () => {
       { id: 41, code: 'MRK', eng_display_name: 'Mark' },
       { id: 42, code: 'LUK', eng_display_name: 'Luke' },
       { id: 43, code: 'JHN', eng_display_name: 'John' },
+      { id: 44, code: 'ACT', eng_display_name: 'Acts' },
     ]);
-    await database.insert(schema.bibles).values({
-      id: 1,
-      languageId: 1,
-      name: 'Source Bible',
-      abbreviation: 'SRC',
-      provider: 'dbl',
-    });
-    // John is not in the source Bible; Luke is, but its text is not ingested yet.
+    await database.insert(schema.bibles).values([
+      { id: 1, languageId: 1, name: 'Source Bible', abbreviation: 'SRC', provider: 'dbl' },
+      { id: 2, languageId: 1, name: 'Other Bible', abbreviation: 'OTH', provider: 'dbl' },
+    ]);
+    // John is not in the source Bible; Luke and Acts are, but their text is not ingested yet.
+    // The other Bible, which the project can be switched to, has Luke but not Genesis.
     await database.insert(schema.bible_books).values([
       { bibleId: 1, bookId: 1, textIngestedAt: INGESTED },
       { bibleId: 1, bookId: 2, textIngestedAt: INGESTED },
       { bibleId: 1, bookId: 41, textIngestedAt: INGESTED },
       { bibleId: 1, bookId: 42 },
+      { bibleId: 1, bookId: 44 },
+      { bibleId: 2, bookId: 42 },
     ]);
+    // Where the fake queue writes its jobs, through the `db` pg-boss is given.
+    await client.exec('CREATE TABLE test_jobs (data text NOT NULL)');
     await database.insert(schema.bible_texts).values([
       { id: 1, bibleId: 1, bookId: 1, chapterNumber: 1, verseNumber: 1, text: 'Source one.' },
       { id: 2, bibleId: 1, bookId: 1, chapterNumber: 1, verseNumber: 2, text: 'Source two.' },
@@ -126,7 +135,14 @@ describe('milestone USFM import (#418, #419, #420)', () => {
         },
       ])
     );
-    send.mockResolvedValue('job-1');
+    // Like pg-boss, the fake writes each job through the `db` it is handed.
+    send.mockImplementation(async (_name: string, data: unknown, options: { db: Db }) => {
+      await options.db.executeSql('INSERT INTO test_jobs (data) VALUES ($1)', [
+        JSON.stringify(data),
+      ]);
+      return 'job-1';
+    });
+    await client.exec('DELETE FROM test_jobs');
     vi.mocked(getQueue).mockResolvedValue({ send } as unknown as Awaited<
       ReturnType<typeof getQueue>
     >);
@@ -209,8 +225,12 @@ describe('milestone USFM import (#418, #419, #420)', () => {
     expect(send).toHaveBeenCalledWith(
       QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
       { bibleId: 1, bookCodes: ['LUK'], projectUnitId: milestone.id },
-      { priority: 10 }
+      { priority: 10, db: expect.objectContaining({ executeSql: expect.any(Function) }) }
     );
+    // Written through the import's transaction, and kept because it committed.
+    expect(await queuedJobs()).toEqual([
+      { bibleId: 1, bookCodes: ['LUK'], projectUnitId: milestone.id },
+    ]);
   });
 
   it('POST import creates nothing when a file is refused, and lists every verdict', async () => {
@@ -243,6 +263,89 @@ describe('milestone USFM import (#418, #419, #420)', () => {
     expect(await database.select().from(schema.project_unit_usfm_imports)).toEqual([]);
   });
 
+  it('POST import leaves no job behind when a later job cannot be queued', async () => {
+    // Luke's job goes in, then Acts' fails: the rollback has to take Luke's with it, or the
+    // worker would get a job for a milestone that doesn't exist.
+    const write = send.getMockImplementation()!;
+    send.mockImplementation(async (name: string, data: { bookCodes: string[] }, options) => {
+      await write(name, data, options);
+      if (data.bookCodes[0] === 'ACT') throw new Error('queue down');
+      return 'job-1';
+    });
+
+    const res = await post('import', {
+      name: 'Luke and Acts',
+      files: [
+        { fileName: 'LUK.usfm', usfm: LUK },
+        { fileName: 'ACT.usfm', usfm: '\\id ACT\n\\c 1\n\\p\n\\v 1 Acts one.' },
+      ],
+    });
+
+    expect(res.status).toBe(500);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(await queuedJobs()).toEqual([]);
+    expect(await units()).toHaveLength(2);
+  });
+
+  it("POST import follows the project's Source Bible as of the lock", async () => {
+    const actual = await vi.importActual<typeof usfmImportService>(
+      '@/domains/projects/usfm-import.service'
+    );
+    // The files are checked against Source Bible 1, then the project is moved to Bible 2...
+    vi.mocked(usfmImportService.prepareUsfmImport).mockImplementationOnce(async (...args) => {
+      const prepared = await actual.prepareUsfmImport(...args);
+      await database
+        .update(schema.projects)
+        .set({ sourceBibleId: 2 })
+        .where(eq(schema.projects.id, 10));
+      return prepared;
+    });
+
+    const res = await post('import', {
+      name: 'Luke',
+      files: [{ fileName: 'LUK.usfm', usfm: LUK }],
+    });
+
+    // ...which has Luke too, so the milestone is made, linked to Bible 2 and queued for it.
+    expect(res.status).toBe(201);
+    const milestone = await res.json();
+    const links = await database
+      .select()
+      .from(schema.project_unit_bible_books)
+      .where(eq(schema.project_unit_bible_books.projectUnitId, milestone.id));
+    expect(links.map((row) => [row.bibleId, row.bookId])).toEqual([[2, 42]]);
+    expect(await queuedJobs()).toEqual([
+      { bibleId: 2, bookCodes: ['LUK'], projectUnitId: milestone.id },
+    ]);
+  });
+
+  it('POST import answers 409 when the Source Bible changed to one without the book', async () => {
+    const actual = await vi.importActual<typeof usfmImportService>(
+      '@/domains/projects/usfm-import.service'
+    );
+    vi.mocked(usfmImportService.prepareUsfmImport).mockImplementationOnce(async (...args) => {
+      const prepared = await actual.prepareUsfmImport(...args);
+      await database
+        .update(schema.projects)
+        .set({ sourceBibleId: 2 })
+        .where(eq(schema.projects.id, 10));
+      return prepared;
+    });
+
+    const res = await post('import', {
+      name: 'Genesis',
+      files: [{ fileName: 'GEN.usfm', usfm: GEN_NO_ID }],
+    });
+
+    // Bible 2 has no Genesis, so nothing is created for either Bible.
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      message: "A book in this import is not in the project's Source Bible",
+    });
+    expect(await units()).toHaveLength(2);
+    expect(await queuedJobs()).toEqual([]);
+  });
+
   it('POST import answers 409 when the project gained the book after the check', async () => {
     // The check passed (say, just before another tab added Mark to a milestone)...
     vi.mocked(usfmImportService.prepareUsfmImport).mockResolvedValueOnce(
@@ -271,7 +374,7 @@ describe('milestone USFM import (#418, #419, #420)', () => {
   });
 
   it('POST import answers 404 when the project is gone by the time it is locked', async () => {
-    vi.mocked(projectsService.lockProjectById).mockResolvedValueOnce(false);
+    vi.mocked(projectsService.lockProjectSourceBible).mockResolvedValueOnce(null);
 
     const res = await post('import', {
       name: 'Luke',

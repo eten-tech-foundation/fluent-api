@@ -9,6 +9,7 @@ import { requireProjectAccess } from '@/domains/projects/project-auth.middleware
 import { MAX_USFM_IMPORT_BYTES, PROJECT_ACTIONS } from '@/domains/projects/projects.types';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
+import { validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -21,23 +22,6 @@ import {
   projectIdParamSchema,
   rejectedUsfmImportSchema,
 } from './milestones.types';
-
-// What zod rejects the body with. No defaultHook is wired (see book-details.route.ts), so
-// @hono/zod-validator answers with this shape and a 400.
-const validationErrorSchema = z.object({
-  success: z.boolean(),
-  error: z.object({
-    // A failure inside `files` has the entry's index in its path.
-    issues: z.array(
-      z.object({
-        code: z.string(),
-        path: z.array(z.union([z.string(), z.number()])),
-        message: z.string(),
-      })
-    ),
-    name: z.string(),
-  }),
-});
 
 const TOO_LARGE = 'The files exceed the 50 MB limit for one request';
 
@@ -137,7 +121,7 @@ const importUsfmMilestoneRoute = createRoute({
   summary: 'Create a milestone from USFM files',
   description: [
     'The Add Milestone Import button (fluent-web #419, #420). Creates one milestone with the given name and the books found in the files; languages, Source Bible, connectivity profile and pericope set come from the project. Each file is stored verbatim, so every tag survives as passthrough data, and its verses become editable once the source book is fully ingested (queued here when it is not).',
-    'The files are checked again as in /usfm-validation: if any is refused, nothing is created and the 400 lists every verdict. A book the project gained after that check is caught inside the project lock and answered with 409.',
+    'The files are checked again as in /usfm-validation: if any is refused, nothing is created and the 400 lists every verdict. Inside the project lock the books are checked again against the project and its current Source Bible: a book the project gained after that check, or one the Source Bible no longer has (it was changed or the book removed), is answered with 409 and nothing is created. The milestone, its chapter assignments and the ingestion jobs use the Source Bible as of the lock, and the jobs are written in the same transaction.',
   ].join(' '),
   request: {
     params: projectIdParamSchema,
@@ -151,7 +135,7 @@ const importUsfmMilestoneRoute = createRoute({
     ),
     [HttpStatusCodes.CONFLICT]: jsonContent(
       createMessageObjectSchema('A book in this import already exists in the project'),
-      'A book was added to the project while the import was being checked'
+      'While the import was being checked, a book was added to the project or the Source Bible stopped having one'
     ),
     ...accessResponses,
   },

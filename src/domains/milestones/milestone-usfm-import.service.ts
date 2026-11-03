@@ -11,7 +11,7 @@ import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapte
 import * as projectsService from '@/domains/projects/projects.service';
 import * as usfmImportService from '@/domains/projects/usfm-import.service';
 import { logger } from '@/lib/logger';
-import { getQueue, QUEUE_NAMES } from '@/lib/queue';
+import { getQueue, QUEUE_NAMES, transactionQueueDb } from '@/lib/queue';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { MilestoneRow } from './milestones.types';
@@ -43,7 +43,8 @@ type UsfmMilestoneImportOutcome =
 /**
  * Queues source-text ingestion for every imported book whose source text is not complete yet.
  * Its verses can only be attached once the book is complete, so an import whose job was never
- * queued would stay pending forever: a queue failure rolls the whole import back.
+ * queued would stay pending forever: a queue failure rolls the whole import back. The jobs are
+ * written through `tx`, so a rollback, for any reason, leaves none behind for a missing milestone.
  */
 async function queueIncompleteSourceBooks(
   sourceBibleId: number,
@@ -63,16 +64,16 @@ async function queueIncompleteSourceBooks(
 
   try {
     const queue = await getQueue();
+    const db = transactionQueueDb(tx);
     // One job per book, the way Add Milestone queues them, so one slow book doesn't hold the rest.
-    await Promise.all(
-      incomplete.map((bookCode) =>
-        queue.send(
-          QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
-          { bibleId: sourceBibleId, bookCodes: [bookCode], projectUnitId },
-          { priority: 10 }
-        )
-      )
-    );
+    // One at a time: they share the transaction's connection, and a failed insert aborts it.
+    for (const bookCode of incomplete) {
+      await queue.send(
+        QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+        { bibleId: sourceBibleId, bookCodes: [bookCode], projectUnitId },
+        { priority: 10, db }
+      );
+    }
     return ok(undefined);
   } catch (error) {
     logger.error({
@@ -135,8 +136,9 @@ async function materializeImport(
 /**
  * Creates one milestone from validated USFM files (#419). The books come from the files, and the
  * languages, Source Bible, connectivity and pericope set from the project. Every file is checked
- * again first, and the books are checked once more inside the project lock, so a book added to
- * the project after the dialog checked it still blocks the import instead of being merged.
+ * again first. Inside the project lock the books are checked once more against the project and
+ * its Source Bible as they are now, so a book added to the project, or a Source Bible changed,
+ * after the dialog checked the files blocks the import instead of writing stale links.
  */
 export async function importUsfmMilestone(
   projectId: number,
@@ -148,15 +150,23 @@ export async function importUsfmMilestone(
   if (!prepared.ok) return prepared;
   const { verdicts, accepted } = prepared.data;
   if (verdicts.some((verdict) => !verdict.ok)) return ok({ kind: 'rejected', files: verdicts });
+  const bookIds = accepted.map((file) => file.bookId);
 
   const created = await runInTransaction(async (tx) => {
-    // The project may have been deleted since the access check.
-    const locked = await projectsService.lockProjectById(projectId, tx);
-    if (!locked) return err(ErrorCode.PROJECT_NOT_FOUND);
+    // The project may have been deleted, or given another Source Bible, since the access check.
+    const project = await projectsService.lockProjectSourceBible(projectId, tx);
+    if (!project) return err(ErrorCode.PROJECT_NOT_FOUND);
+    const bibleId = project.sourceBibleId;
+    if (bibleId === null) return err(ErrorCode.USFM_BOOK_NOT_IN_SOURCE);
 
     const inProject = await usfmImportService.getBooksInProject(projectId, tx);
-    if (accepted.some((file) => inProject.has(file.bookId))) {
+    if (bookIds.some((bookId) => inProject.has(bookId))) {
       return err(ErrorCode.USFM_BOOK_EXISTS);
+    }
+    const inSource = await bibleBooksService.getBookIdsInBible(bibleId, bookIds, tx);
+    if (!inSource.ok) return inSource;
+    if (bookIds.some((bookId) => !inSource.data.has(bookId))) {
+      return err(ErrorCode.USFM_BOOK_NOT_IN_SOURCE);
     }
 
     const milestone = await repo.insertMilestoneRecord(
@@ -164,15 +174,14 @@ export async function importUsfmMilestone(
       { name, type: 'text', status: 'not_started' },
       tx
     );
-    const bookIds = accepted.map((file) => file.bookId);
     await repo.insertBibleBookLinks(
-      bookIds.map((bookId) => ({ projectUnitId: milestone.id, bibleId: sourceBibleId, bookId })),
+      bookIds.map((bookId) => ({ projectUnitId: milestone.id, bibleId, bookId })),
       tx
     );
 
     const assignments = await chapterAssignmentsService.createChapterAssignmentForProjectUnit(
       milestone.id,
-      sourceBibleId,
+      bibleId,
       bookIds,
       tx
     );
@@ -180,16 +189,17 @@ export async function importUsfmMilestone(
 
     await usfmImportService.recordUsfmImports(milestone.id, accepted, tx);
 
-    const queued = await queueIncompleteSourceBooks(sourceBibleId, milestone.id, accepted, tx);
+    const queued = await queueIncompleteSourceBooks(bibleId, milestone.id, accepted, tx);
     if (!queued.ok) return queued;
 
-    return ok(milestone.id);
+    return ok({ milestoneId: milestone.id, bibleId });
   });
   if (!created.ok) return created;
+  const { milestoneId, bibleId } = created.data;
 
-  await materializeImport(sourceBibleId, created.data, accepted);
+  await materializeImport(bibleId, milestoneId, accepted);
 
-  const milestone = await repo.getByIdForProject(projectId, created.data);
+  const milestone = await repo.getByIdForProject(projectId, milestoneId);
   if (!milestone) return err(ErrorCode.NOT_FOUND);
   return ok({ kind: 'created', milestone });
 }

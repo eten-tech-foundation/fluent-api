@@ -345,6 +345,21 @@ export async function lockProjectById(id: number, tx: DbTransaction): Promise<bo
   return ((res as any).rows?.length ?? 0) > 0;
 }
 
+/** Locks the project like lockProjectById and reads its Source Bible as of the lock. */
+export async function lockProjectSourceBible(
+  id: number,
+  tx: DbTransaction
+): Promise<{ sourceBibleId: number | null } | null> {
+  const res = await tx.execute(
+    sql`SELECT ${projects.sourceBibleId} AS source_bible_id FROM ${projects} WHERE ${projects.id} = ${id} FOR UPDATE`
+  );
+  interface Row {
+    source_bible_id: number | null;
+  }
+  const rows: Row[] = Array.isArray(res) ? res : ((res as { rows?: Row[] }).rows ?? []);
+  return rows[0] ? { sourceBibleId: rows[0].source_bible_id } : null;
+}
+
 export async function getValidBookIdsForBible(bibleId: number): Promise<number[]> {
   const rows = await db
     .select({ bookId: bible_books.bookId })

@@ -114,15 +114,22 @@ does not. The project's books are read again inside the project lock, and a book
 added after the check answers 409 with nothing created.
 
 A book the project's Source Bible lacks is refused at upload, because its verses
-could never be attached. The milestone takes everything else from the project:
-languages, Source Bible, the connectivity default and the pericope set.
+could never be attached. The lock also reads the project's Source Bible as it is
+then, not as the access check saw it: the milestone's links, chapter assignments,
+ingestion jobs and materialization all use that Bible, and if it lacks one of the
+books (the Source Bible was changed, or the book removed from it) the import
+answers 409 with nothing created. The milestone takes everything else from the
+project: languages, the connectivity default and the pericope set.
 
 Inside one transaction the import creates the milestone, links its books,
 creates chapter assignments for books with source text, stores every file
 verbatim in `project_unit_usfm_imports` and queues priority ingestion
 (`DBL_INGEST_TEXT_PRIORITY`, one job per book) for books whose source text is not
-complete. A queue failure rolls the whole import back, since such an import could
-never finish. After the commit, books with complete source text are materialized
+complete. The jobs are written through the same transaction (pg-boss's per-send
+`db`, adapted to the Drizzle transaction by `transactionQueueDb` in
+`src/lib/queue.ts`), so a rollback for any reason leaves no job behind for a
+milestone that doesn't exist. A queue failure rolls the whole import back, since
+such an import could never finish. After the commit, books with complete source text are materialized
 at once; a materialization failure only queues `USFM_IMPORT_MATERIALIZE` retries.
 
 Until the web stops sending them, `POST /projects` still accepts `usfmFiles` for
