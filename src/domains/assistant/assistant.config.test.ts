@@ -68,6 +68,10 @@ describe('assistant language configuration', () => {
       FLUENT_AI_URL: 'http://localhost:8000',
       FLUENT_AI_KEY: 'fixture-only',
       AI_INBOUND_SERVICE_KEY: 'fixture-only',
+      EMAIL_SERVICE_API_KEY: 'fixture-only',
+      EMAIL_SERVICE_DOMAIN: 'example.test',
+      EMAIL_SERVICE_SENDER: 'test@example.test',
+      FRONTEND_URL: 'http://localhost:5173',
     };
     const globalUnwired = EnvSchema.parse(isolatedEnv);
     expect(globalUnwired.PORT).toBeTypeOf('number');
