@@ -75,8 +75,9 @@ async function startServer() {
     });
 
     const gracefulShutdown = async (signal: string) => {
-      logger.info(`${signal} received, shutting down server`);
+      if (shuttingDown) return;
       shuttingDown = true;
+      logger.info(`${signal} received, shutting down server`);
       try {
         if (audioReclaimInterval) clearInterval(audioReclaimInterval);
         // Stop the monitor's timer now but drain its in-flight sweep alongside

@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
 import env from '@/env';
+import { logger } from '@/lib/logger';
 
 const groundingSchema = z.object({
   resourceLanguage: z.string().min(1).max(20),
@@ -53,13 +54,44 @@ export type AssistantLanguage = z.infer<typeof languageSchema>;
 type AssistantLanguages = z.infer<typeof languagesSchema>;
 type GroundingChoice = 'configured' | 'output_language' | 'english';
 
-export function validateAssistantLanguages(raw: unknown): AssistantLanguages | null {
+export function validateAssistantLanguages(
+  raw: unknown,
+  report: (reason: string) => void = () => {}
+): AssistantLanguages | null {
+  const reject = (reason: string) => {
+    report(reason);
+    return null;
+  };
   const parsed = languagesSchema.safeParse(raw);
-  if (!parsed.success || !Object.hasOwn(parsed.data, 'en')) return null;
-  if (Object.keys(parsed.data).length > 100) return null;
+  if (!parsed.success) {
+    const fields = new Set([
+      'displayName',
+      'projectLanguageCodes',
+      'responseLanguageHint',
+      'guidanceSlug',
+      'defaultGrounding',
+      'grounding',
+      'resourceLanguage',
+      'instruction',
+    ]);
+    const issues = parsed.error.issues.slice(0, 5).map((issue) => {
+      const field = issue.path
+        .filter((part) => typeof part === 'string' && fields.has(part))
+        .join('.');
+      return `${field || 'language entry'} (${issue.code})`;
+    });
+    return reject(
+      `Language schema validation failed: ${issues.join('; ')}. Check required fields, types, and size limits.`
+    );
+  }
+  if (!Object.hasOwn(parsed.data, 'en'))
+    return reject('The English fallback entry en is required.');
+  if (Object.keys(parsed.data).length > 100)
+    return reject('At most 100 output languages are supported.');
   const projectCodes = new Set<string>();
   for (const [outputCode, entry] of Object.entries(parsed.data)) {
-    if (Object.keys(entry.grounding).length > 8) return null;
+    if (Object.keys(entry.grounding).length > 8)
+      return reject('At most eight grounding profiles per language are supported.');
     if (
       !CODE_PATTERN.test(outputCode) ||
       !BT_RESPONSE_LANGUAGE_PATTERN.test(entry.responseLanguageHint) ||
@@ -70,18 +102,25 @@ export function validateAssistantLanguages(raw: unknown): AssistantLanguages | n
           !CODE_PATTERN.test(profile) || !CODE_PATTERN.test(resolution.resourceLanguage)
       )
     )
-      return null;
-    if (!Object.hasOwn(entry.grounding, entry.defaultGrounding)) return null;
+      return reject(
+        'Language/profile codes must be valid; responseLanguageHint must be two lowercase letters.'
+      );
+    if (!Object.hasOwn(entry.grounding, entry.defaultGrounding))
+      return reject('defaultGrounding must name an existing grounding profile.');
     for (const code of entry.projectLanguageCodes.map((value) => value.toLowerCase())) {
-      if (!CODE_PATTERN.test(code)) return null;
-      if (projectCodes.has(code)) return null;
+      if (!CODE_PATTERN.test(code))
+        return reject('Project language codes must be valid language identifiers.');
+      if (projectCodes.has(code))
+        return reject('Project language codes must be unique across output languages.');
       projectCodes.add(code);
     }
     if (
       !Object.hasOwn(entry.grounding, entry.responseLanguageHint) ||
       !Object.hasOwn(entry.grounding, 'en')
     )
-      return null;
+      return reject(
+        'Each language requires grounding profiles for its responseLanguageHint and en.'
+      );
   }
   return parsed.data;
 }
@@ -232,4 +271,26 @@ export function selectOutputLanguage(
       value.projectLanguageCodes.some((code) => code.toLowerCase() === normalized)
     )?.[0] ?? 'en'
   );
+}
+
+let languageDiagnosticLogged = false;
+
+/** Fixed validation reasons only: never log raw configuration, values, or parser errors. */
+export function assistantLanguageConfigurationFailure() {
+  const raw = env.ASSISTANT_LANGUAGES_JSON?.trim();
+  if (!raw) return null;
+  let reason: string | undefined;
+  try {
+    validateAssistantLanguages(JSON.parse(raw), (message) => {
+      reason = message;
+    });
+  } catch {
+    reason = 'The value must be valid JSON.';
+  }
+  if (!reason) return null;
+  if (!languageDiagnosticLogged) {
+    languageDiagnosticLogged = true;
+    logger.warn({ reason }, 'Invalid ASSISTANT_LANGUAGES_JSON configuration');
+  }
+  return { code: 'invalid_configuration', retryable: false } as const;
 }

@@ -40,6 +40,7 @@ const projectParams = z.object({
 const assistantErrorSchema = z.object({
   code: z.enum([
     'temporarily_unavailable',
+    'invalid_configuration',
     'invalid_request',
     'unsupported_language',
     'context_too_large',
@@ -59,7 +60,7 @@ const badRequest = jsonContent(
 );
 const assistantUnavailable = jsonContent(
   assistantErrorSchema,
-  'Assistant is not configured or temporarily unavailable'
+  'Assistant is not configured, has invalid language configuration, or is temporarily unavailable'
 );
 const validationHook = ((result: { success: boolean }, c: Context) => {
   if (result.success) return undefined;
@@ -94,6 +95,8 @@ server.openapi(
       c.req.valid('param').projectId,
       c.req.valid('query').selected
     );
+    if (languages && 'code' in languages)
+      return c.json(languages, HttpStatusCodes.SERVICE_UNAVAILABLE);
     return languages
       ? c.json(languages, HttpStatusCodes.OK)
       : c.json(

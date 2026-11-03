@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { EnvSchema } from '@/env';
 
 import {
-  loadAssistantConfig,
   parseAssistantConfig,
   resolveGrounding,
   selectOutputLanguage,
@@ -61,13 +60,21 @@ function config(languages = validateAssistantLanguages(rawLanguages)!) {
 
 describe('assistant language configuration', () => {
   it('loads safely from the real globally parsed env shape when unwired or validly wired', () => {
-    const globalUnwired = EnvSchema.parse(process.env);
+    const isolatedEnv = {
+      DATABASE_URL: 'postgres://test:test@localhost/test',
+      BETTER_AUTH_SECRET: 'fixture-only-secret-with-32-characters',
+      BETTER_AUTH_URL: 'http://localhost:9999',
+      APPLICATIONINSIGHTS_CONNECTION_STRING: '',
+      FLUENT_AI_URL: 'http://localhost:8000',
+      FLUENT_AI_KEY: 'fixture-only',
+      AI_INBOUND_SERVICE_KEY: 'fixture-only',
+    };
+    const globalUnwired = EnvSchema.parse(isolatedEnv);
     expect(globalUnwired.PORT).toBeTypeOf('number');
     expect(() => parseAssistantConfig(globalUnwired)).not.toThrow();
     expect(parseAssistantConfig(globalUnwired)).toBeNull();
-    expect(loadAssistantConfig()).toBeNull();
 
-    const globalWired = EnvSchema.parse({ ...process.env, ...wiredEnv });
+    const globalWired = EnvSchema.parse({ ...isolatedEnv, ...wiredEnv });
     expect(globalWired.PORT).toBeTypeOf('number');
     expect(parseAssistantConfig(globalWired)).toMatchObject({
       baseUrl: 'https://bt.example.test',

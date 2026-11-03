@@ -15,6 +15,7 @@ import {
 } from './assistant.cache';
 import { BtServantClient } from './assistant.client';
 import {
+  assistantLanguageConfigurationFailure,
   loadAssistantConfig,
   publicLanguages,
   resolveGrounding,
@@ -44,7 +45,7 @@ type BriefingServiceResult =
 
 export function getAssistantLanguages(projectId: number, persisted?: string) {
   const config = loadAssistantConfig();
-  if (!config) return null;
+  if (!config) return assistantLanguageConfigurationFailure();
   return repo.findProjectSourceLanguage(projectId).then((sourceLanguage) => ({
     languages: publicLanguages(config),
     defaultLanguage: selectOutputLanguage(config, sourceLanguage, persisted),

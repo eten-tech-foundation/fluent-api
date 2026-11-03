@@ -134,6 +134,7 @@ export class BtServantClient {
       }
       const decoder = new TextDecoder();
       let buffer = '';
+      let previousWasCr = false;
       let accumulated = '';
       let outputBytes = 0;
       idle = setTimeout(abortForDeadline, this.options.idleMs);
@@ -144,7 +145,15 @@ export class BtServantClient {
           yield failure('timed_out', true);
           return;
         }
-        buffer += decoder.decode(bytes, { stream: true });
+        // Normalize SSE line endings while remembering a CR across network chunks.
+        for (const character of decoder.decode(bytes, { stream: true })) {
+          if (character === '\n' && previousWasCr) {
+            previousWasCr = false;
+            continue;
+          }
+          buffer += character === '\r' ? '\n' : character;
+          previousWasCr = character === '\r';
+        }
         const frames = buffer.split(/\r?\n\r?\n/);
         buffer = frames.pop() ?? '';
         if (Buffer.byteLength(buffer) > this.options.maxFrameBytes) {
