@@ -46,6 +46,56 @@ export interface ParsedUsfmFile extends UsfmFileInput {
   verses: UsjVerseText[];
 }
 
+// The Add Milestone import (#418, #419, #420): one verdict per file, from the same detection and
+// parse that the import itself runs.
+
+// Psalms, the longest book, is well under 1 MB of USFM, and a whole Bible has 66 books (plus the
+// deuterocanon). The caps leave room for both and stop a runaway upload before it is parsed.
+const MAX_USFM_FILE_CHARS = 5_000_000;
+export const MAX_USFM_FILES = 150;
+export const MAX_USFM_IMPORT_BYTES = 50 * 1024 * 1024;
+
+export const usfmFileToCheckSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  // Empty is allowed so an empty file gets its own USFM_INVALID verdict instead of failing the batch.
+  usfm: z.string().max(MAX_USFM_FILE_CHARS),
+});
+
+export const USFM_FILE_PROBLEMS = [
+  'USFM_INVALID',
+  'USFM_BOOK_MISSING',
+  'USFM_BOOK_DUPLICATE',
+  'USFM_BOOK_EXISTS',
+  'USFM_BOOK_NOT_IN_SOURCE',
+] as const;
+
+export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(true),
+    bookCode: z.string(),
+    bookName: z.string(),
+  }),
+  z.object({
+    fileName: z.string(),
+    ok: z.literal(false),
+    error: z.enum(USFM_FILE_PROBLEMS),
+    message: z.string(),
+    // Set for USFM_BOOK_DUPLICATE, USFM_BOOK_EXISTS and USFM_BOOK_NOT_IN_SOURCE. USFM_INVALID
+    // leaves it out even when the book was found, since the file did not parse.
+    bookCode: z.string().optional(),
+    bookName: z.string().optional(),
+    // USFM_BOOK_EXISTS only: the milestone that holds the book, or null when no milestone does.
+    milestoneName: z.string().nullable().optional(),
+    // USFM_BOOK_NOT_IN_SOURCE only: the project's Source Bible.
+    sourceBibleName: z.string().optional(),
+  }),
+]);
+
+export type UsfmFileToCheck = z.infer<typeof usfmFileToCheckSchema>;
+export type UsfmFileProblem = (typeof USFM_FILE_PROBLEMS)[number];
+export type UsfmFileCheck = z.infer<typeof usfmFileCheckSchema>;
+
 export const createProjectSchema = insertProjectsSchema
   .omit({ status: true, organization: true, createdBy: true })
   .extend({
