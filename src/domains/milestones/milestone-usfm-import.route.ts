@@ -68,7 +68,7 @@ const checkUsfmFilesRoute = createRoute({
   summary: 'Check USFM files for a milestone import',
   description: [
     'The Add Milestone Import tab calls this as each file is added (fluent-web #418). Every file goes through the same book detection and parse as POST /projects/{projectId}/milestones/import, and nothing is stored.',
-    "The book comes from `\\id`, else from the name in `\\toc3` or `\\mt` (English names and abbreviations, and Hindi IRV names). Each file gets a verdict in upload order: its book, or why it was refused. USFM_INVALID and USFM_BOOK_MISSING mean no book could be read; USFM_BOOK_DUPLICATE means another file in the upload, or one of `listedBookCodes`, has the book; USFM_BOOK_EXISTS means the project already holds the book, in the named milestone or (`milestoneName: null`) in none; USFM_BOOK_NOT_IN_SOURCE means the project's Source Bible lacks it.",
+    "The book comes from `\\id`, else from the name in `\\toc3` or `\\mt` (English names and abbreviations, and Hindi IRV names). Each file gets a verdict in upload order: its book, or why it was refused. USFM_BOOK_MISSING means the file looks like USFM but no book could be found in it; USFM_INVALID means the file is not valid USFM, including a file whose book was found but whose chapters and verses don't parse; USFM_BOOK_DUPLICATE means another file in the upload, or one of `listedBookCodes`, has the book; USFM_BOOK_EXISTS means the project already holds the book, in the named milestone or (`milestoneName: null`) in none; USFM_BOOK_NOT_IN_SOURCE means the project's Source Bible lacks it.",
   ].join(' '),
   request: {
     params: projectIdParamSchema,

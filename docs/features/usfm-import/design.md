@@ -96,9 +96,11 @@ plus update access to the project):
 
 - `POST /projects/{projectId}/milestones/usfm-validation` checks files as the
   dialog adds them and writes nothing. Each file gets a verdict: its book, or
-  `USFM_INVALID`, `USFM_BOOK_MISSING`, `USFM_BOOK_DUPLICATE` (another file in the
-  upload or one of `listedBookCodes`, the books the dialog has accepted),
-  `USFM_BOOK_EXISTS` or `USFM_BOOK_NOT_IN_SOURCE`.
+  `USFM_BOOK_MISSING` (the file looks like USFM but no book could be found in
+  it), `USFM_INVALID` (the file is not valid USFM, including a file whose book
+  was found but whose chapters and verses don't parse), `USFM_BOOK_DUPLICATE`
+  (another file in the upload or one of `listedBookCodes`, the books the dialog
+  has accepted), `USFM_BOOK_EXISTS` or `USFM_BOOK_NOT_IN_SOURCE`.
 - `POST /projects/{projectId}/milestones/import` takes `{ name, files }` and
   creates one milestone. It runs the same check first; if any file is refused,
   nothing is created and the 400 lists every verdict.

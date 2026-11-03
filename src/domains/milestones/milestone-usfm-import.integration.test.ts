@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import * as schema from '@/db/schema';
 import { createTestSchema } from '@/db/testing/create-catalogue-schema';
+import * as milestonesRepository from '@/domains/milestones/milestones.repository';
 import { asAuthenticatedUser } from '@/domains/pericopes/pericopes.test-fixtures';
 import * as projectsService from '@/domains/projects/projects.service';
 import { MAX_USFM_IMPORT_BYTES } from '@/domains/projects/projects.types';
@@ -45,6 +46,11 @@ vi.mock('@/domains/projects/projects.service', async (importOriginal) => {
 vi.mock('@/domains/projects/usfm-import.service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/domains/projects/usfm-import.service')>();
   return { ...actual, prepareUsfmImport: vi.fn(actual.prepareUsfmImport) };
+});
+vi.mock('@/domains/milestones/milestones.repository', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/domains/milestones/milestones.repository')>();
+  return { ...actual, getByIdForProject: vi.fn(actual.getByIdForProject) };
 });
 
 const INGESTED = new Date('2026-09-01T00:00:00Z');
@@ -386,6 +392,23 @@ describe('milestone USFM import (#418, #419, #420)', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('POST import rolls everything back when the new milestone cannot be read', async () => {
+    vi.mocked(milestonesRepository.getByIdForProject).mockRejectedValueOnce(
+      new Error('read failed')
+    );
+
+    const res = await post('import', {
+      name: 'Luke',
+      files: [{ fileName: 'LUK.usfm', usfm: LUK }],
+    });
+
+    // Answering 500 for a milestone that was made would invite a retry that hits a 409.
+    expect(res.status).toBe(500);
+    expect(await units()).toHaveLength(2);
+    expect(await database.select().from(schema.project_unit_usfm_imports)).toEqual([]);
+    expect(await queuedJobs()).toEqual([]);
+  });
+
   it.each(['usfm-validation', 'import'])(
     'POST %s refuses a body over the size limit',
     async (path) => {
@@ -397,6 +420,35 @@ describe('milestone USFM import (#418, #419, #420)', () => {
         },
         body: JSON.stringify({ name: 'x', files: [{ fileName: 'a.usfm', usfm: LUK }] }),
       });
+
+      expect(res.status).toBe(413);
+      expect(await units()).toHaveLength(2);
+    }
+  );
+
+  it.each(['usfm-validation', 'import'])(
+    'POST %s refuses a streamed body over the size limit without a Content-Length',
+    async (path) => {
+      // The same 1 MiB chunk over and over, so the test never holds the whole body.
+      const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+      let streamed = 0;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (streamed > MAX_USFM_IMPORT_BYTES) {
+            controller.close();
+            return;
+          }
+          streamed += chunk.length;
+          controller.enqueue(chunk);
+        },
+      });
+
+      const res = await server.request(`/projects/10/milestones/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit);
 
       expect(res.status).toBe(413);
       expect(await units()).toHaveLength(2);

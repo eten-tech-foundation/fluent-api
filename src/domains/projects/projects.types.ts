@@ -81,7 +81,8 @@ export const usfmFileCheckSchema = z.discriminatedUnion('ok', [
     ok: z.literal(false),
     error: z.enum(USFM_FILE_PROBLEMS),
     message: z.string(),
-    // Set once the book is known: every problem after USFM_INVALID and USFM_BOOK_MISSING.
+    // Set for USFM_BOOK_DUPLICATE, USFM_BOOK_EXISTS and USFM_BOOK_NOT_IN_SOURCE. USFM_INVALID
+    // leaves it out even when the book was found, since the file did not parse.
     bookCode: z.string().optional(),
     bookName: z.string().optional(),
     // USFM_BOOK_EXISTS only: the milestone that holds the book, or null when no milestone does.

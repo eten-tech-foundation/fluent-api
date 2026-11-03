@@ -192,14 +192,16 @@ export async function importUsfmMilestone(
     const queued = await queueIncompleteSourceBooks(bibleId, milestone.id, accepted, tx);
     if (!queued.ok) return queued;
 
-    return ok({ milestoneId: milestone.id, bibleId });
+    // Read in the transaction, so a failed read undoes the import instead of answering 500 for a
+    // milestone that was made. Materializing only adds verses, so the row is the same after it.
+    const row = await repo.getByIdForProject(projectId, milestone.id, tx);
+    if (!row) return err(ErrorCode.NOT_FOUND);
+    return ok({ milestone: row, bibleId });
   });
   if (!created.ok) return created;
-  const { milestoneId, bibleId } = created.data;
+  const { milestone, bibleId } = created.data;
 
-  await materializeImport(bibleId, milestoneId, accepted);
+  await materializeImport(bibleId, milestone.id, accepted);
 
-  const milestone = await repo.getByIdForProject(projectId, milestoneId);
-  if (!milestone) return err(ErrorCode.NOT_FOUND);
   return ok({ kind: 'created', milestone });
 }

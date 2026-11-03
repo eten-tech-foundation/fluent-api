@@ -194,7 +194,8 @@ function rejected(
 /**
  * Checks files for an Add Milestone import (#418, #419) with the same detection and parse the
  * import runs, and writes nothing. Each file gets its own verdict. A file is refused when it is
- * not USFM, names no book, repeats a book already in the upload (`listedBookCodes` holds the
+ * not valid USFM (USFM_INVALID, also when its book was found but its chapters and verses don't
+ * parse), looks like USFM but names no book (USFM_BOOK_MISSING), repeats a book already in the upload (`listedBookCodes` holds the
  * books the dialog has accepted so far), holds a book the project already has in any milestone,
  * removed ones included (an import never merges into existing content), or holds a book the
  * project's Source Bible lacks.
