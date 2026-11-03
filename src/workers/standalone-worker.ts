@@ -10,25 +10,19 @@ import {
   ensureAiSuggestionQueue,
   ensureExportQueues,
   initializeQueue,
-  QUEUE_NAMES,
   stopQueue,
 } from '@/lib/queue';
 
+import type { WorkerMetricsSnapshot } from './queue-heartbeat';
 import type { WorkerMetricsHooks } from './usfm-export.worker';
 
 import { registerAiTriggerWorker } from './ai-trigger.worker';
 import { registerDblIngestTextWorker } from './ingest-bible-text.worker';
-import { countPendingQueueJobs } from './queue-heartbeat';
+import { emitHeartbeatMetrics } from './queue-heartbeat';
 import { registerUSFMExportWorker } from './usfm-export.worker';
 import { startUsfmImportRecovery } from './usfm-import-recovery';
 
-interface WorkerMetrics {
-  startTime: number;
-  jobsProcessed: number;
-  jobsFailed: number;
-  totalProcessingTime: number;
-  activeJobs: number;
-}
+type WorkerMetrics = WorkerMetricsSnapshot;
 
 const workerMetrics: WorkerMetrics = {
   startTime: Date.now(),
@@ -91,56 +85,7 @@ async function startWorker() {
     const heartbeatInterval = setInterval(
       async () => {
         try {
-          const uptimeSeconds = (Date.now() - workerMetrics.startTime) / 1000;
-          const avgProcessingTimeMs =
-            workerMetrics.jobsProcessed > 0
-              ? workerMetrics.totalProcessingTime / workerMetrics.jobsProcessed
-              : 0;
-
-          const exportStats = await boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT);
-          const aiStats = await boss.getQueueStats(QUEUE_NAMES.AI_SUGGESTIONS);
-          const ingestStats = await boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT);
-          const ingestPriorityStats = await boss.getQueueStats(
-            QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY
-          );
-          const importMaterializeCount = await countPendingQueueJobs(
-            boss,
-            QUEUE_NAMES.USFM_IMPORT_MATERIALIZE
-          );
-
-          const totalQueued =
-            (exportStats?.queuedCount || 0) +
-            (aiStats?.queuedCount || 0) +
-            (ingestStats?.queuedCount || 0) +
-            (ingestPriorityStats?.queuedCount || 0);
-
-          const totalActive =
-            (exportStats?.activeCount || 0) +
-            (aiStats?.activeCount || 0) +
-            (ingestStats?.activeCount || 0) +
-            (ingestPriorityStats?.activeCount || 0);
-
-          const totalDeferred =
-            (exportStats?.deferredCount || 0) +
-            (aiStats?.deferredCount || 0) +
-            (ingestStats?.deferredCount || 0) +
-            (ingestPriorityStats?.deferredCount || 0);
-
-          const queueSize = totalQueued + totalActive + totalDeferred + importMaterializeCount;
-
-          logger.info('Worker heartbeat', {
-            scope: 'aggregate_all_queues',
-            uptimeSeconds: Math.floor(uptimeSeconds),
-            activeJobs: workerMetrics.activeJobs,
-            processed: workerMetrics.jobsProcessed,
-            failed: workerMetrics.jobsFailed,
-            avgProcessingTimeSeconds: Number((avgProcessingTimeMs / 1000).toFixed(2)),
-            queueSize,
-            memory: {
-              rssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
-              heapUsedMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-            },
-          });
+          await emitHeartbeatMetrics(boss, workerMetrics);
         } catch (error) {
           logger.error('Error in heartbeat', { error });
         }

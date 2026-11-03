@@ -20,7 +20,9 @@ import { triggerAiSuggestions } from '@/lib/services/fluent-ai/fluent-ai.client'
 import { registerAiTriggerWorker } from '@/workers/ai-trigger.worker';
 import { registerUSFMExportWorker } from '@/workers/usfm-export.worker';
 
-vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/lib/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), metric: vi.fn() },
+}));
 vi.mock('@/domains/usfm/usfm.service', () => ({
   createUSFMZipStreamAsync: vi.fn(),
   getProjectName: vi.fn(),

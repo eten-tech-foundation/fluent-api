@@ -12,7 +12,7 @@ import { ensureAiSuggestionQueue, ensureExportQueues } from '@/lib/queue';
 import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
 
 vi.mock('@/lib/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), metric: vi.fn() },
 }));
 
 beforeEach(() => vi.clearAllMocks());
@@ -326,5 +326,136 @@ describe('dead-letter monitoring', () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(fake.getQueues).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('dead-letter queue depth metric emission', () => {
+  it('emits per-queue worker_dlq_depth metric with queueName dimension', async () => {
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([queueResult('export-dlq'), queueResult('import-dlq')]);
+    fake.executeSql.mockImplementation(async (query: string, parameters?: unknown[]) => {
+      if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+      if (parameters?.[0] === 'export-dlq') {
+        return {
+          rows: [
+            { depth: 5, queuedCount: 3, activeCount: 2, deferredCount: 0, oldestCreatedOn: null },
+          ],
+        };
+      }
+      if (parameters?.[0] === 'import-dlq') {
+        return {
+          rows: [
+            { depth: 2, queuedCount: 2, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+          ],
+        };
+      }
+      return { rows: [{ depth: 0 }] };
+    });
+
+    await reportDeadLetterQueues(fake.boss);
+
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 5, {
+      queueName: 'export-dlq',
+    });
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 2, {
+      queueName: 'import-dlq',
+    });
+  });
+
+  it('emits metric with value 0 for zero-depth queues rather than silence', async () => {
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([queueResult('empty-dlq')]);
+    fake.executeSql.mockImplementation(async (query: string) => {
+      if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+      return {
+        rows: [
+          { depth: 0, queuedCount: 0, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+        ],
+      };
+    });
+
+    await reportDeadLetterQueues(fake.boss);
+
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 0, {
+      queueName: 'empty-dlq',
+    });
+    expect(logger.metric).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits worker_dlq_monitor_error on failed queue read and does not emit a metric for that queue', async () => {
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([queueResult('failed-dlq'), queueResult('healthy-dlq')]);
+    fake.executeSql.mockImplementation(async (query: string, parameters?: unknown[]) => {
+      if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+      if (parameters?.[0] === 'failed-dlq') throw new Error('database connection lost');
+      return {
+        rows: [
+          { depth: 3, queuedCount: 3, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+        ],
+      };
+    });
+
+    await reportDeadLetterQueues(fake.boss);
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'worker_dlq_monitor_error',
+        queueName: 'failed-dlq',
+        error: 'database connection lost',
+      }),
+      'Worker dead-letter queue inspection failed'
+    );
+    expect(logger.metric).not.toHaveBeenCalledWith('worker_dlq_depth', expect.anything(), {
+      queueName: 'failed-dlq',
+    });
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 3, {
+      queueName: 'healthy-dlq',
+    });
+    expect(logger.metric).toHaveBeenCalledTimes(1);
+  });
+
+  it('still emits existing worker_dlq_depth trace event alongside metric', async () => {
+    const fake = fakeBoss();
+    fake.getQueues.mockResolvedValue([queueResult('has-jobs-dlq'), queueResult('empty-dlq')]);
+    fake.executeSql.mockImplementation(async (query: string, parameters?: unknown[]) => {
+      if (query.includes('pgboss.version')) return { rows: [{ version: 26 }] };
+      if (parameters?.[0] === 'has-jobs-dlq') {
+        return {
+          rows: [
+            { depth: 4, queuedCount: 4, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+          ],
+        };
+      }
+      return {
+        rows: [
+          { depth: 0, queuedCount: 0, activeCount: 0, deferredCount: 0, oldestCreatedOn: null },
+        ],
+      };
+    });
+
+    await reportDeadLetterQueues(fake.boss);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'worker_dlq_depth',
+        queueName: 'has-jobs-dlq',
+        depth: 4,
+      }),
+      'Worker dead-letter queue contains jobs'
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'worker_dlq_depth',
+        queueName: 'empty-dlq',
+        depth: 0,
+      }),
+      'Worker dead-letter queue is empty'
+    );
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 4, {
+      queueName: 'has-jobs-dlq',
+    });
+    expect(logger.metric).toHaveBeenCalledWith('worker_dlq_depth', 0, {
+      queueName: 'empty-dlq',
+    });
   });
 });

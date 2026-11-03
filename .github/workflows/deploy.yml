@@ -176,3 +176,36 @@ jobs:
           done
           echo "::error::$ENVIRONMENT deployment verification failed."
           exit 1
+
+      - name: Verify worker heartbeat (warn-only)
+        continue-on-error: true
+        env:
+          APP_INSIGHTS_APP_ID: ${{ secrets.APP_INSIGHTS_APP_ID }}
+          APP_INSIGHTS_API_KEY: ${{ secrets.APP_INSIGHTS_API_KEY }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ -z "$APP_INSIGHTS_APP_ID" ] || [ -z "$APP_INSIGHTS_API_KEY" ]; then
+            echo "::notice::Skipping worker heartbeat check — App Insights query credentials not configured for $ENVIRONMENT."
+            exit 0
+          fi
+          verify_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Waiting 60s for a worker heartbeat emitted after $verify_started_at..."
+          sleep 60
+          for i in $(seq 1 8); do
+            query="traces | where timestamp >= datetime($verify_started_at) | where message contains 'Worker heartbeat' | count"
+            encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
+            body=$(curl -fsS --max-time 30 \
+              -H "x-api-key: $APP_INSIGHTS_API_KEY" \
+              "https://api.applicationinsights.io/v1/apps/$APP_INSIGHTS_APP_ID/query?query=$encoded_query" \
+              2>/dev/null || true)
+            if [ -n "$body" ]; then
+              count=$(printf '%s' "$body" | jq -r '.tables[0].rows[0][0] // "0"')
+              if [ "$count" -gt 0 ] 2>/dev/null; then
+                echo "$ENVIRONMENT worker heartbeat detected ($count traces emitted after verification began)."
+                exit 0
+              fi
+            fi
+            echo "No worker heartbeat yet (attempt $i/8)."
+            sleep 45
+          done
+          echo "::warning::$ENVIRONMENT worker heartbeat not detected within the verification window. The WebJob may not be running. Check the standalone-worker continuous WebJob in the Azure portal."
