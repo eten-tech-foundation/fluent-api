@@ -16,20 +16,9 @@ background agents, dynamic MCP, and additional providers are also excluded.
 
 ## Current limitations and follow-up
 
-As observed November 3, BT Servant 2.59.0 sends text answers as one final progress event.
-[Upstream change 458efb2](https://github.com/unfoldingWord/bt-servant-worker/pull/478)
-buffers text until the final iteration completes. Fluent renders received deltas, but current
-live briefings and follow-ups appear all at once after the loading indicator. No supported
-text-streaming opt-out was found. Earlier incremental-content timings below are historical,
-not evidence of current progressive display. Restoring that experience requires upstream coordination.
+Earlier November 3 probes observed BT Servant 2.59.0 buffering text until completion. The Fluent team is coordinating streaming restoration. Later local cold-briefing samples delivered first content in 7–14 seconds and completed in 23–35 seconds. These bounded samples demonstrate incremental delivery in those requests; they do not establish consistent streaming across every follow-up or deployment.
 
-Visual alignment is follow-up work: the current pane lacks the mockups' rounded enclosing
-border and separate Suggested Questions heading; button colors, exchange separators, icon,
-and Retry styling differ. The two-line composer accommodates longer questions and narrow panes.
-The selector follows the written requirement (below the passage header), which differs from
-the pictured ordering. Context-limit/interruption notices explain implemented behavior.
-The informational notice remains separate work under #407. This PR submits current behavior
-for review without correcting these departures.
+The pane now includes the agreed rounded border, single sparkle icon, quieter question buttons, compact expanding composer, and red error/Retry styling. An explicit prompt template requests a localized Suggested questions heading; three fresh English/Hindi samples followed that shape. Inline question placement remains model-controlled, and existing cache entries may retain the old shape. The language selector remains below the passage header as the written requirement specifies. Context-limit/interruption notices and conversation separators remain; the informational notice stays separate under #407.
 
 ## Architecture and user behavior
 
@@ -38,14 +27,15 @@ calls BT Servant directly, normalizes its bounded stream, and owns disposable co
 caches. There is no fluent-ai hop or generic provider framework. Web uses the API-owned supported
 language inventory, saved language preference, and source-language/English fallback.
 
+Language discovery is bounded and cancellable. A failed lookup retains the pane and offers explicit retry without inventing an English-only inventory. Invalid language configuration instead displays a persistent administrator-action message and emits a sanitized, once-per-process diagnostic. Assistant interface text uses the existing English/Hindi localization dictionaries independently of the selected answer language.
+
 The Assistant tab precedes Resources and remains independent of translation AI opt-out. The pane
 shows the canonical pericope header, language selector, briefing, suggested questions and conversation
 in a shared scroll area, with a composer pinned below it. Generation and Retry have visible controls.
 Safe Markdown is rendered from the accumulated source; unsafe HTML/URLs remain disabled. Complete
 recognized question macros become buttons; unknown or malformed syntax remains inert text.
 
-The prompt requests two short briefing paragraphs and three passage-specific questions in the
-selected language. Question count and placement are prompt conventions, not transport validation:
+The prompt supplies an explicit template requesting two short briefing paragraphs, a separator, a localized Suggested questions heading, and three passage-specific questions in the selected language. Question count and placement are prompt conventions, not transport validation:
 a safe receipt-consistent document remains readable even when the model deviates. Product/SME
 acceptance must assess this limitation rather than infer compliance from parser tests.
 
