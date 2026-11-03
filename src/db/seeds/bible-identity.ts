@@ -54,7 +54,8 @@ const dbLookups: BibleLookups = {
 };
 
 export type BibleResolution =
-  { existing: SeedBibleRow } | { existing?: undefined; abbreviation: string; name: string };
+  | { existing: SeedBibleRow }
+  | { existing?: undefined; abbreviation: string; name: string };
 
 /**
  * Resolves the bible row a seed should own, shared by seeds/bibles.ts and the

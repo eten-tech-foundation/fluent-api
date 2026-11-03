@@ -25,8 +25,10 @@ Queue reads run concurrently so one slow target does not delay healthy samples.
 Every API replica reports independently. Treat depth as a gauge and use the latest
 sample, not a sum of samples or instances. Production Application Insights requires
 the existing `APPLICATIONINSIGHTS_CONNECTION_STRING`; without it, logs are local
-only. The code emits telemetry; Azure alert rules and notification destinations
-still need to be configured by the environment owner.
+only. The code emits telemetry; alert rules are provisioned per environment using
+`infra/alerts/provision-queue-alerts.sh` — see
+[Queue Monitoring & Alerts](queue-monitoring-alerts.md) for the rule set and
+notification configuration.
 
 ## Queue convention
 
