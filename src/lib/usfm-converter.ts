@@ -350,14 +350,17 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
           addText(textOf(node));
           break;
         case 'para': {
+          // A blank line (\b) comes with no content at all; like any paragraph without words,
+          // it anchors nothing in the verse row and stays in the raw file (fluent-web#418).
+          const content = node.content ?? [];
           const afterEmptyParagraph = emptyParagraphBefore;
           emptyParagraphBefore = false;
           if (isUSFMSemanticDivisionMarker(node.marker)) {
             flush();
-            const firstVerse = node.content.findIndex(
+            const firstVerse = content.findIndex(
               (child) => typeof child !== 'string' && child.type === 'verse'
             );
-            if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+            if (firstVerse !== -1) walk(content.slice(firstVerse));
             break;
           }
 
@@ -372,27 +375,26 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
               paragraph = opened;
               // The open verse continues into this paragraph until a verse number comes first.
               current?.segments.push({ text: '', marker: opened.marker, openedByVerse: false });
-              walk(node.content);
+              walk(content);
               emptyParagraphBefore =
                 opened.marker === 'p' && !opened.hasContent && !opened.hasWords;
               paragraph = null;
             } else {
               // Unsupported paragraphs can still contain real verses.
               // Keep their verse text while excluding labels before the first milestone.
-              const firstVerse = node.content.findIndex(
+              const firstVerse = content.findIndex(
                 (child) => typeof child !== 'string' && child.type === 'verse'
               );
-              if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+              if (firstVerse !== -1) walk(content.slice(firstVerse));
             }
             break;
           }
 
           flush();
-          const firstVerse = node.content.findIndex(
+          const firstVerse = content.findIndex(
             (child) => typeof child !== 'string' && child.type === 'verse'
           );
-          const headingContent =
-            firstVerse === -1 ? node.content : node.content.slice(0, firstVerse);
+          const headingContent = firstVerse === -1 ? content : content.slice(0, firstVerse);
           const headingText = headingContent.map(textOf).join('').replace(/\s+/g, ' ').trim();
           pendingHeadings.push({
             marker: node.marker as (typeof USFM_HEADING_MARKERS)[number],
@@ -401,7 +403,7 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
 
           // A missing body paragraph can make the parser nest the following verse
           // in the heading node. Keep the heading prefix and still walk that verse.
-          if (firstVerse !== -1) walk(node.content.slice(firstVerse));
+          if (firstVerse !== -1) walk(content.slice(firstVerse));
           break;
         }
         case 'book':

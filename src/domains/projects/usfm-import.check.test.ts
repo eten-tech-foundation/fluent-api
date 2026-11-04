@@ -95,6 +95,79 @@ describe('prepareUsfmImport (#418, #419)', () => {
     ]);
   });
 
+  it('checks a file with blank lines (\\b) and the files sent after it (fluent-web#418)', async () => {
+    const result = await prepareUsfmImport(TARGET, [
+      file(
+        'GEN.usfm',
+        '\\id GEN\n\\c 1\n\\q1\n\\v 1 In the beginning.\n\\b\n\\q1\n\\v 2 The earth.'
+      ),
+      file('OBA.usfm', OBA),
+    ]);
+
+    expect(result.ok && result.data.verdicts).toEqual([
+      { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
+      { fileName: 'OBA.usfm', ok: true, bookCode: 'OBA', bookName: 'Obadiah' },
+    ]);
+  });
+
+  it('reads list header and footer lines into their verses, with headings and blank lines in the list (fluent-web#418)', async () => {
+    // The layout of a genealogy in Biblica's Open Telugu Contemporary Version (Genesis 10). Most
+    // of its list lines carry a verse; a few have words of their own (Genesis 22, 35, 36).
+    const usfm = [
+      '\\id GEN',
+      '\\c 10',
+      '\\s1 The table of nations',
+      '\\lh',
+      '\\v 1 This is the account of the sons of Noah.',
+      '\\s2 The Japhethites',
+      '\\li1',
+      '\\v 2 The sons of Japheth:',
+      '\\li2 Gomer and Magog.',
+      '\\lf These were the sons of Japheth.',
+      '\\b',
+      '\\lf',
+      '\\v 3 These are the clans.',
+      '\\c 11',
+      '\\p',
+      '\\v 1 The whole world had one language.',
+    ].join('\n');
+
+    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', usfm)]);
+
+    expect(result.ok && result.data.verdicts).toEqual([
+      { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
+    ]);
+    const [accepted] = result.ok ? result.data.accepted : [];
+    // The file is stored as it came; only the parser reads the list lines as paragraphs.
+    expect(accepted.usfm).toBe(usfm);
+    expect(accepted.verses.map((v) => [`${v.chapterNumber}:${v.verseNumber}`, v.text])).toEqual([
+      ['10:1', 'This is the account of the sons of Noah.'],
+      ['10:2', 'The sons of Japheth: Gomer and Magog. These were the sons of Japheth.'],
+      ['10:3', 'These are the clans.'],
+      ['11:1', 'The whole world had one language.'],
+    ]);
+    // The footer's own words stay in their verse, as a plain paragraph after the list items.
+    expect(accepted.verses[1].markers?.paragraphs?.map((p) => p.marker)).toEqual([
+      'li1',
+      'li2',
+      'p',
+    ]);
+  });
+
+  it('reads a cross reference left open inside a footnote (fluent-web#418)', async () => {
+    const usfm =
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 In the beginning.\\f + \\fr 1:1 \\ft See\\xt 3\\ft and\\xt 4\\ft .\\f*\n\\v 2 The earth.';
+
+    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', usfm)]);
+
+    expect(result.ok && result.data.verdicts).toEqual([
+      { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
+    ]);
+    const [accepted] = result.ok ? result.data.accepted : [];
+    expect(accepted.usfm).toBe(usfm);
+    expect(accepted.verses.map((v) => v.text)).toEqual(['In the beginning.', 'The earth.']);
+  });
+
   it('takes the book from \\id, whatever the file is called (#419)', async () => {
     const result = await prepareUsfmImport(TARGET, [file('1CH.usfm', `\\id GEN\n${BODY}`)]);
 

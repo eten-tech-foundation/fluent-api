@@ -56,6 +56,24 @@ function withParserBookId(usfm: string, bookCode: string): string {
   return `\\id ${bookCode}\n${usfm}`;
 }
 
+// List header and footer lines (\lh, \lf). The grammar refuses the ones that carry verses with a
+// heading or a blank line inside the list, as Biblica's Open Telugu Contemporary Version writes
+// its genealogies (fluent-web#418), so the parser reads them as plain paragraphs.
+const LIST_EDGE = /\\l[hf](?=\s)/g;
+// A cross reference (\xt) inside a footnote, left open until the footnote's next marker, as the
+// same Telugu Bible writes it. The grammar wants the \xt* spelled out.
+const OPEN_XT_IN_FOOTNOTE = /\\xt ([^\\]*)(?=\\f[a-z]*[\s*])/g;
+
+/**
+ * The copy the grammar parses: the book id it requires, and the two layouts above written the way
+ * it accepts them. Only the derived verse rows see these changes; the stored file is never changed.
+ */
+function parsingCopy(usfm: string, bookCode: string): string {
+  return withParserBookId(usfm, bookCode)
+    .replace(LIST_EDGE, '\\p')
+    .replace(OPEN_XT_IN_FOOTNOTE, '\\xt $1\\xt*');
+}
+
 function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
   const validated: UsjVerseText[] = [];
   for (const verse of verses) {
@@ -71,7 +89,7 @@ function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
 }
 
 function parseImportVerses(usfm: string, bookCode: string): Result<UsjVerseText[]> {
-  const usj = convertUSFMToUSJ(withParserBookId(usfm, bookCode));
+  const usj = convertUSFMToUSJ(parsingCopy(usfm, bookCode));
   if (!usj.ok) return err(ErrorCode.USFM_INVALID);
   const verses = usjToVerseTexts(usj.data);
   if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);

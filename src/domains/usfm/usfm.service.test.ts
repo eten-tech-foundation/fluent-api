@@ -269,8 +269,8 @@ describe('createUSFMStreamForBook', () => {
     );
     expect(heading?.type).toBe('para');
     if (heading?.type !== 'para') return;
-    expect(heading.content.every((node) => typeof node === 'string')).toBe(true);
-    expect(heading.content.join('').trim()).toBe('The Creation');
+    expect(heading.content?.every((node) => typeof node === 'string')).toBe(true);
+    expect(heading.content?.join('').trim()).toBe('The Creation');
   });
 
   it.each(USFM_SEMANTIC_DIVISION_MARKERS)(
