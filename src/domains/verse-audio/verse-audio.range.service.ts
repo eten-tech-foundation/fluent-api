@@ -47,6 +47,7 @@ export async function uploadRangeRecording(
     data: input.data,
     durationSeconds: input.durationSeconds,
     baseVersionToken: input.baseVersionToken,
+    activate: input.activate,
     shape: {
       granularity: VERSE_AUDIO_GRANULARITY.PERICOPE,
       startChapter: range.data.start.chapter,

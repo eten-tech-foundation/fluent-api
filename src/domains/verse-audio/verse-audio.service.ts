@@ -1,10 +1,15 @@
 import type { Result } from '@/lib/types';
 
+import { runInTransaction } from '@/db/transaction';
+import env from '@/env';
 import { deleteVerseAudio } from '@/lib/audio-storage';
 import { logger } from '@/lib/logger';
+import { PERMISSIONS } from '@/lib/permissions';
+import { authorize } from '@/lib/services/permissions/authorize';
 import { err, ErrorCode, ok } from '@/lib/types';
 
 import type {
+  DeleteTakeInput,
   ResolveConflictInput,
   VerseAudioTakeRecord,
   VerseAudioWithUrl,
@@ -13,11 +18,7 @@ import type {
 import * as storageRepo from './storage-objects.repository';
 import * as takesRepo from './verse-audio-takes.repository';
 import * as repo from './verse-audio.repository';
-import {
-  buildRecordingResponses,
-  fallbackBlobKey,
-  loadUnitResponse,
-} from './verse-audio.responses';
+import { buildRecordingResponses, loadUnitResponse } from './verse-audio.responses';
 import { shapeFromTake } from './verse-audio.shapes';
 import { VERSE_AUDIO_CONFLICT_STATUS } from './verse-audio.types';
 
@@ -130,6 +131,35 @@ export async function resolveConflict(
   return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }
 
+async function deleteTakeObject(
+  projectUnitId: number,
+  bibleTextId: number,
+  storageObjectId: number,
+  contentHash: string
+): Promise<void> {
+  // Lock + recheck references before deleting bytes. An activate=false upload can
+  // claim this storage row between take-row delete and bucket delete; without the
+  // lock we would wipe that new take's object. Grace matches the reclaim sweep so
+  // a revived claim (createdAt refreshed) is skipped until AUDIO_RECLAIM_GRACE_MS.
+  // deleteObject must reject to roll the reclaim txn back — do not swallow errors.
+  const reclaimed = await storageRepo.reclaimOrphanIfUnreferenced(
+    storageObjectId,
+    env.AUDIO_RECLAIM_GRACE_MS,
+    async (object) => {
+      await deleteVerseAudio(object.key);
+    }
+  );
+  if (!reclaimed.ok) {
+    logger.error({
+      cause: reclaimed.error,
+      message: 'Verse audio storage reclaim failed; left for the reclaim sweep',
+      context: { storageObjectId, projectUnitId, bibleTextId, contentHash },
+    });
+  }
+  // ok(true): bytes+row removed. ok(false): still referenced, too young, or already
+  // gone — either way do not delete unlocked; the sweep handles true orphans.
+}
+
 export async function deleteRecording(
   projectUnitId: number,
   bibleTextId: number
@@ -156,24 +186,108 @@ export async function deleteRecording(
     if (take.storageObjectId === null) {
       continue;
     }
-    const storage = await storageRepo.getById(take.storageObjectId);
-    const key = storage.ok
-      ? storage.data.key
-      : fallbackBlobKey(projectUnitId, bibleTextId, take.contentHash);
-
-    try {
-      await deleteVerseAudio(key);
-    } catch (error) {
-      logger.error({
-        cause: error,
-        message: 'Verse audio object delete failed; left for the reclaim sweep',
-        context: { key },
-      });
-      continue;
-    }
-
-    await storageRepo.markDeleted(take.storageObjectId);
+    await deleteTakeObject(projectUnitId, bibleTextId, take.storageObjectId, take.contentHash);
   }
 
   return ok(undefined);
+}
+
+function newestTake(takes: VerseAudioTakeRecord[]): VerseAudioTakeRecord | null {
+  if (takes.length === 0) {
+    return null;
+  }
+  return [...takes].sort((a, b) => {
+    const byCreated = b.createdAt.getTime() - a.createdAt.getTime();
+    if (byCreated !== 0) {
+      return byCreated;
+    }
+    return b.id - a.id;
+  })[0]!;
+}
+
+/**
+ * Deletes a single take. Allowed for the take's uploader or a holder of
+ * `content:assign` at the project scope; anyone else gets FORBIDDEN. Deleting
+ * the active take promotes the newest remaining take (or clears it) via CAS on
+ * versionToken. Optional `baseVersionToken` is required for versioned clients
+ * when the take is active; absent is the legacy snapshot-under-lock path.
+ */
+export async function deleteTake(input: DeleteTakeInput): Promise<Result<VerseAudioWithUrl>> {
+  const [recording, take] = await Promise.all([
+    repo.get(input.projectUnitId, input.bibleTextId),
+    takesRepo.getTakeById(input.takeId),
+  ]);
+  if (!recording.ok) {
+    return recording;
+  }
+  if (!take.ok) {
+    return take;
+  }
+  if (take.data.recordingId !== recording.data.id) {
+    return err(ErrorCode.VERSE_AUDIO_TAKE_NOT_FOUND);
+  }
+
+  const isOwner = take.data.uploadedBy === input.actor.id;
+  if (!isOwner && !authorize(input.actor, PERMISSIONS.CONTENT_ASSIGN, input.scope)) {
+    return err(ErrorCode.FORBIDDEN);
+  }
+
+  // Row first, bytes second (same order as deleteRecording): a failed object
+  // delete leaves an orphan for the reclaim sweep rather than a dangling take.
+  const deleted = await runInTransaction(async (tx) => {
+    const locked = await takesRepo.lockRecording(recording.data.id, tx);
+    if (!locked.ok) {
+      return locked;
+    }
+
+    const wasActive = locked.data.activeTakeId === input.takeId;
+    if (wasActive && input.baseVersionToken !== undefined) {
+      if (input.baseVersionToken !== locked.data.versionToken) {
+        return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+      }
+    }
+
+    const removed = await takesRepo.deleteTake(recording.data.id, input.takeId, tx);
+    if (!removed.ok) {
+      return removed;
+    }
+
+    if (!wasActive) {
+      return ok(removed.data);
+    }
+
+    // Legacy omitted-token path snapshots under the lock; versioned clients
+    // already matched above. Either way the promote/clear UPDATE is a CAS.
+    const expectedVersion = input.baseVersionToken ?? locked.data.versionToken;
+
+    const remaining = await takesRepo.listTakesForRecording(recording.data.id, tx);
+    if (!remaining.ok) {
+      return remaining;
+    }
+
+    const promoted = newestTake(remaining.data);
+    const set = await takesRepo.setActiveTake(recording.data.id, promoted, expectedVersion, tx);
+    if (!set.ok) {
+      return set;
+    }
+    if (!set.data.applied) {
+      return err(ErrorCode.VERSE_AUDIO_VERSION_CONFLICT);
+    }
+
+    return ok(removed.data);
+  });
+  if (!deleted.ok) {
+    return deleted;
+  }
+
+  if (deleted.data.storageObjectId !== null) {
+    await deleteTakeObject(
+      input.projectUnitId,
+      input.bibleTextId,
+      deleted.data.storageObjectId,
+      deleted.data.contentHash
+    );
+  }
+
+  return loadUnitResponse(input.projectUnitId, input.bibleTextId);
 }

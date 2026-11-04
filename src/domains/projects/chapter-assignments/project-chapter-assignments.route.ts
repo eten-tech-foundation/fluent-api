@@ -19,6 +19,7 @@ import {
   assignUserInputSchema,
   chapterAssignmentProgressResponseSchema,
   chapterAssignmentResponseSchema,
+  resetSelectedRequestSchema,
 } from './project-chapter-assignments.types';
 
 const projectIdParam = z.object({ projectId: z.coerce.number().int().positive() });
@@ -293,6 +294,77 @@ server.openapi(assignSelectedRoute, async (c) => {
   }
 
   const result = await service.assignSelectedChapters(projectId, assignments);
+  if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
+  return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+});
+
+// ─── PATCH /projects/:projectId/chapter-assignments/reset-selected ────────────
+
+const resetSelectedRoute = createRoute({
+  tags: ['Projects - Chapter Assignments'],
+  method: 'patch',
+  path: '/projects/{projectId}/chapter-assignments/reset-selected',
+  middleware: [
+    authenticateUser,
+    requirePermission(PERMISSIONS.CONTENT_ASSIGN),
+    requireProjectAccess(PROJECT_ACTIONS.UPDATE, 'projectId'),
+  ] as const,
+  summary: 'Reset selected chapter assignments',
+  description:
+    'Restores selected chapter assignments to not_started and clears assignedUserId, ' +
+    'peerCheckerId, and submittedTime. Only chapters currently in draft or peer_check may ' +
+    'be reset; any other status returns 409. All chapter assignment IDs must belong to the ' +
+    'given project. Manager only.',
+  request: {
+    params: projectIdParam,
+    body: jsonContent(resetSelectedRequestSchema, 'Chapter assignment IDs to reset'),
+  },
+  responses: {
+    // Same progress array shape as assign-selected.
+    [HttpStatusCodes.OK]: jsonContent(assignSelectedResponseSchema, 'Success'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Bad Request'),
+      'Invalid request data'
+    ),
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
+    [HttpStatusCodes.FORBIDDEN]: jsonContent(
+      createMessageObjectSchema('Forbidden'),
+      'Insufficient permissions'
+    ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
+      'Project or chapter assignment not found'
+    ),
+    [HttpStatusCodes.CONFLICT]: jsonContent(
+      createMessageObjectSchema('Conflict'),
+      'A chapter assignment is not in draft or peer_check'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
+  },
+});
+
+server.openapi(resetSelectedRoute, async (c) => {
+  const { projectId } = c.req.valid('param');
+  const { chapterAssignmentIds } = c.req.valid('json');
+  const currentUser = c.get('user')!;
+  const project = c.get('project')!;
+
+  const policyUser = {
+    id: currentUser.id,
+    grants: currentUser.grants,
+  };
+
+  if (!ChapterAssignmentPolicy.resetStatus(policyUser, project.organization, project.id)) {
+    return c.json({ message: 'Forbidden' }, HttpStatusCodes.FORBIDDEN);
+  }
+
+  const result = await service.resetSelectedChapters(projectId, chapterAssignmentIds);
   if (result.ok) return c.json(result.data, HttpStatusCodes.OK);
   return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
 });

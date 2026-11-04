@@ -62,6 +62,11 @@ export function lockProjectById(id: number, tx: DbTransaction) {
   return repo.lockProjectById(id, tx);
 }
 
+/** Locks the project and returns its current Source Bible, or null when there is no project. */
+export function lockProjectSourceBible(id: number, tx: DbTransaction) {
+  return repo.lockProjectSourceBible(id, tx);
+}
+
 export async function deleteProject(
   id: number,
   options?: { cascadeUnits?: boolean }

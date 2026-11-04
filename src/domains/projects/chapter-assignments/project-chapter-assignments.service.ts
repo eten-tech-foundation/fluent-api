@@ -1,9 +1,15 @@
-import type { ChapterAssignmentProgressInfo } from '@/domains/chapter-assignments/chapter-assignments.types';
+import type {
+  ChapterAssignmentProgressInfo,
+  ChapterAssignmentStatus,
+} from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { runInTransaction } from '@/db/transaction';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
+import { CHAPTER_ASSIGNMENT_STATUS } from '@/domains/chapter-assignments/chapter-assignments.types';
 import * as projectsService from '@/domains/projects/projects.service';
+import { lockProject } from '@/domains/projects/workflow-stages/workflow-stages.service';
 import { findUserIdsInOrg } from '@/domains/user-roles/user-roles.repository';
 import * as userProjectsService from '@/domains/users/projects/user-projects.service';
 import { logger } from '@/lib/logger';
@@ -14,6 +20,7 @@ import type {
   AssignUserInput,
   ChapterAssignmentProgress,
   ChapterAssignmentWithProjectId,
+  ResetSelectedRequest,
 } from './project-chapter-assignments.types';
 
 import * as projectRepo from '../projects.repository';
@@ -190,6 +197,101 @@ export async function assignSelectedChapters(
       cause: error,
       message: 'Failed to assign selected chapters',
       context: { projectId, assignments },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
+const RESETTABLE_STATUSES = new Set<ChapterAssignmentStatus>([
+  CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+  CHAPTER_ASSIGNMENT_STATUS.PEER_CHECK,
+]);
+
+export async function resetSelectedChapters(
+  projectId: number,
+  chapterAssignmentIds: ResetSelectedRequest['chapterAssignmentIds']
+): Promise<Result<ChapterAssignmentProgress[]>> {
+  if (chapterAssignmentIds.length > repo.MAX_CHAPTER_ASSIGNMENTS_PER_REQUEST) {
+    return err(ErrorCode.CHAPTER_LIMIT_EXCEEDED);
+  }
+
+  try {
+    return await runInTransaction(async (tx) => {
+      // Match submitChapterAssignment lock order (project, then assignments) to avoid 40P01.
+      const lockResult = await lockProject(tx, projectId);
+      if (!lockResult.ok) return lockResult;
+
+      const invalidAssignmentIds = await projectRepo.findAssignmentIdsNotInProject(
+        projectId,
+        chapterAssignmentIds,
+        tx
+      );
+      if (invalidAssignmentIds.length > 0) {
+        logger.warn('Invalid chapter assignment IDs requested for project', {
+          projectId,
+          invalidAssignmentIds,
+        });
+        return err(ErrorCode.NOT_FOUND);
+      }
+
+      const statusRows = await repo.findStatusesByIds(chapterAssignmentIds, tx);
+      const statusById = new Map(statusRows.map((row) => [row.id, row.status]));
+      const missingIds = chapterAssignmentIds.filter((id) => !statusById.has(id));
+      if (missingIds.length > 0) {
+        logger.warn('Chapter assignment IDs missing after project membership check', {
+          projectId,
+          missingIds,
+        });
+        return err(ErrorCode.NOT_FOUND);
+      }
+
+      const notResettable = chapterAssignmentIds.filter((id) => {
+        const status = statusById.get(id);
+        return status === undefined || !RESETTABLE_STATUSES.has(status);
+      });
+      if (notResettable.length > 0) {
+        logger.warn('Chapter assignments are not resettable from their current status', {
+          projectId,
+          chapterAssignmentIds: notResettable,
+          statuses: notResettable.map((id) => ({ id, status: statusById.get(id) })),
+        });
+        return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_RESETTABLE);
+      }
+
+      const updatedIds: number[] = [];
+      // Sequential: each updateChapterAssignment shares this tx (and its project lock).
+      for (const id of chapterAssignmentIds) {
+        const result = await chapterAssignmentService.updateChapterAssignment(
+          id,
+          {
+            status: CHAPTER_ASSIGNMENT_STATUS.NOT_STARTED,
+            assignedUserId: null,
+            peerCheckerId: null,
+            submittedTime: null,
+          },
+          tx
+        );
+        if (!result.ok) return result;
+        updatedIds.push(id);
+      }
+
+      const assignmentsResult = await chapterAssignmentService.getAssignmentsProgress(
+        { projectId },
+        tx
+      );
+      if (!assignmentsResult.ok) return err(ErrorCode.INTERNAL_ERROR);
+
+      const mapped = assignmentsResult.data
+        .filter((info) => updatedIds.includes(info.assignmentId))
+        .map(toChapterAssignmentProgressResponse);
+
+      return ok(mapped);
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to reset selected chapters',
+      context: { projectId, chapterAssignmentIds },
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }

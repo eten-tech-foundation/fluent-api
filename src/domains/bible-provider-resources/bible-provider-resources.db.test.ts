@@ -7,6 +7,7 @@ import { config as localConfig } from '@/db/env-configs/local';
 import { bible_provider_resources, bibles, projects } from '@/db/schema';
 import { AUDIO_DEMO_SEED, seedAudioDemo } from '@/db/seeds/audio-demo';
 import { seedBibles } from '@/db/seeds/bibles';
+import { findSpecProjectManager } from '@/db/seeds/demo';
 import { BIBLE_PROVIDER_PREFIXES } from '@/domains/bible-provider-resources/bible-provider-resources.identity';
 import { findAssignmentsProgress } from '@/domains/chapter-assignments/progress/chapter-assignments-progress.repository';
 import { auth } from '@/lib/auth';
@@ -16,9 +17,10 @@ import '@/domains/playback-audio/playback-audio.route';
 import { getById, getByProviderIdentity } from './bible-provider-resources.repository';
 
 const localUser = (() => {
-  const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
-  if (!user) throw new Error('Local test config needs a configured project manager.');
-  return user;
+  const user = findSpecProjectManager(localConfig.demoSpec);
+  if (!user?.password)
+    throw new Error('Local test config needs a configured project manager with a password.');
+  return { email: user.email, password: user.password };
 })();
 let headers: Headers;
 let projectId: number;

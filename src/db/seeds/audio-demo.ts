@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
+import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
 import {
@@ -42,14 +43,35 @@ export async function seedAudioDemo(
 
   const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName));
   const [user] = await db.select().from(users).where(eq(users.email, userEmail));
-  const [bible] = await db.select().from(bibles).where(eq(bibles.abbreviation, 'BSB'));
+  // Resolve BSB by upstream identity first — a catalogue sync may own bba9f…
+  // under a suffixed abbreviation while bare 'BSB' names a different bible.
+  const [holder] = await db
+    .select()
+    .from(bibles)
+    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, 'bba9f40183526463-01')))
+    .limit(1);
+  const [bible] = holder
+    ? [holder]
+    : await db.select().from(bibles).where(eq(bibles.abbreviation, 'BSB'));
   const [book] = await db.select().from(books).where(eq(books.code, 'JHN'));
   const [target] = await db.select().from(languages).where(eq(languages.langCodeIso6393, 'guj'));
   const [pericopes] = await db.select().from(pericope_sets).where(eq(pericope_sets.name, 'FCBH'));
   const [role] = await db.select().from(roles).where(eq(roles.name, ROLES.PROJECT_MANAGER));
-  if (!org || !user || !bible || !book || !target || !pericopes || !role) {
+  const missing = [
+    ['organization', org],
+    [`user ${userEmail}`, user],
+    ['BSB bible', bible],
+    ['JHN book', book],
+    ['Gujarati language', target],
+    ['FCBH pericope set', pericopes],
+    ['Project Manager role', role],
+  ]
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length) {
     throw new Error(
-      'Audio demo needs organization, user, BSB/JHN, Gujarati, FCBH and roles seeded first.'
+      `Audio demo is local-only and needs seeded prerequisites first — missing: ${missing.join(', ')}. ` +
+        'If DATABASE_URL points at a non-local database, this seeder does not apply there.'
     );
   }
 
@@ -150,4 +172,27 @@ export async function seedAudioDemo(
     // Reruns retain assignment ownership, progress and the suggestion toggle, not just verse IDs.
     console.log(`Audio demo ready: project ${project.id}, BSB John 3 (local only).`);
   });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const main = async () => {
+    // Audio demo is local-only — load the local env-config for the org name
+    // and the spec's Project Manager, the same lookup setup.ts performs.
+    const { config } = await import('@/db/env-configs/local');
+    const { applyDatabaseUrl } = await import('@/db/env-configs/database-url');
+    const { findSpecProjectManager } = await import('@/db/seeds/demo');
+    const maskedUrl = applyDatabaseUrl(config);
+    if (!maskedUrl) {
+      console.error('❌  No DATABASE_URL for local — compose injects it inside the container.');
+      process.exit(1);
+    }
+    const pm = findSpecProjectManager(config.demoSpec);
+    await seedAudioDemo('local', config.orgName, pm?.email);
+  };
+  main()
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
 }

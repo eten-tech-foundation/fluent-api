@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, ne } from 'drizzle-orm';
 
 import type { Result } from '@/lib/types';
 
@@ -205,7 +205,9 @@ export async function getAvailableBooksForExport(projectUnitId: number) {
         translated_verses,
         and(
           eq(translated_verses.bibleTextId, bible_texts.id),
-          eq(translated_verses.projectUnitId, projectUnitId)
+          eq(translated_verses.projectUnitId, projectUnitId),
+          // A row with no words (an imported verse that only opens a paragraph) is not translated.
+          ne(translated_verses.content, '')
         )
       )
       .where(

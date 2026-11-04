@@ -316,14 +316,8 @@ switch ($Command) {
 
   "db:migrate" { Write-Running "Running fluent-api migrations..."; Invoke-ExecApi @("npx", "drizzle-kit", "migrate") }
   "db:seed" {
-    Write-Running "Seeding organizations..."
-    Invoke-ExecApi @("npm", "run", "db:seed:org")
-    Write-Running "Seeding roles..."
-    Invoke-ExecApi @("npm", "run", "db:seed:roles")
-    Write-Running "Seeding RBAC data..."
-    Invoke-ExecApi @("npm", "run", "db:seed:rbac")
-    Write-Running "Seeding dev users..."
-    Invoke-ExecApi @("npm", "run", "db:seed:dev-users")
+    Write-Running "Seeding reference data + demo spec..."
+    Invoke-ExecApi @("npm", "run", "db:seed")
     Write-Success "All seeds complete."
   }
 
@@ -447,7 +441,7 @@ Development (runs in API container):
 
 Database:
   db:migrate             Run Drizzle migrations
-  db:seed                Seed all data (org, roles, RBAC, dev users)
+  db:seed                Seed all data (org, roles, RBAC, languages, books, bibles, bible texts, pericope sets, demo spec)
   db:init                Run migrations + all seeds (interactive confirmation)
   db:generate <name>     Generate a new Drizzle migration
   db:studio              Launch Drizzle Studio on the host

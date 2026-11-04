@@ -1,8 +1,11 @@
 import type { SQL } from 'drizzle-orm/sql';
 
-import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 
-import type { ChapterAssignmentRecord } from '@/domains/chapter-assignments/chapter-assignments.types';
+import type {
+  ChapterAssignmentRecord,
+  ChapterAssignmentStatus,
+} from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
@@ -147,6 +150,27 @@ export async function findProjectUnitIdsByAssignmentIds(
 }
 
 export const MAX_CHAPTER_ASSIGNMENTS_PER_REQUEST = 1000;
+
+export async function findStatusesByIds(
+  ids: number[],
+  tx: DbTransaction
+): Promise<Array<{ id: number; status: ChapterAssignmentStatus }>> {
+  if (ids.length === 0) return [];
+  // FOR UPDATE + ORDER BY id: eligibility check and reset must serialize against
+  // concurrent status changes, and overlapping resets must lock in a stable order.
+  // Callers that also touch projects (e.g. resetSelectedChapters) must lockProject first
+  // so lock order matches submitChapterAssignment (project, then assignments).
+  const rows = await tx
+    .select({ id: chapter_assignments.id, status: chapter_assignments.status })
+    .from(chapter_assignments)
+    .where(inArray(chapter_assignments.id, ids))
+    .orderBy(asc(chapter_assignments.id))
+    .for('update');
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status as ChapterAssignmentStatus,
+  }));
+}
 
 export async function getByProjects(
   projectIds: number[],

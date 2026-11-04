@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -33,12 +33,22 @@ function loadBookCodeByProdId(): Map<number, string> {
 }
 
 export async function seedBibleTexts() {
-  // 1. Resolve the IRV bible.
-  const [bible] = await db
+  // 1. Resolve the IRV bible — by upstream identity first, matching
+  // seedBibles' adopt-the-holder semantics: a catalogue sync may own
+  // a3644a98420c2703-01 under a different abbreviation (e.g. QA's IRVGuj)
+  // while the bare 'IRV' row stays anonymous.
+  const [holder] = await db
     .select({ id: bibles.id })
     .from(bibles)
-    .where(eq(bibles.abbreviation, IRV_ABBREVIATION))
+    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, 'a3644a98420c2703-01')))
     .limit(1);
+  const [bible] = holder
+    ? [holder]
+    : await db
+        .select({ id: bibles.id })
+        .from(bibles)
+        .where(eq(bibles.abbreviation, IRV_ABBREVIATION))
+        .limit(1);
 
   if (!bible) {
     throw new Error(`Bible "${IRV_ABBREVIATION}" not found. Run seedBibles first.`);

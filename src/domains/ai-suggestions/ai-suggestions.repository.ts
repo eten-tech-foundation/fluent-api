@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, not, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, ne, not, sql } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -164,7 +164,9 @@ export async function logAiSuggestionUsage(
 /**
  * The fallback look-ahead for a project with no pericope set. Same two filters the pericope query
  * applies: no saved draft for this project unit, and no suggestion already generated. Without the
- * second one, re-navigating the chapter would regenerate text the translator already has.
+ * second one, re-navigating the chapter would regenerate text the translator already has. A row
+ * with no words (an imported verse that only opens a paragraph or carries a heading) is not a
+ * draft.
  */
 export async function findNextUntranslatedVerses(
   projectUnitId: number,
@@ -182,7 +184,8 @@ export async function findNextUntranslatedVerses(
       translated_verses,
       and(
         eq(translated_verses.bibleTextId, bible_texts.id),
-        eq(translated_verses.projectUnitId, projectUnitId)
+        eq(translated_verses.projectUnitId, projectUnitId),
+        ne(translated_verses.content, '')
       )
     )
     // Cannot fan out rows: ai_suggestions is unique per (bible_text, project_unit).
@@ -224,7 +227,7 @@ export async function getProjectIdForProjectUnit(projectUnitId: number): Promise
 /**
  * Which of the given verses still need a suggestion: no saved draft for this project unit, and no
  * suggestion already generated. The second filter is what keeps re-navigating a pericope from
- * regenerating text the translator already has.
+ * regenerating text the translator already has. A row with no words is not a draft.
  */
 export async function findVersesNeedingSuggestions(
   projectUnitId: number,
@@ -247,7 +250,8 @@ export async function findVersesNeedingSuggestions(
       translated_verses,
       and(
         eq(translated_verses.bibleTextId, bible_texts.id),
-        eq(translated_verses.projectUnitId, projectUnitId)
+        eq(translated_verses.projectUnitId, projectUnitId),
+        ne(translated_verses.content, '')
       )
     )
     .leftJoin(

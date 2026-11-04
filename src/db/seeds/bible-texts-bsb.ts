@@ -1,9 +1,10 @@
 import { z } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { db } from '@/db';
-import { bible_texts, bibles, books } from '@/db/schema';
+import { bible_books, bible_texts, bibles, books } from '@/db/schema';
 
 const bsbJohnSchema = z.object({
   source: z.object({ bookCode: z.literal('JHN'), license: z.literal('Public domain') }),
@@ -26,10 +27,21 @@ export function loadBsbJohn() {
 }
 
 export async function seedBsbBibleTexts(): Promise<void> {
-  const [bible] = await db
+  // Resolve by upstream identity first: the fixture was captured from DBL
+  // bba9f40183526463-01, and the row owning it may carry a suffixed
+  // abbreviation after a catalogue sync (e.g. QA's 'BSB-bba9f4') while the
+  // bare 'BSB' row names a different upstream bible entirely.
+  const [holder] = await db
     .select({ id: bibles.id, provider: bibles.provider, externalId: bibles.externalId })
     .from(bibles)
-    .where(eq(bibles.abbreviation, 'BSB'));
+    .where(and(eq(bibles.provider, 'dbl'), eq(bibles.externalId, 'bba9f40183526463-01')))
+    .limit(1);
+  const [bible] = holder
+    ? [holder]
+    : await db
+        .select({ id: bibles.id, provider: bibles.provider, externalId: bibles.externalId })
+        .from(bibles)
+        .where(eq(bibles.abbreviation, 'BSB'));
   const [book] = await db.select({ id: books.id }).from(books).where(eq(books.code, 'JHN'));
   if (!bible || !book) throw new Error('BSB/JHN not found. Run seedBibles and seedBooks first.');
   if (bible.provider !== 'dbl' || bible.externalId !== 'bba9f40183526463-01')
@@ -60,6 +72,29 @@ export async function seedBsbBibleTexts(): Promise<void> {
           ],
         });
     }
+
+    // The fixture is a complete JHN ingest — stamp the codebase's
+    // ingest-complete marker (UI source panels and the demo ingest planner
+    // both key off it) without overwriting a real worker stamp.
+    await tx
+      .update(bible_books)
+      .set({ textIngestedAt: new Date() })
+      .where(
+        and(
+          eq(bible_books.bibleId, bible.id),
+          eq(bible_books.bookId, book.id),
+          isNull(bible_books.textIngestedAt)
+        )
+      );
   });
   console.log(`BSB John texts seeded (${rows.length} source verses, existing rows retained).`);
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  seedBsbBibleTexts()
+    .then(() => process.exit(0))
+    .catch((err: unknown) => {
+      console.error('Seed failed:', err);
+      process.exit(1);
+    });
 }

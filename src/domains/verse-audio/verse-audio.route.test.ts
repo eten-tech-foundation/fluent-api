@@ -89,6 +89,7 @@ vi.mock('./verse-audio.service', () => ({
   listChapterRecordings: vi.fn(),
   resolveConflict: vi.fn(),
   deleteRecording: vi.fn(),
+  deleteTake: vi.fn(),
 }));
 
 vi.mock('./verse-audio.range.service', () => ({
@@ -239,6 +240,7 @@ describe('verse-audio routes', () => {
       if (fields.baseVersionToken !== undefined) {
         form.append('baseVersionToken', fields.baseVersionToken);
       }
+      if (fields.activate !== undefined) form.append('activate', fields.activate);
       return server.request('/verse-audio/1/range', { method: 'PUT', body: form });
     }
 
@@ -280,11 +282,19 @@ describe('verse-audio routes', () => {
           endChapter: 1,
           endVerse: 5,
           baseVersionToken: 2,
+          activate: true,
         })
       );
       const json = await res.json();
       expect(json.granularity).toBe('pericope');
       expect(json.endVerse).toBe(5);
+    });
+
+    it('forwards activate=false for a non-selected pericope take', async () => {
+      expect((await rangeUpload({ activate: 'false' })).status).toBe(200);
+      expect(rangeAudioService.uploadRangeRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: false })
+      );
     });
 
     it('returns 400 when bibleTextId is missing from the form', async () => {
@@ -342,11 +352,14 @@ describe('verse-audio routes', () => {
   describe('put /verse-audio/{projectUnitId}/{bibleTextId}', () => {
     // The form validator enforces the declared schema, while the handler reads
     // a separate parseBody result and repeats the guard as defence in depth.
-    function upload(baseVersionToken?: string) {
+    function upload(baseVersionToken?: string, activate?: string) {
       const form = new FormData();
       form.append('file', new File(['abcd'], 'take.m4a', { type: 'audio/mp4' }));
       if (baseVersionToken !== undefined) {
         form.append('baseVersionToken', baseVersionToken);
+      }
+      if (activate !== undefined) {
+        form.append('activate', activate);
       }
       return server.request('/verse-audio/1/10', { method: 'PUT', body: form });
     }
@@ -390,6 +403,26 @@ describe('verse-audio routes', () => {
       expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
         expect.objectContaining({ baseVersionToken: 3 })
       );
+    });
+
+    it.each([
+      [undefined, true],
+      ['true', true],
+      ['false', false],
+    ])('forwards activate=%s as %s (default true)', async (value, expected) => {
+      const res = await upload('3', value);
+
+      expect(res.status).toBe(200);
+      expect(verseAudioService.uploadRecording).toHaveBeenCalledWith(
+        expect.objectContaining({ activate: expected })
+      );
+    });
+
+    it('rejects an activate value that is not true or false', async () => {
+      const res = await upload('3', 'no');
+
+      expect(res.status).toBe(400);
+      expect(verseAudioService.uploadRecording).not.toHaveBeenCalled();
     });
 
     it('returns 409 with currentVersionToken when concurrent cleanup invalidates an upload reference', async () => {

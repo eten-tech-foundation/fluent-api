@@ -43,6 +43,8 @@ const GEN = '\\id GEN Genesis\n\\c 1\n\\p\n\\v 1 In the beginning.\n\\v 2 The ea
 const GEN_WITH_HEADING =
   '\\id GEN\n\\c 1\n\\p\n\\v 1 First.\n\\s1 The Creation\n\\p\n\\v 2 Second.';
 const MAT = '\\id MAT Matthew\n\\c 1\n\\p\n\\v 1 The genealogy.';
+/** Markers of a verse whose number opens a `\p` paragraph (fluent-web#314). */
+const OPENS_P = { paragraphs: [{ marker: 'p', offset: 0 }] };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -91,7 +93,7 @@ describe('materializeUsfmImport (#419)', () => {
 
     expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
     expect(inserted[0]).toEqual([
-      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.', markers: OPENS_P },
       { projectUnitId: 5, bibleTextId: 102, content: 'The earth.' },
     ]);
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, undefined);
@@ -120,7 +122,7 @@ describe('materializeUsfmImport (#419)', () => {
     expect(result).toEqual({ ok: true, data: 'materialized' });
     expect(inserted).toEqual([
       [
-        { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+        { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.', markers: OPENS_P },
         { projectUnitId: 5, bibleTextId: 102, content: 'The earth.' },
       ],
     ]);
@@ -140,12 +142,12 @@ describe('materializeUsfmImport (#419)', () => {
     expect(result).toEqual({ ok: true, data: 'materialized' });
     expect(inserted).toEqual([
       [
-        { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
+        { projectUnitId: 5, bibleTextId: 101, content: 'First.', markers: OPENS_P },
         {
           projectUnitId: 5,
           bibleTextId: 102,
           content: 'Second.',
-          markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+          markers: { headings: [{ marker: 's1', text: 'The Creation' }], ...OPENS_P },
         },
       ],
     ]);
@@ -157,7 +159,9 @@ describe('materializeUsfmImport (#419)', () => {
       ok([{ id: 101, chapterNumber: 1, verseNumber: 1 }])
     );
     expect(await materializeUsfmImport({ ...row, usfm }, 3)).toEqual(ok('materialized'));
-    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'Original.' }]]);
+    expect(inserted).toEqual([
+      [{ projectUnitId: 5, bibleTextId: 101, content: 'Original.', markers: OPENS_P }],
+    ]);
     expect(booksService.getBookById).toHaveBeenCalledWith(1);
   });
 
@@ -196,8 +200,44 @@ describe('materializeUsfmImport (#419)', () => {
       projectUnitId: 5,
       bibleTextId: 102,
       content: '',
-      markers: { headings: [{ marker: 's1', text: 'Empty Section' }] },
+      markers: { headings: [{ marker: 's1', text: 'Empty Section' }], ...OPENS_P },
     });
+  });
+
+  it('stores the paragraphs the file opens, including inside a verse (fluent-web#314)', async () => {
+    vi.mocked(bibleTextsService.getBibleBookVerseReferences).mockResolvedValue(
+      ok([
+        { id: 101, chapterNumber: 1, verseNumber: 1 },
+        { id: 102, chapterNumber: 1, verseNumber: 2 },
+        { id: 103, chapterNumber: 1, verseNumber: 3 },
+      ])
+    );
+    const usfm =
+      '\\id GEN\n\\c 1\n\\p\n\\v 1 First half,\n\\p second half.\n\\q1\n\\v 2 Poetry.\n\\p\n\\v 3';
+
+    await materializeUsfmImport({ ...row, usfm }, 3);
+
+    expect(inserted[0]).toEqual([
+      {
+        projectUnitId: 5,
+        bibleTextId: 101,
+        content: 'First half, second half.',
+        markers: {
+          paragraphs: [
+            { marker: 'p', offset: 0 },
+            { marker: 'p', offset: 12 },
+          ],
+        },
+      },
+      {
+        projectUnitId: 5,
+        bibleTextId: 102,
+        content: 'Poetry.',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+      // Kept although empty, so the verse still opens its paragraph once it is drafted.
+      { projectUnitId: 5, bibleTextId: 103, content: '', markers: OPENS_P },
+    ]);
   });
 
   it('materializes verses around a textless semantic division without treating it as a heading', async () => {
@@ -214,8 +254,8 @@ describe('materializeUsfmImport (#419)', () => {
     expect(result).toEqual({ ok: true, data: 'materialized' });
     expect(inserted).toEqual([
       [
-        { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
-        { projectUnitId: 5, bibleTextId: 102, content: 'Second.' },
+        { projectUnitId: 5, bibleTextId: 101, content: 'First.', markers: OPENS_P },
+        { projectUnitId: 5, bibleTextId: 102, content: 'Second.', markers: OPENS_P },
       ],
     ]);
   });
@@ -259,7 +299,7 @@ describe('materializeUsfmImport (#419)', () => {
     expect(await materializeUsfmImport(row, 3)).toEqual({ ok: true, data: 'materialized' });
 
     expect(inserted[0]).toEqual([
-      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
+      { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.', markers: OPENS_P },
     ]);
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(9, undefined);
     expect(logger.warn).toHaveBeenCalledWith('Imported USFM verses were skipped', {
@@ -305,7 +345,9 @@ describe('materializePendingUsfmImports (#419)', () => {
     const result = await materializePendingUsfmImports(5, 3, [1, 40]);
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.USFM_INVALID } });
-    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
+    expect(inserted).toEqual([
+      [{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.', markers: OPENS_P }],
+    ]);
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, undefined);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -328,7 +370,9 @@ describe('materializePendingUsfmImports (#419)', () => {
     const result = await materializePendingUsfmImports(5, 3, [1, 40]);
 
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
-    expect(inserted).toEqual([[{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.' }]]);
+    expect(inserted).toEqual([
+      [{ projectUnitId: 5, bibleTextId: 101, content: 'The genealogy.', markers: OPENS_P }],
+    ]);
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledExactlyOnceWith(2, undefined);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -406,12 +450,12 @@ describe('materializePendingUsfmImports (#419)', () => {
     expect(imported).toEqual({ ok: true, data: { materialized: 1, pending: 0 } });
     expect(parse).toHaveBeenCalledTimes(1);
     expect(inserted[0]).toEqual([
-      { projectUnitId: 5, bibleTextId: 101, content: 'First.' },
+      { projectUnitId: 5, bibleTextId: 101, content: 'First.', markers: OPENS_P },
       {
         projectUnitId: 5,
         bibleTextId: 102,
         content: 'Second.',
-        markers: { headings: [{ marker: 's1', text: 'The Creation' }] },
+        markers: { headings: [{ marker: 's1', text: 'The Creation' }], ...OPENS_P },
       },
     ]);
   });
@@ -444,8 +488,8 @@ describe('materializePendingUsfmImportsForBible (#419)', () => {
     expect(repo.getPendingUsfmImportsForBible).toHaveBeenCalledWith(3, [1]);
     expect(inserted.flat()).toEqual(
       expect.arrayContaining([
-        { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.' },
-        { projectUnitId: 6, bibleTextId: 101, content: 'In the beginning.' },
+        { projectUnitId: 5, bibleTextId: 101, content: 'In the beginning.', markers: OPENS_P },
+        { projectUnitId: 6, bibleTextId: 101, content: 'In the beginning.', markers: OPENS_P },
       ])
     );
     expect(repo.markUsfmImportMaterialized).toHaveBeenCalledWith(1, undefined);

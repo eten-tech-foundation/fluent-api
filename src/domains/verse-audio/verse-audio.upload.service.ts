@@ -29,6 +29,10 @@ function contentHashOf(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
+function withTakeId(result: Result<VerseAudioWithUrl>, takeId: number): Result<VerseAudioWithUrl> {
+  return result.ok ? ok({ ...result.data, takeId }) : result;
+}
+
 async function applyCoverageConflictsAfterUpload(
   projectUnitId: number,
   bibleTextId: number,
@@ -61,13 +65,14 @@ async function applyCoverageConflictsAfterUpload(
  * Load the unit response after upload. When `scanCoverageConflicts` is true,
  * mark intersecting same-book recordings (and self) as conflict. Skip when the
  * upload did not change active geometric coverage and did not insert a new
- * contender (e.g. same-shape retry or activeTakeId-only promote).
+ * contender (e.g. same-shape retry or activeTakeId-only promote). `takeId` is
+ * the take this upload wrote or matched, echoed on the response.
  */
 async function finishUploadResponse(
   projectUnitId: number,
   bibleTextId: number,
   shape: VerseAudioCoverageShape,
-  options: { scanCoverageConflicts: boolean }
+  options: { scanCoverageConflicts: boolean; takeId: number }
 ): Promise<Result<VerseAudioWithUrl>> {
   if (options.scanCoverageConflicts) {
     const conflicts = await applyCoverageConflictsAfterUpload(projectUnitId, bibleTextId, shape);
@@ -75,7 +80,7 @@ async function finishUploadResponse(
       return conflicts;
     }
   }
-  return loadUnitResponse(projectUnitId, bibleTextId);
+  return withTakeId(await loadUnitResponse(projectUnitId, bibleTextId), options.takeId);
 }
 
 async function storeTakeBytes(
@@ -105,6 +110,62 @@ async function storeTakeBytes(
   return ok({ storageObjectId: claim.data.id, key });
 }
 
+/**
+ * `activate: false` on an existing unit: add the take (or match identical
+ * bytes) and leave activeTakeId, versionToken, conflictStatus, and coverage
+ * untouched. versionToken guards the active selection, so a take that is not
+ * selected must not stale the client's base token for its next activating upload.
+ */
+async function storeInactiveTake(
+  input: UploadRecordingInput,
+  recordingId: number,
+  shape: VerseAudioCoverageShape,
+  contentHash: string,
+  durationSeconds: number | null
+): Promise<Result<VerseAudioWithUrl>> {
+  const duplicate = await repo.findTakeByContentHash(recordingId, contentHash);
+  if (!duplicate.ok) {
+    return duplicate;
+  }
+  if (duplicate.data) {
+    return withTakeId(
+      await loadUnitResponse(input.projectUnitId, input.bibleTextId),
+      duplicate.data.id
+    );
+  }
+
+  const stored = await storeTakeBytes(
+    input.projectUnitId,
+    input.bibleTextId,
+    contentHash,
+    input.data,
+    input.contentType
+  );
+  if (!stored.ok) {
+    return stored;
+  }
+
+  const take = await repo.insertTake({
+    recordingId,
+    uploadedBy: input.uploadedBy,
+    storageObjectId: stored.data.storageObjectId,
+    contentType: input.contentType,
+    sizeBytes: input.data.length,
+    durationSeconds,
+    contentHash,
+    ...shape,
+  });
+  if (!take.ok) {
+    return take;
+  }
+
+  return withTakeId(await loadUnitResponse(input.projectUnitId, input.bibleTextId), take.data.id);
+}
+
+/**
+ * Every successful response carries `takeId`: the take this upload wrote or
+ * matched. `activate: false` stores the take without selecting it.
+ */
 export async function uploadRecording(
   input: UploadRecordingInput
 ): Promise<Result<VerseAudioWithUrl>> {
@@ -118,6 +179,7 @@ export async function uploadRecording(
   const shape = shapeFields(input.shape ?? VERSE_COVERAGE_SHAPE);
   const contentHash = contentHashOf(input.data);
   const durationSeconds = input.durationSeconds ?? null;
+  const activate = input.activate ?? true;
   const existing = await repo.get(input.projectUnitId, input.bibleTextId);
 
   if (!existing.ok && existing.error.code !== ErrorCode.VERSE_AUDIO_NOT_FOUND) {
@@ -160,16 +222,33 @@ export async function uploadRecording(
         durationSeconds,
         contentHash,
         ...shape,
-      }
+      },
+      { linkActive: activate }
     );
     if (!created.ok) {
       return created;
+    }
+    const createdTakeId = created.data.take.id;
+
+    // A non-activating take is not a contender for the active audio, so it
+    // neither conflicts a concurrent winner nor scans overlapping coverage.
+    if (!activate) {
+      return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
+        scanCoverageConflicts: false,
+        takeId: createdTakeId,
+      });
     }
 
     // Race loser: keep the winner's active take and surface ours as a conflict,
     // unless the identical bytes already became active (idempotent retry).
     if (created.data.outcome === 'concurrent') {
-      if (created.data.take.id !== created.data.record.activeTakeId) {
+      // Winner was activate=false (no active take). Re-enter the existing-unit
+      // path so this activating upload can promote via duplicate-hash / token
+      // rules instead of marking conflict with nothing to preserve.
+      if (created.data.record.activeTakeId == null) {
+        return uploadRecording(input);
+      }
+      if (createdTakeId !== created.data.record.activeTakeId) {
         const marked = await repo.markConflictPreservingActive(created.data.record.id);
         if (!marked.ok) {
           return marked;
@@ -179,10 +258,15 @@ export async function uploadRecording(
 
     return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
       scanCoverageConflicts: true,
+      takeId: createdTakeId,
     });
   }
 
   const unit = existing.data;
+
+  if (!activate) {
+    return storeInactiveTake(input, unit.id, shape, contentHash, durationSeconds);
+  }
 
   // Three cases: a matching token replaces the active take, an absent token does
   // the same on behalf of clients too old to send one, and a stale token keeps
@@ -230,6 +314,7 @@ export async function uploadRecording(
         // Unchanged retry — do not re-scan overlaps (would re-flag resolved CLEAN).
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
           scanCoverageConflicts: false,
+          takeId: duplicate.data.id,
         });
       }
       if (baseMatches || legacyReplace) {
@@ -253,6 +338,7 @@ export async function uploadRecording(
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
           scanCoverageConflicts: activeGeometryChanged,
+          takeId: duplicate.data.id,
         });
       }
       // Stale token + shape change on the active take's bytes: do not overwrite
@@ -263,6 +349,7 @@ export async function uploadRecording(
       }
       return finishUploadResponse(input.projectUnitId, input.bibleTextId, existingShape, {
         scanCoverageConflicts: false,
+        takeId: duplicate.data.id,
       });
     }
 
@@ -293,6 +380,7 @@ export async function uploadRecording(
         }
         return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
           scanCoverageConflicts: activeGeometryChanged,
+          takeId: duplicate.data.id,
         });
       }
 
@@ -313,11 +401,15 @@ export async function uploadRecording(
         // No new take was added on this path. A successful concurrent resolve
         // may have won the CAS, so reopening its clean or resolved state would
         // undo an explicit adjudication without introducing any new contender.
-        return loadUnitResponse(input.projectUnitId, input.bibleTextId);
+        return withTakeId(
+          await loadUnitResponse(input.projectUnitId, input.bibleTextId),
+          duplicate.data.id
+        );
       }
       // activeTakeId-only promote (geometry unchanged) must not re-flag CLEAN.
       return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
         scanCoverageConflicts: activeGeometryChanged,
+        takeId: duplicate.data.id,
       });
     }
 
@@ -332,7 +424,7 @@ export async function uploadRecording(
         endChapter: unit.endChapter,
         endVerse: unit.endVerse,
       },
-      { scanCoverageConflicts: false }
+      { scanCoverageConflicts: false, takeId: duplicate.data.id }
     );
   }
 
@@ -412,5 +504,6 @@ export async function uploadRecording(
   // New take inserted (matching or stale base) — always scan overlaps.
   return finishUploadResponse(input.projectUnitId, input.bibleTextId, shape, {
     scanCoverageConflicts: true,
+    takeId: take.data.id,
   });
 }

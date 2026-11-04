@@ -87,11 +87,67 @@ after the batch so callers retain failure visibility.
 `USFM_BOOK_MISMATCH` identifies an invalid or mismatched book code when book data
 is present. `USFM_INVALID` remains "File is not valid USFM".
 
+## Add Milestone import
+
+[fluent-web #418-#420](https://github.com/eten-tech-foundation/fluent-web/issues/418)
+move the import from Create Project to the Add Milestone dialog of an existing
+project. Two routes serve it, both behind the Add Milestone gate (`project:update`
+plus update access to the project):
+
+- `POST /projects/{projectId}/milestones/usfm-validation` checks files as the
+  dialog adds them and writes nothing. Each file gets a verdict: its book, or
+  `USFM_BOOK_MISSING` (the file looks like USFM but no book could be found in
+  it), `USFM_INVALID` (the file is not valid USFM, including a file whose book
+  was found but whose chapters and verses don't parse), `USFM_BOOK_DUPLICATE`
+  (another file in the upload or one of `listedBookCodes`, the books the dialog
+  has accepted), `USFM_BOOK_EXISTS` or `USFM_BOOK_NOT_IN_SOURCE`.
+- `POST /projects/{projectId}/milestones/import` takes `{ name, files }` and
+  creates one milestone. It runs the same check first; if any file is refused,
+  nothing is created and the 400 lists every verdict.
+
+Both routes take at most 150 files of up to 5 million characters each, and refuse a body over
+50 MB with a 413 before reading it.
+
+An import never merges into content the project already has, so a book in any
+milestone of the project is refused, including a book that was removed from its
+milestone and only sits in the project (`milestoneName: null`). Add Milestone's
+own create path moves such a book into the new milestone instead; the import
+does not. The project's books are read again inside the project lock, and a book
+added after the check answers 409 with nothing created.
+
+A book the project's Source Bible lacks is refused at upload, because its verses
+could never be attached. The lock also reads the project's Source Bible as it is
+then, not as the access check saw it: the milestone's links, chapter assignments,
+ingestion jobs and materialization all use that Bible, and if it lacks one of the
+books (the Source Bible was changed, or the book removed from it) the import
+answers 409 with nothing created. The milestone takes everything else from the
+project: languages, the connectivity default and the pericope set.
+
+Inside one transaction the import creates the milestone, links its books,
+creates chapter assignments for books with source text, stores every file
+verbatim in `project_unit_usfm_imports` and queues priority ingestion
+(`DBL_INGEST_TEXT_PRIORITY`, one job per book) for books whose source text is not
+complete. The jobs are written through the same transaction (pg-boss's per-send
+`db`, adapted to the Drizzle transaction by `transactionQueueDb` in
+`src/lib/queue.ts`), so a rollback for any reason leaves no job behind for a
+milestone that doesn't exist. A queue failure rolls the whole import back, since
+such an import could never finish. After the commit, books with complete source text are materialized
+at once; a materialization failure only queues `USFM_IMPORT_MATERIALIZE` retries.
+
+Until the web stops sending them, `POST /projects` still accepts `usfmFiles` for
+the old Create Project flow. Removing that path is a follow-up once the Add
+Milestone import ships.
+
 ## Import validation and editable projection
 
 Before creating any project or import row, the API detects the book using the
 same precedence as the upload screen: the first valid code token in `\id`,
-then `\toc3`, then `\mt`/`\mt1`. Names are not translated to book codes.
+then `\toc3`, then each `\mt`/`\mt1`/`\mt2` line. `\toc3` and `\mt` usually
+hold a name rather than a code, so after the code check `usfm-book-names.ts`
+maps English names and SBL-style abbreviations ("Obad", "1 Chr", "First
+Chronicles") and the Hindi IRV names (eBible `hin2017`, Door43 `hi_irv`) to
+codes, ignoring case, spacing, periods, ordinals and title filler. The file name
+never decides the book.
 The detected code must match the submitted code and exist in the book catalogue.
 The grammar requires an id, so fallback files receive one only in a parsing copy.
 The persisted file remains verbatim, including its original identifier and tags.
@@ -100,12 +156,35 @@ Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
 well-formed tags remain valid passthrough data; for example, custom `\z...`
 markers do not produce grammar errors. Editable rows include prose and poetry body paragraphs, plus verses that start
 inside list or other non-heading paragraphs. Text before the first verse milestone
-in those paragraphs, and paragraphs with no milestone, stay in the original file.
+in those paragraphs, and paragraphs with no milestone, stay in the original file;
+the import logs a warning with the chapters and the character count when body
+paragraph text is left out this way.
 Tables, notes, figures and sidebars remain in the original file rather than being
 appended to a verse's prose.
 Supported headings attach to the next verse. Headings after the last verse
 remain on the raw import row; attaching them before the last verse would change
-source order. Import does not promise export/roundtrip support yet.
+source order.
+
+Each row also stores its body paragraphs in `markers.paragraphs`, in the same
+`{ marker, offset }` form the web editor saves: offset 0 when the verse number
+opens the paragraph, and the offset in the saved text when a paragraph starts
+inside the verse. An empty `\p` right before a line that starts with a verse
+number, as in `\p` then `\q1 \v 3` (a paragraph that starts with a poetry line),
+is kept as a `p` at offset 0 ahead of the line's own marker. A `\p` with words in
+it is not empty, even when the words come before the chapter's first verse and
+stay out of the rows. Any other paragraph with no words has nothing to anchor it
+and is dropped.
+A row holds at most `MAX_VERSE_PARAGRAPHS` (20); the import
+keeps the first 20 and logs a warning. A verse with no words that carries a
+heading or opens a paragraph is stored as a row with empty content, so the
+structure survives. AI look-ahead, chapter progress and the export book list
+count only rows with words as translated.
+
+Export rebuilds headings and body paragraphs from the rows, so those round-trip.
+Other markers (`\ip`, `\tr`, `\pb`, `\esb`, notes, figures, `\z*`) are not in
+the rows and export does not merge the raw file back, so the round trip is not
+lossless yet. That follow-up is tracked in
+[fluent-web #397](https://github.com/eten-tech-foundation/fluent-web/issues/397).
 
 The same marker-schema validation runs during initial parsing and delayed
 materialization. A heading collection over four items or a heading over 300

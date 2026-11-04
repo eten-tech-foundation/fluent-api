@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { config as localConfig } from '@/db/env-configs/local';
 import { bibles, projects } from '@/db/schema';
 import { AUDIO_DEMO_SEED } from '@/db/seeds/audio-demo';
+import { findSpecProjectManager } from '@/db/seeds/demo';
 import { getReferencePlayback } from '@/domains/playback-audio/playback-audio.service';
 import { playbackAudioResponseSchema as sourceAudioResponseSchema } from '@/domains/playback-audio/playback-audio.types';
 import env from '@/env';
@@ -31,8 +32,9 @@ describe('source-audio resolver against live Aquifer', () => {
       );
     }
     if (!aquifer.isAquiferConfigured()) throw new Error('Live Aquifer key is required.');
-    const user = localConfig.seedUsers.find((candidate) => candidate.role === 'project_manager');
-    if (!user) throw new Error('Local test config needs a configured project manager.');
+    const user = findSpecProjectManager(localConfig.demoSpec);
+    if (!user?.password)
+      throw new Error('Local test config needs a configured project manager with a password.');
     const login = await auth.api.signInEmail({
       body: { email: user.email, password: user.password },
     });

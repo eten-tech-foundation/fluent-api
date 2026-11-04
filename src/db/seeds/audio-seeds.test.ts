@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { bible_texts, chapter_assignments, project_units, projects, user_roles } from '@/db/schema';
+import {
+  bible_books,
+  bible_texts,
+  chapter_assignments,
+  project_units,
+  projects,
+  user_roles,
+} from '@/db/schema';
 
 import { seedAudioDemo } from './audio-demo';
 import { seedBsbBibleTexts } from './bible-texts-bsb';
@@ -71,7 +78,9 @@ describe('audio seed persistence contracts (regular gate, no database or provide
       )
       .mockImplementationOnce(() => selectResult([{ id: 43 }]));
     const insert = insertResult();
+    const update = updateResult();
     txMock.insert.mockReturnValue(insert);
+    txMock.update.mockReturnValue(update);
     await seedBsbBibleTexts();
     expect(dbMock.transaction).toHaveBeenCalledOnce();
     expect(txMock.insert.mock.calls.map(([table]) => table)).toEqual([bible_texts, bible_texts]);
@@ -85,7 +94,9 @@ describe('audio seed persistence contracts (regular gate, no database or provide
       ],
     });
     expect(txMock.delete).not.toHaveBeenCalled();
-    expect(txMock.update).not.toHaveBeenCalled();
+    expect(txMock.update.mock.calls.map(([table]) => table)).toEqual([bible_books]);
+    expect(update.set).toHaveBeenCalledWith({ textIngestedAt: expect.any(Date) });
+    expect(update.where).toHaveBeenCalledOnce(); // isNull guard — never overwrites a worker stamp
     expect(dbMock.delete).not.toHaveBeenCalled();
   });
 
