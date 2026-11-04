@@ -64,6 +64,24 @@ export function deleteBibleBook(bibleId: number, bookId: number) {
   return repo.remove(bibleId, bookId);
 }
 
+/** The ones of `bookIds` that `bibleId` has, read inside `tx` when one is given. */
+export async function getBookIdsInBible(
+  bibleId: number,
+  bookIds: number[],
+  tx?: DbTransaction
+): Promise<Result<Set<number>>> {
+  try {
+    return ok(await repo.getBookIdsInBible(bibleId, bookIds, tx));
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to read the books of a Bible',
+      context: { bibleId, bookIds },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
+}
+
 export async function isBibleBookTextIngested(
   bibleId: number,
   bookId: number,

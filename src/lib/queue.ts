@@ -1,4 +1,9 @@
+import type { Db } from 'pg-boss';
+
+import { sql } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
+
+import type { DbTransaction } from '@/lib/types';
 
 import { ensureWorkerQueue } from '@/lib/dead-letter-queues';
 import { logger } from '@/lib/logger';
@@ -188,6 +193,26 @@ export async function getQueue(): Promise<PgBoss> {
     throw new Error('Queue not initialized. Call initializeQueue() first.');
   }
   return boss;
+}
+
+/**
+ * Lets pg-boss write a job through a Drizzle transaction (`send(name, data, { db })`), so the job
+ * exists only if the transaction commits. pg-boss hands over `$1`-style SQL; each placeholder
+ * becomes a bound Drizzle parameter, never interpolated text.
+ */
+export function transactionQueueDb(tx: DbTransaction): Db {
+  return {
+    async executeSql(text, values = []) {
+      const parts = text.split(/\$(\d+)/);
+      const query = sql.join(
+        parts.map((part, index) =>
+          index % 2 === 0 ? sql.raw(part) : sql`${values[Number(part) - 1]}`
+        )
+      );
+      const res = await tx.execute(query);
+      return { rows: Array.isArray(res) ? res : ((res as { rows?: unknown[] }).rows ?? []) };
+    },
+  };
 }
 
 export async function stopQueue(): Promise<void> {

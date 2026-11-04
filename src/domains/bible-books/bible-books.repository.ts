@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import type { DbTransaction, Result } from '@/lib/types';
 
@@ -100,6 +100,16 @@ export async function remove(bibleId: number, bookId: number): Promise<Result<vo
     });
     return err(ErrorCode.INTERNAL_ERROR);
   }
+}
+
+/** The ones of `bookIds` that `bibleId` has. */
+export async function getBookIdsInBible(bibleId: number, bookIds: number[], tx?: DbTransaction) {
+  if (bookIds.length === 0) return new Set<number>();
+  const rows = await (tx ?? db)
+    .select({ bookId: bible_books.bookId })
+    .from(bible_books)
+    .where(and(eq(bible_books.bibleId, bibleId), inArray(bible_books.bookId, bookIds)));
+  return new Set(rows.map((row) => row.bookId));
 }
 
 export async function isTextIngested(bibleId: number, bookId: number, tx?: DbTransaction) {
