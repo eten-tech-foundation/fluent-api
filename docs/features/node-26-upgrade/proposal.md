@@ -70,7 +70,7 @@ is an ABI-stable N-API addon.
 
 - **Single coordinated repo bump.** `.nvmrc`, `Dockerfile.dev`, all CI
   `node-version` pins, `engines`, and `@types/node` move in one PR. The Azure
-  stack change is deliberately sequenced *with* deploys (below), not in the PR.
+  stack change is deliberately sequenced _with_ deploys (below), not in the PR.
 - **Target version 26.13.x** — the first LTS release (26.13.0, "Lithium",
   2026-10-28).
 - **`engines.node`: `">=24.14.0"` → `">=26.13.0"`.** Keep the repo's floor
