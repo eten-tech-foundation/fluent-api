@@ -48,6 +48,34 @@ describe('assistant briefing route cache lifecycle', () => {
     expect(publishCompletedBriefing).not.toHaveBeenCalled();
   });
 
+  it.each(['', ' \n\t '])('does not replay or publish a blank briefing (%j)', async (markdown) => {
+    authenticate();
+    vi.mocked(findCompletedBriefing).mockResolvedValue({
+      cacheKey: 'a'.repeat(64),
+      markdown,
+      operationVersion: 'briefing-v1',
+      profileVersion: 'fluent-profile-v1',
+      resourcePolicyVersion: 'fluent-resource-policy-v1',
+      cacheEpoch: '1',
+      outputContractVersion: 'fluent-widgets-v1',
+      responseLanguageHint: 'en',
+      resourceLanguage: 'en',
+      sourceLanguageCode: 'eng',
+    });
+    vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
+      this.stream = vi.fn(async function* () {
+        yield { type: 'briefing_complete', markdown };
+      });
+    } as unknown as BtClientFactory);
+    for (const ignore_cache of [false, true]) {
+      const wire = await (await post({ ...validBody, ignore_cache })).text();
+      expect(wire).toContain('malformed_upstream_response');
+      expect(wire).not.toContain('event: briefing_complete');
+    }
+    expect(BtServantClient).toHaveBeenCalledTimes(2);
+    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+  });
+
   it('runs ignore_cache privately and bypasses completed reads, joining, and writes', async () => {
     authenticate();
     const body = await (await post({ ...validBody, ignore_cache: true })).text();

@@ -1,5 +1,9 @@
 import { z } from '@hono/zod-openapi';
 
+import { assistantErrorSchema } from './assistant.types';
+
+export const historyWindowSchema = z.number().int().min(1).max(50);
+
 export const TURN_PROTOCOL = 'fluent-turn-v1';
 export const TURN_LIMITS = {
   bodyBytes: 524_288,
@@ -207,7 +211,7 @@ const omissions = z
   .object({
     omittedTurnIds: z.array(id).max(TURN_LIMITS.turns),
     emptyTurnIds: z.array(id).max(TURN_LIMITS.turns),
-    historyWindow: z.number().int().min(1).max(50),
+    historyWindow: historyWindowSchema,
   })
   .strict();
 export const assistantTurnEventSchema = z.discriminatedUnion('type', [
@@ -235,17 +239,7 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
     .object({
       ...eventBinding,
       type: z.literal('turn_error'),
-      code: z.enum([
-        'invalid_request',
-        'unsupported_language',
-        'context_too_large',
-        'rate_limited',
-        'timed_out',
-        'temporarily_unavailable',
-        'malformed_upstream_response',
-      ]),
-      retryable: z.boolean(),
-      retryAfter: z.number().int().min(0).max(86_400).optional(),
+      ...assistantErrorSchema.shape,
     })
     .strict(),
   z.object({ protocol: z.literal(TURN_PROTOCOL), type: z.literal('context_changed') }).strict(),

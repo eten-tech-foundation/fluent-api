@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { bible_texts, bibles, books, languages, pericope_verses, projects } from '@/db/schema';
@@ -131,6 +131,7 @@ export async function resolveCanonicalPassage(input: {
         )
       )
       .orderBy(asc(pericope_verses.chapterNumber), asc(pericope_verses.verseNumber));
+    if (!expected.length) return null;
     const source = await db
       .select({
         chapter: bible_texts.chapterNumber,
@@ -138,7 +139,14 @@ export async function resolveCanonicalPassage(input: {
         text: bible_texts.text,
       })
       .from(bible_texts)
-      .where(and(eq(bible_texts.bibleId, project.sourceBibleId), eq(bible_texts.bookId, book.id)))
+      .where(
+        and(
+          eq(bible_texts.bibleId, project.sourceBibleId),
+          eq(bible_texts.bookId, book.id),
+          gte(bible_texts.chapterNumber, expected[0].chapter),
+          lte(bible_texts.chapterNumber, expected.at(-1)!.chapter)
+        )
+      )
       .orderBy(asc(bible_texts.chapterNumber), asc(bible_texts.verseNumber));
     const byReference = new Map<string, typeof source>();
     for (const row of source) {

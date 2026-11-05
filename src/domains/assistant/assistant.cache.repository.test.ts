@@ -110,6 +110,21 @@ afterEach(async () => {
 afterAll(async () => client.close());
 
 describe('assistant completed briefing repository', () => {
+  it.each(['', ' \n\t '])(
+    'rejects blank writes and ignores old blank artifacts (%j)',
+    async (markdown) => {
+      const row = artifact(markdown);
+      expect(await publishCompletedBriefing(row)).toBe(false);
+      expect(await findCompletedBriefing(row.cacheKey)).toBeNull();
+      expect(await publishCompletedBriefing({ ...row, markdown: 'valid' })).toBe(true);
+      await client.query(
+        'UPDATE assistant_briefing_artifacts SET markdown = $1 WHERE cache_key = $2',
+        [markdown, row.cacheKey]
+      );
+      expect(await findCompletedBriefing(row.cacheKey)).toBeNull();
+    }
+  );
+
   it('uses an isolated bounded pool with server-side timeouts', () => {
     expect(postgresFactory).toHaveBeenCalledWith(
       expect.any(String),

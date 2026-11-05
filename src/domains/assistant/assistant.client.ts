@@ -1,12 +1,8 @@
 import { Buffer } from 'node:buffer';
-export type BriefingFailureCode =
-  | 'invalid_request'
-  | 'unsupported_language'
-  | 'context_too_large'
-  | 'rate_limited'
-  | 'timed_out'
-  | 'temporarily_unavailable'
-  | 'malformed_upstream_response';
+
+import type { AssistantError } from './assistant.types';
+
+export type BriefingFailureCode = AssistantError['code'];
 
 export type BriefingEvent =
   | { type: 'briefing_delta'; delta: string }
@@ -154,7 +150,7 @@ export class BtServantClient {
           buffer += character === '\r' ? '\n' : character;
           previousWasCr = character === '\r';
         }
-        const frames = buffer.split(/\r?\n\r?\n/);
+        const frames = buffer.split(/\n\n/);
         buffer = frames.pop() ?? '';
         if (Buffer.byteLength(buffer) > this.options.maxFrameBytes) {
           terminal = true;
@@ -176,7 +172,7 @@ export class BtServantClient {
             return;
           }
           const data = frame
-            .split(/\r?\n/)
+            .split(/\n/)
             .filter((line) => line.startsWith('data:'))
             .map((line) => line.slice(5).trimStart())
             .join('\n');
@@ -232,7 +228,11 @@ export class BtServantClient {
                 ? responses.join('\n')
                 : null;
             terminal = true;
-            if (typeof final !== 'string' || (accumulated.length > 0 && final !== accumulated)) {
+            if (
+              typeof final !== 'string' ||
+              !final.trim() ||
+              (accumulated.length > 0 && final !== accumulated)
+            ) {
               yield failure('malformed_upstream_response', false);
             } else {
               if (accumulated.length === 0 && final.length > 0) {

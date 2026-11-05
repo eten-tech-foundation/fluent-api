@@ -19,7 +19,7 @@ import { writeAssistantEvents } from './assistant.stream';
 import { admitTurnBody } from './assistant.turn.admission';
 import { createPassageTurn } from './assistant.turn.service';
 import { assistantTurnRequestSchema, TURN_PROTOCOL } from './assistant.turn.types';
-import { assistantBriefingRequestSchema } from './assistant.types';
+import { assistantBriefingRequestSchema, assistantErrorSchema } from './assistant.types';
 
 const guards = [
   authenticateUser,
@@ -37,16 +37,6 @@ const projectParams = z.object({
       example: 7,
     }),
 });
-const assistantErrorSchema = z.object({
-  code: z.enum([
-    'temporarily_unavailable',
-    'invalid_configuration',
-    'invalid_request',
-    'unsupported_language',
-    'context_too_large',
-  ]),
-  retryable: z.boolean(),
-});
 const languagesSchema = z.object({
   languages: z.array(z.object({ code: z.string(), displayName: z.string() })),
   defaultLanguage: z.string(),
@@ -62,10 +52,13 @@ const assistantUnavailable = jsonContent(
   assistantErrorSchema,
   'Assistant is not configured, has invalid language configuration, or is temporarily unavailable'
 );
-const validationHook = ((result: { success: boolean }, c: Context) => {
+const validationHook = (result: { success: boolean }, c: Context) => {
   if (result.success) return undefined;
-  return c.json({ code: 'invalid_request', retryable: false }, HttpStatusCodes.BAD_REQUEST);
-}) as never;
+  return c.json(
+    { code: 'invalid_request' as const, retryable: false },
+    HttpStatusCodes.BAD_REQUEST
+  );
+};
 
 const languagesRoute = createRoute({
   tags: ['Assistant'],
@@ -95,20 +88,16 @@ server.openapi(
       c.req.valid('param').projectId,
       c.req.valid('query').selected
     );
-    if (languages && 'code' in languages)
-      return c.json(languages, HttpStatusCodes.SERVICE_UNAVAILABLE);
-    return languages
-      ? c.json(languages, HttpStatusCodes.OK)
-      : c.json(
-          { code: 'temporarily_unavailable', retryable: true } as const,
-          HttpStatusCodes.SERVICE_UNAVAILABLE
-        );
+    return languages.ok
+      ? c.json(languages.data, HttpStatusCodes.OK)
+      : c.json(languages.error, HttpStatusCodes.SERVICE_UNAVAILABLE);
   },
   validationHook
 );
 
-function errorStatus(code: BriefingServiceErrorCode) {
-  if (code === 'temporarily_unavailable') return HttpStatusCodes.SERVICE_UNAVAILABLE;
+function errorStatus(code: BriefingServiceErrorCode | 'context_changed') {
+  if (code === 'temporarily_unavailable' || code === 'invalid_configuration')
+    return HttpStatusCodes.SERVICE_UNAVAILABLE;
   if (code === 'context_too_large') return HttpStatusCodes.REQUEST_TOO_LONG;
   return HttpStatusCodes.BAD_REQUEST;
 }
@@ -159,11 +148,11 @@ server.openapi(
     });
     if (!result.ok)
       return c.json(
-        { code: result.code, retryable: result.retryable },
-        errorStatus(result.code) as never
+        { code: result.error.code, retryable: result.error.retryable },
+        errorStatus(result.error.code)
       );
     return streamSSE(c, async (stream) => {
-      await writeAssistantEvents(stream, result.events);
+      await writeAssistantEvents(stream, result.data.events);
     });
   },
   validationHook
@@ -216,11 +205,11 @@ server.openapi(
       signal: controller.signal,
       logger: c.get('logger'),
     });
-    if (!result.ok && result.code !== 'context_changed') {
+    if (!result.ok && result.error.code !== 'context_changed') {
       c.req.raw.signal.removeEventListener('abort', abort);
       return c.json(
-        { code: result.code, retryable: result.retryable },
-        errorStatus(result.code) as never
+        { code: result.error.code, retryable: result.error.retryable },
+        errorStatus(result.error.code)
       );
     }
     return streamSSE(c, async (stream) => {
@@ -231,7 +220,7 @@ server.openapi(
           await stream.writeSSE({ id: '1', event: event.type, data: JSON.stringify(event) });
           return;
         }
-        await writeAssistantEvents(stream, result.events);
+        await writeAssistantEvents(stream, result.data.events);
       } finally {
         abort();
         c.req.raw.signal.removeEventListener('abort', abort);

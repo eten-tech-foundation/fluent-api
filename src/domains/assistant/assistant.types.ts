@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
+import type { Result } from '@/lib/types';
+
 import type { BriefingEvent } from './assistant.client';
 
 export const assistantBriefingRequestSchema = z.object({
@@ -11,8 +13,30 @@ export const assistantBriefingRequestSchema = z.object({
   ignore_cache: z.boolean().optional(),
 });
 
-export type BriefingServiceErrorCode =
-  'temporarily_unavailable' | 'invalid_request' | 'unsupported_language' | 'context_too_large';
+export const assistantErrorSchema = z.object({
+  code: z.enum([
+    'invalid_request',
+    'invalid_configuration',
+    'unsupported_language',
+    'context_too_large',
+    'rate_limited',
+    'timed_out',
+    'temporarily_unavailable',
+    'malformed_upstream_response',
+  ]),
+  retryable: z.boolean(),
+  retryAfter: z.number().int().min(0).max(86_400).optional(),
+});
+export type AssistantError = z.infer<typeof assistantErrorSchema>;
+export type AssistantServiceError = AssistantError | { code: 'context_changed'; retryable: false };
+export type BriefingServiceErrorCode = AssistantError['code'];
+
+export function assistantFailure<C extends AssistantServiceError['code']>(
+  code: C,
+  retryable = code === 'temporarily_unavailable'
+): Extract<Result<never, { code: C; retryable: boolean }>, { ok: false }> {
+  return { ok: false, error: { code, retryable } };
+}
 
 export type PublicBriefingEvent =
   | (Extract<BriefingEvent, { type: 'briefing_complete' }> & {

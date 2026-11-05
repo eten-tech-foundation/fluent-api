@@ -1,8 +1,12 @@
 import { Buffer } from 'node:buffer';
 
+import type { Result } from '@/lib/types';
+
 import env from '@/env';
+import { ok } from '@/lib/types';
 
 import type { BriefingEvent } from './assistant.client';
+import type { AssistantServiceError } from './assistant.types';
 
 import {
   beginBriefingCacheLookup,
@@ -11,14 +15,24 @@ import {
   removeInFlightBriefing,
 } from './assistant.cache';
 import { BtServantClient } from './assistant.client';
-import { loadAssistantConfig, resolveGrounding } from './assistant.config';
+import {
+  assistantLanguageConfigurationFailure,
+  loadAssistantConfig,
+  resolveGrounding,
+} from './assistant.config';
 import { resolveTurnContext } from './assistant.context';
 import { btUserId } from './assistant.prompt';
 import { integrityDigest, loadReceiptKey, TurnReceipts } from './assistant.receipts';
 import * as repo from './assistant.repository';
 import { verifyTurnTranscript } from './assistant.transcript';
 import { boundedTurnEvents, deliverTurn } from './assistant.turn.delivery';
-import { assistantTurnRequestSchema, TURN_LIMITS, TURN_PROTOCOL } from './assistant.turn.types';
+import {
+  assistantTurnRequestSchema,
+  historyWindowSchema,
+  TURN_LIMITS,
+  TURN_PROTOCOL,
+} from './assistant.turn.types';
+import { assistantFailure } from './assistant.types';
 import * as cacheRepo from './cache/assistant-cache.repository';
 
 interface TurnInput {
@@ -29,29 +43,20 @@ interface TurnInput {
   logger: { warn: (data: unknown, message: string) => void };
 }
 
-export async function createPassageTurn(input: TurnInput) {
-  const fail = (
-    code:
-      | 'invalid_request'
-      | 'unsupported_language'
-      | 'context_too_large'
-      | 'temporarily_unavailable'
-      | 'context_changed'
-  ) => ({ ok: false, code, retryable: code === 'temporarily_unavailable' }) as const;
+export async function createPassageTurn(
+  input: TurnInput
+): Promise<Result<{ events: ReturnType<typeof deliverTurn> }, AssistantServiceError>> {
+  const fail = assistantFailure;
   const parsed = assistantTurnRequestSchema.safeParse(input.body);
   if (!parsed.success) return fail('invalid_request');
   const config = loadAssistantConfig();
+  if (!config)
+    return fail(assistantLanguageConfigurationFailure()?.code ?? 'temporarily_unavailable');
   const key = loadReceiptKey();
   // Five pairs was measured on staging; operators must match deployment configuration.
   const windowSetting = env.ASSISTANT_HISTORY_WINDOW ?? '5';
   const historyWindow = /^\d+$/.test(windowSetting) ? Number(windowSetting) : Number.NaN;
-  if (
-    !config ||
-    !key ||
-    !Number.isInteger(historyWindow) ||
-    historyWindow < 1 ||
-    historyWindow > 50
-  )
+  if (!key || !historyWindowSchema.safeParse(historyWindow).success)
     return fail('temporarily_unavailable');
   const request = parsed.data;
   if (!Object.hasOwn(config.languages, request.outputLanguage)) return fail('unsupported_language');
@@ -123,10 +128,10 @@ export async function createPassageTurn(input: TurnInput) {
         signal
       )
     );
-  const deliver = (events: AsyncIterable<BriefingEvent>) => ({
-    ok: true as const,
-    events: deliverTurn(events, receipts, verified, operationId, input.signal),
-  });
+  const deliver = (events: AsyncIterable<BriefingEvent>) =>
+    ok({
+      events: deliverTurn(events, receipts, verified, operationId, input.signal),
+    });
   let producer = request.dont_cache ? undefined : findInFlightBriefing(producerKey);
   let completed: Awaited<ReturnType<typeof cacheRepo.findCompletedTurn>> = null;
   let installed = false;

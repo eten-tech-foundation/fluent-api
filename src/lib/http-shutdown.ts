@@ -5,9 +5,9 @@ interface ClosableHttpServer {
   closeAllConnections?: () => void;
 }
 
-type HttpDrainOutcome = 'drained' | 'forced';
+type HttpDrainOutcome = 'drained' | 'forced' | 'timed_out';
 
-/** Stops listener admission immediately and force-closes if active responses miss the deadline. */
+/** Stops admission immediately; force-closes at the drain deadline when the server supports it. */
 export function closeHttpServer(
   server: ClosableHttpServer,
   timeoutMs = HTTP_DRAIN_TIMEOUT_MS
@@ -22,7 +22,11 @@ export function closeHttpServer(
       resolve(outcome);
     };
     timer = setTimeout(() => {
-      server.closeAllConnections?.();
+      if (!server.closeAllConnections) {
+        finish('timed_out');
+        return;
+      }
+      server.closeAllConnections();
       finish('forced');
     }, timeoutMs);
 

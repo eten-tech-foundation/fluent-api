@@ -229,7 +229,7 @@ export async function findCompletedBriefing(
     timeoutReason: 'read_timeout',
     signal,
   });
-  return rows[0] ?? null;
+  return rows[0]?.markdown.trim() ? rows[0] : null;
 }
 
 /** First-winner publication; an expired conflict can be replaced only while still expired. */
@@ -237,6 +237,7 @@ export async function publishCompletedBriefing(
   artifact: CompletedBriefingArtifact,
   signal?: AbortSignal
 ): Promise<boolean> {
+  if (!artifact.markdown.trim()) return false;
   const rows = await executeCacheQuery<{ cacheKey: string }[]>({
     text: `INSERT INTO assistant_briefing_artifacts (
       cache_key, markdown, operation_version, profile_version, resource_policy_version,

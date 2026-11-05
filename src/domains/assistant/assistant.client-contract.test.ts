@@ -37,6 +37,13 @@ async function stream(sse: string) {
 }
 
 describe('bt multi-response completion contract', () => {
+  it.each(['', ' \n\t '])('rejects a blank upstream completion (%j)', async (markdown) => {
+    const sse = `data: ${JSON.stringify({ type: 'complete', response: { responses: [markdown] } })}\n\n`;
+    expect(await stream(sse)).toEqual([
+      { type: 'briefing_error', code: 'malformed_upstream_response', retryable: false },
+    ]);
+  });
+
   it('matches streamed progress using one newline between responses', async () => {
     const sse =
       'data: {"type":"progress","text":"first"}\n\ndata: {"type":"progress","text":"\\n"}\n\ndata: {"type":"progress","text":"second"}\n\ndata: {"type":"complete","response":{"responses":["first","second"]}}\n\n';

@@ -10,7 +10,7 @@ export interface SourceVerse {
   text: string;
 }
 
-function safeJson(value: unknown): string {
+export function safeJson(value: unknown): string {
   return JSON.stringify(value)
     .replaceAll('<', '\\u003c')
     .replaceAll('>', '\\u003e')

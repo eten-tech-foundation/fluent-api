@@ -2,10 +2,10 @@ import type { TurnContext } from './assistant.turn.types';
 import type { PublicBriefingEvent } from './assistant.types';
 
 import { loadReceiptKey, TurnReceipts } from './assistant.receipts';
-import { TURN_LIMITS } from './assistant.turn.types';
+import { TURN_LIMITS, TURN_PROTOCOL } from './assistant.turn.types';
 
 interface IntegrityMetadata {
-  protocol?: 'fluent-turn-v1';
+  protocol?: typeof TURN_PROTOCOL;
   contextReceipt?: string;
   operationId?: string;
   prefix?: { sequence: number; complete: boolean; receipt: string };
@@ -38,7 +38,7 @@ export async function* signBriefingDelivery(
     unavailable || !receipts
       ? { continuationUnavailable: unavailable }
       : {
-          protocol: 'fluent-turn-v1',
+          protocol: TURN_PROTOCOL,
           contextReceipt: receipts.contextReceipt(),
           operationId,
           prefix: {

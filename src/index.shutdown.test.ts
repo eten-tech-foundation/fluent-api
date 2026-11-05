@@ -47,6 +47,14 @@ describe('http shutdown', () => {
     expect(order).toEqual(['listener-close', 'producer-shutdown']);
   });
 
+  it('reports a timeout without claiming a forced close when the method is unavailable', async () => {
+    vi.useFakeTimers();
+    const listener = { close: vi.fn(() => listener) } as unknown as Server;
+    const closing = closeHttpServer(listener, 50);
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(closing).resolves.toBe('timed_out');
+  });
+
   it('force-closes connections and finishes when normal drain exceeds its bound', async () => {
     vi.useFakeTimers();
     const listener = {

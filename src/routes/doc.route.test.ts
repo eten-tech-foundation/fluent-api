@@ -70,6 +70,21 @@ describe('gET /doc (OpenAPI document)', () => {
       const briefing = doc.paths['/projects/{projectId}/assistant/briefing']?.post;
       expect(languages).toBeDefined();
       expect(briefing).toBeDefined();
+      const turns = doc.paths['/projects/{projectId}/assistant/turns']?.post;
+      expect(turns).toBeDefined();
+      expect(Object.keys(turns.responses).sort()).toEqual([
+        '200',
+        '400',
+        '401',
+        '403',
+        '404',
+        '413',
+        '500',
+        '503',
+      ]);
+      expect(turns.responses['200'].content['text/event-stream']).toBeDefined();
+      expect(turns.requestBody.required).toBe(true);
+      expect(turns.responses['400'].content['application/json'].schema.anyOf).toHaveLength(2);
       expect(Object.keys(languages.responses).sort()).toEqual([
         '200',
         '400',

@@ -1,9 +1,13 @@
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 
+import type { Result } from '@/lib/types';
+
+import { ok } from '@/lib/types';
+
 import type { RetainedBriefingProducer } from './assistant.cache';
 import type { BriefingEvent } from './assistant.client';
-import type { BriefingServiceErrorCode, PublicBriefingEvent } from './assistant.types';
+import type { AssistantError, PublicBriefingEvent } from './assistant.types';
 import type { CompletedBriefingArtifact } from './cache/assistant-cache.repository';
 
 import {
@@ -25,7 +29,7 @@ import { resolveTurnContext } from './assistant.context';
 import { signBriefingDelivery } from './assistant.delivery';
 import { btUserId, buildBriefingPrompt, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import * as repo from './assistant.repository';
-import { assistantBriefingRequestSchema } from './assistant.types';
+import { assistantBriefingRequestSchema, assistantFailure } from './assistant.types';
 import * as cacheRepo from './cache/assistant-cache.repository';
 
 interface AssistantLogger {
@@ -39,18 +43,23 @@ interface CreateBriefingInput {
   signal: AbortSignal;
   logger: AssistantLogger;
 }
-type BriefingServiceResult =
-  | { ok: false; code: BriefingServiceErrorCode; retryable: boolean }
-  | { ok: true; events: AsyncGenerator<PublicBriefingEvent> };
+type BriefingServiceResult = Result<
+  { events: AsyncGenerator<PublicBriefingEvent> },
+  AssistantError
+>;
 
-export function getAssistantLanguages(projectId: number, persisted?: string) {
+export async function getAssistantLanguages(projectId: number, persisted?: string) {
   const config = loadAssistantConfig();
-  if (!config) return assistantLanguageConfigurationFailure();
-  return repo.findProjectSourceLanguage(projectId).then((sourceLanguage) => ({
+  if (!config)
+    return assistantFailure(
+      assistantLanguageConfigurationFailure()?.code ?? 'temporarily_unavailable'
+    );
+  const sourceLanguage = await repo.findProjectSourceLanguage(projectId);
+  return ok({
     languages: publicLanguages(config),
     defaultLanguage: selectOutputLanguage(config, sourceLanguage, persisted),
     englishFallback: 'en' as const,
-  }));
+  });
 }
 
 function completeEvent(
@@ -73,6 +82,15 @@ async function produceSharedBriefing(input: {
   try {
     for await (const event of input.client.stream(input.request, input.producer.upstreamSignal)) {
       if (event.type === 'briefing_complete') {
+        if (!event.markdown.trim()) {
+          input.producer.publish({
+            type: 'briefing_error',
+            code: 'malformed_upstream_response',
+            retryable: false,
+          });
+          settled = true;
+          break;
+        }
         input.producer.beginCompletionWrite();
         try {
           await cacheRepo.publishCompletedBriefing(
@@ -121,6 +139,16 @@ function privateEvents(input: {
     yield input.started;
     try {
       for await (const event of input.client.stream(input.request, input.signal)) {
+        if (event.type === 'briefing_complete' && !event.markdown.trim()) {
+          const failure = {
+            type: 'briefing_error',
+            code: 'malformed_upstream_response',
+            retryable: false,
+          } as const;
+          yield failure;
+          input.logTerminal(failure);
+          return;
+        }
         yield event.type === 'briefing_complete'
           ? completeEvent(event, input.metadata, false)
           : event;
@@ -175,21 +203,24 @@ export async function createPassageBriefing(
   input: CreateBriefingInput
 ): Promise<BriefingServiceResult> {
   const config = loadAssistantConfig();
-  if (!config) return { ok: false, code: 'temporarily_unavailable', retryable: true };
+  if (!config)
+    return assistantFailure(
+      assistantLanguageConfigurationFailure()?.code ?? 'temporarily_unavailable'
+    );
   const parsed = assistantBriefingRequestSchema.safeParse(input.body);
-  if (!parsed.success) return { ok: false, code: 'invalid_request', retryable: false };
+  if (!parsed.success) return assistantFailure('invalid_request');
   if (!Object.hasOwn(config.languages, parsed.data.outputLanguage))
-    return { ok: false, code: 'unsupported_language', retryable: false };
+    return assistantFailure('unsupported_language');
   const language = config.languages[parsed.data.outputLanguage];
   const grounding = resolveGrounding(language, parsed.data.grounding);
-  if (!grounding) return { ok: false, code: 'unsupported_language', retryable: false };
+  if (!grounding) return assistantFailure('unsupported_language');
   const passage = await repo.resolveCanonicalPassage({
     projectId: input.projectId,
     bookCode: parsed.data.bookCode,
     chapter: parsed.data.chapter,
     activeVerse: parsed.data.activeVerse,
   });
-  if (!passage) return { ok: false, code: 'invalid_request', retryable: false };
+  if (!passage) return assistantFailure('invalid_request');
   const prompt = buildBriefingPrompt({
     operationVersion: config.operationVersion,
     language,
@@ -200,7 +231,7 @@ export async function createPassageBriefing(
     verses: passage.verses,
   });
   if (Buffer.byteLength(prompt) > config.budgets.maxInputBytes)
-    return { ok: false, code: 'context_too_large', retryable: false };
+    return assistantFailure('context_too_large');
   const context = resolveTurnContext({
     projectId: input.projectId,
     passage,
@@ -267,8 +298,7 @@ export async function createPassageBriefing(
     responseLanguageHint: language.responseLanguageHint,
   };
   if (parsed.data.ignore_cache)
-    return {
-      ok: true,
+    return ok({
       events: delivery(
         privateEvents({
           started,
@@ -279,7 +309,7 @@ export async function createPassageBriefing(
           logTerminal,
         })
       ),
-    };
+    });
   const cacheKey = briefingCacheKey({
     operationVersion: config.operationVersion,
     profileVersion: config.profileVersion,
@@ -298,6 +328,7 @@ export async function createPassageBriefing(
     const releaseLookup = beginBriefingCacheLookup(cacheKey);
     try {
       completed = await cacheRepo.findCompletedBriefing(cacheKey);
+      if (completed && !completed.markdown.trim()) completed = null;
     } catch {
       input.logger.warn({ attemptId }, 'Assistant briefing cache read failed');
     } finally {
@@ -313,11 +344,10 @@ export async function createPassageBriefing(
     input.logger.warn({ attemptId }, 'Assistant briefing cache cleanup failed')
   );
   if (completed)
-    return {
-      ok: true,
+    return ok({
       events: delivery(replayedEvents(started, completed, metadata, logTerminal)),
-    };
-  if (!producer) return { ok: false, code: 'temporarily_unavailable', retryable: true };
+    });
+  if (!producer) return assistantFailure('temporarily_unavailable');
   if (installed) {
     const production = produceSharedBriefing({
       producer,
@@ -339,10 +369,9 @@ export async function createPassageBriefing(
     });
     producer.attachProduction(production);
   }
-  return {
-    ok: true,
+  return ok({
     events: delivery(
       sharedEvents({ started, producer, signal: input.signal, metadata, logTerminal })
     ),
-  };
+  });
 }

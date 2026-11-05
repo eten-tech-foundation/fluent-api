@@ -106,6 +106,38 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('POST guarded turns', () => {
+  it('returns the same sanitized non-retryable configuration failure on every transport', async () => {
+    const body = request();
+    const saved = env.ASSISTANT_LANGUAGES_JSON;
+    env.ASSISTANT_LANGUAGES_JSON = '{private-configuration-value';
+    vi.mocked(assistantRouteMocks.loadAssistantConfig).mockReturnValue(null);
+    try {
+      const responses = [
+        await assistantRouteMocks.server.request('/projects/7/assistant/languages'),
+        await assistantRouteMocks.server.request('/projects/7/assistant/briefing', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(validBody),
+        }),
+        await post(body),
+      ];
+      for (const response of responses) {
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ code: 'invalid_configuration', retryable: false });
+      }
+      expect(assistantRouteMocks.logger.warn).toHaveBeenCalledExactlyOnceWith(
+        { reason: 'The value must be valid JSON.' },
+        'Invalid ASSISTANT_LANGUAGES_JSON configuration'
+      );
+      expect(JSON.stringify(vi.mocked(assistantRouteMocks.logger.warn).mock.calls)).not.toContain(
+        'private-configuration-value'
+      );
+      expect(BtServantClient).not.toHaveBeenCalled();
+    } finally {
+      env.ASSISTANT_LANGUAGES_JSON = saved;
+    }
+  });
+
   it('checks project guards before source, receipts or cache', async () => {
     authenticate(false);
     expect((await post(request())).status).toBe(404);

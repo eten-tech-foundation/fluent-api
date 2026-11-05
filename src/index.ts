@@ -91,6 +91,8 @@ async function startServer() {
           (outcome) => {
             if (outcome === 'forced')
               logger.warn('HTTP drain deadline reached; connections closed');
+            else if (outcome === 'timed_out')
+              logger.warn('HTTP drain deadline reached; forced close unavailable');
             else logger.info('HTTP server closed');
           }
         );
