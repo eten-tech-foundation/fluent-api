@@ -34,8 +34,6 @@ export function resolveTurnContext(input: {
     }),
     sourceRevision: integrityDigest('source-revision', passage.integritySource),
     resourceRevision: integrityDigest('resource-revision', {
-      org: config.org,
-      baseUrl: config.baseUrl,
       briefingVersion: config.operationVersion,
       widgetVersion: WIDGET_CONTRACT_VERSION,
     }),

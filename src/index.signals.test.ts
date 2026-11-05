@@ -10,7 +10,7 @@ vi.mock('@hono/node-server', () => ({ serve: mocks.serve }));
 vi.mock('./app', () => ({ default: { fetch: vi.fn() } }));
 vi.mock('@/env', () => ({ default: { PORT: 3000 } }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/domains/assistant/assistant.cache', () => ({ shutdownInFlightBriefings: vi.fn() }));
+vi.mock('@/domains/assistant/assistant.cache', () => ({ shutdownInFlightGenerations: vi.fn() }));
 vi.mock('@/domains/verse-audio/verse-audio.service', () => ({
   reclaimOrphanedStorageObjects: vi.fn(),
 }));

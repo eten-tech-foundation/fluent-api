@@ -9,19 +9,23 @@ import type { BriefingEvent } from './assistant.client';
 import type { AssistantServiceError } from './assistant.types';
 
 import {
-  beginBriefingCacheLookup,
-  findInFlightBriefing,
-  installOrJoinBriefing,
-  removeInFlightBriefing,
+  beginGenerationCacheLookup,
+  findInFlightGeneration,
+  installOrJoinGeneration,
+  removeInFlightGeneration,
 } from './assistant.cache';
-import { BtServantClient } from './assistant.client';
 import {
   assistantLanguageConfigurationFailure,
   loadAssistantConfig,
   resolveGrounding,
 } from './assistant.config';
 import { resolveTurnContext } from './assistant.context';
-import { btUserId } from './assistant.prompt';
+import {
+  acquireGeneration,
+  createAssistantClient,
+  releasePrivateGeneration,
+} from './assistant.generation';
+import { btUserId, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import { integrityDigest, loadReceiptKey, TurnReceipts } from './assistant.receipts';
 import * as repo from './assistant.repository';
 import { verifyTurnTranscript } from './assistant.transcript';
@@ -97,15 +101,13 @@ export async function createPassageTurn(
     maxOutputBytes: Math.min(config.budgets.maxOutputBytes, TURN_LIMITS.outputBytes),
   };
   const projection = verified.projection;
-  const cacheKey = integrityDigest('completed-turn-artifact-v1', {
+  const cacheKey = integrityDigest('completed-turn-artifact-v2', {
     context,
     budgets,
     maxOutputChars: TURN_LIMITS.outputChars,
     historyWindow,
     protocol: TURN_PROTOCOL,
-    message: projection.message,
-    history: projection.history,
-    responseLanguageHint: projection.responseLanguageHint,
+    semanticIdentity: projection.semanticIdentity,
   });
   // Reuse retained normalized transport mechanics, with a distinct turn namespace.
   const producerKey = `turn-v1:${cacheKey}`;
@@ -113,12 +115,7 @@ export async function createPassageTurn(
   const warn = () => input.logger.warn({ operationId }, 'Assistant turn cache unavailable');
   const source = (signal: AbortSignal) =>
     boundedTurnEvents(
-      new BtServantClient({
-        baseUrl: config.baseUrl,
-        engineKey: config.engineKey,
-        org: config.org,
-        ...budgets,
-      }).stream(
+      createAssistantClient(config, input.logger.warn.bind(input.logger), budgets).stream(
         {
           userId: btUserId(input.userId),
           message: projection.message,
@@ -132,17 +129,17 @@ export async function createPassageTurn(
     ok({
       events: deliverTurn(events, receipts, verified, operationId, input.signal),
     });
-  let producer = request.dont_cache ? undefined : findInFlightBriefing(producerKey);
+  let producer = request.dont_cache ? undefined : findInFlightGeneration(producerKey);
   let completed: Awaited<ReturnType<typeof cacheRepo.findCompletedTurn>> = null;
   let installed = false;
   if (!producer) {
-    const release = request.dont_cache ? () => {} : beginBriefingCacheLookup(producerKey);
+    const release = request.dont_cache ? () => {} : beginGenerationCacheLookup(producerKey);
     try {
       completed = await cacheRepo.findCompletedTurn(cacheKey, input.signal);
       if (
         completed &&
         (!completed.markdown.trim() ||
-          completed.outputContractVersion !== TURN_PROTOCOL ||
+          completed.outputContractVersion !== WIDGET_CONTRACT_VERSION ||
           completed.markdown.length > TURN_LIMITS.outputChars ||
           Buffer.byteLength(completed.markdown) > budgets.maxOutputBytes)
       ) {
@@ -153,7 +150,7 @@ export async function createPassageTurn(
       warn();
     } finally {
       if (!completed && !request.dont_cache && !input.signal.aborted) {
-        const result = installOrJoinBriefing(producerKey);
+        const result = installOrJoinGeneration(producerKey);
         producer = result.producer;
         installed = result.installed;
       }
@@ -170,9 +167,26 @@ export async function createPassageTurn(
       })()
     );
   }
-  if (request.dont_cache || !producer) return deliver(source(input.signal));
+  if (input.signal.aborted) return fail('temporarily_unavailable');
+  if (request.dont_cache || !producer) {
+    const release = acquireGeneration(input.userId);
+    if (!release)
+      return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
+    return deliver(releasePrivateGeneration(source(input.signal), release, input.signal));
+  }
   const retained = producer;
   if (installed) {
+    const release = acquireGeneration(input.userId);
+    if (!release) {
+      retained.publish({
+        type: 'briefing_error',
+        code: 'generation_busy',
+        retryable: true,
+        retryAfter: 1,
+      });
+      removeInFlightGeneration(producerKey, retained, false);
+      return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
+    }
     const production = (async () => {
       try {
         for await (const event of source(retained.upstreamSignal)) {
@@ -182,7 +196,7 @@ export async function createPassageTurn(
               await cacheRepo.publishCompletedTurn(
                 cacheKey,
                 event.markdown,
-                TURN_PROTOCOL,
+                WIDGET_CONTRACT_VERSION,
                 retained.upstreamSignal
               );
             } catch {
@@ -194,7 +208,8 @@ export async function createPassageTurn(
           if (!retained.publish(event) || event.type === 'briefing_error') return;
         }
       } finally {
-        removeInFlightBriefing(producerKey, retained);
+        removeInFlightGeneration(producerKey, retained);
+        release();
       }
     })();
     retained.attachProduction(production);

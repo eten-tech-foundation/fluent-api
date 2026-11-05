@@ -1,6 +1,7 @@
 [
   "dependencies:package.json:@types/bcryptjs",
   "dependencies:package.json:bcryptjs",
+  "devDependencies:package.json:pino-pretty",
   "exports:src/domains/ai-suggestions/ai-suggestions.auth.middleware.ts:checkProjectUnitAccess",
   "exports:src/domains/ai-suggestions/ai-suggestions.constants.ts:BIBLE_BOOK_GROUPS",
   "exports:src/domains/ai-suggestions/ai-suggestions.constants.ts:POSTGRES_FTS_LANGUAGES",
@@ -88,8 +89,10 @@
   "exports:src/test/utils/test-helpers.ts:sampleProjectUnits",
   "exports:src/workers/dbl-sync.worker.ts:QUEUE_DBL_SYNC",
   "exports:src/workers/usfm-export.worker.ts:processUSFMExportJob",
+  "files:src/lib/create-app.ts",
   "files:src/lib/db-retry.ts",
   "files:src/lib/services/permissions/permissions.service.ts",
+  "files:src/middlewares/pino-logger.ts",
   "types:src/domains/ai-suggestions/ai-suggestions.repository.ts:AiActivationFamily",
   "types:src/domains/ai-suggestions/ai-suggestions.types.ts:QueueNextVersesRequest",
   "types:src/domains/ai-suggestions/ai-suggestions.types.ts:UpsertAiSuggestionsRequest",

@@ -4,7 +4,7 @@ import type { BriefingEvent } from './assistant.client';
 import type { AssistantLanguage } from './assistant.config';
 import type { PassageContext } from './assistant.repository';
 
-import { SUGGESTED_QUESTION_MACRO, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
+import { WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 
 interface BriefingCacheIdentityInput {
   operationVersion: string;
@@ -28,7 +28,6 @@ export function serializeBriefingCacheIdentity(input: BriefingCacheIdentityInput
     cacheEpoch: input.cacheEpoch,
     outputValidation: { maxBytes: input.maxOutputBytes },
     outputContractVersion: WIDGET_CONTRACT_VERSION,
-    widgetInventory: [{ type: 'suggested_question', count: 3, grammar: SUGGESTED_QUESTION_MACRO }],
     responseLanguageHint: input.language.responseLanguageHint,
     guidanceSlug: input.language.guidanceSlug ?? 'default',
     grounding: {
@@ -50,8 +49,8 @@ export function briefingCacheKey(input: BriefingCacheIdentityInput): string {
   return createHash('sha256').update(serializeBriefingCacheIdentity(input)).digest('hex');
 }
 
-/** A passage-briefing producer that retains all normalized events for late same-process joiners. */
-export class RetainedBriefingProducer {
+/** An Assistant-generation producer that retains all normalized events for late same-process joiners. */
+export class RetainedAssistantGeneration {
   private readonly events: BriefingEvent[] = [];
   private readonly upstreamController = new AbortController();
   private terminal = false;
@@ -139,7 +138,7 @@ export class RetainedBriefingProducer {
 }
 
 interface StreamingEntry {
-  producer: RetainedBriefingProducer;
+  producer: RetainedAssistantGeneration;
   removeAfterLookups: boolean;
 }
 
@@ -147,7 +146,7 @@ const streaming = new Map<string, StreamingEntry>();
 const cacheLookups = new Map<string, number>();
 let acceptingProducers = true;
 
-export function findInFlightBriefing(cacheKey: string): RetainedBriefingProducer | undefined {
+export function findInFlightGeneration(cacheKey: string): RetainedAssistantGeneration | undefined {
   return streaming.get(cacheKey)?.producer;
 }
 
@@ -156,7 +155,7 @@ export function findInFlightBriefing(cacheKey: string): RetainedBriefingProducer
  * is still outstanding. Releasing the lease cannot race install-or-join because callers do both
  * synchronously after the read.
  */
-export function beginBriefingCacheLookup(cacheKey: string): () => void {
+export function beginGenerationCacheLookup(cacheKey: string): () => void {
   cacheLookups.set(cacheKey, (cacheLookups.get(cacheKey) ?? 0) + 1);
   let released = false;
   return () => {
@@ -174,13 +173,13 @@ export function beginBriefingCacheLookup(cacheKey: string): () => void {
 }
 
 /** No await may separate this check and install. */
-export function installOrJoinBriefing(cacheKey: string): {
-  producer: RetainedBriefingProducer;
+export function installOrJoinGeneration(cacheKey: string): {
+  producer: RetainedAssistantGeneration;
   installed: boolean;
 } {
   const existing = streaming.get(cacheKey);
   if (existing) return { producer: existing.producer, installed: false };
-  const producer = new RetainedBriefingProducer();
+  const producer = new RetainedAssistantGeneration();
   if (!acceptingProducers) {
     void producer.shutdown();
     return { producer, installed: false };
@@ -189,15 +188,20 @@ export function installOrJoinBriefing(cacheKey: string): {
   return { producer, installed: true };
 }
 
-export function removeInFlightBriefing(cacheKey: string, producer: RetainedBriefingProducer): void {
+export function removeInFlightGeneration(
+  cacheKey: string,
+  producer: RetainedAssistantGeneration,
+  retainForPendingLookups = true
+): void {
   const entry = streaming.get(cacheKey);
   if (entry?.producer !== producer) return;
-  if ((cacheLookups.get(cacheKey) ?? 0) > 0) entry.removeAfterLookups = true;
+  if (retainForPendingLookups && (cacheLookups.get(cacheKey) ?? 0) > 0)
+    entry.removeAfterLookups = true;
   else streaming.delete(cacheKey);
 }
 
 /** Abort upstream work, settle retained terminals, and reject installs during shutdown. */
-export async function shutdownInFlightBriefings(): Promise<void> {
+export async function shutdownInFlightGenerations(): Promise<void> {
   acceptingProducers = false;
   const producers = [...streaming.values()].map(({ producer }) => producer);
   await Promise.all(producers.map((producer) => producer.shutdown()));
@@ -205,7 +209,7 @@ export async function shutdownInFlightBriefings(): Promise<void> {
   cacheLookups.clear();
 }
 
-export function resetInFlightBriefingsForTests(): void {
+export function resetInFlightGenerationsForTests(): void {
   if (process.env.NODE_ENV !== 'test') throw new Error('test helper used outside tests');
   for (const { producer } of streaming.values()) void producer.shutdown();
   streaming.clear();

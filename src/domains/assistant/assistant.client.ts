@@ -24,6 +24,7 @@ interface ClientOptions {
   maxOutputBytes: number;
   maxFrameBytes: number;
   fetch?: typeof globalThis.fetch;
+  warn?: (data: unknown, message: string) => void;
 }
 
 const VALID_ACTIVITY_EVENTS = new Set([
@@ -176,7 +177,11 @@ export class BtServantClient {
             .filter((line) => line.startsWith('data:'))
             .map((line) => line.slice(5).trimStart())
             .join('\n');
-          if (!data) continue;
+          if (!data) {
+            if (frame.split('\n').some((line) => line.trim() && !line.startsWith(':')))
+              this.options.warn?.({ reason: 'missing_data' }, 'Assistant upstream frame skipped');
+            continue;
+          }
           let event: unknown;
           try {
             event = JSON.parse(data);
@@ -196,6 +201,16 @@ export class BtServantClient {
             yield failure('malformed_upstream_response', false);
             return;
           }
+          if (!VALID_ACTIVITY_EVENTS.has(eventRecord.type))
+            this.options.warn?.(
+              { eventType: eventRecord.type },
+              'Assistant upstream event unsupported'
+            );
+          if (eventRecord.type === 'progress' && typeof eventRecord.text !== 'string')
+            this.options.warn?.(
+              { eventType: eventRecord.type, textType: typeof eventRecord.text },
+              'Assistant upstream progress skipped'
+            );
           const isValidActivity = VALID_ACTIVITY_EVENTS.has(eventRecord.type);
           if (isValidActivity) {
             clearTimeout(idle);

@@ -8,15 +8,11 @@ import { assistantTurnRequestSchema, turnContextSchema } from './assistant.turn.
 function projectionDigest(
   projection: Extract<ReturnType<typeof projectVerifiedTurn>, { ok: true }>
 ) {
-  return integrityDigest('projection', {
-    message: projection.message,
-    history: projection.history,
-    responseLanguageHint: projection.responseLanguageHint,
-  });
+  return integrityDigest('semantic-turn-projection-v1', projection.semanticIdentity);
 }
 
 /** Call only after the route guards and fresh canonical resolution. No cache-row dependency.
- * Phase C must enforce raw body admission before parsing, and use the returned projection
+ * Routes enforce raw body admission before parsing, and use the returned projection
  * and binding for generation/cache identity/signing, never a browser-provided projection.
  */
 export function verifyTurnTranscript(

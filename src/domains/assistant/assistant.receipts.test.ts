@@ -290,3 +290,24 @@ describe('full bounded transcript verification', () => {
     });
   });
 });
+
+it('accepts existing signed history after client action templates or inventory change', () => {
+  const value = request();
+  value.actions = [
+    {
+      type: 'suggested_question',
+      purpose: 'Offer a question',
+      template: '{{fluent:v1:suggested_question|QUESTION}}',
+    },
+  ];
+  append(value);
+  append(value, 'Second answer');
+  const before = verifyTurnTranscript(receipts, context, value, 2);
+  value.actions = [{ type: 'future_action', purpose: 'A new action', template: 'future template' }];
+  const after = verifyTurnTranscript(receipts, context, value, 2);
+  expect(before.ok && after.ok).toBe(true);
+  if (before.ok && after.ok) {
+    expect(after.binding.projectionDigest).toBe(before.binding.projectionDigest);
+    expect(after.projection.message).not.toBe(before.projection.message);
+  }
+});

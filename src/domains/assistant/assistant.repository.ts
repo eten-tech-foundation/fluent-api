@@ -53,27 +53,27 @@ export async function resolveCanonicalPassage(input: {
   chapter: number;
   activeVerse: number;
 }): Promise<PassageContext | null> {
-  const [project] = await db
-    .select({
-      sourceBibleId: projects.sourceBibleId,
-      organizationId: projects.organization,
-      provider: bibles.provider,
-      externalId: bibles.externalId,
-      pericopeSetId: projects.pericopeSetId,
-      sourceBible: bibles.name,
-      sourceLanguageCode: languages.langCodeIso6393,
-    })
-    .from(projects)
-    .innerJoin(bibles, eq(bibles.id, projects.sourceBibleId))
-    .innerJoin(languages, eq(languages.id, projects.sourceLanguage))
-    .where(eq(projects.id, input.projectId));
-  if (!project?.sourceBibleId || !project.sourceLanguageCode) return null;
-
-  const [book] = await db
-    .select({ id: books.id, code: books.code })
-    .from(books)
-    .where(eq(books.code, input.bookCode.toUpperCase()));
-  if (!book) return null;
+  const [[project], [book]] = await Promise.all([
+    db
+      .select({
+        sourceBibleId: projects.sourceBibleId,
+        organizationId: projects.organization,
+        provider: bibles.provider,
+        externalId: bibles.externalId,
+        pericopeSetId: projects.pericopeSetId,
+        sourceBible: bibles.name,
+        sourceLanguageCode: languages.langCodeIso6393,
+      })
+      .from(projects)
+      .innerJoin(bibles, eq(bibles.id, projects.sourceBibleId))
+      .innerJoin(languages, eq(languages.id, projects.sourceLanguage))
+      .where(eq(projects.id, input.projectId)),
+    db
+      .select({ id: books.id, code: books.code })
+      .from(books)
+      .where(eq(books.code, input.bookCode.toUpperCase())),
+  ]);
+  if (!project?.sourceBibleId || !project.sourceLanguageCode || !book) return null;
   const integritySource = {
     organizationId: project.organizationId,
     sourceBibleId: project.sourceBibleId,

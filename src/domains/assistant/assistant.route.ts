@@ -98,6 +98,7 @@ server.openapi(
 function errorStatus(code: BriefingServiceErrorCode | 'context_changed') {
   if (code === 'temporarily_unavailable' || code === 'invalid_configuration')
     return HttpStatusCodes.SERVICE_UNAVAILABLE;
+  if (code === 'generation_busy') return HttpStatusCodes.TOO_MANY_REQUESTS;
   if (code === 'context_too_large') return HttpStatusCodes.REQUEST_TOO_LONG;
   return HttpStatusCodes.BAD_REQUEST;
 }
@@ -127,6 +128,10 @@ const briefingRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
     [HttpStatusCodes.FORBIDDEN]: messageError,
     [HttpStatusCodes.NOT_FOUND]: messageError,
+    [HttpStatusCodes.TOO_MANY_REQUESTS]: jsonContent(
+      assistantErrorSchema,
+      'This user already has an upstream generation in this API process; retry before starting output'
+    ),
     [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(
       assistantErrorSchema,
       'Resolved source context exceeds the configured input budget'
@@ -146,11 +151,7 @@ server.openapi(
       signal: c.req.raw.signal,
       logger: c.get('logger'),
     });
-    if (!result.ok)
-      return c.json(
-        { code: result.error.code, retryable: result.error.retryable },
-        errorStatus(result.error.code)
-      );
+    if (!result.ok) return c.json(result.error, errorStatus(result.error.code));
     return streamSSE(c, async (stream) => {
       await writeAssistantEvents(stream, result.data.events);
     });
@@ -183,6 +184,10 @@ const turnRoute = createRoute({
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
     [HttpStatusCodes.FORBIDDEN]: messageError,
     [HttpStatusCodes.NOT_FOUND]: messageError,
+    [HttpStatusCodes.TOO_MANY_REQUESTS]: jsonContent(
+      assistantErrorSchema,
+      'This user already has an upstream generation in this API process; retry before starting output'
+    ),
     [HttpStatusCodes.REQUEST_TOO_LONG]: jsonContent(
       assistantErrorSchema,
       'Raw body or context exceeds budget'
@@ -207,10 +212,7 @@ server.openapi(
     });
     if (!result.ok && result.error.code !== 'context_changed') {
       c.req.raw.signal.removeEventListener('abort', abort);
-      return c.json(
-        { code: result.error.code, retryable: result.error.retryable },
-        errorStatus(result.error.code)
-      );
+      return c.json(result.error, errorStatus(result.error.code));
     }
     return streamSSE(c, async (stream) => {
       stream.onAbort(abort);

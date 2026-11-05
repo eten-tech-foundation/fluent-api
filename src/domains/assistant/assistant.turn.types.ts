@@ -1,6 +1,6 @@
 import { z } from '@hono/zod-openapi';
 
-import { assistantErrorSchema } from './assistant.types';
+import { assistantActionsSchema, assistantErrorSchema } from './assistant.types';
 
 export const historyWindowSchema = z.number().int().min(1).max(50);
 
@@ -104,6 +104,7 @@ export const assistantTurnRequestSchema = z
       })
       .strict(),
     dont_cache: z.boolean().default(true),
+    actions: assistantActionsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -219,6 +220,7 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
     .object({
       ...eventBinding,
       type: z.literal('turn_started'),
+      outputContractVersion: z.literal('fluent-widgets-v1').optional(),
       contextReceipt: receipt,
       projection: omissions,
     })

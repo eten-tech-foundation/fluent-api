@@ -5,19 +5,18 @@ import type { Result } from '@/lib/types';
 
 import { ok } from '@/lib/types';
 
-import type { RetainedBriefingProducer } from './assistant.cache';
-import type { BriefingEvent } from './assistant.client';
+import type { RetainedAssistantGeneration } from './assistant.cache';
+import type { BriefingEvent, BtServantClient } from './assistant.client';
 import type { AssistantError, PublicBriefingEvent } from './assistant.types';
 import type { CompletedBriefingArtifact } from './cache/assistant-cache.repository';
 
 import {
-  beginBriefingCacheLookup,
+  beginGenerationCacheLookup,
   briefingCacheKey,
-  findInFlightBriefing,
-  installOrJoinBriefing,
-  removeInFlightBriefing,
+  findInFlightGeneration,
+  installOrJoinGeneration,
+  removeInFlightGeneration,
 } from './assistant.cache';
-import { BtServantClient } from './assistant.client';
 import {
   assistantLanguageConfigurationFailure,
   loadAssistantConfig,
@@ -27,6 +26,11 @@ import {
 } from './assistant.config';
 import { resolveTurnContext } from './assistant.context';
 import { signBriefingDelivery } from './assistant.delivery';
+import {
+  acquireGeneration,
+  createAssistantClient,
+  releasePrivateGeneration,
+} from './assistant.generation';
 import { btUserId, buildBriefingPrompt, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import * as repo from './assistant.repository';
 import { assistantBriefingRequestSchema, assistantFailure } from './assistant.types';
@@ -71,7 +75,7 @@ function completeEvent(
 }
 
 async function produceSharedBriefing(input: {
-  producer: RetainedBriefingProducer;
+  producer: RetainedAssistantGeneration;
   cacheKey: string;
   artifactMetadata: Omit<CompletedBriefingArtifact, 'cacheKey' | 'markdown'>;
   client: BtServantClient;
@@ -123,7 +127,7 @@ async function produceSharedBriefing(input: {
         code: 'malformed_upstream_response',
         retryable: false,
       });
-    removeInFlightBriefing(input.cacheKey, input.producer);
+    removeInFlightGeneration(input.cacheKey, input.producer);
   }
 }
 
@@ -134,11 +138,17 @@ function privateEvents(input: {
   signal: AbortSignal;
   metadata: { operationVersion: string; cacheEpoch: string; outputLanguage: string };
   logTerminal: (event: BriefingEvent | { type: 'detached' }) => void;
+  release: () => void;
 }): AsyncGenerator<PublicBriefingEvent> {
+  const events = releasePrivateGeneration(
+    input.client.stream(input.request, input.signal),
+    input.release,
+    input.signal
+  );
   return (async function* () {
     yield input.started;
     try {
-      for await (const event of input.client.stream(input.request, input.signal)) {
+      for await (const event of events) {
         if (event.type === 'briefing_complete' && !event.markdown.trim()) {
           const failure = {
             type: 'briefing_error',
@@ -178,7 +188,7 @@ function replayedEvents(
 
 function sharedEvents(input: {
   started: Extract<PublicBriefingEvent, { type: 'briefing_started' }>;
-  producer: RetainedBriefingProducer;
+  producer: RetainedAssistantGeneration;
   signal: AbortSignal;
   metadata: { operationVersion: string; cacheEpoch: string; outputLanguage: string };
   logTerminal: (event: BriefingEvent | { type: 'detached' }) => void;
@@ -229,6 +239,7 @@ export async function createPassageBriefing(
     sourceBible: passage.sourceBible,
     sourceLanguageCode: passage.sourceLanguageCode,
     verses: passage.verses,
+    actions: parsed.data.actions,
   });
   if (Buffer.byteLength(prompt) > config.budgets.maxInputBytes)
     return assistantFailure('context_too_large');
@@ -272,13 +283,7 @@ export async function createPassageBriefing(
     );
   };
   input.signal.addEventListener('abort', () => logTerminal({ type: 'detached' }), { once: true });
-  const createClient = () =>
-    new BtServantClient({
-      baseUrl: config.baseUrl,
-      engineKey: config.engineKey,
-      org: config.org,
-      ...config.budgets,
-    });
+  const createClient = () => createAssistantClient(config, input.logger.warn.bind(input.logger));
   const metadata = {
     operationVersion: config.operationVersion,
     cacheEpoch: config.cacheEpoch,
@@ -297,7 +302,10 @@ export async function createPassageBriefing(
     message: prompt,
     responseLanguageHint: language.responseLanguageHint,
   };
-  if (parsed.data.ignore_cache)
+  if (parsed.data.ignore_cache) {
+    const release = acquireGeneration(input.userId);
+    if (!release)
+      return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
     return ok({
       events: delivery(
         privateEvents({
@@ -307,9 +315,11 @@ export async function createPassageBriefing(
           signal: input.signal,
           metadata,
           logTerminal,
+          release,
         })
       ),
     });
+  }
   const cacheKey = briefingCacheKey({
     operationVersion: config.operationVersion,
     profileVersion: config.profileVersion,
@@ -321,11 +331,11 @@ export async function createPassageBriefing(
     groundingInstruction: grounding.instruction,
     passage,
   });
-  let producer = findInFlightBriefing(cacheKey);
+  let producer = findInFlightGeneration(cacheKey);
   let completed: CompletedBriefingArtifact | null = null;
   let installed = false;
   if (!producer) {
-    const releaseLookup = beginBriefingCacheLookup(cacheKey);
+    const releaseLookup = beginGenerationCacheLookup(cacheKey);
     try {
       completed = await cacheRepo.findCompletedBriefing(cacheKey);
       if (completed && !completed.markdown.trim()) completed = null;
@@ -333,7 +343,7 @@ export async function createPassageBriefing(
       input.logger.warn({ attemptId }, 'Assistant briefing cache read failed');
     } finally {
       if (!completed) {
-        const installation = installOrJoinBriefing(cacheKey);
+        const installation = installOrJoinGeneration(cacheKey);
         producer = installation.producer;
         installed = installation.installed;
       }
@@ -349,6 +359,17 @@ export async function createPassageBriefing(
     });
   if (!producer) return assistantFailure('temporarily_unavailable');
   if (installed) {
+    const release = acquireGeneration(input.userId);
+    if (!release) {
+      producer.publish({
+        type: 'briefing_error',
+        code: 'generation_busy',
+        retryable: true,
+        retryAfter: 1,
+      });
+      removeInFlightGeneration(cacheKey, producer, false);
+      return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
+    }
     const production = produceSharedBriefing({
       producer,
       cacheKey,
@@ -366,7 +387,7 @@ export async function createPassageBriefing(
       request,
       onCacheWriteFailure: () =>
         input.logger.warn({ attemptId }, 'Assistant briefing cache write failed'),
-    });
+    }).finally(release);
     producer.attachProduction(production);
   }
   return ok({

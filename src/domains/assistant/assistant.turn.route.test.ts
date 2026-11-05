@@ -222,7 +222,7 @@ describe('POST guarded turns', () => {
     async (dont_cache) => {
       vi.mocked(cache.findCompletedTurn).mockResolvedValue({
         markdown: 'cached',
-        outputContractVersion: 'fluent-turn-v1',
+        outputContractVersion: 'fluent-widgets-v1',
       });
       const first = await events(await post({ ...request(), dont_cache }));
       const firstKey = vi.mocked(cache.findCompletedTurn).mock.calls[0][0];
@@ -238,7 +238,7 @@ describe('POST guarded turns', () => {
     expect(cache.publishCompletedTurn).toHaveBeenCalledWith(
       expect.stringMatching(/^[a-f0-9]{64}$/),
       'brief',
-      'fluent-turn-v1',
+      'fluent-widgets-v1',
       expect.any(AbortSignal)
     );
     await events(await post(request()));
@@ -299,12 +299,14 @@ it('cacheable producer survives interruption; private branch does not join it', 
   controller.abort();
   const joined = await post({ ...request(), dont_cache: false });
   const joinedRead = events(joined);
-  const privateRead = events(await post(request()));
-  await vi.waitFor(() => expect(BtServantClient).toHaveBeenCalledTimes(2));
+  const busy = await post(request());
+  expect(busy.status).toBe(429);
+  expect(await busy.json()).toEqual({ code: 'generation_busy', retryable: true, retryAfter: 1 });
+  expect(BtServantClient).toHaveBeenCalledTimes(1);
   gate.resolve();
   await firstRead;
   expect((await joinedRead).at(-1)?.type).toBe('turn_complete');
-  expect((await privateRead).at(-1)?.type).toBe('turn_complete');
+  expect((await events(await post(request()))).at(-1)?.type).toBe('turn_complete');
   expect(cache.publishCompletedTurn).toHaveBeenCalledTimes(1);
 });
 
@@ -348,7 +350,7 @@ it('shutdown stops shared production and rejects subsequent shared installs', as
   const response = await post({ ...request(), dont_cache: false });
   const read = events(response);
   await vi.waitFor(() => expect(signal).toBeDefined());
-  await assistantRouteMocks.shutdownInFlightBriefings();
+  await assistantRouteMocks.shutdownInFlightGenerations();
   expect(signal?.aborted).toBe(true);
   expect((await read).at(-1)?.type).toBe('turn_error');
   expect((await events(await post({ ...request(), dont_cache: false }))).at(-1)?.type).toBe(

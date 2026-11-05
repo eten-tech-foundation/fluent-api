@@ -79,6 +79,7 @@ describe('gET /doc (OpenAPI document)', () => {
         '403',
         '404',
         '413',
+        '429',
         '500',
         '503',
       ]);
@@ -101,6 +102,7 @@ describe('gET /doc (OpenAPI document)', () => {
         '403',
         '404',
         '413',
+        '429',
         '500',
         '503',
       ]);

@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  beginBriefingCacheLookup,
+  beginGenerationCacheLookup,
   briefingCacheKey,
-  findInFlightBriefing,
-  installOrJoinBriefing,
-  removeInFlightBriefing,
-  resetInFlightBriefingsForTests,
-  RetainedBriefingProducer,
+  findInFlightGeneration,
+  installOrJoinGeneration,
+  removeInFlightGeneration,
+  resetInFlightGenerationsForTests,
+  RetainedAssistantGeneration,
   serializeBriefingCacheIdentity,
-  shutdownInFlightBriefings,
+  shutdownInFlightGenerations,
 } from './assistant.cache';
 
 const base = {
@@ -41,10 +41,10 @@ const base = {
 describe('passage briefing semantic cache identity', () => {
   it('has a stable fixed-shape serialization and SHA-256 golden', () => {
     expect(serializeBriefingCacheIdentity(base)).toBe(
-      '{"operation":"passage_briefing","operationVersion":"passage-briefing-v1","profileVersion":"fluent-profile-v1","resourcePolicyVersion":"fluent-resource-policy-v1","cacheEpoch":"1","outputValidation":{"maxBytes":96000},"outputContractVersion":"fluent-widgets-v1","widgetInventory":[{"type":"suggested_question","count":3,"grammar":"{{fluent:v1:suggested_question|VISIBLE QUESTION}}"}],"responseLanguageHint":"en","guidanceSlug":"default","grounding":{"resourceLanguage":"en","instruction":"Use English resources."},"source":{"bible":"Canonical Source","languageCode":"eng","verses":[{"reference":{"bookCode":"MAT","chapter":4,"verse":25},"text":"First"},{"reference":{"bookCode":"MAT","chapter":5,"verse":1},"text":"Second"}]}}'
+      '{"operation":"passage_briefing","operationVersion":"passage-briefing-v1","profileVersion":"fluent-profile-v1","resourcePolicyVersion":"fluent-resource-policy-v1","cacheEpoch":"1","outputValidation":{"maxBytes":96000},"outputContractVersion":"fluent-widgets-v1","responseLanguageHint":"en","guidanceSlug":"default","grounding":{"resourceLanguage":"en","instruction":"Use English resources."},"source":{"bible":"Canonical Source","languageCode":"eng","verses":[{"reference":{"bookCode":"MAT","chapter":4,"verse":25},"text":"First"},{"reference":{"bookCode":"MAT","chapter":5,"verse":1},"text":"Second"}]}}'
     );
     expect(briefingCacheKey(base)).toBe(
-      '4fc55039e379e2b45f62a5fc8dc033f7bb4ec024f24c6fabc035da3be1d12f2a'
+      '41e5060636b66406d9c38b0d854e7ab0aeb9d99313562b18b0f042ad25cdb395'
     );
   });
 
@@ -107,10 +107,10 @@ describe('passage briefing semantic cache identity', () => {
 });
 
 describe('bT passage briefing retained in-flight producer', () => {
-  beforeEach(() => resetInFlightBriefingsForTests());
+  beforeEach(() => resetInFlightGenerationsForTests());
 
   it('replays source and a settled terminal event to a late joiner', async () => {
-    const producer = new RetainedBriefingProducer();
+    const producer = new RetainedAssistantGeneration();
     producer.publish({ type: 'briefing_delta', delta: 'one' });
     producer.publish({ type: 'briefing_delta', delta: ' two' });
     producer.publish({ type: 'briefing_complete', markdown: 'one two' });
@@ -124,7 +124,7 @@ describe('bT passage briefing retained in-flight producer', () => {
   });
 
   it('detaches one subscriber without settling or cancelling the producer', async () => {
-    const producer = new RetainedBriefingProducer();
+    const producer = new RetainedAssistantGeneration();
     const controller = new AbortController();
     const detached = producer.subscribe(controller.signal);
     const first = detached.next();
@@ -144,7 +144,7 @@ describe('bT passage briefing retained in-flight producer', () => {
   });
 
   it('checks detachment before every retained replay event', async () => {
-    const producer = new RetainedBriefingProducer();
+    const producer = new RetainedAssistantGeneration();
     producer.publish({ type: 'briefing_delta', delta: 'first' });
     producer.publish({ type: 'briefing_delta', delta: 'second' });
     producer.publish({ type: 'briefing_complete', markdown: 'firstsecond' });
@@ -160,7 +160,7 @@ describe('bT passage briefing retained in-flight producer', () => {
   });
 
   it('does not retain repeated empty progress frames', async () => {
-    const producer = new RetainedBriefingProducer();
+    const producer = new RetainedAssistantGeneration();
     for (let index = 0; index < 10_000; index++)
       producer.publish({ type: 'briefing_delta', delta: '' });
     producer.publish({ type: 'briefing_delta', delta: 'content' });
@@ -175,41 +175,41 @@ describe('bT passage briefing retained in-flight producer', () => {
   });
 
   it('installs synchronously, joins by hash, and removes only the matching producer', () => {
-    const first = installOrJoinBriefing('a'.repeat(64));
-    const joined = installOrJoinBriefing('a'.repeat(64));
+    const first = installOrJoinGeneration('a'.repeat(64));
+    const joined = installOrJoinGeneration('a'.repeat(64));
     expect(first.installed).toBe(true);
     expect(joined).toEqual({ producer: first.producer, installed: false });
-    removeInFlightBriefing('a'.repeat(64), new RetainedBriefingProducer());
-    expect(findInFlightBriefing('a'.repeat(64))).toBe(first.producer);
-    removeInFlightBriefing('a'.repeat(64), first.producer);
-    expect(findInFlightBriefing('a'.repeat(64))).toBeUndefined();
+    removeInFlightGeneration('a'.repeat(64), new RetainedAssistantGeneration());
+    expect(findInFlightGeneration('a'.repeat(64))).toBe(first.producer);
+    removeInFlightGeneration('a'.repeat(64), first.producer);
+    expect(findInFlightGeneration('a'.repeat(64))).toBeUndefined();
   });
 
   it('retains a completed producer across a database-snapshot handoff straddle', async () => {
     const key = 'b'.repeat(64);
-    const releaseLookup = beginBriefingCacheLookup(key);
-    const { producer } = installOrJoinBriefing(key);
+    const releaseLookup = beginGenerationCacheLookup(key);
+    const { producer } = installOrJoinGeneration(key);
     producer.publish({ type: 'briefing_complete', markdown: 'winner' });
-    removeInFlightBriefing(key, producer);
+    removeInFlightGeneration(key, producer);
 
     // The SELECT that leased before publication can now return its old miss and still join.
-    expect(findInFlightBriefing(key)).toBe(producer);
+    expect(findInFlightGeneration(key)).toBe(producer);
     const replay = [];
     for await (const event of producer.subscribe()) replay.push(event);
     expect(replay).toEqual([{ type: 'briefing_complete', markdown: 'winner' }]);
     releaseLookup();
-    expect(findInFlightBriefing(key)).toBeUndefined();
+    expect(findInFlightGeneration(key)).toBeUndefined();
   });
 
   it('aborts every producer, settles subscribers once, clears the registry, and rejects new work', async () => {
     const key = 'c'.repeat(64);
-    const { producer } = installOrJoinBriefing(key);
+    const { producer } = installOrJoinGeneration(key);
     const first = producer.subscribe();
     const second = producer.subscribe();
     const firstTerminal = first.next();
     const secondTerminal = second.next();
 
-    await shutdownInFlightBriefings();
+    await shutdownInFlightGenerations();
     const terminal = {
       type: 'briefing_error',
       code: 'temporarily_unavailable',
@@ -220,9 +220,9 @@ describe('bT passage briefing retained in-flight producer', () => {
     expect(await first.next()).toEqual({ value: undefined, done: true });
     expect(await second.next()).toEqual({ value: undefined, done: true });
     expect(producer.upstreamSignal.aborted).toBe(true);
-    expect(findInFlightBriefing(key)).toBeUndefined();
+    expect(findInFlightGeneration(key)).toBeUndefined();
 
-    const rejected = installOrJoinBriefing(key);
+    const rejected = installOrJoinGeneration(key);
     expect(rejected.installed).toBe(false);
     expect((await rejected.producer.subscribe().next()).value).toEqual(terminal);
   });

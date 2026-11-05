@@ -9,9 +9,10 @@ import { PERMISSIONS } from '@/lib/permissions';
 import { ok } from '@/lib/types';
 import { server } from '@/server/server';
 
-import { resetInFlightBriefingsForTests, shutdownInFlightBriefings } from './assistant.cache';
+import { resetInFlightGenerationsForTests, shutdownInFlightGenerations } from './assistant.cache';
 import { BtServantClient } from './assistant.client';
 import { loadAssistantConfig } from './assistant.config';
+import { acquireGeneration } from './assistant.generation';
 import { findProjectSourceLanguage, resolveCanonicalPassage } from './assistant.repository';
 import {
   findCompletedBriefing,
@@ -142,7 +143,7 @@ export const validBody = { bookCode: 'MAT', chapter: 4, activeVerse: 25, outputL
 export async function resetAssistantRouteTestFixture() {
   vi.clearAllMocks();
   authState.user = undefined;
-  resetInFlightBriefingsForTests();
+  resetInFlightGenerationsForTests();
   vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
     this.stream = vi.fn(async function* () {
       yield { type: 'briefing_delta', delta: 'brief' };
@@ -167,6 +168,7 @@ export async function resetAssistantRouteTestFixture() {
 }
 
 export const assistantRouteMocks = {
+  acquireGeneration,
   BtServantClient,
   findCompletedBriefing,
   findProjectSourceLanguage,
@@ -175,5 +177,5 @@ export const assistantRouteMocks = {
   publishCompletedBriefing,
   resolveCanonicalPassage,
   server,
-  shutdownInFlightBriefings,
+  shutdownInFlightGenerations,
 };

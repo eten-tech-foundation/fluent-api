@@ -323,3 +323,63 @@ describe('verified provider projection', () => {
     ]);
   });
 });
+
+it('keeps action catalogs outside semantic identity while preserving exact generation data', () => {
+  const original = conversation(7);
+  const baseline = projectVerifiedTurn(context(), original, 5);
+  expect(baseline.ok).toBe(true);
+  if (!baseline.ok) return;
+  const changedCatalog = projectVerifiedTurn(
+    context(),
+    {
+      ...original,
+      actions: [
+        {
+          type: 'suggested_question',
+          purpose: 'Ask more',
+          template: '{{fluent:v1:suggested_question|QUESTION}}',
+        },
+      ],
+    },
+    5
+  );
+  expect(changedCatalog.ok && changedCatalog.semanticIdentity).toEqual(baseline.semanticIdentity);
+  expect(changedCatalog.ok && changedCatalog.message).not.toBe(baseline.message);
+  for (const changed of [
+    { ...original, briefing: { ...original.briefing, markdown: 'Other briefing' } },
+    { ...original, briefing: { ...original.briefing, complete: !original.briefing.complete } },
+    {
+      ...original,
+      submission: {
+        ...original.submission,
+        input: { ...original.submission.input, text: 'Different question' },
+      },
+    },
+  ]) {
+    const projected = projectVerifiedTurn(context(), changed, 5);
+    expect(projected.ok && projected.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+  }
+  const historyChanged = structuredClone(original);
+  historyChanged.turns.at(-1)!.attempts[0].prefix!.markdown += ' more';
+  const projected = projectVerifiedTurn(context(), historyChanged, 5);
+  expect(projected.ok && projected.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+  const wider = projectVerifiedTurn(context(), original, 6);
+  expect(wider.ok && wider.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+});
+
+it('bounds catalogs structurally without restricting client-owned action types', () => {
+  const actions = [
+    { type: 'future_action', purpose: 'A future action', template: 'client-owned template' },
+  ];
+  expect(assistantTurnRequestSchema.safeParse({ ...request(), actions }).success).toBe(true);
+  for (const invalid of [
+    [...actions, ...actions],
+    [{ ...actions[0], handler: 'javascript' }],
+    [{ ...actions[0], type: 'bad type' }],
+    [{ ...actions[0], template: 'x'.repeat(4097) }],
+    Array.from({ length: 33 }, (_, i) => ({ ...actions[0], type: `action_${i}` })),
+  ])
+    expect(assistantTurnRequestSchema.safeParse({ ...request(), actions: invalid }).success).toBe(
+      false
+    );
+});

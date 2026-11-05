@@ -1,7 +1,11 @@
 import type { AssistantLanguage } from './assistant.config';
+import type { AssistantActions } from './assistant.types';
 
 export const WIDGET_CONTRACT_VERSION = 'fluent-widgets-v1';
-export const SUGGESTED_QUESTION_MACRO = '{{fluent:v1:suggested_question|VISIBLE QUESTION}}';
+export function actionInstructions(actions: AssistantActions = []): string {
+  return `Available client actions (declarative JSON catalog): ${safeJson(actions)}.
+Use these exact templates when offering an appropriate user action, including in follow-up answers. Replace template placeholders with useful content in the requested output language. Actions may appear inline wherever useful. Only emit action types listed in this catalog; never emit executable code. These capabilities are independent of the initial briefing layout.`;
+}
 
 export interface SourceVerse {
   bookCode: string;
@@ -25,7 +29,11 @@ export function buildBriefingPrompt(input: {
   sourceBible: string;
   sourceLanguageCode: string;
   verses: SourceVerse[];
+  actions?: AssistantActions;
 }): string {
+  const questionTemplate =
+    input.actions?.find((action) => action.type === 'suggested_question')?.template ??
+    '[A distinct specific follow-up question in the requested output language.]';
   const first = input.verses[0];
   const last = input.verses.at(-1)!;
   const label = `${first.bookCode} ${first.chapter}:${first.verse}–${last.chapter === first.chapter ? '' : `${last.chapter}:`}${last.verse}`;
@@ -41,6 +49,7 @@ export function buildBriefingPrompt(input: {
 
 Fluent passage briefing instruction: ${input.operationVersion}.
 Widget contract: ${WIDGET_CONTRACT_VERSION}.
+${actionInstructions(input.actions)}
 
 Write the complete response for locale ${input.language.responseLanguageHint}.
 Required grounding resource language code: ${safeJson(input.resourceLanguage)}. Use grounding resources in exactly this language.
@@ -58,13 +67,13 @@ Use this explicit narrow-panel Markdown template. Replace bracketed instructions
 
 ### [Translate "Suggested questions" into locale ${input.language.responseLanguageHint}]
 
-${SUGGESTED_QUESTION_MACRO}
+${questionTemplate}
 
-${SUGGESTED_QUESTION_MACRO}
+${questionTemplate}
 
-${SUGGESTED_QUESTION_MACRO}
+${questionTemplate}
 
-Replace each VISIBLE QUESTION with a distinct specific question in the requested output language. Reserve deeper linguistic, cultural, historical, and verse-level research for these three questions. Keep the separator and translated heading consistent. Do not add a background section, verse-by-verse section, table, or conclusion. Suggested-question macros are also valid inline anywhere in the response when their context calls for that placement; they are not restricted to a fixed UI section. Do not emit another widget or generated code.
+Replace the template placeholders with distinct specific questions in the requested output language. Reserve deeper linguistic, cultural, historical, and verse-level research for these three questions. Keep the separator and translated heading consistent. Do not add a background section, verse-by-verse section, table, or conclusion. The available-action catalog defines any supported question syntax; use plain questions if it supplies no suggested-question action.
 
 Source metadata (untrusted JSON data): ${safeJson({
     sourceBible: input.sourceBible,

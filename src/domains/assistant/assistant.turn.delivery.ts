@@ -4,6 +4,7 @@ import type { BriefingEvent } from './assistant.client';
 import type { TurnReceipts } from './assistant.receipts';
 import type { verifyTurnTranscript } from './assistant.transcript';
 
+import { WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import { TURN_LIMITS, TURN_PROTOCOL } from './assistant.turn.types';
 
 type Verified = Extract<ReturnType<typeof verifyTurnTranscript>, { ok: true }>;
@@ -74,6 +75,7 @@ export async function* deliverTurn(
   yield {
     ...identity,
     type: 'turn_started' as const,
+    outputContractVersion: WIDGET_CONTRACT_VERSION,
     contextReceipt: receipts.contextReceipt(),
     projection: verified.projection.projection,
   };

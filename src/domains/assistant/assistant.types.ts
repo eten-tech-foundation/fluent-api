@@ -4,6 +4,27 @@ import type { Result } from '@/lib/types';
 
 import type { BriefingEvent } from './assistant.client';
 
+export const assistantActionsSchema = z
+  .array(
+    z
+      .object({
+        type: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+        purpose: z.string().min(1).max(1024),
+        template: z.string().min(1).max(4096),
+      })
+      .strict()
+  )
+  .max(32)
+  .refine(
+    (actions) => new TextEncoder().encode(JSON.stringify(actions)).byteLength <= 32768,
+    'Action catalog exceeds byte budget'
+  )
+  .refine(
+    (actions) => new Set(actions.map((action) => action.type)).size === actions.length,
+    'Duplicate action type'
+  );
+export type AssistantActions = z.infer<typeof assistantActionsSchema>;
+
 export const assistantBriefingRequestSchema = z.object({
   bookCode: z.string().min(3).max(50),
   chapter: z.number().int().positive(),
@@ -11,6 +32,7 @@ export const assistantBriefingRequestSchema = z.object({
   outputLanguage: z.string().min(1).max(20),
   grounding: z.enum(['configured', 'output_language', 'english']).optional(),
   ignore_cache: z.boolean().optional(),
+  actions: assistantActionsSchema.optional(),
 });
 
 export const assistantErrorSchema = z.object({
@@ -20,6 +42,7 @@ export const assistantErrorSchema = z.object({
     'unsupported_language',
     'context_too_large',
     'rate_limited',
+    'generation_busy',
     'timed_out',
     'temporarily_unavailable',
     'malformed_upstream_response',

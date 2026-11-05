@@ -16,7 +16,7 @@ const {
   findCompletedBriefing,
   logger,
   publishCompletedBriefing,
-  shutdownInFlightBriefings,
+  shutdownInFlightGenerations,
 } = assistantRouteMocks;
 
 describe('assistant briefing route cache lifecycle', () => {
@@ -323,7 +323,7 @@ describe('assistant briefing route cache lifecycle', () => {
     } as unknown as BtClientFactory);
     const responses = await Promise.all([post(validBody), post(validBody)]);
     await vi.waitFor(() => expect(upstreamSignal).toBeInstanceOf(AbortSignal));
-    await shutdownInFlightBriefings();
+    await shutdownInFlightGenerations();
 
     const bodies = await Promise.all(responses.map((response) => response.text()));
     expect(upstreamSignal.aborted).toBe(true);
@@ -352,7 +352,7 @@ describe('assistant briefing route cache lifecycle', () => {
 
     const response = await post(validBody);
     await vi.waitFor(() => expect(writeSignal).toBeInstanceOf(AbortSignal));
-    await shutdownInFlightBriefings();
+    await shutdownInFlightGenerations();
     const body = await response.text();
 
     expect(writeSignal.aborted).toBe(true);
