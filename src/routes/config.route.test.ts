@@ -143,4 +143,14 @@ describe('gET /config/features', () => {
     expect(json.features).toHaveProperty('sourceAudio');
     expect(json.features.sourceAudio).toBe(false);
   });
+
+  it('publishes the off-by-default assistant flag (authenticated)', async () => {
+    authenticateAs(USER);
+
+    const res = await getFeatures();
+    const json = await res.json();
+
+    expect(json.features).toHaveProperty('assistant');
+    expect(json.features.assistant).toBe(false);
+  });
 });

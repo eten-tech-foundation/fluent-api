@@ -1,11 +1,13 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
 
+import { shutdownInFlightGenerations } from '@/domains/assistant/assistant.cache';
 import { reclaimOrphanedStorageObjects } from '@/domains/verse-audio/verse-audio.service';
 import env from '@/env';
 import { initializeAudioStorage, isAudioStorageConfigured } from '@/lib/audio-storage';
 import { verifyBlobStorageOnBoot } from '@/lib/blob-storage';
 import { startDeadLetterMonitor } from '@/lib/dead-letter-queues';
+import { stopHttpAdmissionAndDrain } from '@/lib/http-shutdown';
 import { logger } from '@/lib/logger';
 import { initializeQueueWithRetry, stopQueue } from '@/lib/queue';
 
@@ -73,8 +75,9 @@ async function startServer() {
     });
 
     const gracefulShutdown = async (signal: string) => {
-      logger.info(`${signal} received, shutting down server`);
+      if (shuttingDown) return;
       shuttingDown = true;
+      logger.info(`${signal} received, shutting down server`);
       try {
         if (audioReclaimInterval) clearInterval(audioReclaimInterval);
         // Stop the monitor's timer now but drain its in-flight sweep alongside
@@ -83,11 +86,18 @@ async function startServer() {
         // stopDeadLetterMonitor may be unset if shutdown arrives mid-init.
         const monitorStopped = stopDeadLetterMonitor?.() ?? Promise.resolve();
 
-        server.close(() => {
-          logger.info('HTTP server closed');
-        });
+        // Stop HTTP admission, then settle shared BT work and drain attached SSE responses.
+        const httpStopped = stopHttpAdmissionAndDrain(server, shutdownInFlightGenerations).then(
+          (outcome) => {
+            if (outcome === 'forced')
+              logger.warn('HTTP drain deadline reached; connections closed');
+            else if (outcome === 'timed_out')
+              logger.warn('HTTP drain deadline reached; forced close unavailable');
+            else logger.info('HTTP server closed');
+          }
+        );
 
-        await monitorStopped;
+        await Promise.all([monitorStopped, httpStopped]);
         await stopQueue();
 
         logger.info('Shutdown completed');

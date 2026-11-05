@@ -43,6 +43,14 @@ const envBool = () =>
     return z.NEVER;
   });
 
+// Assistant wiring is intentionally parsed as permissive raw text here. A bad optional
+// Assistant value must disable only Assistant, never prevent unrelated API routes from booting.
+// Complete validation and defaults live at the Assistant domain boundary.
+const optionalAssistantValue = z
+  .string()
+  .optional()
+  .transform((value) => value?.trim() || undefined);
+
 const EnvBaseSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().default(9999),
@@ -182,6 +190,26 @@ const EnvBaseSchema = z.object({
   // Per-request timeout (ms) for calls to the DBL/API.Bible client.
   DBL_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
+  // Direct BT Servant integration for the requested/read-only Assistant briefing.
+  // All are optional so unrelated API routes keep booting when Assistant is unwired.
+  BT_SERVANT_BASE_URL: optionalAssistantValue,
+  BT_SERVANT_ENGINE_KEY: optionalAssistantValue,
+  BT_SERVANT_ORG: optionalAssistantValue,
+  ASSISTANT_LANGUAGES_JSON: optionalAssistantValue,
+  ASSISTANT_OPERATION_VERSION: optionalAssistantValue,
+  ASSISTANT_PROFILE_VERSION: optionalAssistantValue,
+  ASSISTANT_RESOURCE_POLICY_VERSION: optionalAssistantValue,
+  ASSISTANT_CACHE_EPOCH: optionalAssistantValue,
+  ASSISTANT_HISTORY_WINDOW: optionalAssistantValue,
+  ASSISTANT_RECEIPT_KEY_ID: optionalAssistantValue,
+  ASSISTANT_RECEIPT_KEY_HEX: optionalAssistantValue,
+  ASSISTANT_CONNECT_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_IDLE_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_TOTAL_TIMEOUT_MS: optionalAssistantValue,
+  ASSISTANT_MAX_INPUT_BYTES: optionalAssistantValue,
+  ASSISTANT_MAX_OUTPUT_BYTES: optionalAssistantValue,
+  ASSISTANT_MAX_FRAME_BYTES: optionalAssistantValue,
+
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────
   // One flat boolean env var per optional feature, under a dedicated
   // EN_FEATURE_ prefix. Each flag is declared explicitly here (proposal D2) so
@@ -225,6 +253,10 @@ const EnvBaseSchema = z.object({
   // publish-vs-enforce split (D5) is unchanged — this only says "the UI may
   // render the listen controls in this environment".
   EN_FEATURE_SOURCE_AUDIO: envBool().optional(),
+  // Assistant — publishes the unfinished Assistant UI only when an operator
+  // explicitly enables it. BT Servant wiring alone must not light up the UI.
+  // The browser's local /debug override remains a separate client-side concern.
+  EN_FEATURE_ASSISTANT: envBool().optional(),
 });
 
 const R2_BUCKET_KEYS = ['R2_EXPORTS_BUCKET', 'R2_AUDIO_BUCKET'] as const;

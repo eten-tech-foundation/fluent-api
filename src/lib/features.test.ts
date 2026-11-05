@@ -78,6 +78,18 @@ describe('buildFeatures', () => {
     expect(features.sourceAudio).toBe(false);
   });
 
+  it('honors an explicitly-set assistant flag', () => {
+    expect(buildFeatures(makeEnv({ EN_FEATURE_ASSISTANT: true })).assistant).toBe(true);
+    expect(buildFeatures(makeEnv({ EN_FEATURE_ASSISTANT: false })).assistant).toBe(false);
+  });
+
+  it('keeps assistant = false when unset regardless of service wiring', () => {
+    expect(
+      buildFeatures(makeEnv({ ...AI_WIRED, BT_SERVANT_BASE_URL: 'https://bt.example' })).assistant
+    ).toBe(false);
+    expect(buildFeatures(makeEnv({ ...AI_UNWIRED })).assistant).toBe(false);
+  });
+
   it('resolves each flag independently — one set flag does not move the others', () => {
     // Guards the registry against a copy-paste slip where two entries share an
     // env key or a resolver: with AI unwired, forcing sourceAudio ON must leave the
@@ -86,6 +98,7 @@ describe('buildFeatures', () => {
     expect(features.sourceAudio).toBe(true);
     expect(features.repeatedWordCheck).toBe(false);
     expect(features.aiSuggestions).toBe(false);
+    expect(features.assistant).toBe(false);
   });
 
   it('returns exactly the known flag keys — no extras, none missing', () => {
