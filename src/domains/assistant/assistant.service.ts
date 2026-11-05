@@ -140,35 +140,34 @@ function privateEvents(input: {
   logTerminal: (event: BriefingEvent | { type: 'detached' }) => void;
   release: () => void;
 }): AsyncGenerator<PublicBriefingEvent> {
-  const events = releasePrivateGeneration(
-    input.client.stream(input.request, input.signal),
+  return releasePrivateGeneration(
+    (async function* () {
+      try {
+        yield input.started;
+        for await (const event of input.client.stream(input.request, input.signal)) {
+          if (event.type === 'briefing_complete' && !event.markdown.trim()) {
+            const failure = {
+              type: 'briefing_error',
+              code: 'malformed_upstream_response',
+              retryable: false,
+            } as const;
+            yield failure;
+            input.logTerminal(failure);
+            return;
+          }
+          yield event.type === 'briefing_complete'
+            ? completeEvent(event, input.metadata, false)
+            : event;
+          if (event.type === 'briefing_complete' || event.type === 'briefing_error')
+            input.logTerminal(event);
+        }
+      } finally {
+        if (input.signal.aborted) input.logTerminal({ type: 'detached' });
+      }
+    })(),
     input.release,
     input.signal
   );
-  return (async function* () {
-    yield input.started;
-    try {
-      for await (const event of events) {
-        if (event.type === 'briefing_complete' && !event.markdown.trim()) {
-          const failure = {
-            type: 'briefing_error',
-            code: 'malformed_upstream_response',
-            retryable: false,
-          } as const;
-          yield failure;
-          input.logTerminal(failure);
-          return;
-        }
-        yield event.type === 'briefing_complete'
-          ? completeEvent(event, input.metadata, false)
-          : event;
-        if (event.type === 'briefing_complete' || event.type === 'briefing_error')
-          input.logTerminal(event);
-      }
-    } finally {
-      if (input.signal.aborted) input.logTerminal({ type: 'detached' });
-    }
-  })();
 }
 
 function replayedEvents(

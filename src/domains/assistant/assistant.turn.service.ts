@@ -172,7 +172,13 @@ export async function createPassageTurn(
     const release = acquireGeneration(input.userId);
     if (!release)
       return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
-    return deliver(releasePrivateGeneration(source(input.signal), release, input.signal));
+    return ok({
+      events: releasePrivateGeneration(
+        deliverTurn(source(input.signal), receipts, verified, operationId, input.signal),
+        release,
+        input.signal
+      ),
+    });
   }
   const retained = producer;
   if (installed) {

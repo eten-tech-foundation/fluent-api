@@ -144,16 +144,29 @@ const briefingRoute = createRoute({
 server.openapi(
   briefingRoute,
   async (c) => {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    c.req.raw.signal.addEventListener('abort', abort, { once: true });
+    if (c.req.raw.signal.aborted) abort();
     const result = await createPassageBriefing({
       projectId: c.req.valid('param').projectId,
       userId: c.get('user')!.id,
       body: c.req.valid('json'),
-      signal: c.req.raw.signal,
+      signal: controller.signal,
       logger: c.get('logger'),
     });
-    if (!result.ok) return c.json(result.error, errorStatus(result.error.code));
+    if (!result.ok) {
+      c.req.raw.signal.removeEventListener('abort', abort);
+      return c.json(result.error, errorStatus(result.error.code));
+    }
     return streamSSE(c, async (stream) => {
-      await writeAssistantEvents(stream, result.data.events);
+      stream.onAbort(abort);
+      try {
+        await writeAssistantEvents(stream, result.data.events);
+      } finally {
+        abort();
+        c.req.raw.signal.removeEventListener('abort', abort);
+      }
     });
   },
   validationHook

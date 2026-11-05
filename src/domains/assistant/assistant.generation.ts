@@ -1,4 +1,3 @@
-import type { BriefingEvent } from './assistant.client';
 import type { loadAssistantConfig } from './assistant.config';
 
 import { BtServantClient } from './assistant.client';
@@ -18,11 +17,11 @@ export function acquireGeneration(userId: number): (() => void) | null {
 }
 
 /** Private work ends on caller cancellation; retained work releases from its producer. */
-export function releasePrivateGeneration(
-  events: AsyncIterable<BriefingEvent>,
+export function releasePrivateGeneration<T>(
+  events: AsyncIterable<T>,
   release: () => void,
   signal: AbortSignal
-): AsyncGenerator<BriefingEvent> {
+): AsyncGenerator<T> {
   signal.addEventListener('abort', release, { once: true });
   if (signal.aborted) release();
   return (async function* () {
