@@ -150,13 +150,15 @@ codes, ignoring case, spacing, periods, ordinals and title filler. The file name
 never decides the book.
 The detected code must match the submitted code and exist in the book catalogue.
 The grammar requires an id, so fallback files receive one only in a parsing copy.
-That copy also smooths over two layouts the grammar refuses, both in Biblica's
-Open Telugu Contemporary Version (fluent-web#418). The grammar refuses list
-header and footer lines (`\lh`, `\lf`) that carry verses when a heading or a
-blank line sits inside the list, so every `\lh` and `\lf` is read as `\p`: its
-words go into the verse they belong to, as a `p` paragraph. A cross reference
-(`\xt`) left open inside a footnote until the footnote's next marker gets its
-`\xt*` written out.
+A file the grammar accepts is read as written. Only when it refuses that copy is
+the file parsed once more, with two layouts it refuses smoothed over, both found
+in Biblica's Open Telugu Contemporary Version (fluent-web#418): list header and
+footer lines (`\lh`, `\lf`) that carry verses when a heading or a blank line
+sits inside the list, and a cross reference (`\xt`) left open inside a footnote
+until the footnote's next marker. In that second copy every `\lh` and `\lf` is
+read as `\p`, so its words go into the verse they belong to as a `p` paragraph,
+and the open `\xt` gets its `\xt*`. The import logs a warning when a file needs
+the second copy.
 The persisted file remains verbatim, including its original identifier and tags.
 
 Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
@@ -169,8 +171,10 @@ paragraph text is left out this way.
 Tables, notes, figures and sidebars remain in the original file rather than being
 appended to a verse's prose.
 A blank line (`\b`) is an empty paragraph: usfm-grammar gives it no content at
-all, so it anchors nothing in the row and stays in the original file.
-Supported headings attach to the next verse. Headings after the last verse
+all, so it anchors nothing in the row and stays in the original file. It doesn't
+come between an empty `\p` and the line after it either (see below).
+Supported headings attach to the next verse. A heading without words attaches
+nothing: it stays in the original file and the import logs a warning. Headings after the last verse
 remain on the raw import row; attaching them before the last verse would change
 source order.
 

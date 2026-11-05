@@ -106,6 +106,40 @@ describe('paragraph structure (fluent-web#314)', () => {
     ]);
   });
 
+  it('attaches no heading without words, and warns that it stays in the raw file (fluent-web#418)', () => {
+    // usfm-grammar refuses an empty \s1 line, so this is the USJ such a heading would be.
+    const usj = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'book', marker: 'id', code: 'JHN' },
+        { type: 'chapter', marker: 'c', number: '3' },
+        { type: 'para', marker: 's1' },
+        {
+          type: 'para',
+          marker: 'p',
+          content: [{ type: 'verse', marker: 'v', number: '1' }, 'One.'],
+        },
+      ],
+    } as unknown as USJDocument;
+
+    expect(usjToVerseTexts(usj)).toEqual({
+      ok: true,
+      data: [
+        {
+          chapterNumber: 3,
+          verseNumber: 1,
+          text: 'One.',
+          markers: { paragraphs: [{ marker: 'p', offset: 0 }] },
+        },
+      ],
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Imported USFM heading without words stays only in the raw file',
+      { chapterNumber: 3, marker: 's1' }
+    );
+  });
+
   it('leaves words before any open verse in the raw file and warns about them', () => {
     const verses = versesOf(
       '\\id JHN\n\\c 3\n\\s1 Jesus and Nicodemus\n\\p Before any verse.\n\\p\n\\v 1 One.'
@@ -215,6 +249,12 @@ describe('an empty \\p before a poetry line (fluent-web#530)', () => {
       headings: [{ marker: 's1', text: 'A song' }],
       ...opensWithPoetry(1, 'One.').markers,
     });
+  });
+
+  it('keeps it when a blank line (\\b) sits between the \\p and the line (fluent-web#418)', () => {
+    expect(versesOf('\\id PSA\n\\c 1\n\\p\n\\b\n\\q1\n\\v 1 One,\n\\q2 still one.')).toEqual([
+      opensWithPoetry(1, 'One, still one.', [{ marker: 'q2', offset: 5 }]),
+    ]);
   });
 
   // Kasey and CodeRabbit on fluent-api#473: words before the first verse are left out of the rows,

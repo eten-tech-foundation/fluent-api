@@ -110,9 +110,11 @@ describe('prepareUsfmImport (#418, #419)', () => {
     ]);
   });
 
-  it('reads list header and footer lines into their verses, with headings and blank lines in the list (fluent-web#418)', async () => {
-    // The layout of a genealogy in Biblica's Open Telugu Contemporary Version (Genesis 10). Most
-    // of its list lines carry a verse; a few have words of their own (Genesis 22, 35, 36).
+  it('falls back to reading list lines as paragraphs when the grammar refuses the list (fluent-web#418)', async () => {
+    // The layout of a genealogy in Biblica's Open Telugu Contemporary Version (Genesis 10): list
+    // lines that carry verses, with a heading and a blank line inside the list, which the grammar
+    // refuses. Most of its list lines carry a verse; a few have words of their own (Genesis 22,
+    // 35 and 36).
     const usfm = [
       '\\id GEN',
       '\\c 10',
@@ -154,7 +156,72 @@ describe('prepareUsfmImport (#418, #419)', () => {
     ]);
   });
 
-  it('reads a cross reference left open inside a footnote (fluent-web#418)', async () => {
+  it('reads a list the grammar accepts as written, so words in its header and footer stay out (fluent-web#418)', async () => {
+    // Nothing is rewritten in a file the grammar accepts: words in an \lh or \lf line before any
+    // verse stay only in the stored file, and a verse that starts in \lh opens no paragraph.
+    const usfm = [
+      '\\id GEN',
+      '\\c 10',
+      '\\p',
+      '\\v 1 This is the account of Shem, Ham and Japheth.',
+      '\\lh The sons of Japheth:',
+      '\\li1',
+      '\\v 2 Gomer, Magog and Madai.',
+      '\\li1 Javan, Tubal and Meshek.',
+      '\\lf These were their clans.',
+      '\\p',
+      '\\v 3 The sons of Gomer.',
+      '\\c 11',
+      '\\lh',
+      '\\v 1 These are the sons of Shem.',
+      '\\li1 Elam',
+      '\\lf',
+      '\\p',
+      '\\v 2 More.',
+    ].join('\n');
+
+    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', usfm)]);
+
+    expect(result.ok && result.data.verdicts).toEqual([
+      { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
+    ]);
+    const [accepted] = result.ok ? result.data.accepted : [];
+    const p0 = { marker: 'p', offset: 0 };
+    expect(accepted.verses).toEqual([
+      {
+        chapterNumber: 10,
+        verseNumber: 1,
+        text: 'This is the account of Shem, Ham and Japheth.',
+        markers: { paragraphs: [p0] },
+      },
+      {
+        chapterNumber: 10,
+        verseNumber: 2,
+        text: 'Gomer, Magog and Madai. Javan, Tubal and Meshek.',
+        markers: {
+          paragraphs: [
+            { marker: 'li1', offset: 0 },
+            { marker: 'li1', offset: 24 },
+          ],
+        },
+      },
+      {
+        chapterNumber: 10,
+        verseNumber: 3,
+        text: 'The sons of Gomer.',
+        markers: { paragraphs: [p0] },
+      },
+      {
+        chapterNumber: 11,
+        verseNumber: 1,
+        text: 'These are the sons of Shem. Elam',
+        markers: { paragraphs: [{ marker: 'li1', offset: 28 }] },
+      },
+      { chapterNumber: 11, verseNumber: 2, text: 'More.', markers: { paragraphs: [p0] } },
+    ]);
+  });
+
+  it('falls back to closing a cross reference left open inside a footnote (fluent-web#418)', async () => {
     const usfm =
       '\\id GEN\n\\c 1\n\\p\n\\v 1 In the beginning.\\f + \\fr 1:1 \\ft See\\xt 3\\ft and\\xt 4\\ft .\\f*\n\\v 2 The earth.';
 
@@ -178,6 +245,11 @@ describe('prepareUsfmImport (#418, #419)', () => {
 
   it.each([
     ['a verse before its chapter', '\\id OBA\n\\p\n\\v 1 The vision.\n\\c 1\n\\p\n\\v 2 Behold.'],
+    // Refused as written, and again with the list line read as \p (fluent-web#418).
+    [
+      'a list line and a verse before its chapter',
+      '\\id OBA\n\\lh\n\\v 1 The vision.\n\\c 1\n\\p\n\\v 2 Behold.',
+    ],
     ['no chapter', '\\id OBA\n\\p\n\\v 1 The vision.'],
     ['\\id after another marker', '\\h Obadiah\n\\id OBA\n\\c 1\n\\p\n\\v 1 The vision.'],
     ['no verses', '\\id OBA\n\\c 1\n\\p The vision.'],
