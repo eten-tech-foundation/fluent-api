@@ -1,5 +1,5 @@
 {
-  "id": "9e18fe0d-bc2d-4aa5-b339-69c415b619c2",
+  "id": "31970f80-49ff-4ac8-b5b1-0b6bc9eeede2",
   "prevId": "6a7ddad4-639f-4a91-b210-cdde8ba1e969",
   "version": "7",
   "dialect": "postgresql",
@@ -672,6 +672,66 @@
       "indexes": {
         "idx_assistant_briefing_artifacts_expiry": {
           "name": "idx_assistant_briefing_artifacts_expiry",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.assistant_turn_artifacts": {
+      "name": "assistant_turn_artifacts",
+      "schema": "",
+      "columns": {
+        "cache_key": {
+          "name": "cache_key",
+          "type": "char(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "markdown": {
+          "name": "markdown",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "output_contract_version": {
+          "name": "output_contract_version",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_assistant_turn_artifacts_expiry": {
+          "name": "idx_assistant_turn_artifacts_expiry",
           "columns": [
             {
               "expression": "expires_at",

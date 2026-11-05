@@ -86,16 +86,10 @@ beforeAll(async () => {
   client = new PGlite();
   databaseState.client = client;
   const migration = await readFile(
-    new URL('../../db/migrations/0041_assistant_briefing_artifacts.sql', import.meta.url),
+    new URL('../../db/migrations/0041_assistant_artifacts.sql', import.meta.url),
     'utf8'
   );
   await client.exec(migration);
-  await client.exec(
-    await readFile(
-      new URL('../../db/migrations/0042_assistant_turn_artifacts.sql', import.meta.url),
-      'utf8'
-    )
-  );
 });
 
 afterEach(async () => {
