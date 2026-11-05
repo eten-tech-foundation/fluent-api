@@ -18,14 +18,14 @@ background agents, dynamic MCP, and additional providers are also excluded.
 
 Earlier November 3 probes observed BT Servant 2.59.0 buffering text until completion. The Fluent team is coordinating streaming restoration. Later local cold-briefing samples delivered first content in 7–14 seconds and completed in 23–35 seconds. These bounded samples demonstrate incremental delivery in those requests; they do not establish consistent streaming across every follow-up or deployment.
 
-The pane now includes the agreed rounded border, single sparkle icon, quieter question buttons, compact expanding composer, and red error/Retry styling. An explicit prompt template requests a localized Suggested questions heading; three fresh English/Hindi samples followed that shape. Inline question placement remains model-controlled, and existing cache entries may retain the old shape. The language selector remains below the passage header as the written requirement specifies. Context-limit/interruption notices and conversation separators remain; the informational notice stays separate under #407.
+The pane now includes the agreed rounded border, single sparkle icon, quieter question buttons, compact expanding composer, and red error/Retry styling. An explicit prompt template requests a localized Suggested questions heading; three November 3 English/Hindi samples followed that shape. Inline question placement remains model-controlled, and existing cache entries may retain the old shape. The language selector remains below the passage header as the written requirement specifies. Context-limit/interruption notices and conversation separators remain; the informational notice stays separate under #407.
 
 ## Architecture and user behavior
 
 Fluent API authorizes project access, resolves the complete ordered canonical source-Bible pericope,
 calls BT Servant directly, normalizes its bounded stream, and owns disposable completed-artifact
 caches. There is no fluent-ai hop or generic provider framework. Web uses the API-owned supported
-language inventory, saved language preference, and source-language/English fallback.
+language inventory, explicit saved language preference, and source-language/English fallback. The inventory comes from operator configuration (`ASSISTANT_LANGUAGES_JSON`), not live BT discovery. Automatic defaults are not saved as preferences; existing preferences are retained because older stored values have no provenance marker.
 
 Language discovery is bounded and cancellable. A failed lookup retains the pane and offers explicit retry without inventing an English-only inventory. Invalid language configuration instead displays a persistent administrator-action message and emits a sanitized, once-per-process diagnostic. Assistant interface text uses the existing English/Hindi localization dictionaries independently of the selected answer language.
 
@@ -33,7 +33,7 @@ The Assistant tab precedes Resources and remains independent of translation AI o
 shows the canonical pericope header, language selector, briefing, suggested questions and conversation
 in a shared scroll area, with a composer pinned below it. Generation and Retry have visible controls.
 Safe Markdown is rendered from the accumulated source; unsafe HTML/URLs remain disabled. Complete
-recognized question macros become buttons; unknown or malformed syntax remains inert text.
+recognized question macros become buttons in briefings and follow-up answers; unknown or malformed syntax remains inert text. Link/image metadata remains inert and preserves original directive text rather than internal parser placeholders.
 
 The prompt supplies an explicit template requesting two short briefing paragraphs, a separator, a localized Suggested questions heading, and three passage-specific questions in the selected language. Question count and placement are prompt conventions, not transport validation:
 a safe receipt-consistent document remains readable even when the model deviates. Product/SME
@@ -41,14 +41,12 @@ acceptance must assess this limitation rather than infer compliance from parser 
 
 A question button submits its exact visible text through the same action as Enter/Send and preserves
 an existing unsent draft. Typed text is preserved apart from rejecting all-whitespace submissions;
-IME composition does not submit. Typed submission waits for a complete briefing unless an early
+IME composition does not submit. A suggested-question validation or terminal submission failure restores the full original question to the composer, replacing an unsent draft without resubmission. Intermediate busy retries do not trigger that recovery; cancelled or superseded attempts cannot replace a newer conversation's draft. Typed submission waits for a complete briefing unless an early
 suggested-question click has already established a signed frozen branch. The draft remains editable.
 
 A new question during generation freezes the visible prefix and starts a separate branch. Later
 output from the old attempt cannot alter that branch. Originally cacheable production may finish
-and publish its completed artifact; originally private production remains no-write. BT serializes
-work per user, so foreground interruption does not guarantee that the next answer starts immediately.
-There is no cancellation or queue-bypass guarantee.
+and publish its completed artifact; originally private production remains no-write. One new upstream generation per authenticated user is admitted in each API process. Completed cache hits and joins of existing work are exempt. Retained generation holds admission through completion even when an observer disconnects. A foreground question may wait behind successor warming. This is not distributed admission; remote BT work surviving local cancellation can overlap later work. There is no provider cancellation or queue-bypass guarantee.
 
 Retry belongs only to the latest failed/interrupted user turn, keeps the same logical question,
 and excludes its failed attempt from provider history. A deliberate new question can include a
@@ -64,11 +62,11 @@ question as an unsent draft requiring deliberate resubmission.
 
 New briefing generation starts while the pane is open. After a current foreground completion,
 Web may touch exactly the next pericope; historical completions do not trigger it and it never
-recurses. This optimization has provider cost and can compete for the same user's queue slot.
+recurses. This includes read-only users, whose completed outputs can also benefit other authorized users. This optimization has speculative provider cost and can compete for the same user's generation slot; the read-only policy remains a product tradeoff.
 
 ## Data flow and integrity
 
-Briefing requests contain canonical selectors, output language and bounded diagnostic choices.
+Briefing requests contain canonical selectors, output language, bounded diagnostic choices and Web's declarative available-action catalog. Turn requests carry that catalog too.
 Turn requests additionally contain the frozen briefing, bounded ordered visible exchanges, signed
 context/output receipts and the explicitly submitted message. API does not accept browser-selected
 provider identity, credentials, source Bible wording, system policy or automatic editor context.
@@ -109,6 +107,20 @@ provider configuration. Omitted-turn metadata drives the visible reduced-context
 local transcript remains visible; there is no automatic summary or silent per-message truncation.
 Mandatory context that cannot fit returns `context_too_large` and preserves pending input.
 
+## Action catalog and semantic identity
+
+Web owns action definitions and rendering/handlers. Each request supplies declarative `type`, `purpose` and `template` entries, never JavaScript. The API validates a maximum of 32 entries and 32,768 serialized bytes, rejects duplicate types/unknown entry fields, and safely serializes the catalog into both initial and follow-up prompts independently of retained history. The initial briefing's three-question layout remains separate from that generic capability.
+
+The existing `{{fluent:v1:suggested_question|QUESTION}}` macro is preserved. Web dispatches only recognized actions to local behavior after a user click. Follow-up output carries the widget contract separately from the turn transport protocol. Unknown/malformed output remains inert. There is no BT contract negotiation or acknowledgment mechanism in this increment.
+
+Catalogs are unsigned and not backend-allowlisted. A modified client can influence model-facing instructions and thereby shared generated content. This bounded risk is accepted for this increment; structural validation does not prove trusted provenance. Future side-effect actions would still require local supported handlers, explicit user intent, payload validation and server authorization. No editing action is introduced here.
+
+Turn artifact keys and signed transcript projection digests use one typed semantic projection: authorized canonical context and versions, exact frozen briefing/completeness, exact question, selected history/completeness, history policy/limits, language and protocols. Static prompt formatting/location, action catalogs, provider endpoint/org, execution identity and actor identity do not enter that projection. Receipts separately retain authenticated actor and branch bindings.
+
+Replacing the literal-prompt digest recipe causes a one-time turn-cache namespace and conversation-receipt reset. The accumulated artifacts are development-only; no production cache is discarded by this transition. There is no legacy fallback. Adding catalog entries later does not invalidate paid generations. Operators can increment the epoch or purge selected artifacts when content changes require it.
+
+A future syntax change can use expand/migrate/contract: support both forms in Web, teach the new form, retire old cached output safely, then remove old rendering support. Do not rewrite serialized output covered by a signature or digest without addressing that binding; purge/epoch is an alternative.
+
 ## Bounded contract and operations
 
 | Bound                                          | Turn contract maximum                    |
@@ -127,16 +139,14 @@ Configured provider budgets may tighten these ceilings; the current message must
 configured input budget. Admission bounds apply before expensive receipt verification/provider use.
 A content-free SSE comment heartbeat every 15 seconds keeps the Web transport active while the
 upstream 45-second idle and 180-second total budgets still apply. Blank completions are rejected,
-not cached; pre-existing blank cache rows are ignored. There are no automatic retries.
-Only explicit validated completion means success; partial output
-stays readable on failure. Shared request/error logging uses content-free metadata and generated
-request ids rather than inbound identifiers or raw exceptions.
+not cached; pre-existing blank cache rows are ignored. Web automatically retries only explicit pre-stream `generation_busy` admission failures with bounded backoff and cancellation. It preserves the pending message and normal waiting UI until admission succeeds or the retry budget expires. Already-started streams are not automatically replayed.
+Only explicit validated completion means success; partial output stays readable on failure. Recoverable passage-context failures offer Retry; non-retryable failures provide localized next steps. All Assistant interface text uses the existing localization machinery.
+
+Production unhandled-error logging retains method/path/status instead of raw exceptions. Unknown or malformed upstream frames log useful event/type metadata without full provider payloads; valid comments and empty frames do not warn. Unused legacy request-ID/logger additions have been removed; production HTTP request-correlation integration is not part of this change. Independent canonical lookup work runs concurrently; dependent source reads preserve ordering.
 
 ## Artifact cache and retention
 
-Briefings and follow-up artifacts use distinct versioned storage; migration `0042` adds completed
-turn artifacts. Keys hash authorized canonical scope, exact normalized provider projection and
-answer-affecting policy/configuration. Execution ids, timestamps, signatures and user identity are
+Briefings and follow-up artifacts use distinct versioned storage. Generator-produced migration `0041_assistant_artifacts` creates both tables and expiry indexes, replacing the two unmerged migrations with an equivalent final schema. Environments that applied the old unmerged pair must reconcile their local migration state before applying this consolidated history; it must not be blindly replayed over existing tables. Keys hash authorized canonical scope and semantic generation inputs with explicit content versions/epoch. Execution ids, timestamps, signatures and user identity are
 excluded. Only successful completed generated Markdown and minimal version metadata are stored,
 with database-clock seven-day expiry, first-winner publication, bounded cleanup and shutdown.
 Inputs/transcripts, raw source blocks and receipts are not separately stored in these tables.
@@ -178,9 +188,9 @@ provider identity on 2026-10-27 at `7ec60d5`. Those dated identities remain hist
 - The 2026-10-27 post-rebase sample recorded 71 ms acknowledgement, 32.476 seconds first content,
   and 44.810 seconds completion; an immediate repeat completed in 70 ms. These are samples, not SLAs.
 
-## Current acceptance evidence — 2026-11-01
+## Historical acceptance evidence — 2026-11-01
 
-Current local heads are API `a3659ac` and Web `af638a88`. The following acceptance contact was
+The November 1 local heads were API `a3659ac` and Web `af638a88`. The following acceptance contact was
 completed on 2026-11-01; conversation/interruption provider samples were captured before the final API heartbeat/blank-output
 correction (`cc0bd3b`) and dead-code cleanup (`a3659ac`). The cold/warm briefing check below
 was subsequently run at the corrected head; earlier samples are not relabelled as final-head runs.
@@ -223,6 +233,12 @@ Markdown, two paragraphs and three question macros. Cold acknowledgement/first c
 were 41 / 14,067 / 28,623 ms; warm values were 149 / 167 / 167 ms with explicit `cacheHit:true`.
 This final-head briefing check is distinct from the earlier seven-turn and interruption samples.
 
+## Correction validation — 2026-11-05
+
+Code checkpoint: API `f5267e9477ef10e7eb4d2632c900de57d9a3e754`, Web `856ef1e5a43929a2361dd2b09c3af69959c4ed5b`. API verify/build passed with 1,968 tests and 16 skips; Web precheck/build passed with 2,237 tests. The consolidated migration was executed independently against the original pair and final schema equivalence passed. Both branches were zero commits behind main at this checkpoint.
+
+Deterministic browser checks passed for initial/follow-up catalogs and buttons, transparent busy retry, full failed-question recovery, hidden same-pericope retention, boundary reset, A→B→A, and language-change late-output fencing. These checks did not call BT or establish live provider streaming/quality. Earlier provider samples retain their original dates and limits.
+
 ## Production ship gates
 
 Implementation acceptance does not close the following decisions:
@@ -244,5 +260,8 @@ Implementation acceptance does not close the following decisions:
 - Assign credential/receipt-key/configuration owners, match the deployed history window, authorize
   deployment, and approve monitoring thresholds, retention/deletion statement, rollout and rollback.
 
-The feature flag remains the deployment boundary until these gates close. API and Web are
-coordinated PRs; this document is the shared design narrative rather than a second provider framework.
+Feature flags advertise Web visibility, consistent with the existing advertise-only policy; they are not API authorization or provisioning gates. The merged Web flag gates queries and warming. Local Force on allows QA of a provisioned feature before global advertisement. API authentication and project/resource authorization still apply; missing provisioning returns the corresponding error. Debug bypass remains available to otherwise authorized users so QA can exercise their real resource permissions, and per-user generation admission applies. A hidden debug page is not a security boundary. A separate deployment-password gate is only a discussion option and is not implemented.
+
+If pericope data does not cover the current verse, the exact-current-verse fallback remains unchanged pending product feedback. Whole-chapter fallback, or a minimal missing-context diagnostic, are discussion options; the nearest preceding pericope can omit the selected verse. The normal same-pericope retention guarantee remains, but uncovered-verse navigation can reset the conversation.
+
+API and Web are coordinated PRs; this document is the shared design narrative rather than a second provider framework.
