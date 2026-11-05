@@ -28,7 +28,9 @@ export const assistantErrorSchema = z.object({
   retryAfter: z.number().int().min(0).max(86_400).optional(),
 });
 export type AssistantError = z.infer<typeof assistantErrorSchema>;
-export type AssistantServiceError = AssistantError | { code: 'context_changed'; retryable: false };
+export type AssistantServiceError = Omit<AssistantError, 'code'> & {
+  code: AssistantError['code'] | 'context_changed';
+};
 export type BriefingServiceErrorCode = AssistantError['code'];
 
 export function assistantFailure<C extends AssistantServiceError['code']>(
