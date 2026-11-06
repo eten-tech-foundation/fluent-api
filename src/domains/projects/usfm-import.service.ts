@@ -58,19 +58,27 @@ function withParserBookId(usfm: string, bookCode: string): string {
 
 // List header and footer lines (\lh, \lf). The grammar refuses the ones that carry verses when a
 // heading or a blank line sits inside the list, as Biblica's Open Telugu Contemporary Version
-// writes its genealogies (fluent-web#418).
+// writes its genealogies (fluent-web#418). Only a marker followed by a space or a line break
+// matches: one at the end of the file or right against the next marker stays as written.
 const LIST_EDGE = /\\l[hf](?=\s)/g;
 // A cross reference (\xt) inside a footnote, left open until the footnote's next marker, as the
-// same Telugu Bible writes it. The grammar wants the \xt* spelled out.
+// same Telugu Bible writes it. The grammar wants the \xt* spelled out. One with another marker
+// inside it, such as \wj, doesn't match and stays open.
 const OPEN_XT_IN_FOOTNOTE = /\\xt ([^\\]*)(?=\\f[a-z]*[\s*])/g;
 
 /**
- * A second parsing copy, for a file the grammar refused: every \lh and \lf read as a plain \p, so
- * their words go into the verse they belong to, and each open \xt closed. A file the grammar
- * accepts never gets here, so its list lines are read as written.
+ * A second parsing copy, for a file the grammar refused: its \lh and \lf read as a plain \p, so
+ * their words go into the verse they belong to, and each open \xt closed. It also names the
+ * changes that touched the copy, for the warning. A file the grammar accepts never gets here.
  */
-function withRefusedLayoutsSmoothed(usfm: string): string {
-  return usfm.replace(LIST_EDGE, '\\p').replace(OPEN_XT_IN_FOOTNOTE, '\\xt $1\\xt*');
+function withRefusedLayoutsSmoothed(usfm: string): { usfm: string; changes: string[] } {
+  const listsAsParagraphs = usfm.replace(LIST_EDGE, '\\p');
+  const smoothed = listsAsParagraphs.replace(OPEN_XT_IN_FOOTNOTE, '\\xt $1\\xt*');
+  const changes = [
+    ...(listsAsParagraphs === usfm ? [] : ['list lines read as \\p']),
+    ...(smoothed === listsAsParagraphs ? [] : ['open \\xt closed']),
+  ];
+  return { usfm: smoothed, changes };
 }
 
 function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
@@ -95,13 +103,16 @@ function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
 function parseImportVerses(usfm: string, bookCode: string): Result<UsjVerseText[]> {
   const copy = withParserBookId(usfm, bookCode);
   let usj = convertUSFMToUSJ(copy);
-  if (!usj.ok) {
+  // Only a refusal gets the second try; a parser crash (INTERNAL_ERROR) would crash again.
+  if (!usj.ok && usj.error.code === ErrorCode.USFM_INVALID) {
     const smoothed = withRefusedLayoutsSmoothed(copy);
-    if (smoothed !== copy) {
-      usj = convertUSFMToUSJ(smoothed);
+    if (smoothed.changes.length > 0) {
+      usj = convertUSFMToUSJ(smoothed.usfm);
       if (usj.ok) {
-        logger.warn('Imported USFM parsed with its list lines read as \\p and open \\xt closed', {
+        // The file name doesn't reach this function, so the book code is what names the file.
+        logger.warn('Imported USFM parsed on a second try', {
           bookCode,
+          changes: smoothed.changes,
         });
       }
     }

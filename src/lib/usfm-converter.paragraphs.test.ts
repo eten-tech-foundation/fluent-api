@@ -257,6 +257,27 @@ describe('an empty \\p before a poetry line (fluent-web#530)', () => {
     ]);
   });
 
+  it('keeps it when that blank line holds only spaces (fluent-web#418)', () => {
+    // usfm-grammar gives a \b no content at all, so this is the USJ a \b with spaces would be.
+    const usj: USJDocument = {
+      type: 'USJ',
+      version: '3.1',
+      content: [
+        { type: 'book', marker: 'id', code: 'PSA' },
+        { type: 'chapter', marker: 'c', number: '1' },
+        { type: 'para', marker: 'p' },
+        { type: 'para', marker: 'b', content: [' '] },
+        {
+          type: 'para',
+          marker: 'q1',
+          content: [{ type: 'verse', marker: 'v', number: '1' }, 'One.'],
+        },
+      ],
+    };
+
+    expect(usjToVerseTexts(usj)).toEqual({ ok: true, data: [opensWithPoetry(1, 'One.')] });
+  });
+
   // Kasey and CodeRabbit on fluent-api#473: words before the first verse are left out of the rows,
   // but they still mean the paragraph is not empty, and that the line does not open with \v.
   it('keeps no \\p when the paragraph before the line holds words', () => {

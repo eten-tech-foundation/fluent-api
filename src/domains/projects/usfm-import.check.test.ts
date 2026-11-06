@@ -2,11 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as bibleBooksService from '@/domains/bible-books/bible-books.service';
 import * as booksService from '@/domains/books/books.service';
+import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
+import { convertUSFMToUSJ } from '@/lib/usfm-converter';
 
 import * as repo from './projects.repository';
 import { parseUsfmFiles, prepareUsfmImport } from './usfm-import.service';
 
+// The real parser, watched, so a test can count the tries or make one of them fail.
+vi.mock('@/lib/usfm-converter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/usfm-converter')>();
+  return { ...actual, convertUSFMToUSJ: vi.fn(actual.convertUSFMToUSJ) };
+});
 vi.mock('@/domains/books/books.service', () => ({ getAllBooks: vi.fn() }));
 vi.mock('@/domains/bible-books/bible-books.service', () => ({ getBibleBooksByBibleId: vi.fn() }));
 vi.mock('@/domains/bibles/bible-texts/bible-texts.service', () => ({}));
@@ -31,6 +38,29 @@ const TARGET = { projectId: 10, sourceBibleId: 7 };
 const BODY = '\\c 1\n\\p\n\\v 1 The vision of Obadiah.\n\\v 2 Behold.';
 const OBA = `\\id OBA\n${BODY}`;
 const file = (fileName: string, usfm: string) => ({ fileName, usfm });
+
+// The layout of a genealogy in Biblica's Open Telugu Contemporary Version (Genesis 10): list lines
+// that carry verses, with a heading and a blank line inside the list, which the grammar refuses.
+// Most of its list lines carry a verse; a few have words of their own (Genesis 22, 35 and 36).
+const TELUGU_LIST = [
+  '\\id GEN',
+  '\\c 10',
+  '\\s1 The table of nations',
+  '\\lh',
+  '\\v 1 This is the account of the sons of Noah.',
+  '\\s2 The Japhethites',
+  '\\li1',
+  '\\v 2 The sons of Japheth:',
+  '\\li2 Gomer and Magog.',
+  '\\lf These were the sons of Japheth.',
+  '\\b',
+  '\\lf',
+  '\\v 3 These are the clans.',
+  '\\c 11',
+  '\\p',
+  '\\v 1 The whole world had one language.',
+].join('\n');
+const SECOND_TRY = 'Imported USFM parsed on a second try';
 
 type Placement = Awaited<ReturnType<typeof repo.getProjectBookPlacements>>[number];
 const placement = (bookId: number, milestoneName: string, removed = false): Placement => ({
@@ -111,37 +141,19 @@ describe('prepareUsfmImport (#418, #419)', () => {
   });
 
   it('falls back to reading list lines as paragraphs when the grammar refuses the list (fluent-web#418)', async () => {
-    // The layout of a genealogy in Biblica's Open Telugu Contemporary Version (Genesis 10): list
-    // lines that carry verses, with a heading and a blank line inside the list, which the grammar
-    // refuses. Most of its list lines carry a verse; a few have words of their own (Genesis 22,
-    // 35 and 36).
-    const usfm = [
-      '\\id GEN',
-      '\\c 10',
-      '\\s1 The table of nations',
-      '\\lh',
-      '\\v 1 This is the account of the sons of Noah.',
-      '\\s2 The Japhethites',
-      '\\li1',
-      '\\v 2 The sons of Japheth:',
-      '\\li2 Gomer and Magog.',
-      '\\lf These were the sons of Japheth.',
-      '\\b',
-      '\\lf',
-      '\\v 3 These are the clans.',
-      '\\c 11',
-      '\\p',
-      '\\v 1 The whole world had one language.',
-    ].join('\n');
-
-    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', usfm)]);
+    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', TELUGU_LIST)]);
 
     expect(result.ok && result.data.verdicts).toEqual([
       { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
     ]);
+    // The warning names only the change that touched the copy.
+    expect(logger.warn).toHaveBeenCalledWith(SECOND_TRY, {
+      bookCode: 'GEN',
+      changes: ['list lines read as \\p'],
+    });
     const [accepted] = result.ok ? result.data.accepted : [];
     // The file is stored as it came; only the parser reads the list lines as paragraphs.
-    expect(accepted.usfm).toBe(usfm);
+    expect(accepted.usfm).toBe(TELUGU_LIST);
     expect(accepted.verses.map((v) => [`${v.chapterNumber}:${v.verseNumber}`, v.text])).toEqual([
       ['10:1', 'This is the account of the sons of Noah.'],
       ['10:2', 'The sons of Japheth: Gomer and Magog. These were the sons of Japheth.'],
@@ -230,9 +242,49 @@ describe('prepareUsfmImport (#418, #419)', () => {
     expect(result.ok && result.data.verdicts).toEqual([
       { fileName: 'GEN.usfm', ok: true, bookCode: 'GEN', bookName: 'Genesis' },
     ]);
+    expect(logger.warn).toHaveBeenCalledWith(SECOND_TRY, {
+      bookCode: 'GEN',
+      changes: ['open \\xt closed'],
+    });
     const [accepted] = result.ok ? result.data.accepted : [];
     expect(accepted.usfm).toBe(usfm);
     expect(accepted.verses.map((v) => v.text)).toEqual(['In the beginning.', 'The earth.']);
+  });
+
+  it('leaves a cross reference that is already closed as written (fluent-web#418)', async () => {
+    const note = '\\f + \\fr 10:1 \\ft See\\xt 1 Chr 1:4\\xt*\\ft .\\f*';
+
+    const read = await prepareUsfmImport(TARGET, [
+      file('OBA.usfm', `\\id OBA\n\\c 1\n\\p\n\\v 1 The vision.${note}`),
+    ]);
+    // A file the grammar accepts gets no second try at all.
+    expect(read.ok && read.data.verdicts.map((v) => v.ok)).toEqual([true]);
+    expect(logger.warn).not.toHaveBeenCalledWith(SECOND_TRY, expect.anything());
+
+    const withList = TELUGU_LIST.replace('sons of Noah.', `sons of Noah.${note}`);
+    const smoothed = await prepareUsfmImport(TARGET, [file('GEN.usfm', withList)]);
+    // In a file that needs one, the closed \xt is left alone: only the list lines change.
+    expect(smoothed.ok && smoothed.data.verdicts.map((v) => v.ok)).toEqual([true]);
+    expect(logger.warn).toHaveBeenCalledWith(SECOND_TRY, {
+      bookCode: 'GEN',
+      changes: ['list lines read as \\p'],
+    });
+  });
+
+  it('gives a parser crash no second try (fluent-web#418)', async () => {
+    vi.mocked(convertUSFMToUSJ).mockReturnValueOnce(err(ErrorCode.INTERNAL_ERROR));
+
+    const result = await prepareUsfmImport(TARGET, [file('GEN.usfm', TELUGU_LIST)]);
+
+    expect(convertUSFMToUSJ).toHaveBeenCalledTimes(1);
+    expect(result.ok && result.data.verdicts).toEqual([
+      {
+        fileName: 'GEN.usfm',
+        ok: false,
+        error: 'USFM_INVALID',
+        message: 'File is not a valid USFM file.',
+      },
+    ]);
   });
 
   it('takes the book from \\id, whatever the file is called (#419)', async () => {
