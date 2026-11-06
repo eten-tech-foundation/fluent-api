@@ -229,6 +229,9 @@ function joinSegments(segments: VerseSegment[]): { text: string; paragraphs: Ver
 const firstVerseIndex = (content: (USJNode | string)[]) =>
   content.findIndex((child) => typeof child !== 'string' && child.type === 'verse');
 
+/** Whether a paragraph's child is only spaces: text with no words, and no marker. */
+const isOnlySpace = (child: USJNode | string) => typeof child === 'string' && child.trim() === '';
+
 /**
  * Flattens a USJ document into one entry per verse: chapters are top-level milestones, verses
  * are milestones inside paragraphs, and a verse's text is every string and character-style run
@@ -356,10 +359,10 @@ export function usjToVerseTexts(usj: USJDocument): Result<UsjVerseText[]> {
         case 'para': {
           // usfm-grammar leaves `content` out of a paragraph with nothing in it.
           const content = node.content ?? [];
-          // A blank line (\b) is such a paragraph. Like any paragraph without words it anchors
-          // nothing in the verse row and stays in the raw file, and it doesn't come between an
-          // empty \p and the line after it (fluent-web#530, fluent-web#418).
-          if (node.marker === 'b' && content.length === 0) break;
+          // A blank line (\b) is such a paragraph, or holds only spaces. Like any paragraph without
+          // words it anchors nothing in the verse row and stays in the raw file, and it doesn't
+          // come between an empty \p and the line after it (fluent-web#530, fluent-web#418).
+          if (node.marker === 'b' && content.every(isOnlySpace)) break;
           const afterEmptyParagraph = emptyParagraphBefore;
           emptyParagraphBefore = false;
           if (isUSFMSemanticDivisionMarker(node.marker)) {

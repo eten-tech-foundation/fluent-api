@@ -150,15 +150,19 @@ codes, ignoring case, spacing, periods, ordinals and title filler. The file name
 never decides the book.
 The detected code must match the submitted code and exist in the book catalogue.
 The grammar requires an id, so fallback files receive one only in a parsing copy.
-A file the grammar accepts is read as written. Only when it refuses that copy is
-the file parsed once more, with two layouts it refuses smoothed over, both found
-in Biblica's Open Telugu Contemporary Version (fluent-web#418): list header and
-footer lines (`\lh`, `\lf`) that carry verses when a heading or a blank line
-sits inside the list, and a cross reference (`\xt`) left open inside a footnote
-until the footnote's next marker. In that second copy every `\lh` and `\lf` is
-read as `\p`, so its words go into the verse they belong to as a `p` paragraph,
-and the open `\xt` gets its `\xt*`. The import logs a warning when a file needs
-the second copy.
+A file the grammar accepts is read as written. Only when it refuses that copy as
+not valid USFM is the file parsed once more, with two layouts it refuses smoothed
+over, both found in Biblica's Open Telugu Contemporary Version (fluent-web#418):
+list header and footer lines (`\lh`, `\lf`) that carry verses when a heading or
+a blank line sits inside the list, and a cross reference (`\xt`) left open inside
+a footnote until the footnote's next marker. In that second copy each `\lh` and
+`\lf` followed by a space or a line break is read as `\p`, so its words go into
+the verse they belong to as a `p` paragraph, and an open `\xt` whose words run
+straight to the footnote's next marker gets its `\xt*`. An `\lh` or `\lf` at the
+end of the file or right against the next marker, and an open `\xt` with another
+marker inside it (such as `\wj`), stay as written, so a file the grammar refuses
+for one of them is still not valid USFM. A parser failure gets no second copy.
+The import logs a warning naming the changes when a file needs the second copy.
 The persisted file remains verbatim, including its original identifier and tags.
 
 Grammar errors reject the entire batch with `USFM_INVALID`. Unsupported but
