@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auth } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 
 import { server } from './server';
 
@@ -59,6 +60,59 @@ describe('server Route Handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  it.each([200, 401, 500] as const)(
+    'keeps runtime HTTP logs free of credentials and payloads for status %i',
+    async (status) => {
+      vi.mocked(auth.handler).mockImplementationOnce(async (request) => {
+        expect(await request.json()).toEqual({
+          question: 'private-question',
+          receipt: 'private-receipt',
+        });
+        if (status === 500) {
+          throw Object.assign(new Error('provider-error-secret'), {
+            payload: 'provider-payload-secret',
+          });
+        }
+        return new Response(JSON.stringify({ answer: 'provider-response-secret' }), {
+          status,
+          headers: {
+            'Set-Cookie': 'session=response-cookie-secret; HttpOnly',
+            'X-Receipt': 'response-receipt-secret',
+          },
+        });
+      });
+
+      const response = await server.request('/api/auth/privacy-test?token=query-secret', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: 'session=request-cookie-secret',
+          Authorization: 'Bearer authorization-secret',
+          'X-Request-Id': 'request-id-secret',
+        },
+        body: JSON.stringify({ question: 'private-question', receipt: 'private-receipt' }),
+      });
+
+      expect(response.status).toBe(status);
+      expect(logger.info).toHaveBeenCalledExactlyOnceWith(
+        expect.stringMatching(new RegExp(`^POST /api/auth/privacy-test - ${status} - \\d+ms$`))
+      );
+      if (status === 500) {
+        expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+          { request: { method: 'POST', path: '/api/auth/privacy-test' }, status: 500 },
+          'Request failed'
+        );
+      } else {
+        expect(logger.error).not.toHaveBeenCalled();
+      }
+      const logArguments = [
+        ...vi.mocked(logger.info).mock.calls,
+        ...vi.mocked(logger.error).mock.calls,
+      ];
+      expect(JSON.stringify(logArguments)).not.toMatch(/secret|private-question|private-receipt/);
+    }
+  );
 
   // ─── CORS exposed headers ──────────────────────────────────────────────────
 

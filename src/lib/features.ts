@@ -93,6 +93,9 @@ export const FLAGS = {
   // EN_FEATURE_SOURCE_AUDIO=true (or a browser may use the local /debug
   // override) to expose them.
   sourceAudio: { env: 'EN_FEATURE_SOURCE_AUDIO', default: offByDefault },
+  // Assistant ships dark while the first BT-backed slice is under review.
+  // A browser may still exercise it through fluent-web's local /debug override.
+  assistant: { env: 'EN_FEATURE_ASSISTANT', default: offByDefault },
 } as const satisfies Record<string, FlagDefinition>;
 
 /** The set of known wire keys, e.g. `'repeatedWordCheck'`. */
@@ -138,6 +141,7 @@ export const featuresSchema = z
     repeatedWordCheck: z.boolean().openapi({ example: false }),
     aiSuggestions: z.boolean().openapi({ example: false }),
     sourceAudio: z.boolean().openapi({ example: false }),
+    assistant: z.boolean().openapi({ example: false }),
   })
   .openapi('Features') satisfies z.ZodType<Features>;
 

@@ -5,6 +5,7 @@ import { z } from '@hono/zod-openapi';
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  char,
   check,
   foreignKey,
   index,
@@ -426,6 +427,43 @@ export const project_unit_bible_books = pgTable(
       table.bibleId
     ),
   ]
+);
+
+export const assistant_turn_artifacts = pgTable(
+  'assistant_turn_artifacts',
+  {
+    cacheKey: char('cache_key', { length: 64 }).primaryKey(),
+    markdown: text('markdown').notNull(),
+    outputContractVersion: varchar('output_contract_version', { length: 64 }).notNull(),
+    completedAt: timestamp('completed_at').notNull().defaultNow(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (table) => [index('idx_assistant_turn_artifacts_expiry').on(table.expiresAt)]
+);
+
+/**
+ * Disposable, content-addressed completions for the read-only Assistant passage briefing.
+ * The key is a hash of answer-affecting input; tenant and user identity stay outside it so an
+ * independently authorized request can reuse the same artifact.
+ */
+export const assistant_briefing_artifacts = pgTable(
+  'assistant_briefing_artifacts',
+  {
+    cacheKey: char('cache_key', { length: 64 }).primaryKey(),
+    markdown: text('markdown').notNull(),
+    operationVersion: varchar('operation_version', { length: 64 }).notNull(),
+    profileVersion: varchar('profile_version', { length: 64 }).notNull(),
+    resourcePolicyVersion: varchar('resource_policy_version', { length: 64 }).notNull(),
+    cacheEpoch: varchar('cache_epoch', { length: 64 }).notNull(),
+    outputContractVersion: varchar('output_contract_version', { length: 64 }).notNull(),
+    responseLanguageHint: varchar('response_language_hint', { length: 20 }).notNull(),
+    resourceLanguage: varchar('resource_language', { length: 20 }).notNull(),
+    sourceLanguageCode: varchar('source_language_code', { length: 20 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    completedAt: timestamp('completed_at').notNull().defaultNow(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (table) => [index('idx_assistant_briefing_artifacts_expiry').on(table.expiresAt)]
 );
 
 export const bible_texts = pgTable(
@@ -883,8 +921,8 @@ export const editorStateResourcesSchema = z
     languageCode: z.string().min(1),
     tabStatus: z.boolean(),
     // ── Repeated Word Check additions (optional; old rows parse unchanged — no migration) ──
-    // Which left-panel tab is active (Resources vs Checks).
-    activeLeftTab: z.enum(['resources', 'checks']).optional(),
+    // Which left-panel tab is active (Resources, Checks, or Assistant).
+    activeLeftTab: z.enum(['resources', 'checks', 'assistant']).optional(),
     // Per-occurrence ignore rules for repeated-word findings, keyed by
     // "{snt_id}|{repeated_word}|{ordinal}" (see fluent-web useResolvedFindings).
     checkOccurrenceRules: z.record(z.string(), z.enum(['suppress', 'surface'])).optional(),
