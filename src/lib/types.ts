@@ -356,7 +356,9 @@ export interface ParaNode {
 
   marker: 'h' | 'mt' | 'p' | 'q' | string; // headers, main titles, paragraphs, poetry
 
-  content: (USJNode | string)[]; // Can contain other nodes OR raw text strings
+  // Other nodes or raw text strings. usfm-grammar leaves it out of a paragraph that has nothing
+  // in it, such as a blank line (\b).
+  content?: (USJNode | string)[];
 }
 
 // 4. Verse Node (Milestone - marks the start of a verse)

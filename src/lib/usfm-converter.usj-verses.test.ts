@@ -123,6 +123,60 @@ describe('usjToVerseTexts (#419)', () => {
     expect(verses.map((v) => v.verseNumber)).toEqual([1, 2]);
   });
 
+  it('reads blank lines (\\b), which the parser emits without content, as empty paragraphs (fluent-web#418)', () => {
+    const verses = versesOf(
+      [
+        '\\id PSA',
+        '\\c 1',
+        '\\b',
+        '\\q1',
+        '\\v 1 Blessed is the one',
+        '\\q2 who does not walk.',
+        '\\b',
+        '\\q1',
+        '\\v 2 But his delight',
+        '\\b',
+        '\\q1 is in the law.',
+        '\\c 2',
+        '\\q1',
+        '\\v 1 Why do the nations rage?',
+        '\\b',
+      ].join('\n')
+    );
+
+    // A blank line has no words to anchor a paragraph to, so it stays in the raw file only.
+    expect(verses).toEqual([
+      {
+        chapterNumber: 1,
+        verseNumber: 1,
+        text: 'Blessed is the one who does not walk.',
+        markers: {
+          paragraphs: [
+            { marker: 'q1', offset: 0 },
+            { marker: 'q2', offset: 19 },
+          ],
+        },
+      },
+      {
+        chapterNumber: 1,
+        verseNumber: 2,
+        text: 'But his delight is in the law.',
+        markers: {
+          paragraphs: [
+            { marker: 'q1', offset: 0 },
+            { marker: 'q1', offset: 16 },
+          ],
+        },
+      },
+      {
+        chapterNumber: 2,
+        verseNumber: 1,
+        text: 'Why do the nations rage?',
+        markers: { paragraphs: [{ marker: 'q1', offset: 0 }] },
+      },
+    ]);
+  });
+
   it('keeps unsupported container text out of editable verses', () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
     const usj = {

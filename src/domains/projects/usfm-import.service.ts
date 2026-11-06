@@ -56,6 +56,23 @@ function withParserBookId(usfm: string, bookCode: string): string {
   return `\\id ${bookCode}\n${usfm}`;
 }
 
+// List header and footer lines (\lh, \lf). The grammar refuses the ones that carry verses when a
+// heading or a blank line sits inside the list, as Biblica's Open Telugu Contemporary Version
+// writes its genealogies (fluent-web#418).
+const LIST_EDGE = /\\l[hf](?=\s)/g;
+// A cross reference (\xt) inside a footnote, left open until the footnote's next marker, as the
+// same Telugu Bible writes it. The grammar wants the \xt* spelled out.
+const OPEN_XT_IN_FOOTNOTE = /\\xt ([^\\]*)(?=\\f[a-z]*[\s*])/g;
+
+/**
+ * A second parsing copy, for a file the grammar refused: every \lh and \lf read as a plain \p, so
+ * their words go into the verse they belong to, and each open \xt closed. A file the grammar
+ * accepts never gets here, so its list lines are read as written.
+ */
+function withRefusedLayoutsSmoothed(usfm: string): string {
+  return usfm.replace(LIST_EDGE, '\\p').replace(OPEN_XT_IN_FOOTNOTE, '\\xt $1\\xt*');
+}
+
 function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
   const validated: UsjVerseText[] = [];
   for (const verse of verses) {
@@ -70,8 +87,25 @@ function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
   return ok(validated);
 }
 
+/**
+ * The verse rows of a file, from a parsing copy with the book id the grammar requires; the stored
+ * file is never changed. Only when the grammar refuses that copy is it parsed once more with the
+ * two layouts above smoothed over (fluent-web#418), so a file it accepts is read as written.
+ */
 function parseImportVerses(usfm: string, bookCode: string): Result<UsjVerseText[]> {
-  const usj = convertUSFMToUSJ(withParserBookId(usfm, bookCode));
+  const copy = withParserBookId(usfm, bookCode);
+  let usj = convertUSFMToUSJ(copy);
+  if (!usj.ok) {
+    const smoothed = withRefusedLayoutsSmoothed(copy);
+    if (smoothed !== copy) {
+      usj = convertUSFMToUSJ(smoothed);
+      if (usj.ok) {
+        logger.warn('Imported USFM parsed with its list lines read as \\p and open \\xt closed', {
+          bookCode,
+        });
+      }
+    }
+  }
   if (!usj.ok) return err(ErrorCode.USFM_INVALID);
   const verses = usjToVerseTexts(usj.data);
   if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
