@@ -25,12 +25,17 @@ export function createServer() {
       return c.json({ message: err.message }, err.status);
     }
 
-    logger.error(`${err.message}`, err, {
-      request: {
-        method: c.req.method,
-        path: c.req.path,
+    // Exceptions can embed credentials or request/provider bodies. Log metadata only.
+    logger.error(
+      {
+        request: {
+          method: c.req.method,
+          path: c.req.path,
+        },
+        status: 500,
       },
-    });
+      'Request failed'
+    );
     return c.json({ message: 'Internal Server Error' }, 500);
   });
   app.use('*', async (c, next) => {

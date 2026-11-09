@@ -8,6 +8,7 @@ import '@/domains/users/users.active-org.route';
 import '@/domains/users/users.route';
 import '@/domains/users/chapter-assignments/users-chapter-assignments.route';
 import '@/domains/projects/projects.route';
+import '@/domains/milestones/milestone-usfm-import.route';
 import '@/domains/projects/workflow-stages/workflow-stages.route';
 import '@/domains/milestones/milestones.route';
 import '@/domains/projects/chapter-assignments/project-chapter-assignments.route';
@@ -45,6 +46,7 @@ import '@/domains/self/milestones/self-milestones.route';
 import '@/domains/self/chapter-assignments/self-chapter-assignments.route';
 import '@/domains/aquifer-resources/aquifer-resources.route';
 import '@/domains/youversion/youversion.route';
+import '@/domains/assistant/assistant.route';
 configureOpenAPI(server);
 
 export default server;

@@ -10,22 +10,42 @@ import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 import { convertUSFMToUSJ, usjToVerseTexts } from '@/lib/usfm-converter';
 
-import type { ParsedUsfmFile, UsfmFileInput } from './projects.types';
+import type {
+  ParsedUsfmFile,
+  UsfmFileCheck,
+  UsfmFileInput,
+  UsfmFileProblem,
+  UsfmFileToCheck,
+} from './projects.types';
 
 import * as repo from './projects.repository';
+import { bookCodeFromName } from './usfm-book-names';
 
 /** Completed-source imports whose durable intent still needs an editable projection. */
 export function getUsfmImportsReadyForMaterialization() {
   return repo.getUsfmImportsReadyForMaterialization();
 }
 
-/** Match the upload screen: first valid id, toc3, then mt/mt1 code token. */
-function detectBookCode(usfm: string, knownCodes: Set<string>): string | undefined {
-  const markers = [...usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)];
-  for (const names of [['id'], ['toc3'], ['mt', 'mt1']]) {
-    const marker = markers.find((match) => names.includes(match[1].toLowerCase()));
-    const code = marker?.[2].trim().split(/\s+/)[0].toUpperCase();
-    if (code && knownCodes.has(code)) return code;
+/**
+ * The book a file is for: the code in `\id`, else the book its `\toc3` or a `\mt` line names
+ * (#418). The upload check and project creation both go through here, so they cannot disagree.
+ */
+function detectBookCode(usfm: string, knownCodes: ReadonlySet<string>): string | undefined {
+  let id: string | undefined;
+  let toc3: string | undefined;
+  const titles: string[] = [];
+  for (const [, name, text] of usfm.matchAll(/\\([a-z]+\d*)[ \t]*([^\\\r\n]*)/gi)) {
+    const marker = name.toLowerCase();
+    if (marker === 'id') id ??= text;
+    else if (marker === 'toc3') toc3 ??= text;
+    else if (/^mt\d*$/.test(marker)) titles.push(text);
+  }
+
+  const idCode = id?.trim().split(/\s+/)[0].toUpperCase();
+  if (idCode && knownCodes.has(idCode)) return idCode;
+  for (const name of [toc3, ...titles]) {
+    const code = name === undefined ? undefined : bookCodeFromName(name, knownCodes);
+    if (code) return code;
   }
 }
 
@@ -34,6 +54,23 @@ function withParserBookId(usfm: string, bookCode: string): string {
   const id = /\\id(?=[\s\\]|$)[^\\\r\n]*/i;
   if (id.test(usfm)) return usfm.replace(id, `\\id ${bookCode}`);
   return `\\id ${bookCode}\n${usfm}`;
+}
+
+// List header and footer lines (\lh, \lf). The grammar refuses the ones that carry verses when a
+// heading or a blank line sits inside the list, as Biblica's Open Telugu Contemporary Version
+// writes its genealogies (fluent-web#418).
+const LIST_EDGE = /\\l[hf](?=\s)/g;
+// A cross reference (\xt) inside a footnote, left open until the footnote's next marker, as the
+// same Telugu Bible writes it. The grammar wants the \xt* spelled out.
+const OPEN_XT_IN_FOOTNOTE = /\\xt ([^\\]*)(?=\\f[a-z]*[\s*])/g;
+
+/**
+ * A second parsing copy, for a file the grammar refused: every \lh and \lf read as a plain \p, so
+ * their words go into the verse they belong to, and each open \xt closed. A file the grammar
+ * accepts never gets here, so its list lines are read as written.
+ */
+function withRefusedLayoutsSmoothed(usfm: string): string {
+  return usfm.replace(LIST_EDGE, '\\p').replace(OPEN_XT_IN_FOOTNOTE, '\\xt $1\\xt*');
 }
 
 function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
@@ -50,8 +87,25 @@ function validateVerseMarkers(verses: UsjVerseText[]): Result<UsjVerseText[]> {
   return ok(validated);
 }
 
+/**
+ * The verse rows of a file, from a parsing copy with the book id the grammar requires; the stored
+ * file is never changed. Only when the grammar refuses that copy is it parsed once more with the
+ * two layouts above smoothed over (fluent-web#418), so a file it accepts is read as written.
+ */
 function parseImportVerses(usfm: string, bookCode: string): Result<UsjVerseText[]> {
-  const usj = convertUSFMToUSJ(withParserBookId(usfm, bookCode));
+  const copy = withParserBookId(usfm, bookCode);
+  let usj = convertUSFMToUSJ(copy);
+  if (!usj.ok) {
+    const smoothed = withRefusedLayoutsSmoothed(copy);
+    if (smoothed !== copy) {
+      usj = convertUSFMToUSJ(smoothed);
+      if (usj.ok) {
+        logger.warn('Imported USFM parsed with its list lines read as \\p and open \\xt closed', {
+          bookCode,
+        });
+      }
+    }
+  }
   if (!usj.ok) return err(ErrorCode.USFM_INVALID);
   const verses = usjToVerseTexts(usj.data);
   if (!verses.ok || verses.data.length === 0) return err(ErrorCode.USFM_INVALID);
@@ -94,6 +148,157 @@ export async function parseUsfmFiles(files: UsfmFileInput[]): Promise<Result<Par
   }
 
   return ok(parsed);
+}
+
+/** The project an Add Milestone import goes into (#418, #419). */
+interface UsfmImportTarget {
+  projectId: number;
+  sourceBibleId: number;
+}
+
+/** Every file's verdict, plus the parsed files when all of them passed. */
+interface PreparedUsfmImport {
+  verdicts: UsfmFileCheck[];
+  accepted: ParsedUsfmFile[];
+}
+
+interface ImportFacts {
+  books: Map<string, { id: number; name: string }>;
+  sourceBibleName: string;
+  sourceBookIds: Set<number>;
+  // The milestone that holds each book; null when the book was removed from its milestone.
+  placements: Map<number, string | null>;
+}
+
+async function loadImportFacts(
+  target: UsfmImportTarget,
+  tx?: DbTransaction
+): Promise<Result<ImportFacts>> {
+  const [known, sourceBooks, placements] = await Promise.all([
+    booksService.getAllBooks(),
+    bibleBooksService.getBibleBooksByBibleId(target.sourceBibleId),
+    repo.getProjectBookPlacements(target.projectId, tx),
+  ]);
+  if (!known.ok) return known;
+  if (!sourceBooks.ok) return sourceBooks;
+
+  const placed = new Map<number, string | null>();
+  for (const row of placements) {
+    // A book in an active milestone is reported there, even if a removed row also exists.
+    if (row.deletedAt === null) placed.set(row.bookId, row.milestoneName);
+    else if (!placed.has(row.bookId)) placed.set(row.bookId, null);
+  }
+
+  return ok({
+    books: new Map(
+      known.data.map((book) => [book.code, { id: book.id, name: book.eng_display_name }])
+    ),
+    // Every row names the Bible; a Bible with no books has no name to give, and accepts nothing.
+    sourceBibleName: sourceBooks.data[0]?.bible.name ?? 'the Source Bible',
+    sourceBookIds: new Set(sourceBooks.data.map((row) => row.bookId)),
+    placements: placed,
+  });
+}
+
+function rejected(
+  fileName: string,
+  error: UsfmFileProblem,
+  book?: { code: string; name: string },
+  extra: { milestoneName?: string | null; sourceBibleName?: string } = {}
+): UsfmFileCheck {
+  const messages: Record<UsfmFileProblem, string> = {
+    USFM_INVALID: 'File is not a valid USFM file.',
+    USFM_BOOK_MISSING: 'Missing book data.',
+    USFM_BOOK_DUPLICATE: `${book?.name} was already added.`,
+    USFM_BOOK_EXISTS: extra.milestoneName
+      ? `${book?.name} already exists in ${extra.milestoneName}.`
+      : `${book?.name} already exists in this project.`,
+    USFM_BOOK_NOT_IN_SOURCE: `${book?.name} is not in ${extra.sourceBibleName}.`,
+  };
+  return {
+    fileName,
+    ok: false,
+    error,
+    message: messages[error],
+    ...(book && { bookCode: book.code, bookName: book.name }),
+    ...extra,
+  };
+}
+
+/**
+ * Checks files for an Add Milestone import (#418, #419) with the same detection and parse the
+ * import runs, and writes nothing. Each file gets its own verdict. A file is refused when it is
+ * not valid USFM (USFM_INVALID, also when its book was found but its chapters and verses don't
+ * parse), looks like USFM but names no book (USFM_BOOK_MISSING), repeats a book already in the upload (`listedBookCodes` holds the
+ * books the dialog has accepted so far), holds a book the project already has in any milestone,
+ * removed ones included (an import never merges into existing content), or holds a book the
+ * project's Source Bible lacks.
+ */
+export async function prepareUsfmImport(
+  target: UsfmImportTarget,
+  files: UsfmFileToCheck[],
+  listedBookCodes: string[] = [],
+  tx?: DbTransaction
+): Promise<Result<PreparedUsfmImport>> {
+  const facts = await loadImportFacts(target, tx);
+  if (!facts.ok) return facts;
+  const { books, placements, sourceBibleName, sourceBookIds } = facts.data;
+  const knownCodes = new Set(books.keys());
+  const listed = new Set(listedBookCodes.map((code) => code.trim().toUpperCase()));
+
+  const verdicts: UsfmFileCheck[] = [];
+  const accepted: ParsedUsfmFile[] = [];
+  for (const { fileName, usfm } of files) {
+    const bookCode = detectBookCode(usfm, knownCodes);
+    if (!bookCode) {
+      verdicts.push(
+        rejected(fileName, /\\[a-z]/i.test(usfm) ? 'USFM_BOOK_MISSING' : 'USFM_INVALID')
+      );
+      continue;
+    }
+    const verses = parseImportVerses(usfm, bookCode);
+    if (!verses.ok) {
+      verdicts.push(rejected(fileName, 'USFM_INVALID'));
+      continue;
+    }
+
+    // detectBookCode only returns codes from `books`, so the lookup always finds one.
+    const { id: bookId, name: bookName } = books.get(bookCode) ?? { id: 0, name: bookCode };
+    const book = { code: bookCode, name: bookName };
+    if (listed.has(bookCode)) {
+      verdicts.push(rejected(fileName, 'USFM_BOOK_DUPLICATE', book));
+    } else if (placements.has(bookId)) {
+      verdicts.push(
+        rejected(fileName, 'USFM_BOOK_EXISTS', book, { milestoneName: placements.get(bookId) })
+      );
+    } else if (!sourceBookIds.has(bookId)) {
+      verdicts.push(rejected(fileName, 'USFM_BOOK_NOT_IN_SOURCE', book, { sourceBibleName }));
+    } else {
+      listed.add(bookCode);
+      verdicts.push({ fileName, ok: true, bookCode, bookName });
+      accepted.push({ fileName, usfm, bookCode, bookId, verses: verses.data });
+    }
+  }
+
+  return ok({ verdicts, accepted });
+}
+
+/** The project's books, for re-checking an import inside the project lock. */
+export async function getBooksInProject(projectId: number, tx: DbTransaction) {
+  const rows = await repo.getProjectBookPlacements(projectId, tx);
+  return new Set(rows.map((row) => row.bookId));
+}
+
+/** Stores each imported file verbatim, the passthrough record of every tag (#419). */
+export async function recordUsfmImports(
+  projectUnitId: number,
+  files: ParsedUsfmFile[],
+  tx: DbTransaction
+) {
+  await repo.insertUsfmImports(
+    files.map(({ bookId, fileName, usfm }) => ({ projectUnitId, bookId, fileName, usfm })),
+    tx
+  );
 }
 
 export type MaterializeOutcome = 'materialized' | 'pending';

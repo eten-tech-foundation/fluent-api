@@ -74,20 +74,20 @@ describe('chapter-assignments.repository getContent', () => {
     );
     expect(heading?.type).toBe('para');
     if (heading?.type !== 'para') return;
-    expect(heading.content.every((node) => typeof node === 'string')).toBe(true);
-    expect(heading.content.join('').trim()).toBe('The Creation');
+    expect(heading.content?.every((node) => typeof node === 'string')).toBe(true);
+    expect(heading.content?.join('').trim()).toBe('The Creation');
     const body = result.data.content.find(
       (node) =>
         node.type === 'para' &&
         node.marker === 'p' &&
-        node.content.some(
+        node.content?.some(
           (child) => typeof child !== 'string' && child.type === 'verse' && child.number === '2'
         )
     );
     expect(body?.type).toBe('para');
     if (body?.type !== 'para') return;
     expect(
-      body.content
+      (body.content ?? [])
         .filter((node) => typeof node === 'string')
         .join('')
         .trim()
@@ -134,14 +134,14 @@ describe('chapter-assignments.repository getContent', () => {
       (node) =>
         node.type === 'para' &&
         node.marker === 'p' &&
-        node.content.some(
+        node.content?.some(
           (child) => typeof child !== 'string' && child.type === 'verse' && child.number === '1'
         )
     );
     expect(body?.type).toBe('para');
     if (body?.type !== 'para') return;
     expect(
-      body.content
+      (body.content ?? [])
         .filter((node) => typeof node === 'string')
         .join('')
         .trim()

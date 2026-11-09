@@ -37,14 +37,21 @@ export const updatedAfterQuerySchema = z
   });
 
 /**
- * Shared OpenAPI body for Zod validation failures on the three catalogue list
- * routes. Broader convergence onto stoker's `createErrorSchema` is out of scope
- * for this PR (other domains still keep local copies).
+ * Shared OpenAPI body for Zod validation failures, as @hono/zod-validator answers them when no
+ * defaultHook is wired. A failure inside an array has the entry's index in its `path`. Broader
+ * convergence onto stoker's `createErrorSchema` is out of scope (other domains still keep local
+ * copies).
  */
 export const validationErrorSchema = z.object({
   success: z.boolean(),
   error: z.object({
-    issues: z.array(z.object({ code: z.string(), path: z.array(z.string()), message: z.string() })),
+    issues: z.array(
+      z.object({
+        code: z.string(),
+        path: z.array(z.union([z.string(), z.number()])),
+        message: z.string(),
+      })
+    ),
     name: z.string(),
   }),
 });
