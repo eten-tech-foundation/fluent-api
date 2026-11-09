@@ -13,8 +13,7 @@ export const IRV_BIBLE = {
   // bible and its selected audio recording — real Gujarati IRV audio.
   externalId: 'a3644a98420c2703-01',
   audioExternalId: '2abea5341ec34814-01',
-  licenseNotice:
-    'Indian Revised Version (IRV) © 2019 Bridge Connectivity Solutions. CC BY-SA 4.0.',
+  licenseNotice: 'Indian Revised Version (IRV) © 2019 Bridge Connectivity Solutions. CC BY-SA 4.0.',
 } as const;
 
 export const IRV_BOOK_CODES = ['GEN', 'EXO'] as const;

@@ -42,7 +42,7 @@
 | Route tests                                                       | ✅ Implemented  | `ai-tools.route.test.ts`.                                                                                        |
 | Smoke script + npm alias                                          | ✅ Implemented  | `scripts/smoke-repeated-words.ts`, `npm run smoke:repeated-words` (auto sign-in + PASS/FAIL banner).             |
 | Documentation                                                     | ✅ Implemented  | This file + the split Part 1 / Part 2 proposal + summary.                                                        |
-| **Live end-to-end run** (fluent-api ↔ fluent-ai)                 | ✅ **Done**     | Verified 2026-06-04 against a from-scratch platform stack — 10/10 on the host **and** in-container. See §3.1.    |
+| **Live end-to-end run** (fluent-api ↔ fluent-ai)                  | ✅ **Done**     | Verified 2026-06-04 against a from-scratch platform stack — 10/10 on the host **and** in-container. See §3.1.    |
 | fluent-platform compose override                                  | ✅ Applied      | Applied locally (URL override + two clean-slate fixes). Still ships as a **separate paired PR** (D12); see §3.2. |
 | Polling endpoint / DB persistence / frontend / retries / caching  | ⛔ Out of scope | Deferred by design — see §2 / §14 of the proposal.                                                               |
 

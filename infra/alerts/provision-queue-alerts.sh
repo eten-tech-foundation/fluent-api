@@ -164,7 +164,7 @@ az monitor scheduled-query create \
 
 # Rule 3: DLQ monitor error (Severity 2 / Warning, 10 min window)
 RULE_3_NAME="fluent-${ENVIRONMENT}-worker-dlq-monitor-error"
-RULE_3_KQL="traces | where timestamp > ago(10m) | where tostring(customDimensions.event) == 'worker_dlq_monitor_error' | summarize count()"
+RULE_3_KQL="traces | where timestamp > ago(10m) | where tostring(customDimensions.event) == 'worker_dlq_monitor_error' | summarize errorCount = count() | where errorCount > 0"
 
 echo "[3/5] Provisioning Rule 3: ${RULE_3_NAME}..."
 az monitor scheduled-query create \

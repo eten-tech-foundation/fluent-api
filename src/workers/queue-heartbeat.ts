@@ -27,10 +27,20 @@ export async function emitHeartbeatMetrics(
   boss: PgBoss,
   metrics: WorkerMetricsSnapshot
 ): Promise<void> {
+  const memory = process.memoryUsage();
+  const rssMb = Math.round(memory.rss / 1024 / 1024);
+  const heapUsedMb = Math.round(memory.heapUsed / 1024 / 1024);
+
+  // Emit process memory metrics even if queue reads fail so memory alerts
+  // and worker liveness signals remain active.
+  logger.metric('worker_rss_mb', rssMb);
+  logger.metric('worker_heap_used_mb', heapUsedMb);
+
   try {
     const uptimeSeconds = (Date.now() - metrics.startTime) / 1000;
+    const completedAttempts = metrics.jobsProcessed + metrics.jobsFailed;
     const avgProcessingTimeMs =
-      metrics.jobsProcessed > 0 ? metrics.totalProcessingTime / metrics.jobsProcessed : 0;
+      completedAttempts > 0 ? metrics.totalProcessingTime / completedAttempts : 0;
 
     // These independent reads are sampled as one heartbeat. Running them concurrently
     // keeps a slow queue-stat query from delaying the entire sample interval.
@@ -43,20 +53,13 @@ export async function emitHeartbeatMetrics(
         countPendingQueueJobs(boss, QUEUE_NAMES.USFM_IMPORT_MATERIALIZE),
       ]);
 
-    const exportQueueSize =
-      (exportStats?.queuedCount || 0) +
-      (exportStats?.activeCount || 0) +
-      (exportStats?.deferredCount || 0);
-    const aiQueueSize =
-      (aiStats?.queuedCount || 0) + (aiStats?.activeCount || 0) + (aiStats?.deferredCount || 0);
-    const ingestQueueSize =
-      (ingestStats?.queuedCount || 0) +
-      (ingestStats?.activeCount || 0) +
-      (ingestStats?.deferredCount || 0);
+    // In pg-boss, queuedCount already includes deferred jobs (state < active).
+    // Do not add deferredCount separately or deferred jobs are counted twice.
+    const exportQueueSize = (exportStats?.queuedCount || 0) + (exportStats?.activeCount || 0);
+    const aiQueueSize = (aiStats?.queuedCount || 0) + (aiStats?.activeCount || 0);
+    const ingestQueueSize = (ingestStats?.queuedCount || 0) + (ingestStats?.activeCount || 0);
     const ingestPriorityQueueSize =
-      (ingestPriorityStats?.queuedCount || 0) +
-      (ingestPriorityStats?.activeCount || 0) +
-      (ingestPriorityStats?.deferredCount || 0);
+      (ingestPriorityStats?.queuedCount || 0) + (ingestPriorityStats?.activeCount || 0);
 
     const totalQueued =
       (exportStats?.queuedCount || 0) +
@@ -70,18 +73,8 @@ export async function emitHeartbeatMetrics(
       (ingestStats?.activeCount || 0) +
       (ingestPriorityStats?.activeCount || 0);
 
-    const totalDeferred =
-      (exportStats?.deferredCount || 0) +
-      (aiStats?.deferredCount || 0) +
-      (ingestStats?.deferredCount || 0) +
-      (ingestPriorityStats?.deferredCount || 0);
-
-    const queueSize = totalQueued + totalActive + totalDeferred + importMaterializeCount;
-
+    const queueSize = totalQueued + totalActive + importMaterializeCount;
     const avgProcessingTimeSeconds = Number((avgProcessingTimeMs / 1000).toFixed(2));
-    const memory = process.memoryUsage();
-    const rssMb = Math.round(memory.rss / 1024 / 1024);
-    const heapUsedMb = Math.round(memory.heapUsed / 1024 / 1024);
 
     logger.info('Worker heartbeat', {
       scope: 'aggregate_all_queues',
@@ -102,8 +95,6 @@ export async function emitHeartbeatMetrics(
     logger.metric('worker_jobs_processed_total', metrics.jobsProcessed);
     logger.metric('worker_jobs_failed_total', metrics.jobsFailed);
     logger.metric('worker_avg_processing_seconds', avgProcessingTimeSeconds);
-    logger.metric('worker_rss_mb', rssMb);
-    logger.metric('worker_heap_used_mb', heapUsedMb);
 
     logger.metric('worker_queue_size_per_queue', exportQueueSize, {
       queue: QUEUE_NAMES.USFM_EXPORT,

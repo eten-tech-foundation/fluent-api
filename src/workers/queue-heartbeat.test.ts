@@ -90,26 +90,28 @@ describe('emitHeartbeatMetrics', () => {
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    // USFM_EXPORT: 1 + 2 + 3 = 6
-    // AI_SUGGESTIONS: 4 + 0 + 1 = 5
-    // DBL_INGEST_TEXT: 2 + 1 + 0 = 3
-    // DBL_INGEST_TEXT_PRIORITY: 0 + 1 + 0 = 1
+    // USFM_EXPORT: queued (1, includes deferred) + active (2) = 3
+    // AI_SUGGESTIONS: 4 + 0 = 4
+    // DBL_INGEST_TEXT: 2 + 1 = 3
+    // DBL_INGEST_TEXT_PRIORITY: 0 + 1 = 1
     // USFM_IMPORT_MATERIALIZE: 5
-    // Total queueSize = 6 + 5 + 3 + 1 + 5 = 20
+    // Total queueSize = 3 + 4 + 3 + 1 + 5 = 16
+    // completedAttempts = 10 + 2 = 12
+    // avgProcessingTime = 25000 / 12 / 1000 = 2.08s
 
-    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size', 20);
+    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size', 16);
     expect(logger.metric).toHaveBeenCalledWith('worker_active_jobs', 3);
     expect(logger.metric).toHaveBeenCalledWith('worker_jobs_processed_total', 10);
     expect(logger.metric).toHaveBeenCalledWith('worker_jobs_failed_total', 2);
-    expect(logger.metric).toHaveBeenCalledWith('worker_avg_processing_seconds', 2.5);
+    expect(logger.metric).toHaveBeenCalledWith('worker_avg_processing_seconds', 2.08);
     expect(logger.metric).toHaveBeenCalledWith('worker_rss_mb', expect.any(Number));
     expect(logger.metric).toHaveBeenCalledWith('worker_heap_used_mb', expect.any(Number));
 
     // Per-queue backlog
-    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size_per_queue', 6, {
+    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size_per_queue', 3, {
       queue: QUEUE_NAMES.USFM_EXPORT,
     });
-    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size_per_queue', 5, {
+    expect(logger.metric).toHaveBeenCalledWith('worker_queue_size_per_queue', 4, {
       queue: QUEUE_NAMES.AI_SUGGESTIONS,
     });
     expect(logger.metric).toHaveBeenCalledWith('worker_queue_size_per_queue', 3, {
@@ -142,15 +144,15 @@ describe('emitHeartbeatMetrics', () => {
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    // 4 queues * (1+1+1=3) + 1 = 13
+    // 4 queues * (1 queued + 1 active = 2) + 1 import = 9
     expect(logger.info).toHaveBeenCalledWith('Worker heartbeat', {
       scope: 'aggregate_all_queues',
       uptimeSeconds: expect.any(Number),
       activeJobs: 3,
       processed: 10,
       failed: 2,
-      avgProcessingTimeSeconds: 2.5,
-      queueSize: 13,
+      avgProcessingTimeSeconds: 2.08,
+      queueSize: 9,
       memory: {
         rssMb: expect.any(Number),
         heapUsedMb: expect.any(Number),
@@ -217,19 +219,26 @@ describe('emitHeartbeatMetrics', () => {
     });
   });
 
-  it('on stats error, asserts no metrics emitted and error logged', async () => {
+  it('on stats error, emits memory metrics but no queue metrics and logs error', async () => {
     const { boss } = fakeBoss();
     const statsError = new Error('getQueueStats failed');
     vi.spyOn(boss, 'getQueueStats').mockRejectedValue(statsError);
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    expect(logger.metric).not.toHaveBeenCalled();
+    expect(logger.metric).toHaveBeenCalledWith('worker_rss_mb', expect.any(Number));
+    expect(logger.metric).toHaveBeenCalledWith('worker_heap_used_mb', expect.any(Number));
+    expect(logger.metric).not.toHaveBeenCalledWith('worker_queue_size', expect.anything());
+    expect(logger.metric).not.toHaveBeenCalledWith(
+      'worker_queue_size_per_queue',
+      expect.anything(),
+      expect.anything()
+    );
     expect(logger.info).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('Error in heartbeat', { error: statsError });
   });
 
-  it('on countPendingQueueJobs error, asserts no metrics emitted and error logged', async () => {
+  it('on countPendingQueueJobs error, emits memory metrics but no queue metrics and logs error', async () => {
     const { boss, executeSql } = fakeBoss();
     vi.spyOn(boss, 'getQueueStats').mockResolvedValue(
       queueResult('any-queue', { queuedCount: 0, activeCount: 0, deferredCount: 0 })
@@ -239,7 +248,14 @@ describe('emitHeartbeatMetrics', () => {
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    expect(logger.metric).not.toHaveBeenCalled();
+    expect(logger.metric).toHaveBeenCalledWith('worker_rss_mb', expect.any(Number));
+    expect(logger.metric).toHaveBeenCalledWith('worker_heap_used_mb', expect.any(Number));
+    expect(logger.metric).not.toHaveBeenCalledWith('worker_queue_size', expect.anything());
+    expect(logger.metric).not.toHaveBeenCalledWith(
+      'worker_queue_size_per_queue',
+      expect.anything(),
+      expect.anything()
+    );
     expect(logger.info).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith('Error in heartbeat', { error: dbError });
   });
