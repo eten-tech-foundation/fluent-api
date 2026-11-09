@@ -92,7 +92,8 @@ export const aquiferLicenseInfoWireSchema = z.union([aquiferLicenseInfoSchema, z
 
 /**
  * Details payload — `content` is TipTap (text) or nested media objects (images).
- * Kept loose so we do not reject Aquifer shape drift; callers walk it as needed.
+ * Must be present (omitted/undefined rejected). Wire JSON values stay loose so
+ * provider shape drift is not rejected; callers walk content as needed.
  */
 export const aquiferResourceDetailsSchema = z
   .object({
@@ -100,7 +101,11 @@ export const aquiferResourceDetailsSchema = z
     referenceId: z.number().int().optional(),
     name: z.string(),
     localizedName: z.string(),
-    content: z.custom<JSONValue>(),
+    // Presence only: JSON.parse already yields JSONValue on the wire. Do not
+    // reject null/false/0/''/[]/{} — only undefined (including omitted keys).
+    content: z.custom<JSONValue>((value): value is JSONValue => value !== undefined, {
+      message: 'Required',
+    }),
     grouping: z
       .object({
         type: aquiferResourceTypeSchema.optional(),
