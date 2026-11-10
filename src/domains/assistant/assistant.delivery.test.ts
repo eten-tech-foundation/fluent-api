@@ -57,7 +57,10 @@ describe('actor-bound briefing prefix delivery', () => {
         if (event.prefix) {
           expect(event.prefix.sequence).toBe(sequence);
           expect(
-            receipts.verifyPrefix({ markdown, ...event.prefix }, receipts.briefingBinding())
+            receipts.verifyPrefix(
+              { markdown, ...event.prefix },
+              receipts.briefingBinding('0'.repeat(64))
+            )
           ).toBe(true);
         }
       }

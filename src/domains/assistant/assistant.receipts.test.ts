@@ -208,7 +208,7 @@ describe('full bounded transcript verification', () => {
       input: value.turns[0].input,
     };
     const retry = verifyTurnTranscript(receipts, context, value, 2);
-    expect(retry.ok && retry.projection.history).toEqual([]);
+    expect(retry.ok && retry.projection.generationInput.history).toEqual([]);
     append(value, 'replacement complete');
     append(value, 'later answer');
     append(value, 'third answer');
@@ -224,7 +224,7 @@ describe('full bounded transcript verification', () => {
     for (const output of [null, '', 'partial']) {
       const value = append(request(), output, false);
       const before = verifyTurnTranscript(receipts, context, value, 2);
-      expect(before.ok && before.projection.history.length).toBe(output ? 1 : 0);
+      expect(before.ok && before.projection.generationInput.history.length).toBe(output ? 1 : 0);
       append(value);
       expect(verifyTurnTranscript(receipts, context, value, 2).ok).toBe(true);
       value.turns.splice(0, 1);
@@ -291,7 +291,7 @@ describe('full bounded transcript verification', () => {
   });
 });
 
-it('accepts existing signed history after client action templates or inventory change', () => {
+it('rejects private signed history after its exact provider action catalog changes', () => {
   const value = request();
   value.actions = [
     {
@@ -305,9 +305,6 @@ it('accepts existing signed history after client action templates or inventory c
   const before = verifyTurnTranscript(receipts, context, value, 2);
   value.actions = [{ type: 'future_action', purpose: 'A new action', template: 'future template' }];
   const after = verifyTurnTranscript(receipts, context, value, 2);
-  expect(before.ok && after.ok).toBe(true);
-  if (before.ok && after.ok) {
-    expect(after.binding.projectionDigest).toBe(before.binding.projectionDigest);
-    expect(after.projection.message).not.toBe(before.projection.message);
-  }
+  expect(before.ok).toBe(true);
+  expect(after).toEqual({ ok: false, code: 'context_changed' });
 });

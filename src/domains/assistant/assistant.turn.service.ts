@@ -25,16 +25,21 @@ import {
   createAssistantClient,
   releasePrivateGeneration,
 } from './assistant.generation';
-import { btUserId, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
-import { integrityDigest, loadReceiptKey, TurnReceipts } from './assistant.receipts';
+import {
+  createBriefingGenerationInput,
+  generationInputFingerprint,
+  providerRequest,
+} from './assistant.generation-input';
+import { btUserId, SHARED_ASSISTANT_ACTIONS, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
+import { loadReceiptKey, TurnReceipts } from './assistant.receipts';
 import * as repo from './assistant.repository';
 import { verifyTurnTranscript } from './assistant.transcript';
 import { boundedTurnEvents, deliverTurn } from './assistant.turn.delivery';
+import { isSharedTurnEligible } from './assistant.turn.prompt';
 import {
   assistantTurnRequestSchema,
   historyWindowSchema,
   TURN_LIMITS,
-  TURN_PROTOCOL,
 } from './assistant.turn.types';
 import { assistantFailure } from './assistant.types';
 import * as cacheRepo from './cache/assistant-cache.repository';
@@ -87,11 +92,6 @@ export async function createPassageTurn(
     groundingInstruction: grounding.instruction,
   });
   if (!context) return fail('context_too_large');
-  const receipts = new TurnReceipts(key, input.userId, context);
-  const verified = verifyTurnTranscript(receipts, context, request, historyWindow);
-  if (!verified.ok) return fail(verified.code);
-  if (Buffer.byteLength(verified.projection.message) > config.budgets.maxInputBytes)
-    return fail('context_too_large');
   const budgets = {
     ...config.budgets,
     maxFrameBytes: Math.min(config.budgets.maxFrameBytes, TURN_LIMITS.frameBytes),
@@ -100,46 +100,64 @@ export async function createPassageTurn(
     totalMs: Math.min(config.budgets.totalMs, TURN_LIMITS.totalMs),
     maxOutputBytes: Math.min(config.budgets.maxOutputBytes, TURN_LIMITS.outputBytes),
   };
-  const projection = verified.projection;
-  const cacheKey = integrityDigest('completed-turn-artifact-v2', {
-    context,
-    budgets,
-    maxOutputChars: TURN_LIMITS.outputChars,
-    historyWindow,
-    protocol: TURN_PROTOCOL,
-    semanticIdentity: projection.semanticIdentity,
+  const canonicalBriefingFingerprint = generationInputFingerprint(
+    createBriefingGenerationInput({
+      operationVersion: config.operationVersion,
+      language: config.languages[request.outputLanguage],
+      resourceLanguage: grounding.resourceLanguage,
+      groundingInstruction: grounding.instruction,
+      sourceBible: passage.sourceBible,
+      sourceLanguageCode: passage.sourceLanguageCode,
+      verses: passage.verses,
+      actions: SHARED_ASSISTANT_ACTIONS,
+      maxOutputBytes: config.budgets.maxOutputBytes,
+      cacheEpoch: config.cacheEpoch,
+    })
+  );
+  const receipts = new TurnReceipts(key, input.userId, context);
+  const verified = verifyTurnTranscript(receipts, context, request, historyWindow, {
+    cacheEpoch: config.cacheEpoch,
+    maxOutputBytes: budgets.maxOutputBytes,
+    canonicalBriefingFingerprint,
   });
-  // Reuse retained normalized transport mechanics, with a distinct turn namespace.
-  const producerKey = `turn-v1:${cacheKey}`;
+  if (!verified.ok) return fail(verified.code);
+  if (Buffer.byteLength(verified.projection.generationInput.message) > config.budgets.maxInputBytes)
+    return fail('context_too_large');
+  const projection = verified.projection;
+  const cacheProjection = verified.cachedProjection;
+  const cacheKey = generationInputFingerprint((cacheProjection ?? projection).generationInput);
+  const producerKey = cacheKey;
+  const sharedCache = isSharedTurnEligible(request, verified.sharedBriefing);
   const operationId = crypto.randomUUID();
   const warn = () => input.logger.warn({ operationId }, 'Assistant turn cache unavailable');
   const source = (signal: AbortSignal) =>
     boundedTurnEvents(
       createAssistantClient(config, input.logger.warn.bind(input.logger), budgets).stream(
-        {
-          userId: btUserId(input.userId),
-          message: projection.message,
-          history: projection.history,
-          responseLanguageHint: projection.responseLanguageHint,
-        },
+        providerRequest(projection.generationInput, btUserId(input.userId)),
         signal
       )
     );
-  const deliver = (events: AsyncIterable<BriefingEvent>) =>
+  const deliver = (
+    events: AsyncIterable<BriefingEvent>,
+    deliveryVerified: typeof verified = verified
+  ) =>
     ok({
-      events: deliverTurn(events, receipts, verified, operationId, input.signal),
+      events: deliverTurn(events, receipts, deliveryVerified, operationId, input.signal),
     });
-  let producer = request.dont_cache ? undefined : findInFlightGeneration(producerKey);
-  let completed: Awaited<ReturnType<typeof cacheRepo.findCompletedTurn>> = null;
+  let producer = sharedCache ? findInFlightGeneration(producerKey) : undefined;
+  let completed: Awaited<ReturnType<typeof cacheRepo.findCompletedArtifact>> = null;
   let installed = false;
   if (!producer) {
-    const release = request.dont_cache ? () => {} : beginGenerationCacheLookup(producerKey);
+    const release = sharedCache ? beginGenerationCacheLookup(producerKey) : () => {};
     try {
-      completed = await cacheRepo.findCompletedTurn(cacheKey, input.signal);
+      completed = cacheProjection
+        ? await cacheRepo.findCompletedArtifact(cacheKey, input.signal)
+        : null;
       if (
         completed &&
         (!completed.markdown.trim() ||
           completed.outputContractVersion !== WIDGET_CONTRACT_VERSION ||
+          completed.cacheEpoch !== config.cacheEpoch ||
           completed.markdown.length > TURN_LIMITS.outputChars ||
           Buffer.byteLength(completed.markdown) > budgets.maxOutputBytes)
       ) {
@@ -149,7 +167,7 @@ export async function createPassageTurn(
     } catch {
       warn();
     } finally {
-      if (!completed && !request.dont_cache && !input.signal.aborted) {
+      if (!completed && sharedCache && !input.signal.aborted) {
         const result = installOrJoinGeneration(producerKey);
         producer = result.producer;
         installed = result.installed;
@@ -157,18 +175,24 @@ export async function createPassageTurn(
       release();
     }
   }
-  cacheRepo.requestExpiredTurnCleanup(warn);
+  cacheRepo.requestExpiredArtifactCleanup(warn);
   if (completed) {
     const markdown = completed.markdown;
+    const deliveryVerified = {
+      ...verified,
+      projection: cacheProjection!,
+      binding: { ...verified.binding, projectionDigest: cacheKey },
+    };
     return deliver(
       (async function* () {
         if (markdown) yield { type: 'briefing_delta', delta: markdown } as const;
         yield { type: 'briefing_complete', markdown } as const;
-      })()
+      })(),
+      deliveryVerified
     );
   }
   if (input.signal.aborted) return fail('temporarily_unavailable');
-  if (request.dont_cache || !producer) {
+  if (!sharedCache || !producer) {
     const release = acquireGeneration(input.userId);
     if (!release)
       return { ok: false, error: { code: 'generation_busy', retryable: true, retryAfter: 1 } };
@@ -199,10 +223,13 @@ export async function createPassageTurn(
           if (event.type === 'briefing_complete') {
             retained.beginCompletionWrite();
             try {
-              await cacheRepo.publishCompletedTurn(
-                cacheKey,
-                event.markdown,
-                WIDGET_CONTRACT_VERSION,
+              await cacheRepo.publishCompletedArtifact(
+                {
+                  cacheKey,
+                  markdown: event.markdown,
+                  cacheEpoch: config.cacheEpoch,
+                  outputContractVersion: WIDGET_CONTRACT_VERSION,
+                },
                 retained.upstreamSignal
               );
             } catch {

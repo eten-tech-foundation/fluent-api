@@ -8,11 +8,10 @@ import { ok } from '@/lib/types';
 import type { RetainedAssistantGeneration } from './assistant.cache';
 import type { BriefingEvent, BtServantClient } from './assistant.client';
 import type { AssistantError, PublicBriefingEvent } from './assistant.types';
-import type { CompletedBriefingArtifact } from './cache/assistant-cache.repository';
+import type { CompletedAssistantArtifact } from './cache/assistant-cache.repository';
 
 import {
   beginGenerationCacheLookup,
-  briefingCacheKey,
   findInFlightGeneration,
   installOrJoinGeneration,
   removeInFlightGeneration,
@@ -31,7 +30,12 @@ import {
   createAssistantClient,
   releasePrivateGeneration,
 } from './assistant.generation';
-import { btUserId, buildBriefingPrompt, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
+import {
+  createBriefingGenerationInput,
+  generationInputFingerprint,
+  providerRequest,
+} from './assistant.generation-input';
+import { btUserId, SHARED_ASSISTANT_ACTIONS, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import * as repo from './assistant.repository';
 import { assistantBriefingRequestSchema, assistantFailure } from './assistant.types';
 import * as cacheRepo from './cache/assistant-cache.repository';
@@ -77,7 +81,7 @@ function completeEvent(
 async function produceSharedBriefing(input: {
   producer: RetainedAssistantGeneration;
   cacheKey: string;
-  artifactMetadata: Omit<CompletedBriefingArtifact, 'cacheKey' | 'markdown'>;
+  artifactMetadata: Omit<CompletedAssistantArtifact, 'cacheKey' | 'markdown'>;
   client: BtServantClient;
   request: { userId: string; message: string; responseLanguageHint: string };
   onCacheWriteFailure: () => void;
@@ -97,7 +101,7 @@ async function produceSharedBriefing(input: {
         }
         input.producer.beginCompletionWrite();
         try {
-          await cacheRepo.publishCompletedBriefing(
+          await cacheRepo.publishCompletedArtifact(
             { cacheKey: input.cacheKey, markdown: event.markdown, ...input.artifactMetadata },
             input.producer.upstreamSignal
           );
@@ -172,7 +176,7 @@ function privateEvents(input: {
 
 function replayedEvents(
   started: Extract<PublicBriefingEvent, { type: 'briefing_started' }>,
-  completed: CompletedBriefingArtifact,
+  completed: CompletedAssistantArtifact,
   metadata: { operationVersion: string; cacheEpoch: string; outputLanguage: string },
   logTerminal: (event: BriefingEvent) => void
 ): AsyncGenerator<PublicBriefingEvent> {
@@ -230,7 +234,8 @@ export async function createPassageBriefing(
     activeVerse: parsed.data.activeVerse,
   });
   if (!passage) return assistantFailure('invalid_request');
-  const prompt = buildBriefingPrompt({
+  const sharedCache = !parsed.data.ignore_cache;
+  const generationInput = createBriefingGenerationInput({
     operationVersion: config.operationVersion,
     language,
     resourceLanguage: grounding.resourceLanguage,
@@ -238,9 +243,11 @@ export async function createPassageBriefing(
     sourceBible: passage.sourceBible,
     sourceLanguageCode: passage.sourceLanguageCode,
     verses: passage.verses,
-    actions: parsed.data.actions,
+    actions: sharedCache ? SHARED_ASSISTANT_ACTIONS : parsed.data.actions,
+    maxOutputBytes: config.budgets.maxOutputBytes,
+    cacheEpoch: config.cacheEpoch,
   });
-  if (Buffer.byteLength(prompt) > config.budgets.maxInputBytes)
+  if (Buffer.byteLength(generationInput.message) > config.budgets.maxInputBytes)
     return assistantFailure('context_too_large');
   const context = resolveTurnContext({
     projectId: input.projectId,
@@ -250,8 +257,9 @@ export async function createPassageBriefing(
     resourceLanguage: grounding.resourceLanguage,
     groundingInstruction: grounding.instruction,
   });
+  const generationFingerprint = generationInputFingerprint(generationInput);
   const delivery = (events: AsyncGenerator<PublicBriefingEvent>) =>
-    signBriefingDelivery(events, input.userId, context);
+    signBriefingDelivery(events, input.userId, context, generationFingerprint);
   const attemptId = crypto.randomUUID();
   const contextHash = createHash('sha256')
     .update(
@@ -296,11 +304,7 @@ export async function createPassageBriefing(
     outputContractVersion: WIDGET_CONTRACT_VERSION,
     references: passage.verses.map((verse) => `${verse.bookCode} ${verse.chapter}:${verse.verse}`),
   } as const;
-  const request = {
-    userId: btUserId(input.userId),
-    message: prompt,
-    responseLanguageHint: language.responseLanguageHint,
-  };
+  const request = providerRequest(generationInput, btUserId(input.userId));
   if (parsed.data.ignore_cache) {
     const release = acquireGeneration(input.userId);
     if (!release)
@@ -319,25 +323,21 @@ export async function createPassageBriefing(
       ),
     });
   }
-  const cacheKey = briefingCacheKey({
-    operationVersion: config.operationVersion,
-    profileVersion: config.profileVersion,
-    resourcePolicyVersion: config.resourcePolicyVersion,
-    cacheEpoch: config.cacheEpoch,
-    maxOutputBytes: config.budgets.maxOutputBytes,
-    language,
-    resourceLanguage: grounding.resourceLanguage,
-    groundingInstruction: grounding.instruction,
-    passage,
-  });
+  const cacheKey = generationFingerprint;
   let producer = findInFlightGeneration(cacheKey);
-  let completed: CompletedBriefingArtifact | null = null;
+  let completed: CompletedAssistantArtifact | null = null;
   let installed = false;
   if (!producer) {
     const releaseLookup = beginGenerationCacheLookup(cacheKey);
     try {
-      completed = await cacheRepo.findCompletedBriefing(cacheKey);
-      if (completed && !completed.markdown.trim()) completed = null;
+      completed = await cacheRepo.findCompletedArtifact(cacheKey);
+      if (
+        completed &&
+        (!completed.markdown.trim() ||
+          completed.cacheEpoch !== config.cacheEpoch ||
+          completed.outputContractVersion !== WIDGET_CONTRACT_VERSION)
+      )
+        completed = null;
     } catch {
       input.logger.warn({ attemptId }, 'Assistant briefing cache read failed');
     } finally {
@@ -349,7 +349,7 @@ export async function createPassageBriefing(
       releaseLookup();
     }
   }
-  cacheRepo.requestExpiredBriefingCleanup(() =>
+  cacheRepo.requestExpiredArtifactCleanup(() =>
     input.logger.warn({ attemptId }, 'Assistant briefing cache cleanup failed')
   );
   if (completed)
@@ -373,14 +373,8 @@ export async function createPassageBriefing(
       producer,
       cacheKey,
       artifactMetadata: {
-        operationVersion: config.operationVersion,
-        profileVersion: config.profileVersion,
-        resourcePolicyVersion: config.resourcePolicyVersion,
         cacheEpoch: config.cacheEpoch,
         outputContractVersion: WIDGET_CONTRACT_VERSION,
-        responseLanguageHint: language.responseLanguageHint,
-        resourceLanguage: grounding.resourceLanguage,
-        sourceLanguageCode: passage.sourceLanguageCode,
       },
       client: createClient(),
       request,

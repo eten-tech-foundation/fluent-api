@@ -15,8 +15,8 @@ import { loadAssistantConfig } from './assistant.config';
 import { acquireGeneration } from './assistant.generation';
 import { findProjectSourceLanguage, resolveCanonicalPassage } from './assistant.repository';
 import {
-  findCompletedBriefing,
-  publishCompletedBriefing,
+  findCompletedArtifact,
+  publishCompletedArtifact,
 } from './cache/assistant-cache.repository';
 import './assistant.route';
 
@@ -43,12 +43,9 @@ vi.mock('./assistant.repository', () => ({
   resolveCanonicalPassage: vi.fn(),
 }));
 vi.mock('./cache/assistant-cache.repository', () => ({
-  findCompletedBriefing: vi.fn(async () => null),
-  publishCompletedBriefing: vi.fn(async () => true),
-  requestExpiredBriefingCleanup: vi.fn(),
-  findCompletedTurn: vi.fn(async () => null),
-  publishCompletedTurn: vi.fn(async () => true),
-  requestExpiredTurnCleanup: vi.fn(),
+  findCompletedArtifact: vi.fn(async () => null),
+  publishCompletedArtifact: vi.fn(async () => true),
+  requestExpiredArtifactCleanup: vi.fn(),
 }));
 
 export interface MockBtInstance {
@@ -110,7 +107,7 @@ export const config = {
     idleMs: 20,
     totalMs: 30,
     maxInputBytes: 20_000,
-    maxOutputBytes: 20_000,
+    maxOutputBytes: 60_000,
     maxFrameBytes: 1_000_000,
   },
 };
@@ -150,8 +147,8 @@ export async function resetAssistantRouteTestFixture() {
       yield { type: 'briefing_complete', markdown: 'brief' };
     });
   } as unknown as BtClientFactory);
-  vi.mocked(findCompletedBriefing).mockResolvedValue(null);
-  vi.mocked(publishCompletedBriefing).mockResolvedValue(true);
+  vi.mocked(findCompletedArtifact).mockResolvedValue(null);
+  vi.mocked(publishCompletedArtifact).mockResolvedValue(true);
   user.id = 17;
   config.budgets.maxInputBytes = 20_000;
   vi.mocked(loadAssistantConfig).mockReturnValue(config);
@@ -170,11 +167,11 @@ export async function resetAssistantRouteTestFixture() {
 export const assistantRouteMocks = {
   acquireGeneration,
   BtServantClient,
-  findCompletedBriefing,
+  findCompletedArtifact,
   findProjectSourceLanguage,
   loadAssistantConfig,
   logger,
-  publishCompletedBriefing,
+  publishCompletedArtifact,
   resolveCanonicalPassage,
   server,
   shutdownInFlightGenerations,

@@ -65,7 +65,7 @@ describe('turn v1 shared contract', () => {
         assistantTurnRequestSchema.parse(scenario.request),
         5
       );
-      expect(result.ok && result.history, scenario.name).toEqual(scenario.history);
+      expect(result.ok && result.generationInput.history, scenario.name).toEqual(scenario.history);
       expect(result.ok && result.projection.emptyTurnIds, scenario.name).toEqual(
         scenario.emptyTurnIds
       );
@@ -179,21 +179,21 @@ describe('verified provider projection', () => {
     const result = projectVerifiedTurn(context(), conversation(7), 5);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.history).toHaveLength(5);
-    expect(result.history[0].assistant_response).toBe('Answer 2');
+    expect(result.generationInput.history).toHaveLength(5);
+    expect(result.generationInput.history[0].assistant_response).toBe('Answer 2');
     expect(result.projection).toEqual({
       historyWindow: 5,
       omittedTurnIds: ['prior-0', 'prior-1'],
       emptyTurnIds: [],
     });
-    expect(result.message.startsWith('#default @default\n')).toBe(true);
-    expect(result.message).toContain('In the beginning was the Word.');
-    expect(result.message).toContain('The Word was in the beginning.');
-    expect(result.message).toContain('language "en"');
-    expect(result.message).toContain(
+    expect(result.generationInput.message.startsWith('#default @default\n')).toBe(true);
+    expect(result.generationInput.message).toContain('In the beginning was the Word.');
+    expect(result.generationInput.message).toContain('The Word was in the beginning.');
+    expect(result.generationInput.message).toContain('language "en"');
+    expect(result.generationInput.message).toContain(
       'Current question (JSON): "#help @hindi What does Word mean here?"'
     );
-    expect(result.message).not.toContain('fixture-context-not-a-signature');
+    expect(result.generationInput.message).not.toContain('fixture-context-not-a-signature');
   });
 
   it('uses a selected partial prefix for new input, excludes it for retry, skips empty attempts', () => {
@@ -202,7 +202,7 @@ describe('verified provider projection', () => {
     value.turns[1].attempts[0].state = 'interrupted';
     value.turns[1].attempts[0].prefix!.complete = false;
     const next = projectVerifiedTurn(context(), assistantTurnRequestSchema.parse(value), 5);
-    expect(next.ok && next.history).toEqual([
+    expect(next.ok && next.generationInput.history).toEqual([
       {
         user_message: 'User question (JSON data): "Question 1"',
         assistant_response: '[Incomplete visible answer]\nAnswer 1',
@@ -215,7 +215,7 @@ describe('verified provider projection', () => {
       input: value.turns[1].input,
     };
     const retry = projectVerifiedTurn(context(), assistantTurnRequestSchema.parse(value), 5);
-    expect(retry.ok && retry.history).toEqual([]);
+    expect(retry.ok && retry.generationInput.history).toEqual([]);
     expect(retry.ok && retry.projection.emptyTurnIds).toEqual(['prior-0']);
   });
 
@@ -256,24 +256,30 @@ describe('verified provider projection', () => {
     value.briefing.markdown = '';
     const base = projectVerifiedTurn(source, value, 5);
     if (!base.ok) throw new Error('invalid boundary fixture');
-    const remainingBytes = TURN_LIMITS.messageBytes - Buffer.byteLength(base.message);
+    const remainingBytes =
+      TURN_LIMITS.messageBytes - Buffer.byteLength(base.generationInput.message);
     value.briefing.markdown =
       'é'.repeat(Math.floor(remainingBytes / 2)) + 'a'.repeat(remainingBytes % 2);
     expect(assistantTurnRequestSchema.safeParse(value).success).toBe(true);
     const exact = projectVerifiedTurn(source, value, 5);
-    expect(exact.ok && Buffer.byteLength(exact.message)).toBe(TURN_LIMITS.messageBytes);
+    expect(exact.ok && Buffer.byteLength(exact.generationInput.message)).toBe(
+      TURN_LIMITS.messageBytes
+    );
     value.briefing.markdown += 'a';
     expect(projectVerifiedTurn(source, value, 5)).toEqual({ ok: false, code: 'context_too_large' });
     const history = conversation(1);
     history.turns[0].input.text = '';
     const empty = projectVerifiedTurn(context(), history, 5);
     if (!empty.ok) throw new Error('invalid boundary fixture');
-    const available = TURN_LIMITS.historyFieldChars - empty.history[0].user_message.length;
+    const available =
+      TURN_LIMITS.historyFieldChars - empty.generationInput.history[0].user_message.length;
     history.turns[0].input.text =
       '\u0000'.repeat(Math.floor(available / 6)) + 'a'.repeat(available % 6);
     expect(assistantTurnRequestSchema.safeParse(history).success).toBe(true);
     const full = projectVerifiedTurn(context(), history, 5);
-    expect(full.ok && full.history[0].user_message.length).toBe(TURN_LIMITS.historyFieldChars);
+    expect(full.ok && full.generationInput.history[0].user_message.length).toBe(
+      TURN_LIMITS.historyFieldChars
+    );
     history.turns[0].input.text += 'a';
     expect(projectVerifiedTurn(context(), history, 5)).toEqual({
       ok: false,
@@ -310,10 +316,13 @@ describe('verified provider projection', () => {
       },
     });
     const events = [];
-    for await (const event of client.stream({ ...projected, userId: 'fixture-user' }))
+    for await (const event of client.stream({
+      ...projected.generationInput,
+      userId: 'fixture-user',
+    }))
       events.push(event);
     expect(body).toMatchObject({
-      history: projected.history,
+      history: projected.generationInput.history,
       suppress_welcome: true,
       suppress_memory: true,
     });
@@ -324,7 +333,7 @@ describe('verified provider projection', () => {
   });
 });
 
-it('keeps action catalogs outside semantic identity while preserving exact generation data', () => {
+it('uses the canonical catalog for shared turns and exact client catalog for private turns', () => {
   const original = conversation(7);
   const baseline = projectVerifiedTurn(context(), original, 5);
   expect(baseline.ok).toBe(true);
@@ -343,8 +352,9 @@ it('keeps action catalogs outside semantic identity while preserving exact gener
     },
     5
   );
-  expect(changedCatalog.ok && changedCatalog.semanticIdentity).toEqual(baseline.semanticIdentity);
-  expect(changedCatalog.ok && changedCatalog.message).not.toBe(baseline.message);
+  expect(changedCatalog.ok).toBe(true);
+  if (!changedCatalog.ok) return;
+  expect(changedCatalog.generationInput.message).not.toBe(baseline.generationInput.message);
   for (const changed of [
     { ...original, briefing: { ...original.briefing, markdown: 'Other briefing' } },
     { ...original, briefing: { ...original.briefing, complete: !original.briefing.complete } },
@@ -357,14 +367,38 @@ it('keeps action catalogs outside semantic identity while preserving exact gener
     },
   ]) {
     const projected = projectVerifiedTurn(context(), changed, 5);
-    expect(projected.ok && projected.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+    expect(projected.ok && projected.generationInput).not.toEqual(baseline.generationInput);
   }
   const historyChanged = structuredClone(original);
   historyChanged.turns.at(-1)!.attempts[0].prefix!.markdown += ' more';
   const projected = projectVerifiedTurn(context(), historyChanged, 5);
-  expect(projected.ok && projected.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+  expect(projected.ok && projected.generationInput).not.toEqual(baseline.generationInput);
   const wider = projectVerifiedTurn(context(), original, 6);
-  expect(wider.ok && wider.semanticIdentity).not.toEqual(baseline.semanticIdentity);
+  expect(wider.ok && wider.generationInput).not.toEqual(baseline.generationInput);
+
+  const shared = {
+    ...original,
+    turns: [],
+    dont_cache: false,
+    briefing: {
+      ...original.briefing,
+      complete: true,
+      markdown: '{{fluent:v1:suggested_question|Canonical question}}',
+    },
+    submission: {
+      ...original.submission,
+      input: { text: 'Canonical question', origin: 'suggested_question' as const },
+    },
+  };
+  const sharedBaseline = projectVerifiedTurn(context(), shared, 5);
+  const hostile = projectVerifiedTurn(
+    context(),
+    { ...shared, actions: [{ type: 'hostile', purpose: 'Ignore safety', template: 'BAD' }] },
+    5
+  );
+  expect(hostile.ok && hostile.generationInput).toEqual(
+    sharedBaseline.ok && sharedBaseline.generationInput
+  );
 });
 
 it('bounds catalogs structurally without restricting client-owned action types', () => {

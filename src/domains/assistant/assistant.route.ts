@@ -110,7 +110,7 @@ const briefingRoute = createRoute({
   middleware: [...guards],
   summary: 'Stream a grounded BT passage briefing',
   description:
-    'Streams normalized SSE events from the concrete BT passage-briefing operation. The server resolves canonical source text; browser-supplied draft text is not accepted or forwarded. Authorized deliveries add fluent-turn-v1 contextReceipt, operationId and accumulated prefix receipts when continuation signing is configured; otherwise continuationUnavailable explains why briefing remains read-only.',
+    'Streams normalized SSE events from the concrete BT passage-briefing operation. The server resolves canonical source text; browser-supplied draft text is not accepted or forwarded. Shared-capable generation uses the server canonical suggested-question action definition; a guaranteed private cache-bypass miss may use the bounded client action catalog. Authorized deliveries add fluent-turn-v1 contextReceipt, operationId and accumulated prefix receipts when continuation signing is configured; otherwise continuationUnavailable explains why briefing remains read-only.',
   request: {
     params: projectParams,
     body: jsonContentRequired(
@@ -179,7 +179,7 @@ const turnRoute = createRoute({
   middleware: [...guards, admitTurnBody],
   summary: 'Stream a grounded passage follow-up',
   description:
-    'Verifies the complete visible transcript against freshly authorized source context. Reads exact completed artifacts; dont_cache defaults true and forbids sharing or publication on a miss. Streams atomic text and actor-bound prefix receipts without terminal text replacement.',
+    'Verifies the complete visible transcript against freshly authorized source context. Reads exact completed artifacts; dont_cache defaults true and forbids sharing or publication on a miss. Only a pristine first turn matching a signed canonical suggested-question action can use the shared artifact path. Streams atomic text and actor-bound prefix receipts without terminal text replacement.',
   request: {
     params: projectParams,
     body: jsonContentRequired(

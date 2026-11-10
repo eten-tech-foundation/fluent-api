@@ -95,7 +95,7 @@ function createAssistantCachePool(): AssistantCachePool {
     prepare: false,
     fetch_types: false,
     connection: {
-      application_name: 'fluent-assistant-briefing-cache',
+      application_name: 'fluent-assistant-cache',
       statement_timeout: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
       lock_timeout: ASSISTANT_CACHE_READ_TIMEOUT_MS,
     },
@@ -108,10 +108,10 @@ let currentCachePool = createAssistantCachePool();
 let cleanupStartedAt: number | null = null;
 let cleanupInFlight: Promise<number> | null = null;
 
-export class BriefingCacheUnavailableError extends Error {
+export class AssistantCacheUnavailableError extends Error {
   constructor(reason: 'busy' | 'read_timeout' | 'write_timeout' | 'aborted') {
-    super(`Assistant briefing cache ${reason}`);
-    this.name = 'BriefingCacheUnavailableError';
+    super(`Assistant cache ${reason}`);
+    this.name = 'AssistantCacheUnavailableError';
   }
 }
 
@@ -159,27 +159,27 @@ function executeCacheQuery<T>(input: {
   // admission and settlement keeps ordinary disconnects from retaining those transports.
   pruneDestroyedTransports(pool);
   if (pool.admitted >= ASSISTANT_CACHE_POOL_SIZE)
-    return Promise.reject(new BriefingCacheUnavailableError('busy'));
+    return Promise.reject(new AssistantCacheUnavailableError('busy'));
   pool.admitted++;
 
   return (async () => {
     let timer: NodeJS.Timeout | undefined;
-    let cancellation: BriefingCacheUnavailableError | undefined;
-    const terminateTransport = (reason: BriefingCacheUnavailableError) => {
+    let cancellation: AssistantCacheUnavailableError | undefined;
+    const terminateTransport = (reason: AssistantCacheUnavailableError) => {
       if (cancellation) return;
       cancellation = reason;
       retireAssistantCachePool(pool);
     };
-    const onAbort = () => terminateTransport(new BriefingCacheUnavailableError('aborted'));
+    const onAbort = () => terminateTransport(new AssistantCacheUnavailableError('aborted'));
     try {
-      if (input.signal?.aborted) throw new BriefingCacheUnavailableError('aborted');
+      if (input.signal?.aborted) throw new AssistantCacheUnavailableError('aborted');
       const query = pool.sql.unsafe(
         input.text,
         input.parameters as never[]
       ) as unknown as Promise<T>;
       input.signal?.addEventListener('abort', onAbort, { once: true });
       timer = setTimeout(
-        () => terminateTransport(new BriefingCacheUnavailableError(input.timeoutReason)),
+        () => terminateTransport(new AssistantCacheUnavailableError(input.timeoutReason)),
         input.timeoutMs
       );
       try {
@@ -196,32 +196,21 @@ function executeCacheQuery<T>(input: {
   })();
 }
 
-export interface CompletedBriefingArtifact {
+export interface CompletedAssistantArtifact {
   cacheKey: string;
   markdown: string;
-  operationVersion: string;
-  profileVersion: string;
-  resourcePolicyVersion: string;
   cacheEpoch: string;
   outputContractVersion: string;
-  responseLanguageHint: string;
-  resourceLanguage: string;
-  sourceLanguageCode: string;
 }
 
 /** Reads only artifacts that are unexpired according to the database clock. */
-export async function findCompletedBriefing(
+export async function findCompletedArtifact(
   cacheKey: string,
   signal?: AbortSignal
-): Promise<CompletedBriefingArtifact | null> {
-  const rows = await executeCacheQuery<CompletedBriefingArtifact[]>({
-    text: `SELECT cache_key AS "cacheKey", markdown,
-      operation_version AS "operationVersion", profile_version AS "profileVersion",
-      resource_policy_version AS "resourcePolicyVersion", cache_epoch AS "cacheEpoch",
-      output_contract_version AS "outputContractVersion",
-      response_language_hint AS "responseLanguageHint", resource_language AS "resourceLanguage",
-      source_language_code AS "sourceLanguageCode"
-      FROM assistant_briefing_artifacts
+): Promise<CompletedAssistantArtifact | null> {
+  const rows = await executeCacheQuery<CompletedAssistantArtifact[]>({
+    text: `SELECT cache_key AS "cacheKey", markdown, cache_epoch AS "cacheEpoch",
+      output_contract_version AS "outputContractVersion" FROM assistant_artifacts
       WHERE cache_key = $1 AND expires_at > CURRENT_TIMESTAMP
       LIMIT 1`,
     parameters: [cacheKey],
@@ -233,42 +222,28 @@ export async function findCompletedBriefing(
 }
 
 /** First-winner publication; an expired conflict can be replaced only while still expired. */
-export async function publishCompletedBriefing(
-  artifact: CompletedBriefingArtifact,
+export async function publishCompletedArtifact(
+  artifact: CompletedAssistantArtifact,
   signal?: AbortSignal
 ): Promise<boolean> {
   if (!artifact.markdown.trim()) return false;
   const rows = await executeCacheQuery<{ cacheKey: string }[]>({
-    text: `INSERT INTO assistant_briefing_artifacts (
-      cache_key, markdown, operation_version, profile_version, resource_policy_version,
-      cache_epoch, output_contract_version, response_language_hint, resource_language,
-      source_language_code, created_at, completed_at, expires_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,
+    text: `INSERT INTO assistant_artifacts (
+      cache_key, markdown, cache_epoch, output_contract_version, completed_at, expires_at
+    ) VALUES ($1,$2,$3,$4,CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second'))
     ON CONFLICT (cache_key) DO UPDATE SET
-      markdown = EXCLUDED.markdown, operation_version = EXCLUDED.operation_version,
-      profile_version = EXCLUDED.profile_version,
-      resource_policy_version = EXCLUDED.resource_policy_version,
-      cache_epoch = EXCLUDED.cache_epoch,
+      markdown = EXCLUDED.markdown, cache_epoch = EXCLUDED.cache_epoch,
       output_contract_version = EXCLUDED.output_contract_version,
-      response_language_hint = EXCLUDED.response_language_hint,
-      resource_language = EXCLUDED.resource_language,
-      source_language_code = EXCLUDED.source_language_code,
-      created_at = CURRENT_TIMESTAMP, completed_at = CURRENT_TIMESTAMP,
+      completed_at = CURRENT_TIMESTAMP,
       expires_at = CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second')
-    WHERE assistant_briefing_artifacts.expires_at <= CURRENT_TIMESTAMP
+    WHERE assistant_artifacts.expires_at <= CURRENT_TIMESTAMP
     RETURNING cache_key AS "cacheKey"`,
     parameters: [
       artifact.cacheKey,
       artifact.markdown,
-      artifact.operationVersion,
-      artifact.profileVersion,
-      artifact.resourcePolicyVersion,
       artifact.cacheEpoch,
       artifact.outputContractVersion,
-      artifact.responseLanguageHint,
-      artifact.resourceLanguage,
-      artifact.sourceLanguageCode,
     ],
     timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
     timeoutReason: 'write_timeout',
@@ -278,18 +253,18 @@ export async function publishCompletedBriefing(
 }
 
 /** Opportunistic bounded deletion; the repeated predicate protects a refreshed row. */
-export async function cleanupExpiredBriefings(
+export async function cleanupExpiredArtifacts(
   batchSize = ASSISTANT_ARTIFACT_CLEANUP_BATCH
 ): Promise<number> {
   const rows = await executeCacheQuery<{ cacheKey: string }[]>({
     text: `WITH expired AS (
-      SELECT cache_key FROM assistant_briefing_artifacts
-      WHERE expires_at <= CURRENT_TIMESTAMP ORDER BY expires_at LIMIT $1
+      SELECT cache_key FROM assistant_artifacts
+      WHERE expires_at <= CURRENT_TIMESTAMP ORDER BY expires_at, cache_key LIMIT $1
     )
-    DELETE FROM assistant_briefing_artifacts USING expired
-    WHERE assistant_briefing_artifacts.cache_key = expired.cache_key
-      AND assistant_briefing_artifacts.expires_at <= CURRENT_TIMESTAMP
-    RETURNING assistant_briefing_artifacts.cache_key AS "cacheKey"`,
+    DELETE FROM assistant_artifacts USING expired
+    WHERE assistant_artifacts.cache_key = expired.cache_key
+      AND assistant_artifacts.expires_at <= CURRENT_TIMESTAMP
+    RETURNING assistant_artifacts.cache_key AS "cacheKey"`,
     parameters: [batchSize],
     timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
     timeoutReason: 'write_timeout',
@@ -298,7 +273,7 @@ export async function cleanupExpiredBriefings(
 }
 
 /** Coalesces and rate-limits request-path cleanup; callers never await it. */
-export function requestExpiredBriefingCleanup(onFailure: () => void): void {
+export function requestExpiredArtifactCleanup(onFailure: () => void): void {
   const now = Date.now();
   if (
     cleanupInFlight ||
@@ -306,81 +281,12 @@ export function requestExpiredBriefingCleanup(onFailure: () => void): void {
   )
     return;
   cleanupStartedAt = now;
-  cleanupInFlight = cleanupExpiredBriefings()
+  cleanupInFlight = cleanupExpiredArtifacts()
     .catch(() => {
       onFailure();
       return 0;
     })
     .finally(() => {
       cleanupInFlight = null;
-    });
-}
-
-interface CompletedTurnArtifact {
-  markdown: string;
-  outputContractVersion: string;
-}
-
-/** Turn artifacts deliberately contain no transcript, actor, source, or delivery receipts. */
-export async function findCompletedTurn(
-  cacheKey: string,
-  signal?: AbortSignal
-): Promise<CompletedTurnArtifact | null> {
-  const rows = await executeCacheQuery<CompletedTurnArtifact[]>({
-    text: `SELECT markdown, output_contract_version AS "outputContractVersion"
-      FROM assistant_turn_artifacts
-      WHERE cache_key = $1 AND expires_at > CURRENT_TIMESTAMP LIMIT 1`,
-    parameters: [cacheKey],
-    timeoutMs: ASSISTANT_CACHE_READ_TIMEOUT_MS,
-    timeoutReason: 'read_timeout',
-    signal,
-  });
-  return rows[0] ?? null;
-}
-
-export async function publishCompletedTurn(
-  cacheKey: string,
-  markdown: string,
-  outputContractVersion: string,
-  signal?: AbortSignal
-): Promise<boolean> {
-  const rows = await executeCacheQuery<{ cacheKey: string }[]>({
-    text: `INSERT INTO assistant_turn_artifacts
-      (cache_key, markdown, output_contract_version, completed_at, expires_at)
-      VALUES ($1,$2,$3,CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second'))
-      ON CONFLICT (cache_key) DO UPDATE SET markdown = EXCLUDED.markdown,
-        output_contract_version = EXCLUDED.output_contract_version,
-        completed_at = CURRENT_TIMESTAMP,
-        expires_at = CURRENT_TIMESTAMP + (${ASSISTANT_ARTIFACT_TTL_SECONDS} * INTERVAL '1 second')
-      WHERE assistant_turn_artifacts.expires_at <= CURRENT_TIMESTAMP
-      RETURNING cache_key AS "cacheKey"`,
-    parameters: [cacheKey, markdown, outputContractVersion],
-    timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
-    timeoutReason: 'write_timeout',
-    signal,
-  });
-  return rows.length === 1;
-}
-
-let turnCleanupStartedAt = 0;
-let turnCleanupInFlight = false;
-export function requestExpiredTurnCleanup(onFailure: () => void): void {
-  if (turnCleanupInFlight || Date.now() - turnCleanupStartedAt < CLEANUP_INTERVAL_MS) return;
-  turnCleanupStartedAt = Date.now();
-  turnCleanupInFlight = true;
-  void executeCacheQuery({
-    text: `WITH expired AS (SELECT cache_key FROM assistant_turn_artifacts
-      WHERE expires_at <= CURRENT_TIMESTAMP ORDER BY expires_at, cache_key LIMIT $1)
-      DELETE FROM assistant_turn_artifacts USING expired
-      WHERE assistant_turn_artifacts.cache_key = expired.cache_key
-        AND assistant_turn_artifacts.expires_at <= CURRENT_TIMESTAMP`,
-    parameters: [ASSISTANT_ARTIFACT_CLEANUP_BATCH],
-    timeoutMs: ASSISTANT_CACHE_WRITE_TIMEOUT_MS,
-    timeoutReason: 'write_timeout',
-  })
-    .catch(onFailure)
-    .finally(() => {
-      turnCleanupInFlight = false;
     });
 }

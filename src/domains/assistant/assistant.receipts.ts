@@ -137,12 +137,14 @@ export class TurnReceipts {
     );
   }
 
-  briefingBinding(): PrefixBinding {
+  briefingBinding(
+    generationFingerprint = integrityDigest('briefing-projection', this.contextDigest)
+  ): PrefixBinding {
     return {
       operation: 'briefing',
       parentDigest: integrityDigest('briefing-parent', this.contextDigest),
       inputDigest: integrityDigest('briefing-input', null),
-      projectionDigest: integrityDigest('briefing-projection', this.contextDigest),
+      projectionDigest: generationFingerprint,
     };
   }
 }

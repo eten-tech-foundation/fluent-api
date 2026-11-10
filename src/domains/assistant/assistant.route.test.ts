@@ -13,9 +13,9 @@ import {
 
 const {
   BtServantClient,
-  findCompletedBriefing,
+  findCompletedArtifact,
   logger,
-  publishCompletedBriefing,
+  publishCompletedArtifact,
   shutdownInFlightGenerations,
 } = assistantRouteMocks;
 
@@ -26,17 +26,11 @@ describe('assistant briefing route cache lifecycle', () => {
 
   it('replays an exact completed-row hit without BT and marks only that completion as a hit', async () => {
     authenticate();
-    vi.mocked(findCompletedBriefing).mockResolvedValueOnce({
+    vi.mocked(findCompletedArtifact).mockResolvedValueOnce({
       cacheKey: 'a'.repeat(64),
       markdown: 'cached briefing',
-      operationVersion: 'briefing-v1',
-      profileVersion: 'fluent-profile-v1',
-      resourcePolicyVersion: 'fluent-resource-policy-v1',
       cacheEpoch: '1',
       outputContractVersion: 'fluent-widgets-v1',
-      responseLanguageHint: 'en',
-      resourceLanguage: 'en',
-      sourceLanguageCode: 'eng',
     });
 
     const body = await (await post(validBody)).text();
@@ -45,22 +39,16 @@ describe('assistant briefing route cache lifecycle', () => {
     expect(body).toContain('"markdown":"cached briefing"');
     expect(body).toContain('"cacheHit":true');
     expect(BtServantClient).not.toHaveBeenCalled();
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
   });
 
   it.each(['', ' \n\t '])('does not replay or publish a blank briefing (%j)', async (markdown) => {
     authenticate();
-    vi.mocked(findCompletedBriefing).mockResolvedValue({
+    vi.mocked(findCompletedArtifact).mockResolvedValue({
       cacheKey: 'a'.repeat(64),
       markdown,
-      operationVersion: 'briefing-v1',
-      profileVersion: 'fluent-profile-v1',
-      resourcePolicyVersion: 'fluent-resource-policy-v1',
       cacheEpoch: '1',
       outputContractVersion: 'fluent-widgets-v1',
-      responseLanguageHint: 'en',
-      resourceLanguage: 'en',
-      sourceLanguageCode: 'eng',
     });
     vi.mocked(BtServantClient).mockImplementation(function (this: MockBtInstance) {
       this.stream = vi.fn(async function* () {
@@ -73,17 +61,31 @@ describe('assistant briefing route cache lifecycle', () => {
       expect(wire).not.toContain('event: briefing_complete');
     }
     expect(BtServantClient).toHaveBeenCalledTimes(2);
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
   });
 
   it('runs ignore_cache privately and bypasses completed reads, joining, and writes', async () => {
     authenticate();
     const body = await (await post({ ...validBody, ignore_cache: true })).text();
     expect(body).toContain('"cacheHit":false');
-    expect(findCompletedBriefing).not.toHaveBeenCalled();
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(findCompletedArtifact).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
     const instance = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
     expect(instance.stream).toHaveBeenCalledWith(expect.any(Object), expect.any(AbortSignal));
+  });
+
+  it('isolates shared briefing prompts from hostile catalogs but keeps them for private misses', async () => {
+    authenticate();
+    const hostile = [{ type: 'hostile', purpose: 'HOSTILE PURPOSE', template: 'HOSTILE TEMPLATE' }];
+    await (await post({ ...validBody, actions: hostile })).text();
+    await (await post({ ...validBody, actions: hostile, ignore_cache: true })).text();
+    const shared = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
+    const privateClient = vi.mocked(BtServantClient).mock.instances[1] as unknown as MockBtInstance;
+    const sharedMessage = shared.stream.mock.calls[0][0].message as string;
+    const privateMessage = privateClient.stream.mock.calls[0][0].message as string;
+    expect(sharedMessage).toContain('suggested_question');
+    expect(sharedMessage).not.toContain('HOSTILE PURPOSE');
+    expect(privateMessage).toContain('HOSTILE PURPOSE');
   });
 
   it('aborts a private ignore_cache producer when its request disconnects', async () => {
@@ -103,7 +105,7 @@ describe('assistant briefing route cache lifecycle', () => {
     request.abort();
     await vi.waitFor(() => expect(upstreamSignal.aborted).toBe(true));
     await reader.cancel();
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       const finished = vi
         .mocked(logger.info)
@@ -128,13 +130,13 @@ describe('assistant briefing route cache lifecycle', () => {
     expect(body).toContain('"delta":"partial"');
     expect(body).toContain('"code":"timed_out"');
     expect(body).not.toContain('event: briefing_complete');
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
   });
 
   it('treats the completed cache as disposable when its read or write fails', async () => {
     authenticate();
-    vi.mocked(findCompletedBriefing).mockRejectedValueOnce(new Error('database unavailable'));
-    vi.mocked(publishCompletedBriefing).mockRejectedValueOnce(new Error('database unavailable'));
+    vi.mocked(findCompletedArtifact).mockRejectedValueOnce(new Error('database unavailable'));
+    vi.mocked(publishCompletedArtifact).mockRejectedValueOnce(new Error('database unavailable'));
 
     const body = await (await post(validBody)).text();
     expect(body).toContain('event: briefing_complete');
@@ -144,7 +146,7 @@ describe('assistant briefing route cache lifecycle', () => {
 
   it('degrades after a bounded repository read rejection', async () => {
     authenticate();
-    vi.mocked(findCompletedBriefing).mockRejectedValueOnce(new Error('read timeout'));
+    vi.mocked(findCompletedArtifact).mockRejectedValueOnce(new Error('read timeout'));
     const body = await (await post(validBody)).text();
     expect(body).toContain('event: briefing_complete');
     expect(BtServantClient).toHaveBeenCalledTimes(1);
@@ -152,7 +154,7 @@ describe('assistant briefing route cache lifecycle', () => {
 
   it('degrades after a cancelled repository write without losing valid BT output', async () => {
     authenticate();
-    vi.mocked(publishCompletedBriefing).mockRejectedValueOnce(new Error('write timeout'));
+    vi.mocked(publishCompletedArtifact).mockRejectedValueOnce(new Error('write timeout'));
     const body = await (await post(validBody)).text();
     expect(body).toContain('event: briefing_complete');
     expect(body).toContain('"cacheHit":false');
@@ -173,7 +175,7 @@ describe('assistant briefing route cache lifecycle', () => {
       } as unknown as BtClientFactory);
       const body = await (await post(validBody)).text();
       expect(body).toContain('event: briefing_complete');
-      expect(publishCompletedBriefing).toHaveBeenCalledWith(
+      expect(publishCompletedArtifact).toHaveBeenCalledWith(
         expect.objectContaining({ markdown: text }),
         expect.any(AbortSignal)
       );
@@ -183,14 +185,14 @@ describe('assistant briefing route cache lifecycle', () => {
   it('reuses one authorized semantic artifact across user and project identities', async () => {
     authenticate(true, 7);
     await (await post(validBody)).text();
-    const firstKey = vi.mocked(findCompletedBriefing).mock.calls[0][0];
-    const artifact = vi.mocked(publishCompletedBriefing).mock.calls[0][0];
+    const firstKey = vi.mocked(findCompletedArtifact).mock.calls[0][0];
+    const artifact = vi.mocked(publishCompletedArtifact).mock.calls[0][0];
 
     user.id = 29;
     authenticate(true, 8);
-    vi.mocked(findCompletedBriefing).mockResolvedValueOnce(artifact);
+    vi.mocked(findCompletedArtifact).mockResolvedValueOnce(artifact);
     const body = await (await post(validBody, { projectId: 8 })).text();
-    expect(vi.mocked(findCompletedBriefing).mock.calls[1][0]).toBe(firstKey);
+    expect(vi.mocked(findCompletedArtifact).mock.calls[1][0]).toBe(firstKey);
     expect(body).toContain('"cacheHit":true');
     expect(BtServantClient).toHaveBeenCalledTimes(1);
   });
@@ -198,7 +200,7 @@ describe('assistant briefing route cache lifecycle', () => {
   it('never logs the semantic key, source passage, prompt, or completed artifact', async () => {
     authenticate();
     await (await post(validBody)).text();
-    const cacheKey = vi.mocked(publishCompletedBriefing).mock.calls[0][0].cacheKey;
+    const cacheKey = vi.mocked(publishCompletedArtifact).mock.calls[0][0].cacheKey;
     const logs = JSON.stringify([
       ...vi.mocked(logger.info).mock.calls,
       ...vi.mocked(logger.warn).mock.calls,
@@ -234,7 +236,7 @@ describe('assistant briefing route cache lifecycle', () => {
     expect(bodies).toHaveLength(2);
     expect(bodies.every((body) => body.includes('"markdown":"shared"'))).toBe(true);
     expect(bodies.every((body) => body.includes('"cacheHit":false'))).toBe(true);
-    expect(publishCompletedBriefing).toHaveBeenCalledTimes(1);
+    expect(publishCompletedArtifact).toHaveBeenCalledTimes(1);
     const finished = vi
       .mocked(logger.info)
       .mock.calls.filter((call) => call[1] === 'Assistant briefing finished');
@@ -266,7 +268,7 @@ describe('assistant briefing route cache lifecycle', () => {
     request.abort();
     expect(upstreamSignal.aborted).toBe(false);
     release();
-    await vi.waitFor(() => expect(publishCompletedBriefing).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(publishCompletedArtifact).toHaveBeenCalledTimes(1));
     expect(upstreamSignal.aborted).toBe(false);
     await vi.waitFor(() => {
       const finished = vi
@@ -300,7 +302,7 @@ describe('assistant briefing route cache lifecycle', () => {
     release();
     const body = await remaining.text();
     expect(body).toContain('"markdown":"joined"');
-    expect(publishCompletedBriefing).toHaveBeenCalledTimes(1);
+    expect(publishCompletedArtifact).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => {
       const finished = vi
         .mocked(logger.info)
@@ -328,7 +330,7 @@ describe('assistant briefing route cache lifecycle', () => {
     const bodies = await Promise.all(responses.map((response) => response.text()));
     expect(upstreamSignal.aborted).toBe(true);
     expect(bodies.every((body) => body.match(/event: briefing_error/g)?.length === 1)).toBe(true);
-    expect(publishCompletedBriefing).not.toHaveBeenCalled();
+    expect(publishCompletedArtifact).not.toHaveBeenCalled();
     const finished = vi
       .mocked(logger.info)
       .mock.calls.filter((call) => call[1] === 'Assistant briefing finished');
@@ -339,7 +341,7 @@ describe('assistant briefing route cache lifecycle', () => {
     authenticate();
     let writeSignal!: AbortSignal;
     let wouldPersist = false;
-    vi.mocked(publishCompletedBriefing).mockImplementationOnce(async (_artifact, signal) => {
+    vi.mocked(publishCompletedArtifact).mockImplementationOnce(async (_artifact, signal) => {
       writeSignal = signal!;
       await new Promise<void>((_resolve, reject) => {
         signal!.addEventListener('abort', () => reject(new Error('query cancelled')), {
@@ -367,13 +369,13 @@ describe('assistant briefing route cache lifecycle', () => {
     const staleRead = new Promise<null>((resolve) => {
       finishStaleRead = resolve;
     });
-    vi.mocked(findCompletedBriefing).mockReturnValueOnce(staleRead).mockResolvedValueOnce(null);
+    vi.mocked(findCompletedArtifact).mockReturnValueOnce(staleRead).mockResolvedValueOnce(null);
 
     const straddler = post(validBody);
-    await vi.waitFor(() => expect(findCompletedBriefing).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(findCompletedArtifact).toHaveBeenCalledTimes(1));
     const producerResponse = await post(validBody);
     await producerResponse.text();
-    expect(publishCompletedBriefing).toHaveBeenCalledTimes(1);
+    expect(publishCompletedArtifact).toHaveBeenCalledTimes(1);
 
     finishStaleRead(null);
     const straddlerBody = await (await straddler).text();
@@ -394,18 +396,18 @@ describe('assistant briefing route cache lifecycle', () => {
     const publishing = new Promise<boolean>((resolve) => {
       finishPublish = () => resolve(true);
     });
-    vi.mocked(publishCompletedBriefing).mockReturnValueOnce(publishing);
+    vi.mocked(publishCompletedArtifact).mockReturnValueOnce(publishing);
 
     const first = await post(validBody);
-    await vi.waitFor(() => expect(publishCompletedBriefing).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(publishCompletedArtifact).toHaveBeenCalledTimes(1));
     const joinedDuringPublish = await post(validBody);
-    expect(findCompletedBriefing).toHaveBeenCalledTimes(1);
+    expect(findCompletedArtifact).toHaveBeenCalledTimes(1);
     finishPublish();
 
     const joinedBodies = await Promise.all([first.text(), joinedDuringPublish.text()]);
     expect(joinedBodies.every((body) => body.includes('"cacheHit":false'))).toBe(true);
-    const published = vi.mocked(publishCompletedBriefing).mock.calls[0][0];
-    vi.mocked(findCompletedBriefing).mockResolvedValueOnce(published);
+    const published = vi.mocked(publishCompletedArtifact).mock.calls[0][0];
+    vi.mocked(findCompletedArtifact).mockResolvedValueOnce(published);
 
     const afterRemoval = await (await post(validBody)).text();
     expect(afterRemoval).toContain('"cacheHit":true');

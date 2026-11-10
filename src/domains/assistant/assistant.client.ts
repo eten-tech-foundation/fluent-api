@@ -36,6 +36,17 @@ const VALID_ACTIVITY_EVENTS = new Set([
   'complete',
   'error',
 ]);
+const MAX_LOGGED_EVENT_TYPE_BYTES = 64;
+
+export function boundedEventType(value: string): string {
+  if (Buffer.byteLength(value) <= MAX_LOGGED_EVENT_TYPE_BYTES) return value;
+  let prefix = '';
+  for (const codePoint of value) {
+    if (Buffer.byteLength(prefix + codePoint) > MAX_LOGGED_EVENT_TYPE_BYTES - 3) break;
+    prefix += codePoint;
+  }
+  return `${prefix}...`;
+}
 
 function failure(
   code: BriefingFailureCode,
@@ -203,12 +214,12 @@ export class BtServantClient {
           }
           if (!VALID_ACTIVITY_EVENTS.has(eventRecord.type))
             this.options.warn?.(
-              { eventType: eventRecord.type },
+              { eventType: boundedEventType(eventRecord.type) },
               'Assistant upstream event unsupported'
             );
           if (eventRecord.type === 'progress' && typeof eventRecord.text !== 'string')
             this.options.warn?.(
-              { eventType: eventRecord.type, textType: typeof eventRecord.text },
+              { eventType: boundedEventType(eventRecord.type), textType: typeof eventRecord.text },
               'Assistant upstream progress skipped'
             );
           const isValidActivity = VALID_ACTIVITY_EVENTS.has(eventRecord.type);

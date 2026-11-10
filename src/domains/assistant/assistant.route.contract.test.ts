@@ -14,10 +14,10 @@ import {
 
 const {
   BtServantClient,
-  findCompletedBriefing,
+  findCompletedArtifact,
   findProjectSourceLanguage,
   loadAssistantConfig,
-  publishCompletedBriefing,
+  publishCompletedArtifact,
   resolveCanonicalPassage,
   server,
 } = assistantRouteMocks;
@@ -30,7 +30,7 @@ describe('assistant briefing route contract', () => {
   it('requires authentication before resolving project or source context', async () => {
     expect((await post(validBody)).status).toBe(401);
     expect(resolveCanonicalPassage).not.toHaveBeenCalled();
-    expect(findCompletedBriefing).not.toHaveBeenCalled();
+    expect(findCompletedArtifact).not.toHaveBeenCalled();
   });
 
   it('enforces project-scoped read access', async () => {
@@ -107,12 +107,12 @@ describe('assistant briefing route contract', () => {
     );
     const upstream = instance.stream.mock.calls[0][0];
     expect(upstream.message).not.toContain('browser supplied attack');
-    expect(publishCompletedBriefing).toHaveBeenCalledWith(
+    expect(publishCompletedArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: expect.stringMatching(/^[0-9a-f]{64}$/),
         markdown: 'brief',
-        profileVersion: 'fluent-profile-v1',
-        resourcePolicyVersion: 'fluent-resource-policy-v1',
+        cacheEpoch: '1',
+        outputContractVersion: 'fluent-widgets-v1',
       }),
       expect.any(AbortSignal)
     );

@@ -85,7 +85,7 @@ describe('guarded briefing integrity integration', () => {
     expect((await post(validBody)).status).toBe(404);
     expect(receiptModule.loadReceiptKey).not.toHaveBeenCalled();
     expect(assistantRouteMocks.resolveCanonicalPassage).not.toHaveBeenCalled();
-    expect(assistantRouteMocks.findCompletedBriefing).not.toHaveBeenCalled();
+    expect(assistantRouteMocks.findCompletedArtifact).not.toHaveBeenCalled();
   });
   it.each([true, false])(
     'signs private/shared delivery (private=%s) against the current actor/context',
@@ -119,17 +119,11 @@ describe('guarded briefing integrity integration', () => {
     }
   );
   it('mints cached actor-specific receipts and verifies after the cache row disappears', async () => {
-    vi.mocked(assistantRouteMocks.findCompletedBriefing).mockResolvedValue({
+    vi.mocked(assistantRouteMocks.findCompletedArtifact).mockResolvedValue({
       cacheKey: 'cache',
       markdown: 'brief',
-      operationVersion: config.operationVersion,
-      profileVersion: config.profileVersion,
-      resourcePolicyVersion: config.resourcePolicyVersion,
       cacheEpoch: config.cacheEpoch,
       outputContractVersion: 'fluent-widgets-v1',
-      responseLanguageHint: 'en',
-      resourceLanguage: 'en',
-      sourceLanguageCode: 'eng',
     });
     const first = await delivery();
     user.id = 18;
@@ -138,8 +132,8 @@ describe('guarded briefing integrity integration', () => {
     expect(first.at(-1).prefix.receipt).not.toBe(second.at(-1).prefix.receipt);
     expect(second.at(-1).cacheHit).toBe(true);
     expect(assistantRouteMocks.BtServantClient).not.toHaveBeenCalled();
-    vi.mocked(assistantRouteMocks.findCompletedBriefing).mockResolvedValue(null);
-    const lookups = vi.mocked(assistantRouteMocks.findCompletedBriefing).mock.calls.length;
+    vi.mocked(assistantRouteMocks.findCompletedArtifact).mockResolvedValue(null);
+    const lookups = vi.mocked(assistantRouteMocks.findCompletedArtifact).mock.calls.length;
     expect(
       verifyTurnTranscript(
         new receiptModule.TurnReceipts(key, 18, context()),
@@ -148,7 +142,7 @@ describe('guarded briefing integrity integration', () => {
         5
       ).ok
     ).toBe(true);
-    expect(assistantRouteMocks.findCompletedBriefing).toHaveBeenCalledTimes(lookups);
+    expect(assistantRouteMocks.findCompletedArtifact).toHaveBeenCalledTimes(lookups);
   });
   it('keeps ordinary briefing usable without signing credentials', async () => {
     vi.mocked(receiptModule.loadReceiptKey).mockReturnValue(null);
