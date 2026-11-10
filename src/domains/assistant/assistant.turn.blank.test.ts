@@ -36,7 +36,7 @@ beforeEach(async () => {
       members: [{ id: 1, chapter: 4, verse: 25 }],
     },
   });
-  vi.mocked(cache.findCompletedTurn).mockResolvedValue(null);
+  vi.mocked(cache.findCompletedArtifact).mockResolvedValue(null);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -79,9 +79,11 @@ it.each(['', ' \n\t '])(
       });
     const cold = await turn();
     expect(await cold.text()).toContain('malformed_upstream_response');
-    expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
-    vi.mocked(cache.findCompletedTurn).mockResolvedValue({
+    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
+    vi.mocked(cache.findCompletedArtifact).mockResolvedValue({
+      cacheKey: 'a'.repeat(64),
       markdown,
+      cacheEpoch: '1',
       outputContractVersion: 'fluent-turn-v1',
     });
     body.dont_cache = true;
@@ -91,7 +93,7 @@ it.each(['', ' \n\t '])(
     expect(wire).toContain('malformed_upstream_response');
     expect(wire).not.toContain('turn_complete');
     expect(assistantRouteMocks.BtServantClient).toHaveBeenCalledTimes(1);
-    expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
     vi.mocked(assistantRouteMocks.BtServantClient).mockImplementation(function (
       this: MockBtInstance
     ) {
@@ -101,6 +103,6 @@ it.each(['', ' \n\t '])(
       });
     } as unknown as BtClientFactory);
     expect(await (await turn()).text()).toContain('event: turn_complete');
-    expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
   }
 );

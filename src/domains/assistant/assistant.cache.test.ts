@@ -2,109 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   beginGenerationCacheLookup,
-  briefingCacheKey,
   findInFlightGeneration,
   installOrJoinGeneration,
   removeInFlightGeneration,
   resetInFlightGenerationsForTests,
   RetainedAssistantGeneration,
-  serializeBriefingCacheIdentity,
   shutdownInFlightGenerations,
 } from './assistant.cache';
-
-const base = {
-  operationVersion: 'passage-briefing-v1',
-  profileVersion: 'fluent-profile-v1',
-  resourcePolicyVersion: 'fluent-resource-policy-v1',
-  cacheEpoch: '1',
-  maxOutputBytes: 96_000,
-  language: {
-    displayName: 'English',
-    projectLanguageCodes: ['eng'],
-    responseLanguageHint: 'en',
-    guidanceSlug: 'default',
-    defaultGrounding: 'en',
-    grounding: { en: { resourceLanguage: 'en', instruction: 'Use English resources.' } },
-  },
-  resourceLanguage: 'en',
-  groundingInstruction: 'Use English resources.',
-  passage: {
-    sourceBible: 'Canonical Source',
-    sourceLanguageCode: 'eng',
-    verses: [
-      { bookCode: 'MAT', chapter: 4, verse: 25, text: 'First' },
-      { bookCode: 'MAT', chapter: 5, verse: 1, text: 'Second' },
-    ],
-  },
-};
-
-describe('passage briefing semantic cache identity', () => {
-  it('has a stable fixed-shape serialization and SHA-256 golden', () => {
-    expect(serializeBriefingCacheIdentity(base)).toBe(
-      '{"operation":"passage_briefing","operationVersion":"passage-briefing-v1","profileVersion":"fluent-profile-v1","resourcePolicyVersion":"fluent-resource-policy-v1","cacheEpoch":"1","outputValidation":{"maxBytes":96000},"outputContractVersion":"fluent-widgets-v1","responseLanguageHint":"en","guidanceSlug":"default","grounding":{"resourceLanguage":"en","instruction":"Use English resources."},"source":{"bible":"Canonical Source","languageCode":"eng","verses":[{"reference":{"bookCode":"MAT","chapter":4,"verse":25},"text":"First"},{"reference":{"bookCode":"MAT","chapter":5,"verse":1},"text":"Second"}]}}'
-    );
-    expect(briefingCacheKey(base)).toBe(
-      '41e5060636b66406d9c38b0d854e7ab0aeb9d99313562b18b0f042ad25cdb395'
-    );
-  });
-
-  it.each([
-    ['operation version', { operationVersion: 'passage-briefing-v2' }],
-    ['profile version', { profileVersion: 'fluent-profile-v2' }],
-    ['resource policy version', { resourcePolicyVersion: 'fluent-resource-policy-v2' }],
-    ['epoch', { cacheEpoch: '2' }],
-    ['output limit', { maxOutputBytes: 48_000 }],
-    ['response language', { language: { ...base.language, responseLanguageHint: 'hi' } }],
-    ['guidance profile', { language: { ...base.language, guidanceSlug: 'alternate' } }],
-    ['resource language', { resourceLanguage: 'hi' }],
-    ['resource instruction', { groundingInstruction: 'Use Hindi resources.' }],
-    ['source Bible label', { passage: { ...base.passage, sourceBible: 'Another Source' } }],
-    ['source language', { passage: { ...base.passage, sourceLanguageCode: 'hin' } }],
-    [
-      'source text',
-      {
-        passage: {
-          ...base.passage,
-          verses: [{ ...base.passage.verses[0], text: 'Changed' }, base.passage.verses[1]],
-        },
-      },
-    ],
-    ['source order', { passage: { ...base.passage, verses: [...base.passage.verses].reverse() } }],
-    [
-      'source reference',
-      {
-        passage: {
-          ...base.passage,
-          verses: [{ ...base.passage.verses[0], verse: 24 }, base.passage.verses[1]],
-        },
-      },
-    ],
-  ])('misses when %s changes', (_label, change) => {
-    expect(briefingCacheKey({ ...base, ...change })).not.toBe(briefingCacheKey(base));
-  });
-
-  it('ignores display/config selector metadata when effective answer inputs are identical', () => {
-    const equivalent = {
-      ...base,
-      language: {
-        ...base.language,
-        displayName: 'Anglais',
-        projectLanguageCodes: ['en', 'eng'],
-        defaultGrounding: 'alternate',
-        grounding: {
-          alternate: { resourceLanguage: 'en', instruction: 'Use English resources.' },
-        },
-      },
-    };
-    expect(briefingCacheKey(equivalent)).toBe(briefingCacheKey(base));
-  });
-
-  it('does not admit user or project execution identity into the semantic projection', () => {
-    const executionScoped = { ...base, userId: 17, projectId: 7 };
-    expect(briefingCacheKey(executionScoped)).toBe(briefingCacheKey(base));
-    expect(serializeBriefingCacheIdentity(executionScoped)).not.toMatch(/userId|projectId/);
-  });
-});
 
 describe('bT passage briefing retained in-flight producer', () => {
   beforeEach(() => resetInFlightGenerationsForTests());

@@ -39,48 +39,47 @@ describe.skipIf(!connectionString)(
       });
       const [artifactTable] = await sql<{ tableName: string }[]>`
       SELECT table_name AS "tableName" FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'assistant_briefing_artifacts'
+      WHERE table_schema = 'public' AND table_name = 'assistant_artifacts'
     `;
-      expect(artifactTable).toEqual({ tableName: 'assistant_briefing_artifacts' });
-      const [turnTable] = await sql<{ tableName: string }[]>`
-        SELECT table_name AS "tableName" FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'assistant_turn_artifacts'
-      `;
-      expect(turnTable).toEqual({ tableName: 'assistant_turn_artifacts' });
+      expect(artifactTable).toEqual({ tableName: 'assistant_artifacts' });
 
       // Production provisioning creates this before the unchanged API boot; migrations intentionally
       // do not own pg-boss's schema.
       await sql`CREATE SCHEMA pgboss`;
       process.env.DATABASE_URL = connectionString!;
-      const {
-        findCompletedBriefing,
-        publishCompletedBriefing,
-        findCompletedTurn,
-        publishCompletedTurn,
-      } = await import('@/domains/assistant/cache/assistant-cache.repository');
+      const { findCompletedArtifact, publishCompletedArtifact } =
+        await import('@/domains/assistant/cache/assistant-cache.repository');
       const artifact = {
         cacheKey: 'd'.repeat(64),
         markdown: 'real PostgreSQL cache proof',
-        operationVersion: 'passage-briefing-v1',
-        profileVersion: 'fluent-profile-v1',
-        resourcePolicyVersion: 'fluent-resource-policy-v1',
         cacheEpoch: '1',
         outputContractVersion: 'fluent-widgets-v1',
-        responseLanguageHint: 'en',
-        resourceLanguage: 'en',
-        sourceLanguageCode: 'eng',
       };
-      expect(await publishCompletedBriefing(artifact)).toBe(true);
-      expect(await findCompletedBriefing(artifact.cacheKey)).toMatchObject({
+      expect(await publishCompletedArtifact(artifact)).toBe(true);
+      expect(await findCompletedArtifact(artifact.cacheKey)).toMatchObject({
         markdown: artifact.markdown,
       });
       const turnKey = 'e'.repeat(64);
       expect(
-        await publishCompletedTurn(turnKey, 'real PostgreSQL turn proof', 'fluent-turn-v1')
+        await publishCompletedArtifact({
+          cacheKey: turnKey,
+          markdown: 'real PostgreSQL turn proof',
+          cacheEpoch: '1',
+          outputContractVersion: 'fluent-turn-v1',
+        })
       ).toBe(true);
-      expect(await publishCompletedTurn(turnKey, 'second writer', 'fluent-turn-v1')).toBe(false);
-      expect(await findCompletedTurn(turnKey)).toEqual({
+      expect(
+        await publishCompletedArtifact({
+          cacheKey: turnKey,
+          markdown: 'second writer',
+          cacheEpoch: '1',
+          outputContractVersion: 'fluent-turn-v1',
+        })
+      ).toBe(false);
+      expect(await findCompletedArtifact(turnKey)).toEqual({
+        cacheKey: turnKey,
         markdown: 'real PostgreSQL turn proof',
+        cacheEpoch: '1',
         outputContractVersion: 'fluent-turn-v1',
       });
       const { ensureAiSuggestionQueue, ensureExportQueues, initializeQueue, stopQueue } =

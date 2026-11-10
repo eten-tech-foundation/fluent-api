@@ -21,7 +21,8 @@ interface IntegrityMetadata {
 export async function* signBriefingDelivery(
   events: AsyncGenerator<PublicBriefingEvent>,
   actorId: number,
-  context: TurnContext | null
+  context: TurnContext | null,
+  generationFingerprint = '0'.repeat(64)
 ): AsyncGenerator<PublicBriefingEvent & IntegrityMetadata> {
   const key = loadReceiptKey();
   const receipts = key && context ? new TurnReceipts(key, actorId, context) : null;
@@ -44,7 +45,11 @@ export async function* signBriefingDelivery(
           prefix: {
             sequence,
             complete,
-            receipt: receipts.prefix(receipts.briefingBinding(), { markdown, sequence, complete }),
+            receipt: receipts.prefix(receipts.briefingBinding(generationFingerprint), {
+              markdown,
+              sequence,
+              complete,
+            }),
           },
         };
   for await (const event of events) {

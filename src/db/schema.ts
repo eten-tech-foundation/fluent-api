@@ -429,41 +429,21 @@ export const project_unit_bible_books = pgTable(
   ]
 );
 
-export const assistant_turn_artifacts = pgTable(
-  'assistant_turn_artifacts',
-  {
-    cacheKey: char('cache_key', { length: 64 }).primaryKey(),
-    markdown: text('markdown').notNull(),
-    outputContractVersion: varchar('output_contract_version', { length: 64 }).notNull(),
-    completedAt: timestamp('completed_at').notNull().defaultNow(),
-    expiresAt: timestamp('expires_at').notNull(),
-  },
-  (table) => [index('idx_assistant_turn_artifacts_expiry').on(table.expiresAt)]
-);
-
 /**
- * Disposable, content-addressed completions for the read-only Assistant passage briefing.
- * The key is a hash of answer-affecting input; tenant and user identity stay outside it so an
- * independently authorized request can reuse the same artifact.
+ * Disposable, content-addressed Assistant completions. The key is the sole lookup identity;
+ * epoch and contract are operational cleanup tags rather than alternate identity fields.
  */
-export const assistant_briefing_artifacts = pgTable(
-  'assistant_briefing_artifacts',
+export const assistant_artifacts = pgTable(
+  'assistant_artifacts',
   {
     cacheKey: char('cache_key', { length: 64 }).primaryKey(),
     markdown: text('markdown').notNull(),
-    operationVersion: varchar('operation_version', { length: 64 }).notNull(),
-    profileVersion: varchar('profile_version', { length: 64 }).notNull(),
-    resourcePolicyVersion: varchar('resource_policy_version', { length: 64 }).notNull(),
     cacheEpoch: varchar('cache_epoch', { length: 64 }).notNull(),
     outputContractVersion: varchar('output_contract_version', { length: 64 }).notNull(),
-    responseLanguageHint: varchar('response_language_hint', { length: 20 }).notNull(),
-    resourceLanguage: varchar('resource_language', { length: 20 }).notNull(),
-    sourceLanguageCode: varchar('source_language_code', { length: 20 }).notNull(),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
     completedAt: timestamp('completed_at').notNull().defaultNow(),
     expiresAt: timestamp('expires_at').notNull(),
   },
-  (table) => [index('idx_assistant_briefing_artifacts_expiry').on(table.expiresAt)]
+  (table) => [index('idx_assistant_artifacts_expiry').on(table.expiresAt)]
 );
 
 export const bible_texts = pgTable(

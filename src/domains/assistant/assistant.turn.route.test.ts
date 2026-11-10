@@ -3,10 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import env from '@/env';
 
 import type { BriefingEvent } from './assistant.client';
-import type { PassageContext } from './assistant.repository';
 import type { BtClientFactory, MockBtInstance } from './assistant.route.test-fixtures';
 
-import { resolveTurnContext } from './assistant.context';
 import * as receiptsModule from './assistant.receipts';
 import {
   assistantRouteMocks,
@@ -17,57 +15,17 @@ import {
   validBody,
 } from './assistant.route.test-fixtures';
 import { verifyTurnTranscript } from './assistant.transcript';
-import { assistantTurnEventSchema, assistantTurnRequestSchema } from './assistant.turn.types';
+import {
+  turnRouteContext as context,
+  turnRouteKey as key,
+  turnRoutePassage as passage,
+  turnRouteRequest as request,
+} from './assistant.turn.route.fixtures';
+import { assistantTurnEventSchema } from './assistant.turn.types';
 import * as cache from './cache/assistant-cache.repository';
 
 const { BtServantClient } = assistantRouteMocks;
 
-const key = receiptsModule.parseReceiptKey({
-  ASSISTANT_RECEIPT_KEY_ID: 'test',
-  ASSISTANT_RECEIPT_KEY_HEX: '02'.repeat(32),
-})!;
-const passage: PassageContext = {
-  sourceBible: 'Canonical Source',
-  sourceLanguageCode: 'eng',
-  verses: [{ bookCode: 'MAT', chapter: 4, verse: 25, text: 'server source' }],
-  integritySource: {
-    organizationId: 1,
-    sourceBibleId: 9,
-    provider: 'dbl',
-    externalId: null,
-    pericopeSetId: 3,
-    membership: { number: '12', section: null },
-    members: [{ id: 1, chapter: 4, verse: 25 }],
-  },
-};
-function context() {
-  return resolveTurnContext({
-    projectId: 7,
-    passage,
-    config,
-    outputLanguage: 'en',
-    resourceLanguage: 'en',
-    groundingInstruction: config.languages.en.grounding.en.instruction,
-  })!;
-}
-function request() {
-  const receipts = new receiptsModule.TurnReceipts(key, user.id, context());
-  const prefix = { markdown: 'briefing', sequence: 1, complete: true };
-  return assistantTurnRequestSchema.parse({
-    protocol: 'fluent-turn-v1',
-    ...validBody,
-    grounding: 'configured',
-    contextReceipt: receipts.contextReceipt(),
-    briefing: { ...prefix, receipt: receipts.prefix(receipts.briefingBinding(), prefix) },
-    turns: [],
-    submission: {
-      kind: 'new',
-      turnId: 'turn',
-      attemptId: 'attempt',
-      input: { text: 'Why?', origin: 'typed' },
-    },
-  });
-}
 function post(body: unknown, signal?: AbortSignal) {
   return assistantRouteMocks.server.request('/projects/7/assistant/turns', {
     method: 'POST',
@@ -99,8 +57,8 @@ beforeEach(async () => {
   authenticate();
   vi.spyOn(receiptsModule, 'loadReceiptKey').mockReturnValue(key);
   vi.mocked(assistantRouteMocks.resolveCanonicalPassage).mockResolvedValue(passage);
-  vi.mocked(cache.findCompletedTurn).mockResolvedValue(null);
-  vi.mocked(cache.publishCompletedTurn).mockResolvedValue(true);
+  vi.mocked(cache.findCompletedArtifact).mockResolvedValue(null);
+  vi.mocked(cache.publishCompletedArtifact).mockResolvedValue(true);
   env.ASSISTANT_HISTORY_WINDOW = undefined;
 });
 afterEach(() => vi.restoreAllMocks());
@@ -143,7 +101,7 @@ describe('POST guarded turns', () => {
     expect((await post(request())).status).toBe(404);
     expect(assistantRouteMocks.resolveCanonicalPassage).not.toHaveBeenCalled();
     expect(receiptsModule.loadReceiptKey).not.toHaveBeenCalled();
-    expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+    expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
   });
   it.each([' ', '"x":1,'])(
     'counts raw overhead before parsing/signing/provider (%s)',
@@ -173,7 +131,7 @@ describe('POST guarded turns', () => {
       expect(await events(await post(body))).toEqual([
         { protocol: 'fluent-turn-v1', type: 'context_changed' },
       ]);
-      expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+      expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
       expect(BtServantClient).not.toHaveBeenCalled();
     }
   );
@@ -183,7 +141,7 @@ describe('POST guarded turns', () => {
       vi.mocked(assistantRouteMocks.loadAssistantConfig).mockReturnValue(null);
     if (mode === 'window') env.ASSISTANT_HISTORY_WINDOW = '0';
     expect((await post(request())).status).toBe(503);
-    expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+    expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
   });
   it('delivers exact verified projection, stable actor identity and verifiable completion', async () => {
     const body = request();
@@ -196,7 +154,7 @@ describe('POST guarded turns', () => {
     if (!verified.ok) return;
     expect(instance.stream).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: verified.projection.message,
+        message: verified.projection.generationInput.message,
         history: [],
         userId: 'fluent_17',
       }),
@@ -215,35 +173,59 @@ describe('POST guarded turns', () => {
         verified.binding
       )
     ).toBe(true);
-    expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
   });
   it.each([undefined, true])(
     'default/true reads hit with fresh actor receipts (%s)',
     async (dont_cache) => {
-      vi.mocked(cache.findCompletedTurn).mockResolvedValue({
+      vi.mocked(cache.findCompletedArtifact).mockResolvedValue({
+        cacheKey: 'a'.repeat(64),
         markdown: 'cached',
+        cacheEpoch: '1',
         outputContractVersion: 'fluent-widgets-v1',
       });
       const first = await events(await post({ ...request(), dont_cache }));
-      const firstKey = vi.mocked(cache.findCompletedTurn).mock.calls[0][0];
+      const firstKey = vi.mocked(cache.findCompletedArtifact).mock.calls[0][0];
       user.id++;
       const second = await events(await post({ ...request(), dont_cache }));
-      expect(vi.mocked(cache.findCompletedTurn).mock.calls[1][0]).toBe(firstKey);
+      expect(vi.mocked(cache.findCompletedArtifact).mock.calls[1][0]).toBe(firstKey);
       expect(second.at(-1)).not.toEqual(first.at(-1));
       expect(BtServantClient).not.toHaveBeenCalled();
     }
   );
   it('cacheable publishes only completed markdown and private misses stay independent', async () => {
     await events(await post({ ...request(), dont_cache: false }));
-    expect(cache.publishCompletedTurn).toHaveBeenCalledWith(
-      expect.stringMatching(/^[a-f0-9]{64}$/),
-      'brief',
-      'fluent-widgets-v1',
+    expect(cache.publishCompletedArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+        markdown: 'brief',
+        cacheEpoch: '1',
+        outputContractVersion: 'fluent-widgets-v1',
+      }),
       expect.any(AbortSignal)
     );
     await events(await post(request()));
     expect(BtServantClient).toHaveBeenCalledTimes(2);
-    expect(cache.publishCompletedTurn).toHaveBeenCalledTimes(1);
+    expect(cache.publishCompletedArtifact).toHaveBeenCalledTimes(1);
+  });
+  it('isolates shared turn prompts from hostile catalogs and uses them only on private misses', async () => {
+    const hostile = [{ type: 'hostile', purpose: 'HOSTILE PURPOSE', template: 'HOSTILE TEMPLATE' }];
+    await events(await post({ ...request(), actions: hostile, dont_cache: false }));
+    await events(await post({ ...request(), actions: hostile, dont_cache: true }));
+    const shared = vi.mocked(BtServantClient).mock.instances[0] as unknown as MockBtInstance;
+    const privateClient = vi.mocked(BtServantClient).mock.instances[1] as unknown as MockBtInstance;
+    expect(shared.stream.mock.calls[0][0].message).toContain('suggested_question');
+    expect(shared.stream.mock.calls[0][0].message).not.toContain('HOSTILE PURPOSE');
+    expect(privateClient.stream.mock.calls[0][0].message).toContain('HOSTILE PURPOSE');
+  });
+  it('does not share arbitrary text merely labeled as a suggested question', async () => {
+    const body = request();
+    body.dont_cache = false;
+    body.submission.input.text = 'Client-invented question';
+    await events(await post(body));
+    expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
+    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
+    expect(BtServantClient).toHaveBeenCalledTimes(1);
   });
   it.each(['limit', 'replace', 'eof', 'throw', 'rate', 'timeout'])(
     'never publishes failed/partial %s output',
@@ -264,14 +246,14 @@ describe('POST guarded turns', () => {
       });
       const result = await events(await post({ ...request(), dont_cache: false }));
       expect(result.at(-1)?.type).toBe('turn_error');
-      expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+      expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
       if (mode === 'limit') expect(result.some((e) => e.type === 'turn_delta')).toBe(false);
       if (mode === 'rate')
         expect(result.at(-1)).toMatchObject({ code: 'rate_limited', retryAfter: 86400 });
     }
   );
   it('database failures preserve private completion', async () => {
-    vi.mocked(cache.findCompletedTurn).mockRejectedValue(new Error('db'));
+    vi.mocked(cache.findCompletedArtifact).mockRejectedValue(new Error('db'));
     expect((await events(await post(request()))).at(-1)?.type).toBe('turn_complete');
   });
 });
@@ -307,18 +289,18 @@ it('cacheable producer survives interruption; private branch does not join it', 
   await firstRead;
   expect((await joinedRead).at(-1)?.type).toBe('turn_complete');
   expect((await events(await post(request()))).at(-1)?.type).toBe('turn_complete');
-  expect(cache.publishCompletedTurn).toHaveBeenCalledTimes(1);
+  expect(cache.publishCompletedArtifact).toHaveBeenCalledTimes(1);
 });
 
 it('retains completion during publication and an overlapping stale cache miss', async () => {
   const lookup = deferred();
   const writing = deferred();
   let reads = 0;
-  vi.mocked(cache.findCompletedTurn).mockImplementation(async () => {
+  vi.mocked(cache.findCompletedArtifact).mockImplementation(async () => {
     if (++reads === 1) await lookup.promise;
     return null;
   });
-  vi.mocked(cache.publishCompletedTurn).mockImplementation(async () => {
+  vi.mocked(cache.publishCompletedArtifact).mockImplementation(async () => {
     await writing.promise;
     return true;
   });
@@ -326,7 +308,7 @@ it('retains completion during publication and an overlapping stale cache miss', 
   await vi.waitFor(() => expect(reads).toBe(1));
   const owner = await post({ ...request(), dont_cache: false });
   const ownerRead = events(owner);
-  await vi.waitFor(() => expect(cache.publishCompletedTurn).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => expect(cache.publishCompletedArtifact).toHaveBeenCalledTimes(1));
   const joined = events(await post({ ...request(), dont_cache: false }));
   writing.resolve();
   await ownerRead;
@@ -356,7 +338,7 @@ it('shutdown stops shared production and rejects subsequent shared installs', as
   expect((await events(await post({ ...request(), dont_cache: false }))).at(-1)?.type).toBe(
     'turn_error'
   );
-  expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+  expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
 });
 
 it('coalesces tiny deltas into bounded atomic signatures', async () => {
@@ -378,23 +360,23 @@ it('coalesces tiny deltas into bounded atomic signatures', async () => {
   expect(result.at(-1)?.type).toBe('turn_complete');
 });
 
-it('semantic identity ignores execution ids/origin and changes with exact input and policy', async () => {
+it('cache identity ignores execution and duplicate policy labels but rejects claimed arbitrary suggestions', async () => {
   await events(await post(request()));
   const body = request();
   body.submission.turnId = 'other';
   body.submission.attemptId = 'other';
   body.submission.input.origin = 'suggested_question';
   await events(await post(body));
-  const first = vi.mocked(cache.findCompletedTurn).mock.calls[0][0];
-  expect(vi.mocked(cache.findCompletedTurn).mock.calls[1][0]).toBe(first);
+  const first = vi.mocked(cache.findCompletedArtifact).mock.calls[0][0];
+  expect(vi.mocked(cache.findCompletedArtifact).mock.calls[1][0]).toBe(first);
   body.submission.input.text += ' ';
   await events(await post(body));
-  expect(vi.mocked(cache.findCompletedTurn).mock.calls[2][0]).not.toBe(first);
+  expect(cache.findCompletedArtifact).toHaveBeenCalledTimes(2);
   const old = config.resourcePolicyVersion;
   try {
     config.resourcePolicyVersion = 'changed';
     await events(await post(request()));
-    expect(vi.mocked(cache.findCompletedTurn).mock.calls[3][0]).not.toBe(first);
+    expect(vi.mocked(cache.findCompletedArtifact).mock.calls[2][0]).toBe(first);
   } finally {
     config.resourcePolicyVersion = old;
   }
@@ -448,12 +430,12 @@ it('verifies all history before retaining the configured newest five pairs', asy
     expect.any(AbortSignal)
   );
   expect(instance.stream.mock.calls[0][0].history).toHaveLength(5);
-  vi.mocked(cache.findCompletedTurn).mockClear();
+  vi.mocked(cache.findCompletedArtifact).mockClear();
   body.turns[0].attempts[0].prefix!.markdown += 'tampered';
   expect(await events(await post(body))).toEqual([
     { protocol: 'fluent-turn-v1', type: 'context_changed' },
   ]);
-  expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+  expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
 });
 
 it('normalizes JSON syntax failures without logging submitted content', async () => {
@@ -465,7 +447,7 @@ it('normalizes JSON syntax failures without logging submitted content', async ()
 });
 
 it('failed artifact publication still completes for every subscriber', async () => {
-  vi.mocked(cache.publishCompletedTurn).mockRejectedValue(new Error('database unavailable'));
+  vi.mocked(cache.publishCompletedArtifact).mockRejectedValue(new Error('database unavailable'));
   expect((await events(await post({ ...request(), dont_cache: false }))).at(-1)?.type).toBe(
     'turn_complete'
   );
@@ -486,7 +468,7 @@ it('a disconnected private miss never publishes its partial answer', async () =>
   gate.resolve();
   const wire = await read;
   expect(wire).not.toContain('turn_complete');
-  expect(cache.publishCompletedTurn).not.toHaveBeenCalled();
+  expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
 });
 
 it('requires authentication and endpoint permission before admission work', async () => {
@@ -497,7 +479,7 @@ it('requires authentication and endpoint permission before admission work', asyn
   user.grants = [];
   expect((await post(body)).status).toBe(403);
   expect(receiptsModule.loadReceiptKey).not.toHaveBeenCalled();
-  expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+  expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
 });
 
 it('rejects unsupported languages and unresolved mandatory context before cache access', async () => {
@@ -507,5 +489,5 @@ it('rejects unsupported languages and unresolved mandatory context before cache 
     integritySource: undefined,
   });
   expect((await post(request())).status).toBe(413);
-  expect(cache.findCompletedTurn).not.toHaveBeenCalled();
+  expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
 });
