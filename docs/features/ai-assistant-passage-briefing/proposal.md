@@ -124,8 +124,8 @@ Web owns generic action definitions and rendering/handlers. A private request ma
 `type`, `purpose`, and `template` entries, never JavaScript. API validates a maximum of 32 entries and
 32,768 serialized bytes, rejects duplicate types and unknown entry fields, and safely serializes the
 bounded private catalog. Shared-capable briefing and turn generation instead use API's fixed canonical
-`suggested_question` definition. Initial briefings and cacheable pristine suggested-question turns
-therefore cannot be changed by a client-supplied catalog.
+`suggested_question` definition. Shared-capable initial briefings and cacheable pristine
+suggested-question turns therefore cannot be changed by a client-supplied catalog.
 
 The existing `{{fluent:v1:suggested_question|QUESTION}}` macro is preserved. Web dispatches only recognized actions to local behavior after a user click. Follow-up output carries the widget contract separately from the turn transport protocol. Unknown/malformed output remains inert. There is no BT contract negotiation or acknowledgment mechanism in this increment.
 
@@ -137,11 +137,11 @@ operation/request/receipt identifiers, and transport timing do not enter it. A s
 continues to bind the authenticated actor and authorized context and prevents history tampering and
 cross-user reuse.
 
-Prompt construction consumes that same canonical object. An exact prompt, history, language, output
-constraint, kind, or epoch change intentionally produces a cold cache. There is no separate catalog
-digest: a catalog matters only through the exact provider prompt in the canonical generation input.
-The server canonical catalog protects shared generation, while bounded client catalog changes affect
-only guaranteed no-write private generation.
+Provider-request construction consumes that same canonical object. An exact prompt, history, language,
+output constraint, kind, or epoch change intentionally produces a cold cache. There is no separate
+catalog digest: a catalog matters only through the exact provider prompt in the canonical generation
+input. The server canonical catalog protects shared generation, while bounded client catalog changes
+affect only guaranteed no-write private generation.
 
 A future syntax change can use expand/migrate/contract: support both forms in Web, teach the new form, retire old cached output safely, then remove old rendering support. Do not rewrite serialized output covered by a signature or digest without addressing that binding; purge/epoch is an alternative.
 
@@ -167,22 +167,22 @@ not cached; pre-existing blank cache rows are ignored. Web automatically retries
 Only explicit validated completion means success; partial output stays readable on failure. Recoverable passage-context failures offer Retry; non-retryable failures provide localized next steps. All Assistant interface text uses the existing localization machinery.
 
 Production unhandled-error logging retains method/path/status instead of raw exceptions. Unknown or
-malformed upstream frames may log only the event-type diagnostic, never payload or content. That value
-is bounded to 64 UTF-8 bytes; truncation reserves the final three bytes for ASCII `...` and stops on a
-Unicode code-point boundary. Valid comments and empty frames do not warn. Unused legacy
-request-ID/logger additions have been removed; production HTTP request-correlation integration is not
-part of this change. Independent canonical lookup work runs concurrently; dependent source reads
-preserve ordering.
+malformed upstream frames may log content-free event/type metadata such as reason and `textType`,
+never payload or content. Any logged event-type value is bounded to 64 UTF-8 bytes including its
+suffix; truncation reserves the final three bytes for ASCII `...` and stops on a Unicode code-point
+boundary. Valid comments and empty frames do not warn. Unused legacy request-ID/logger additions have
+been removed; production HTTP request-correlation integration is not part of this change. Independent
+canonical lookup work runs concurrently; dependent source reads preserve ordering.
 
 ## Artifact cache and retention
 
 Migration `0041_assistant_artifacts` remains unchanged as dated evidence. Generator-created
-`0042_assistant_artifacts` creates one `assistant_artifacts` table and generic repository for
-eligible briefing and turn artifacts, then drops the old briefing and turn tables. The unified row has
-exactly `cache_key`, `markdown`, `cache_epoch`, `output_contract_version`, `completed_at`, and
-`expires_at`. `cache_key` is the sole lookup identity; epoch and contract are stored cleanup tags and
-are checked after lookup before replay. Publication remains first-winner with database-clock expiry,
-bounded cleanup, and shutdown.
+`0042_assistant_artifacts` creates one `assistant_artifacts` table and drops the old briefing and turn
+tables. Application code supplies one generic repository for eligible briefing and turn artifacts. The
+unified row has exactly `cache_key`, `markdown`, `cache_epoch`, `output_contract_version`,
+`completed_at`, and `expires_at`. `cache_key` is the sole lookup identity; epoch and contract are stored
+cleanup tags and are checked after lookup before replay. Publication remains first-winner with
+database-clock expiry, bounded cleanup, and shutdown.
 
 The migration deliberately performs no data migration or legacy lookup. QA accepts a cold artifact
 cache and ephemeral receipt reset, and repopulation occurs through normal authorized generation. A
