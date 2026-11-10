@@ -64,6 +64,29 @@ describe('assistant briefing route cache lifecycle', () => {
     expect(publishCompletedArtifact).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['blank', { markdown: '', cacheEpoch: '1', outputContractVersion: 'fluent-widgets-v1' }],
+    [
+      'stale epoch',
+      { markdown: 'stale', cacheEpoch: '0', outputContractVersion: 'fluent-widgets-v1' },
+    ],
+    ['stale contract', { markdown: 'stale', cacheEpoch: '1', outputContractVersion: 'old' }],
+  ])('warns without content before discarding an incompatible %s artifact', async (_kind, row) => {
+    authenticate();
+    vi.mocked(findCompletedArtifact).mockResolvedValue({ cacheKey: 'a'.repeat(64), ...row });
+
+    const body = await (await post(validBody)).text();
+
+    expect(body).toContain('"cacheHit":false');
+    const warning = vi
+      .mocked(logger.warn)
+      .mock.calls.find((call) => call[1] === 'Assistant briefing cached artifact incompatible');
+    expect(warning).toEqual([
+      { attemptId: expect.any(String) },
+      'Assistant briefing cached artifact incompatible',
+    ]);
+  });
+
   it('runs ignore_cache privately and bypasses completed reads, joining, and writes', async () => {
     authenticate();
     const body = await (await post({ ...validBody, ignore_cache: true })).text();
