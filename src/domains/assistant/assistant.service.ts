@@ -336,8 +336,10 @@ export async function createPassageBriefing(
         (!completed.markdown.trim() ||
           completed.cacheEpoch !== config.cacheEpoch ||
           completed.outputContractVersion !== WIDGET_CONTRACT_VERSION)
-      )
+      ) {
+        input.logger.warn({ attemptId }, 'Assistant briefing cached artifact incompatible');
         completed = null;
+      }
     } catch {
       input.logger.warn({ attemptId }, 'Assistant briefing cache read failed');
     } finally {
