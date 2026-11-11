@@ -1,11 +1,11 @@
-import type { PgBoss, QueueResult } from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { logger } from '@/lib/logger';
 import { QUEUE_NAMES } from '@/lib/queue';
-import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
+import { fakeBoss } from '@/test/utils/test-helpers';
 
 import type { WorkerMetricsSnapshot } from './queue-heartbeat';
 
@@ -64,37 +64,28 @@ describe('emitHeartbeatMetrics', () => {
     activeJobs: 3,
   };
 
-  it('emits all aggregate metrics and per-queue backlog metrics with stubbed queue stats', async () => {
+  it('emits all aggregate metrics and per-queue backlog metrics with stubbed queue counts', async () => {
     const { boss, executeSql } = fakeBoss();
-    executeSql.mockImplementation(async (query) => {
-      if (typeof query === 'string' && query.includes('count(*)::int AS count')) {
-        return { rows: [{ count: 5 }] };
-      }
-      return { rows: [] };
-    });
-
-    vi.spyOn(boss, 'getQueueStats').mockImplementation(async (queueName) => {
+    executeSql.mockImplementation(async (query, values) => {
+      const queueName = values?.[0];
       switch (queueName) {
         case QUEUE_NAMES.USFM_EXPORT:
-          return queueResult(queueName, { queuedCount: 1, activeCount: 2, deferredCount: 3 });
+          return { rows: [{ count: 3 }] };
         case QUEUE_NAMES.AI_SUGGESTIONS:
-          return queueResult(queueName, { queuedCount: 4, activeCount: 0, deferredCount: 1 });
+          return { rows: [{ count: 4 }] };
         case QUEUE_NAMES.DBL_INGEST_TEXT:
-          return queueResult(queueName, { queuedCount: 2, activeCount: 1, deferredCount: 0 });
+          return { rows: [{ count: 3 }] };
         case QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY:
-          return queueResult(queueName, { queuedCount: 0, activeCount: 1, deferredCount: 0 });
+          return { rows: [{ count: 1 }] };
+        case QUEUE_NAMES.USFM_IMPORT_MATERIALIZE:
+          return { rows: [{ count: 5 }] };
         default:
-          return null as unknown as QueueResult;
+          return { rows: [{ count: 0 }] };
       }
     });
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    // USFM_EXPORT: queued (1, includes deferred) + active (2) = 3
-    // AI_SUGGESTIONS: 4 + 0 = 4
-    // DBL_INGEST_TEXT: 2 + 1 = 3
-    // DBL_INGEST_TEXT_PRIORITY: 0 + 1 = 1
-    // USFM_IMPORT_MATERIALIZE: 5
     // Total queueSize = 3 + 4 + 3 + 1 + 5 = 16
     // completedAttempts = 10 + 2 = 12
     // avgProcessingTime = 25000 / 12 / 1000 = 2.08s
@@ -127,24 +118,13 @@ describe('emitHeartbeatMetrics', () => {
 
   it('asserts the Worker heartbeat log line is still emitted with the same shape', async () => {
     const { boss, executeSql } = fakeBoss();
-    executeSql.mockImplementation(async (query) => {
-      if (typeof query === 'string' && query.includes('count(*)::int AS count')) {
-        return { rows: [{ count: 1 }] };
-      }
-      return { rows: [] };
+    executeSql.mockImplementation(async () => {
+      return { rows: [{ count: 2 }] };
     });
-
-    vi.spyOn(boss, 'getQueueStats').mockResolvedValue(
-      queueResult('any-queue', {
-        queuedCount: 1,
-        activeCount: 1,
-        deferredCount: 1,
-      })
-    );
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
-    // 4 queues * (1 queued + 1 active = 2) + 1 import = 9
+    // 5 queues * 2 = 10
     expect(logger.info).toHaveBeenCalledWith('Worker heartbeat', {
       scope: 'aggregate_all_queues',
       uptimeSeconds: expect.any(Number),
@@ -152,7 +132,7 @@ describe('emitHeartbeatMetrics', () => {
       processed: 10,
       failed: 2,
       avgProcessingTimeSeconds: 2.08,
-      queueSize: 9,
+      queueSize: 10,
       memory: {
         rssMb: expect.any(Number),
         heapUsedMb: expect.any(Number),
@@ -162,23 +142,16 @@ describe('emitHeartbeatMetrics', () => {
 
   it('asserts per-queue dimensions on worker_queue_size_per_queue for each of the 5 queues', async () => {
     const { boss, executeSql } = fakeBoss();
-    executeSql.mockImplementation(async (query) => {
-      if (typeof query === 'string' && query.includes('count(*)::int AS count')) {
-        return { rows: [{ count: 9 }] };
-      }
-      return { rows: [] };
-    });
-
-    vi.spyOn(boss, 'getQueueStats').mockImplementation(async (queueName) => {
-      if (queueName === QUEUE_NAMES.USFM_EXPORT)
-        return queueResult(queueName, { queuedCount: 10, activeCount: 0, deferredCount: 0 });
-      if (queueName === QUEUE_NAMES.AI_SUGGESTIONS)
-        return queueResult(queueName, { queuedCount: 20, activeCount: 0, deferredCount: 0 });
-      if (queueName === QUEUE_NAMES.DBL_INGEST_TEXT)
-        return queueResult(queueName, { queuedCount: 30, activeCount: 0, deferredCount: 0 });
-      if (queueName === QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY)
-        return queueResult(queueName, { queuedCount: 40, activeCount: 0, deferredCount: 0 });
-      return null as unknown as QueueResult;
+    executeSql.mockImplementation(async (query, values) => {
+      const queueName = values?.[0];
+      const counts: Record<string, number> = {
+        [QUEUE_NAMES.USFM_EXPORT]: 10,
+        [QUEUE_NAMES.AI_SUGGESTIONS]: 20,
+        [QUEUE_NAMES.DBL_INGEST_TEXT]: 30,
+        [QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY]: 40,
+        [QUEUE_NAMES.USFM_IMPORT_MATERIALIZE]: 9,
+      };
+      return { rows: [{ count: counts[queueName as string] ?? 0 }] };
     });
 
     await emitHeartbeatMetrics(boss, baseMetrics);
@@ -195,20 +168,14 @@ describe('emitHeartbeatMetrics', () => {
     ]);
   });
 
-  it('handles null queue stats gracefully without throwing and counts 0', async () => {
+  it('handles zero queue counts gracefully without throwing', async () => {
     const { boss, executeSql } = fakeBoss();
-    executeSql.mockImplementation(async (query) => {
-      if (typeof query === 'string' && query.includes('count(*)::int AS count')) {
-        return { rows: [{ count: 0 }] };
-      }
-      return { rows: [] };
-    });
-
-    vi.spyOn(boss, 'getQueueStats').mockResolvedValue(null as unknown as QueueResult);
+    executeSql.mockResolvedValue({ rows: [{ count: 0 }] });
 
     await emitHeartbeatMetrics(boss, {
       ...baseMetrics,
       jobsProcessed: 0,
+      jobsFailed: 0,
       totalProcessingTime: 0,
     });
 
@@ -219,44 +186,39 @@ describe('emitHeartbeatMetrics', () => {
     });
   });
 
-  it('on stats error, emits memory metrics but no queue metrics and logs error', async () => {
-    const { boss } = fakeBoss();
-    const statsError = new Error('getQueueStats failed');
-    vi.spyOn(boss, 'getQueueStats').mockRejectedValue(statsError);
-
-    await emitHeartbeatMetrics(boss, baseMetrics);
-
-    expect(logger.metric).toHaveBeenCalledWith('worker_rss_mb', expect.any(Number));
-    expect(logger.metric).toHaveBeenCalledWith('worker_heap_used_mb', expect.any(Number));
-    expect(logger.metric).not.toHaveBeenCalledWith('worker_queue_size', expect.anything());
-    expect(logger.metric).not.toHaveBeenCalledWith(
-      'worker_queue_size_per_queue',
-      expect.anything(),
-      expect.anything()
-    );
-    expect(logger.info).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('Error in heartbeat', { error: statsError });
-  });
-
-  it('on countPendingQueueJobs error, emits memory metrics but no queue metrics and logs error', async () => {
+  it('on countPendingQueueJobs error, emits process vitals and liveness trace, but no queue metrics, and logs error', async () => {
     const { boss, executeSql } = fakeBoss();
-    vi.spyOn(boss, 'getQueueStats').mockResolvedValue(
-      queueResult('any-queue', { queuedCount: 0, activeCount: 0, deferredCount: 0 })
-    );
     const dbError = new Error('Database query execution error');
     executeSql.mockRejectedValue(dbError);
 
     await emitHeartbeatMetrics(boss, baseMetrics);
 
+    // Process-level vitals are still emitted
     expect(logger.metric).toHaveBeenCalledWith('worker_rss_mb', expect.any(Number));
     expect(logger.metric).toHaveBeenCalledWith('worker_heap_used_mb', expect.any(Number));
+    expect(logger.metric).toHaveBeenCalledWith('worker_active_jobs', 3);
+    expect(logger.metric).toHaveBeenCalledWith('worker_jobs_processed_total', 10);
+    expect(logger.metric).toHaveBeenCalledWith('worker_jobs_failed_total', 2);
+    expect(logger.metric).toHaveBeenCalledWith('worker_avg_processing_seconds', 2.08);
+
+    // Queue-level metrics are NOT emitted on DB failure
     expect(logger.metric).not.toHaveBeenCalledWith('worker_queue_size', expect.anything());
     expect(logger.metric).not.toHaveBeenCalledWith(
       'worker_queue_size_per_queue',
       expect.anything(),
       expect.anything()
     );
-    expect(logger.info).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith('Error in heartbeat', { error: dbError });
+
+    // 'Worker heartbeat' trace IS still emitted with queueSize: null for deploy verification
+    expect(logger.info).toHaveBeenCalledWith(
+      'Worker heartbeat',
+      expect.objectContaining({
+        scope: 'aggregate_all_queues',
+        queueSize: null,
+      })
+    );
+    expect(logger.error).toHaveBeenCalledWith('Error in heartbeat queue inspection', {
+      error: dbError,
+    });
   });
 });

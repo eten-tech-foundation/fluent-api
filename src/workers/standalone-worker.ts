@@ -22,9 +22,7 @@ import { emitHeartbeatMetrics } from './queue-heartbeat';
 import { registerUSFMExportWorker } from './usfm-export.worker';
 import { startUsfmImportRecovery } from './usfm-import-recovery';
 
-type WorkerMetrics = WorkerMetricsSnapshot;
-
-const workerMetrics: WorkerMetrics = {
+const workerMetrics: WorkerMetricsSnapshot = {
   startTime: Date.now(),
   jobsProcessed: 0,
   jobsFailed: 0,
@@ -76,6 +74,12 @@ async function startWorker() {
 
     logger.info('Worker started and listening for jobs');
 
+    // Emit initial heartbeat on boot so post-deploy verification and ops monitoring
+    // confirm worker liveness immediately without waiting a full 5-minute interval.
+    emitHeartbeatMetrics(boss, workerMetrics).catch((error) => {
+      logger.error('Initial heartbeat failed', { error });
+    });
+
     const cleanupInterval = setInterval(() => {
       deleteExpiredExports().catch((error) => {
         logger.error('Cleanup task failed', { error });
@@ -83,12 +87,10 @@ async function startWorker() {
     }, 3600000);
 
     const heartbeatInterval = setInterval(
-      async () => {
-        try {
-          await emitHeartbeatMetrics(boss, workerMetrics);
-        } catch (error) {
+      () => {
+        emitHeartbeatMetrics(boss, workerMetrics).catch((error) => {
           logger.error('Error in heartbeat', { error });
-        }
+        });
       },
       5 * 60 * 1000
     );

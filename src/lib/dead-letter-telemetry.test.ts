@@ -6,7 +6,6 @@ import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
 const client = vi.hoisted(() => ({
   trackTrace: vi.fn(),
   trackMetric: vi.fn(),
-  metric: vi.fn(),
 }));
 vi.mock('@/env', () => ({
   default: { NODE_ENV: 'production', APPLICATIONINSIGHTS_CONNECTION_STRING: 'test-only' },

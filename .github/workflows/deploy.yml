@@ -192,7 +192,7 @@ jobs:
           echo "Waiting 60s for a worker heartbeat emitted after $verify_started_at..."
           sleep 60
           last_query_error=""
-          for i in $(seq 1 8); do
+          for i in $(seq 1 10); do
             query="traces | where timestamp >= datetime($verify_started_at) | where message contains 'Worker heartbeat' | count"
             encoded_query=$(printf '%s' "$query" | jq -sRr @uri)
             http_code=$(curl -sS -o /tmp/ai_response.json -w "%{http_code}" --max-time 30 \
@@ -205,10 +205,10 @@ jobs:
                 echo "$ENVIRONMENT worker heartbeat detected ($count traces emitted after verification began)."
                 exit 0
               fi
-              echo "No worker heartbeat yet (attempt $i/8)."
+              echo "No worker heartbeat yet (attempt $i/10)."
             else
               last_query_error="HTTP $http_code"
-              echo "App Insights query failed (status: $http_code, attempt $i/8)."
+              echo "App Insights query failed (status: $http_code, attempt $i/10)."
             fi
             sleep 45
           done

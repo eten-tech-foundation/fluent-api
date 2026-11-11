@@ -128,9 +128,9 @@ echo "  Action Group ID:   ${ACTION_GROUP_ID}"
 echo "  Memory Threshold:  ${MEMORY_THRESHOLD_MB} MB"
 echo "================================================================"
 
-# Rule 1: Worker heartbeat missing (Severity 1 / Critical, 15 min window)
+# Rule 1: Worker heartbeat missing (Severity 0 / Critical, 15 min window)
 RULE_1_NAME="fluent-${ENVIRONMENT}-worker-heartbeat-missing"
-RULE_1_KQL="customMetrics | where timestamp > ago(15m) | where name == 'worker_queue_size' | summarize samples = count() | where samples == 0"
+RULE_1_KQL="customMetrics | where timestamp > ago(15m) | where name == 'worker_rss_mb' | summarize samples = count() | where samples == 0"
 
 echo "[1/5] Provisioning Rule 1: ${RULE_1_NAME}..."
 az monitor scheduled-query create \
@@ -140,10 +140,10 @@ az monitor scheduled-query create \
   --condition "count 'heartbeat_missing' > 0" \
   --condition-query heartbeat_missing="${RULE_1_KQL}" \
   --action-groups "${ACTION_GROUP_ID}" \
-  --severity 1 \
+  --severity 0 \
   --evaluation-frequency "5m" \
   --window-size "15m" \
-  --description "Worker heartbeat missing: no worker_queue_size metric received for 15 minutes (worker may be stopped, crashed, or hung)."
+  --description "Worker heartbeat missing: no worker_rss_mb heartbeat metric received for 15 minutes (worker may be stopped, crashed, or hung)."
 
 # Rule 2: DLQ depth > 0 (Severity 2 / Warning, 10 min window)
 RULE_2_NAME="fluent-${ENVIRONMENT}-worker-dlq-depth"

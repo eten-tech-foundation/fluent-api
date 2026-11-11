@@ -23,95 +23,73 @@ export interface WorkerMetricsSnapshot {
   activeJobs: number;
 }
 
+const MONITORED_QUEUES = [
+  QUEUE_NAMES.USFM_EXPORT,
+  QUEUE_NAMES.AI_SUGGESTIONS,
+  QUEUE_NAMES.DBL_INGEST_TEXT,
+  QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
+  QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
+] as const;
 export async function emitHeartbeatMetrics(
   boss: PgBoss,
   metrics: WorkerMetricsSnapshot
 ): Promise<void> {
+  const uptimeSeconds = (Date.now() - metrics.startTime) / 1000;
+  const completedAttempts = metrics.jobsProcessed + metrics.jobsFailed;
+  const avgProcessingTimeMs =
+    completedAttempts > 0 ? metrics.totalProcessingTime / completedAttempts : 0;
+  const avgProcessingTimeSeconds = Number((avgProcessingTimeMs / 1000).toFixed(2));
+
   const memory = process.memoryUsage();
   const rssMb = Math.round(memory.rss / 1024 / 1024);
   const heapUsedMb = Math.round(memory.heapUsed / 1024 / 1024);
 
-  // Emit process memory metrics even if queue reads fail so memory alerts
-  // and worker liveness signals remain active.
+  // Emit process-level vitals unconditionally so worker liveness and memory alerts
+  // remain active even if database queue queries fail.
   logger.metric('worker_rss_mb', rssMb);
   logger.metric('worker_heap_used_mb', heapUsedMb);
+  logger.metric('worker_active_jobs', metrics.activeJobs);
+  logger.metric('worker_jobs_processed_total', metrics.jobsProcessed);
+  logger.metric('worker_jobs_failed_total', metrics.jobsFailed);
+  logger.metric('worker_avg_processing_seconds', avgProcessingTimeSeconds);
 
+  let queueSize: number | null = null;
   try {
-    const uptimeSeconds = (Date.now() - metrics.startTime) / 1000;
-    const completedAttempts = metrics.jobsProcessed + metrics.jobsFailed;
-    const avgProcessingTimeMs =
-      completedAttempts > 0 ? metrics.totalProcessingTime / completedAttempts : 0;
+    // Read live pending rows for all 5 queues via countPendingQueueJobs.
+    // This avoids pg-boss 12.1.1's getQueueStats cached-counter bug on drained queues
+    // and ensures deferred jobs are counted once (state IN ('created', 'retry', 'active')).
+    const queueCounts = await Promise.all(
+      MONITORED_QUEUES.map(async (queueName) => {
+        const count = await countPendingQueueJobs(boss, queueName);
+        return [queueName, count] as const;
+      })
+    );
 
-    // These independent reads are sampled as one heartbeat. Running them concurrently
-    // keeps a slow queue-stat query from delaying the entire sample interval.
-    const [exportStats, aiStats, ingestStats, ingestPriorityStats, importMaterializeCount] =
-      await Promise.all([
-        boss.getQueueStats(QUEUE_NAMES.USFM_EXPORT),
-        boss.getQueueStats(QUEUE_NAMES.AI_SUGGESTIONS),
-        boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT),
-        boss.getQueueStats(QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY),
-        countPendingQueueJobs(boss, QUEUE_NAMES.USFM_IMPORT_MATERIALIZE),
-      ]);
-
-    // In pg-boss, queuedCount already includes deferred jobs (state < active).
-    // Do not add deferredCount separately or deferred jobs are counted twice.
-    const exportQueueSize = (exportStats?.queuedCount || 0) + (exportStats?.activeCount || 0);
-    const aiQueueSize = (aiStats?.queuedCount || 0) + (aiStats?.activeCount || 0);
-    const ingestQueueSize = (ingestStats?.queuedCount || 0) + (ingestStats?.activeCount || 0);
-    const ingestPriorityQueueSize =
-      (ingestPriorityStats?.queuedCount || 0) + (ingestPriorityStats?.activeCount || 0);
-
-    const totalQueued =
-      (exportStats?.queuedCount || 0) +
-      (aiStats?.queuedCount || 0) +
-      (ingestStats?.queuedCount || 0) +
-      (ingestPriorityStats?.queuedCount || 0);
-
-    const totalActive =
-      (exportStats?.activeCount || 0) +
-      (aiStats?.activeCount || 0) +
-      (ingestStats?.activeCount || 0) +
-      (ingestPriorityStats?.activeCount || 0);
-
-    const queueSize = totalQueued + totalActive + importMaterializeCount;
-    const avgProcessingTimeSeconds = Number((avgProcessingTimeMs / 1000).toFixed(2));
-
-    logger.info('Worker heartbeat', {
-      scope: 'aggregate_all_queues',
-      uptimeSeconds: Math.floor(uptimeSeconds),
-      activeJobs: metrics.activeJobs,
-      processed: metrics.jobsProcessed,
-      failed: metrics.jobsFailed,
-      avgProcessingTimeSeconds,
-      queueSize,
-      memory: {
-        rssMb,
-        heapUsedMb,
-      },
-    });
-
+    let total = 0;
+    for (const [queueName, count] of queueCounts) {
+      total += count;
+      logger.metric('worker_queue_size_per_queue', count, { queue: queueName });
+    }
+    queueSize = total;
     logger.metric('worker_queue_size', queueSize);
-    logger.metric('worker_active_jobs', metrics.activeJobs);
-    logger.metric('worker_jobs_processed_total', metrics.jobsProcessed);
-    logger.metric('worker_jobs_failed_total', metrics.jobsFailed);
-    logger.metric('worker_avg_processing_seconds', avgProcessingTimeSeconds);
-
-    logger.metric('worker_queue_size_per_queue', exportQueueSize, {
-      queue: QUEUE_NAMES.USFM_EXPORT,
-    });
-    logger.metric('worker_queue_size_per_queue', aiQueueSize, {
-      queue: QUEUE_NAMES.AI_SUGGESTIONS,
-    });
-    logger.metric('worker_queue_size_per_queue', ingestQueueSize, {
-      queue: QUEUE_NAMES.DBL_INGEST_TEXT,
-    });
-    logger.metric('worker_queue_size_per_queue', ingestPriorityQueueSize, {
-      queue: QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
-    });
-    logger.metric('worker_queue_size_per_queue', importMaterializeCount, {
-      queue: QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
-    });
   } catch (error) {
-    logger.error('Error in heartbeat', { error });
+    logger.error('Error in heartbeat queue inspection', { error });
   }
+
+  // The 'Worker heartbeat' log trace is emitted on every heartbeat, providing
+  // a reliable process liveness trace for deploy verification even if database
+  // queue reads temporarily fail.
+  logger.info('Worker heartbeat', {
+    scope: 'aggregate_all_queues',
+    uptimeSeconds: Math.floor(uptimeSeconds),
+    activeJobs: metrics.activeJobs,
+    processed: metrics.jobsProcessed,
+    failed: metrics.jobsFailed,
+    avgProcessingTimeSeconds,
+    queueSize,
+    memory: {
+      rssMb,
+      heapUsedMb,
+    },
+  });
 }
