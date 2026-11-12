@@ -166,7 +166,10 @@ export class BtServantClient {
         return;
       }
       const decoder = new TextDecoder();
-      let buffer = '';
+      let tail = '';
+      let pending = '';
+      let frameParts: string[] = [];
+      let bufferBytes = 0;
       let previousWasCr = false;
       let accumulated = '';
       idle = setTimeout(abortForDeadline, this.options.idleMs);
@@ -178,17 +181,35 @@ export class BtServantClient {
           return;
         }
         // Normalize SSE line endings while remembering a CR across network chunks.
+        let normalized = '';
         for (const character of decoder.decode(bytes, { stream: true })) {
           if (character === '\n' && previousWasCr) {
             previousWasCr = false;
             continue;
           }
-          buffer += character === '\r' ? '\n' : character;
+          normalized += character === '\r' ? '\n' : character;
           previousWasCr = character === '\r';
         }
-        const frames = buffer.split(/\n\n/);
-        buffer = frames.pop() ?? '';
-        if (Buffer.byteLength(buffer) > this.options.maxFrameBytes) {
+        let buffer = tail + normalized;
+        bufferBytes += Buffer.byteLength(normalized);
+        const frames: string[] = [];
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const frame = frameParts.join('') + pending + buffer.slice(0, boundary);
+          frameParts = [];
+          pending = '';
+          frames.push(frame);
+          bufferBytes -= Buffer.byteLength(frame) + 2;
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf('\n\n');
+        }
+        pending += buffer.slice(0, Math.max(0, buffer.length - 1));
+        tail = buffer.slice(-1);
+        if (pending.length >= 16384) {
+          frameParts.push(pending);
+          pending = '';
+        }
+        if (bufferBytes > this.options.maxFrameBytes) {
           terminal = true;
           controller.abort();
           yield failure('malformed_upstream_response', false);

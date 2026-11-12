@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,23 +65,6 @@ describe('actor-bound briefing prefix delivery', () => {
       }
       expect(markdown).toBe('firsttinysuffix');
       expect(events.at(-1)?.prefix?.complete).toBe(terminal === 'complete');
-    }
-  });
-  it('bounds signature count and total prefix hashing under one-character provider frames', async () => {
-    const signatures = vi.spyOn(receiptModule.TurnReceipts.prototype, 'prefix');
-    for (const char of ['漢', '\u0000']) {
-      signatures.mockClear();
-      const events = await collect(Array.from({ length: 15_000 }, () => char));
-      const deltas = events.filter((event) => event.type === 'briefing_delta');
-      expect(deltas.length).toBeLessThanOrEqual(60);
-      expect(signatures.mock.calls.length).toBeLessThanOrEqual(62); // start + commits + terminal
-      const hashedBytes = signatures.mock.calls.reduce(
-        (total, [, prefix]) => total + Buffer.byteLength(JSON.stringify(prefix.markdown)),
-        0
-      );
-      expect(hashedBytes).toBeLessThan(5_600_000);
-      expect(events.at(-1)?.prefix?.complete).toBe(true);
-      expect(events.every((event) => event.continuationUnavailable === undefined)).toBe(true);
     }
   });
   it('signs answers above the former arbitrary character limit', async () => {

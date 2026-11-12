@@ -2,6 +2,8 @@ import { z } from '@hono/zod-openapi';
 
 import { assistantActionsSchema, assistantErrorSchema } from './assistant.types';
 import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
+import { OUTPUT_DIGEST_ALGORITHM } from './lib/output-digest';
+import { ASSISTANT_FRAME_BYTES } from './lib/wire';
 
 export const historyWindowSchema = z.number().int().min(1).max(50);
 
@@ -19,7 +21,7 @@ export const TURN_LIMITS = {
   messageBytes: 48_000,
   historyFieldChars: 16_000,
   historyBytes: 524_288,
-  frameBytes: 1_048_576,
+  frameBytes: ASSISTANT_FRAME_BYTES,
   connectMs: 10_000,
   idleMs: 45_000,
   totalMs: 180_000,
@@ -195,6 +197,7 @@ export const turnReceiptPayloadSchema = z.discriminatedUnion('kind', [
       outputDigest: digest,
       sequence: integer,
       complete: z.boolean(),
+      outputDigestAlgorithm: z.literal(OUTPUT_DIGEST_ALGORITHM).optional(),
     })
     .strict(),
 ]);

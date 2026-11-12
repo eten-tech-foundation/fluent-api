@@ -30,6 +30,7 @@ export async function* signBriefingDelivery(
     : !context
       ? 'context_too_large'
       : undefined;
+  const signer = receipts?.prefixSigner(receipts.briefingBinding(generationFingerprint));
   let markdown = '';
   let pending = '';
   let sequence = 0;
@@ -44,11 +45,7 @@ export async function* signBriefingDelivery(
           prefix: {
             sequence,
             complete,
-            receipt: receipts.prefix(receipts.briefingBinding(generationFingerprint), {
-              markdown,
-              sequence,
-              complete,
-            }),
+            receipt: signer!.receipt(sequence, complete),
           },
         };
   for await (const event of events) {
@@ -66,6 +63,7 @@ export async function* signBriefingDelivery(
       pending += event.delta;
       if (sequence > 0 && pending.length < 256) continue;
       markdown += pending;
+      signer!.append(pending);
       sequence++;
       yield { ...event, delta: pending, ...metadata(false) };
       pending = '';
@@ -73,12 +71,14 @@ export async function* signBriefingDelivery(
     }
     if (pending) {
       markdown += pending;
+      signer!.append(pending);
       sequence++;
       yield { type: 'briefing_delta', delta: pending, ...metadata(false) };
       pending = '';
     }
     if (event.type === 'briefing_replace') {
       markdown = event.markdown;
+      signer!.replace(markdown);
       sequence++;
       yield { ...event, ...metadata(false) };
       continue;
@@ -97,6 +97,7 @@ export async function* signBriefingDelivery(
   // EOF without a terminal is a transport failure. Preserve the last buffered visible text.
   if (pending) {
     markdown += pending;
+    signer!.append(pending);
     sequence++;
     yield { type: 'briefing_delta', delta: pending, ...metadata(false) };
   }
