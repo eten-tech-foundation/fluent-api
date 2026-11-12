@@ -11,6 +11,7 @@ import {
   turnContextSchema,
   turnReceiptPayloadSchema,
 } from './assistant.turn.types';
+import { OUTPUT_DIGEST_ALGORITHM, OutputDigest } from './lib/output-digest';
 
 type Payload = ReturnType<typeof turnReceiptPayloadSchema.parse>;
 type PrefixBinding = Omit<
@@ -20,6 +21,7 @@ type PrefixBinding = Omit<
   | 'actorId'
   | 'contextDigest'
   | 'kind'
+  | 'outputDigestAlgorithm'
   | 'outputDigest'
   | 'sequence'
   | 'complete'
@@ -80,6 +82,8 @@ export class TurnReceipts {
     return this.sign({ ...this.binding(), kind: 'context' });
   }
 
+  /** Legacy canonical-JSON digest issuance, retained for portable fixtures and non-stream callers.
+   * Streaming delivery uses prefixSigner so work never scales with the accumulated prefix. */
   prefix(
     binding: PrefixBinding,
     prefix: { markdown: string; sequence: number; complete: boolean }
@@ -94,6 +98,29 @@ export class TurnReceipts {
       sequence: prefix.sequence,
       complete: prefix.complete,
     });
+  }
+
+  /** Each delivery owns one incremental state. Snapshots bind exact visible text, sequence,
+   * completion, actor and operation; the signed algorithm marker prevents scheme confusion. */
+  prefixSigner(binding: PrefixBinding) {
+    const output = new OutputDigest();
+    return {
+      append: (text: string) => output.append(text),
+      replace: (text: string) => output.replace(text),
+      receipt: (sequence: number, complete: boolean): string => {
+        if (output.bytes > TURN_LIMITS.outputBytes)
+          throw new Error('Continuation output exceeds limit');
+        return this.sign({
+          ...this.binding(),
+          kind: 'prefix',
+          ...binding,
+          outputDigest: output.snapshot(),
+          sequence,
+          complete,
+          outputDigestAlgorithm: OUTPUT_DIGEST_ALGORITHM,
+        });
+      },
+    };
   }
 
   verify(token: string): Payload | null {
@@ -122,13 +149,19 @@ export class TurnReceipts {
 
   verifyPrefix(prefix: AssistantTurnRequest['briefing'], binding: PrefixBinding): boolean {
     const value = this.verify(prefix.receipt);
+    if (value?.kind !== 'prefix') return false;
+    const output = new OutputDigest();
+    if (value.outputDigestAlgorithm) output.append(prefix.markdown);
+    const outputDigest = value.outputDigestAlgorithm
+      ? output.snapshot()
+      : integrityDigest('output', prefix.markdown);
     return (
-      value?.kind === 'prefix' &&
+      value.kind === 'prefix' &&
       value.operation === binding.operation &&
       value.parentDigest === binding.parentDigest &&
       value.inputDigest === binding.inputDigest &&
       value.projectionDigest === binding.projectionDigest &&
-      value.outputDigest === integrityDigest('output', prefix.markdown) &&
+      value.outputDigest === outputDigest &&
       value.sequence === prefix.sequence &&
       value.complete === prefix.complete
     );

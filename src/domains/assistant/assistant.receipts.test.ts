@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -307,4 +307,64 @@ it('rejects private signed history after its exact provider action catalog chang
   const after = verifyTurnTranscript(receipts, context, value, 2);
   expect(before.ok).toBe(true);
   expect(after).toEqual({ ok: false, code: 'context_changed' });
+});
+
+it('verifies legacy golden receipts alongside incremental snapshots without weakening exact text binding', () => {
+  expect(
+    receipts.verifyPrefix(
+      { ...golden.prefix, receipt: golden.prefixToken },
+      receipts.briefingBinding()
+    )
+  ).toBe(true);
+  const binding = receipts.briefingBinding();
+  const signer = receipts.prefixSigner(binding);
+  let markdown = '';
+  const oldSnapshots: Array<{
+    markdown: string;
+    sequence: number;
+    complete: boolean;
+    receipt: string;
+  }> = [];
+  for (const part of ['a', '\uD83D', '\uDE00', '\u0000', '\uD800']) {
+    markdown += part;
+    signer.append(part);
+    const prefix = {
+      markdown,
+      sequence: oldSnapshots.length + 1,
+      complete: false,
+      receipt: signer.receipt(oldSnapshots.length + 1, false),
+    };
+    expect(receipts.verifyPrefix(prefix, binding)).toBe(true);
+    expect(receipts.verify(prefix.receipt)).toMatchObject({
+      outputDigestAlgorithm: 'sha256-utf16le-v1',
+      outputDigest: createHash('sha256')
+        .update('fluent-turn-v1:output:utf16le-v1\0')
+        .update(Buffer.from(markdown, 'utf16le'))
+        .digest('hex'),
+    });
+    expect(receipts.verifyPrefix({ ...prefix, markdown: `${markdown}x` }, binding)).toBe(false);
+    oldSnapshots.push(prefix);
+  }
+  // UTF-8 replacement would collapse these distinct JS strings; the new digest does not.
+  expect(
+    receipts.verifyPrefix(
+      { ...oldSnapshots.at(-1)!, markdown: `${markdown.slice(0, -1)}\uFFFD` },
+      binding
+    )
+  ).toBe(false);
+  signer.replace('');
+  signer.append('replacement');
+  expect(
+    receipts.verifyPrefix(
+      { markdown: 'replacement', sequence: 6, complete: true, receipt: signer.receipt(6, true) },
+      binding
+    )
+  ).toBe(true);
+  for (const prefix of oldSnapshots) expect(receipts.verifyPrefix(prefix, binding)).toBe(true);
+  const token = signer.receipt(6, true);
+  const [payload, mac] = token.split('.');
+  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  delete decoded.outputDigestAlgorithm;
+  const altered = Buffer.from(JSON.stringify(decoded)).toString('base64url');
+  expect(receipts.verify(`${altered}.${mac}`)).toBeNull();
 });

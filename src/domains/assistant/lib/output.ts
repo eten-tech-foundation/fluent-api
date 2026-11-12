@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 
 import type { BriefingEvent } from '../assistant.client';
 
+import { Utf8Size } from './utf8-size';
+
 /** Emergency memory boundaries, not normal answer-length targets. */
 export const ASSISTANT_SAFETY_LIMITS = {
   answerBytes: 8 * 1024 * 1024,
@@ -20,6 +22,7 @@ export async function* boundedAssistantEvents(
   signal?: AbortSignal
 ): AsyncGenerator<BriefingEvent> {
   let markdown = '';
+  const size = new Utf8Size();
   let retainedBytes = 0;
   let hasContentEvent = false;
   try {
@@ -36,7 +39,7 @@ export async function* boundedAssistantEvents(
           warn?.(
             {
               provider: 'bt-servant',
-              streamedBytes: Buffer.byteLength(markdown),
+              streamedBytes: size.bytes,
               finalBytes: Buffer.byteLength(event.markdown),
             },
             'Assistant complete replaced streamed answer'
@@ -52,7 +55,12 @@ export async function* boundedAssistantEvents(
             : operation.type === 'briefing_replace'
               ? operation.markdown
               : markdown;
-        const answerBytes = Buffer.byteLength(next);
+        const answerBytes =
+          operation.type === 'briefing_delta'
+            ? size.append(operation.delta)
+            : operation.type === 'briefing_replace'
+              ? size.replace(operation.markdown)
+              : size.bytes;
         retainedBytes += Buffer.byteLength(JSON.stringify(operation));
         if (answerBytes > limits.maxOutputBytes || retainedBytes > limits.maxRetainedBytes) {
           warn?.(

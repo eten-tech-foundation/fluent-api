@@ -29,11 +29,11 @@ export async function* deliverTurn(
     contextReceipt: receipts.contextReceipt(),
     projection: verified.projection.projection,
   };
-  let markdown = '';
+  const signer = receipts.prefixSigner(verified.binding);
   let pending = '';
   let sequence = 0;
   const delta = () => {
-    markdown += pending;
+    signer.append(pending);
     const text = pending;
     pending = '';
     sequence++;
@@ -42,7 +42,7 @@ export async function* deliverTurn(
       type: 'turn_delta' as const,
       delta: text,
       sequence,
-      receipt: receipts.prefix(verified.binding, { markdown, sequence, complete: false }),
+      receipt: signer.receipt(sequence, false),
     };
   };
   for await (const event of events) {
@@ -54,14 +54,14 @@ export async function* deliverTurn(
     }
     if (pending) yield delta();
     if (event.type === 'briefing_replace') {
-      markdown = event.markdown;
+      signer.replace(event.markdown);
       sequence++;
       yield {
         ...identity,
         type: 'turn_replace' as const,
-        markdown,
+        markdown: event.markdown,
         sequence,
-        receipt: receipts.prefix(verified.binding, { markdown, sequence, complete: false }),
+        receipt: signer.receipt(sequence, false),
       };
       continue;
     }
@@ -70,7 +70,7 @@ export async function* deliverTurn(
         ...identity,
         type: 'turn_complete' as const,
         sequence,
-        receipt: receipts.prefix(verified.binding, { markdown, sequence, complete: true }),
+        receipt: signer.receipt(sequence, true),
       };
     } else {
       yield {

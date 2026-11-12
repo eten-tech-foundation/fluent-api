@@ -157,7 +157,8 @@ A future syntax change can use expand/migrate/contract: support both forms in We
 | Receipt                                            | 4,096 characters                                                |
 | Canonical source / constructed current message     | 32,000 / 48,000 bytes                                           |
 | History field / serialized provider history        | 16,000 characters / 524,288 bytes                               |
-| Frame                                              | 1,048,576 bytes                                                 |
+| Upstream BT frame                                  | `ASSISTANT_MAX_FRAME_BYTES`: 1 MiB default, 8 MiB maximum       |
+| Emitted whole SSE frame                            | 202,375,168 bytes (6 × 32 MiB answer + 1 MiB envelope reserve)  |
 | Connect / idle / total                             | 10 / 45 / 180 seconds                                           |
 
 Configured provider budgets may tighten these ceilings; the current message must also fit the
@@ -326,3 +327,20 @@ bounds remain independent. A `response_safety_limit` terminal preserves visible 
 and shows a localized warning that it may be incomplete and repeated failures should be reported
 to the deployment administrator. This is distinct from oversized input/context. Diagnostics include
 only byte counts, ceilings, provider and metadata-validity flags, never answer or diagnostic text.
+
+### Incremental snapshots and emitted framing
+
+Append accounting scans only new text and adjusts UTF-8 size for surrogate pairs split across
+deltas. Replacements reset accounting once. Streamed receipts sign a domain-separated SHA-256
+digest of exact UTF-16LE code units, marked by authenticated `outputDigestAlgorithm:
+"sha256-utf16le-v1"`. Hash-state copies produce exact prefix snapshots in constant work per
+commit; replacement starts a new hash. Lone surrogates remain distinguishable. Receipts without
+the marker retain the original canonical-JSON digest verification, and their canonical serialization
+is unchanged. Old valid snapshots therefore remain usable after newer receipts are issued.
+
+The emitted-frame ceiling counts the entire UTF-8 SSE frame, including JSON escaping, id/event/data
+fields and its terminating blank line. The factor of six covers worst-case JSON control-character
+escaping; the 1 MiB reserve covers bounded identity, receipt and metadata overhead. API serialization
+and Web parsing use the same 202,375,168-byte limit, independent of the configurable BT frame ceiling.
+Web HTTP JSON responses remain separately capped at 1 MiB. Both parsers scan only new fragments
+and assemble a full frame once, rather than rescanning a growing partial frame.
