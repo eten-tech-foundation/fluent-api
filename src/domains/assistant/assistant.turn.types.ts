@@ -177,7 +177,8 @@ export const turnContextSchema = z
 export type TurnContext = z.infer<typeof turnContextSchema>;
 
 // Canonical signing bytes are UTF-8 JSON.stringify(schema.parse(payload)); schema field
-// order is protocol order. No optional keys, timestamps, cache ids, or execution ids.
+// order is protocol order. The optional authenticated digest algorithm is absent in legacy
+// receipts. No timestamps, cache ids, or execution ids are signed.
 const binding = {
   protocol: z.literal(TURN_PROTOCOL),
   keyId: id,
@@ -261,8 +262,9 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
   z.object({ protocol: z.literal(TURN_PROTOCOL), type: z.literal('context_changed') }).strict(),
 ]);
 
-// Add alongside existing briefing_started/delta/complete fields. A delivery with no
-// signing configuration or oversized context/output instead sets continuationUnavailable.
+// Add alongside existing briefing_started/delta/replace/complete fields. A delivery with no
+// signing configuration or oversized context instead sets continuationUnavailable.
+// Generation output safety limits terminate with response_safety_limit, retaining visible text.
 // Never use a previously signed prefix with later unsigned text.
 export const briefingIntegrityMetadataSchema = z
   .object({
