@@ -122,7 +122,7 @@ const briefingRoute = createRoute({
     [HttpStatusCodes.OK]: {
       content: { 'text/event-stream': { schema: z.string() } },
       description:
-        'briefing_started, briefing_delta, and one terminal briefing event; periodic safe SSE comments keep the connection active',
+        'briefing_started, briefing_delta (append), briefing_replace (full current answer with signed sequence/receipt), and one terminal briefing event; periodic safe SSE comments keep the connection active',
     },
     [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,
@@ -191,7 +191,7 @@ const turnRoute = createRoute({
     [HttpStatusCodes.OK]: {
       content: { 'text/event-stream': { schema: z.string() } },
       description:
-        'turn_started, turn_delta, and one terminal turn_complete or turn_error; context_changed occurs before start; periodic safe SSE comments keep the connection active',
+        'turn_started, turn_delta (append), turn_replace (full current answer with signed sequence/receipt), and one terminal turn_complete or turn_error; context_changed occurs before start; periodic safe SSE comments keep the connection active',
     },
     [HttpStatusCodes.BAD_REQUEST]: badRequest,
     [HttpStatusCodes.UNAUTHORIZED]: messageError,

@@ -84,10 +84,7 @@ export class TurnReceipts {
     binding: PrefixBinding,
     prefix: { markdown: string; sequence: number; complete: boolean }
   ): string {
-    if (
-      prefix.markdown.length > TURN_LIMITS.outputChars ||
-      Buffer.byteLength(prefix.markdown) > TURN_LIMITS.outputBytes
-    )
+    if (Buffer.byteLength(prefix.markdown) > TURN_LIMITS.outputBytes)
       throw new Error('Continuation output exceeds limit');
     return this.sign({
       ...this.binding(),

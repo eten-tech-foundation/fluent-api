@@ -147,17 +147,18 @@ A future syntax change can use expand/migrate/contract: support both forms in We
 
 ## Bounded contract and operations
 
-| Bound                                          | Turn contract maximum                    |
-| ---------------------------------------------- | ---------------------------------------- |
-| Raw request / serialized submitted turns       | 524,288 / 393,216 bytes                  |
-| Logical user turns / attempts per turn         | 50 / 4                                   |
-| Current input                                  | 4,000 characters and 16,000 UTF-8 bytes  |
-| Generated answer                               | 15,000 characters and 60,000 UTF-8 bytes |
-| Receipt                                        | 4,096 characters                         |
-| Canonical source / constructed current message | 32,000 / 48,000 bytes                    |
-| History field / serialized provider history    | 16,000 characters / 524,288 bytes        |
-| Frame                                          | 1,048,576 bytes                          |
-| Connect / idle / total                         | 10 / 45 / 180 seconds                    |
+| Bound                                              | Turn contract maximum                                           |
+| -------------------------------------------------- | --------------------------------------------------------------- |
+| Raw request / serialized submitted turns           | 524,288 / 393,216 bytes                                         |
+| Logical user turns / attempts per turn             | 50 / 4                                                          |
+| Current input                                      | 4,000 characters and 16,000 UTF-8 bytes                         |
+| Current answer emergency ceiling                   | `ASSISTANT_MAX_OUTPUT_BYTES`: 8 MiB default, 32 MiB maximum     |
+| Total retained normalized stream emergency ceiling | `ASSISTANT_MAX_RETAINED_BYTES`: 64 MiB default, 256 MiB maximum |
+| Receipt                                            | 4,096 characters                                                |
+| Canonical source / constructed current message     | 32,000 / 48,000 bytes                                           |
+| History field / serialized provider history        | 16,000 characters / 524,288 bytes                               |
+| Frame                                              | 1,048,576 bytes                                                 |
+| Connect / idle / total                             | 10 / 45 / 180 seconds                                           |
 
 Configured provider budgets may tighten these ceilings; the current message must also fit the
 configured input budget. Admission bounds apply before expensive receipt verification/provider use.
@@ -304,3 +305,24 @@ Feature flags advertise Web visibility, consistent with the existing advertise-o
 If pericope data does not cover the current verse, the exact-current-verse fallback remains unchanged pending product feedback. Whole-chapter fallback, or a minimal missing-context diagnostic, are discussion options; the nearest preceding pericope can omit the selected verse. The normal same-pericope retention guarantee remains, but uncovered-verse navigation can reset the conversation.
 
 API and Web are coordinated PRs; this document is the shared design narrative rather than a second provider framework.
+
+### Retractable provider progress
+
+BT progress appends Markdown; a `retract` replaces only the current assistant answer with an
+empty string. Optional `iteration` and `chars` metadata never control retraction. Complete is
+authoritative: a different final answer emits one full replacement before completion. Matching
+completion emits none. Initial `briefing_replace` and follow-up `turn_replace` carry `markdown`
+and the next signed sequence/receipt, committing the new full state immediately. Earlier turns,
+questions and composer drafts remain intact. Existing actor-bound signed snapshots remain valid
+after later replacements, including an interruption request already in flight.
+
+Shared producers retain all ordered normalized events, including discarded text and empty
+replacements, for late subscribers. Completed cache artifacts contain only final Markdown.
+Current-answer bytes are measured after replacement; retained bytes include serialized normalized
+events (including completion), without compaction. There is no character-count answer limit.
+The configurable emergency ceilings above are deliberately far beyond normal answers. Web uses
+the API configuration maxima, so it cannot impose a stricter answer ceiling. Frame and duration
+bounds remain independent. A `response_safety_limit` terminal preserves visible partial output
+and shows a localized warning that it may be incomplete and repeated failures should be reported
+to the deployment administrator. This is distinct from oversized input/context. Diagnostics include
+only byte counts, ceilings, provider and metadata-validity flags, never answer or diagnostic text.

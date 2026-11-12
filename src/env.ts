@@ -208,6 +208,7 @@ const EnvBaseSchema = z.object({
   ASSISTANT_TOTAL_TIMEOUT_MS: optionalAssistantValue,
   ASSISTANT_MAX_INPUT_BYTES: optionalAssistantValue,
   ASSISTANT_MAX_OUTPUT_BYTES: optionalAssistantValue,
+  ASSISTANT_MAX_RETAINED_BYTES: optionalAssistantValue,
   ASSISTANT_MAX_FRAME_BYTES: optionalAssistantValue,
 
   // ── Feature flags (EN_FEATURE_*) ──────────────────────────────────────

@@ -55,10 +55,10 @@ describe('bt multi-response completion contract', () => {
     ]);
   });
 
-  it('emits complete-only responses as one single-newline delta', async () => {
+  it('emits complete-only responses as one single-newline replacement', async () => {
     const sse = 'data: {"type":"complete","response":{"responses":["first","second"]}}\n\n';
     expect(await stream(sse)).toEqual([
-      { type: 'briefing_delta', delta: 'first\nsecond' },
+      { type: 'briefing_replace', markdown: 'first\nsecond' },
       { type: 'briefing_complete', markdown: 'first\nsecond' },
     ]);
   });

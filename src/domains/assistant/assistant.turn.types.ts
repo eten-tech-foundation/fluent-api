@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 
 import { assistantActionsSchema, assistantErrorSchema } from './assistant.types';
+import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
 
 export const historyWindowSchema = z.number().int().min(1).max(50);
 
@@ -12,8 +13,7 @@ export const TURN_LIMITS = {
   attemptsPerTurn: 4,
   inputChars: 4_000,
   inputBytes: 16_000,
-  outputChars: 15_000,
-  outputBytes: 60_000,
+  outputBytes: ASSISTANT_SAFETY_LIMITS.maximumAnswerBytes,
   receiptChars: 4_096,
   sourceBytes: 32_000,
   messageBytes: 48_000,
@@ -48,7 +48,9 @@ const receipt = z
   .min(1)
   .max(TURN_LIMITS.receiptChars)
   .regex(/^[\w.-]+$/);
-const markdown = text(TURN_LIMITS.outputChars, TURN_LIMITS.outputBytes);
+const markdown = z
+  .string()
+  .refine((value) => new TextEncoder().encode(value).byteLength <= TURN_LIMITS.outputBytes);
 const input = z
   .object({
     text: text(TURN_LIMITS.inputChars, TURN_LIMITS.inputBytes).refine(
@@ -230,6 +232,15 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
       ...eventBinding,
       type: z.literal('turn_delta'),
       delta: markdown,
+      sequence: integer,
+      receipt,
+    })
+    .strict(),
+  z
+    .object({
+      ...eventBinding,
+      type: z.literal('turn_replace'),
+      markdown,
       sequence: integer,
       receipt,
     })

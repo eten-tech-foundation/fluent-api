@@ -4,7 +4,8 @@ import type { TurnContext } from './assistant.turn.types';
 import { generationInputFingerprint } from './assistant.generation-input';
 import { integrityDigest, visibleBranch } from './assistant.receipts';
 import { isSharedTurnEligible, projectVerifiedTurn } from './assistant.turn.prompt';
-import { assistantTurnRequestSchema, TURN_LIMITS, turnContextSchema } from './assistant.turn.types';
+import { assistantTurnRequestSchema, turnContextSchema } from './assistant.turn.types';
+import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
 
 function projectionDigest(
   projection: Extract<ReturnType<typeof projectVerifiedTurn>, { ok: true }>
@@ -49,7 +50,7 @@ export function verifyTurnTranscript(
   if (briefingPayload?.kind !== 'prefix') return changed;
   const resolvedCompatibility = compatibility ?? {
     cacheEpoch: context.epoch,
-    maxOutputBytes: TURN_LIMITS.outputBytes,
+    maxOutputBytes: ASSISTANT_SAFETY_LIMITS.answerBytes,
     canonicalBriefingFingerprint: briefingPayload.projectionDigest,
   };
   const sharedBriefing =

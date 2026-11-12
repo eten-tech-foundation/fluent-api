@@ -3,6 +3,8 @@ import { z } from '@hono/zod-openapi';
 import env from '@/env';
 import { logger } from '@/lib/logger';
 
+import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
+
 const groundingSchema = z.object({
   resourceLanguage: z.string().min(1).max(20),
   instruction: z.string().max(500).default(''),
@@ -29,7 +31,8 @@ const DEFAULTS = {
   idleMs: 45_000,
   totalMs: 180_000,
   maxInputBytes: 48_000,
-  maxOutputBytes: 96_000,
+  maxOutputBytes: ASSISTANT_SAFETY_LIMITS.answerBytes,
+  maxRetainedBytes: ASSISTANT_SAFETY_LIMITS.retainedBytes,
   maxFrameBytes: 1_048_576,
 } as const;
 
@@ -47,6 +50,7 @@ interface AssistantEnvInput {
   ASSISTANT_TOTAL_TIMEOUT_MS?: string;
   ASSISTANT_MAX_INPUT_BYTES?: string;
   ASSISTANT_MAX_OUTPUT_BYTES?: string;
+  ASSISTANT_MAX_RETAINED_BYTES?: string;
   ASSISTANT_MAX_FRAME_BYTES?: string;
 }
 
@@ -152,6 +156,7 @@ export function parseAssistantConfig(input: AssistantEnvInput) {
     ASSISTANT_TOTAL_TIMEOUT_MS: normalize(input.ASSISTANT_TOTAL_TIMEOUT_MS),
     ASSISTANT_MAX_INPUT_BYTES: normalize(input.ASSISTANT_MAX_INPUT_BYTES),
     ASSISTANT_MAX_OUTPUT_BYTES: normalize(input.ASSISTANT_MAX_OUTPUT_BYTES),
+    ASSISTANT_MAX_RETAINED_BYTES: normalize(input.ASSISTANT_MAX_RETAINED_BYTES),
     ASSISTANT_MAX_FRAME_BYTES: normalize(input.ASSISTANT_MAX_FRAME_BYTES),
   };
   if (
@@ -193,14 +198,29 @@ export function parseAssistantConfig(input: AssistantEnvInput) {
   const maxOutputBytes = positiveInteger(
     trimmed.ASSISTANT_MAX_OUTPUT_BYTES,
     DEFAULTS.maxOutputBytes,
-    1_048_576
+    ASSISTANT_SAFETY_LIMITS.maximumAnswerBytes
+  );
+  const maxRetainedBytes = positiveInteger(
+    trimmed.ASSISTANT_MAX_RETAINED_BYTES,
+    DEFAULTS.maxRetainedBytes,
+    ASSISTANT_SAFETY_LIMITS.maximumRetainedBytes
   );
   const maxFrameBytes = positiveInteger(
     trimmed.ASSISTANT_MAX_FRAME_BYTES,
     DEFAULTS.maxFrameBytes,
     8_388_608
   );
-  if ([connectMs, idleMs, totalMs, maxInputBytes, maxOutputBytes, maxFrameBytes].includes(null))
+  if (
+    [
+      connectMs,
+      idleMs,
+      totalMs,
+      maxInputBytes,
+      maxOutputBytes,
+      maxRetainedBytes,
+      maxFrameBytes,
+    ].includes(null)
+  )
     return null;
   if (connectMs! > totalMs! || idleMs! > totalMs!) return null;
   const operationVersion = trimmed.ASSISTANT_OPERATION_VERSION ?? DEFAULTS.operationVersion;
@@ -230,6 +250,7 @@ export function parseAssistantConfig(input: AssistantEnvInput) {
       totalMs: totalMs!,
       maxInputBytes: maxInputBytes!,
       maxOutputBytes: maxOutputBytes!,
+      maxRetainedBytes: maxRetainedBytes!,
       maxFrameBytes: maxFrameBytes!,
     },
   };

@@ -12,7 +12,7 @@ const input = (overrides: Partial<AssistantGenerationInput> = {}): AssistantGene
   outputConstraints: {
     contractVersion: 'fluent-widgets-v1',
     maxBytes: 60_000,
-    completionMustMatchStream: true,
+    completeIsAuthoritative: true,
     requireNonBlank: true,
   },
   cacheEpoch: '1',

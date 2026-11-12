@@ -41,6 +41,7 @@ export const assistantErrorSchema = z.object({
     'invalid_configuration',
     'unsupported_language',
     'context_too_large',
+    'response_safety_limit',
     'rate_limited',
     'generation_busy',
     'timed_out',

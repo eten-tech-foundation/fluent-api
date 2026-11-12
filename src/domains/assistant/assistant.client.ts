@@ -2,10 +2,13 @@ import { Buffer } from 'node:buffer';
 
 import type { AssistantError } from './assistant.types';
 
+import { ASSISTANT_SAFETY_LIMITS, boundedAssistantEvents } from './lib/output';
+
 export type BriefingFailureCode = AssistantError['code'];
 
 export type BriefingEvent =
   | { type: 'briefing_delta'; delta: string }
+  | { type: 'briefing_replace'; markdown: string }
   | { type: 'briefing_complete'; markdown: string }
   | { type: 'briefing_error'; code: BriefingFailureCode; retryable: boolean; retryAfter?: number };
 
@@ -22,6 +25,7 @@ interface ClientOptions {
   idleMs: number;
   totalMs: number;
   maxOutputBytes: number;
+  maxRetainedBytes?: number;
   maxFrameBytes: number;
   fetch?: typeof globalThis.fetch;
   warn?: (data: unknown, message: string) => void;
@@ -30,6 +34,7 @@ interface ClientOptions {
 const VALID_ACTIVITY_EVENTS = new Set([
   'status',
   'progress',
+  'retract',
   'tool_use',
   'tool_result',
   'keepalive',
@@ -77,7 +82,27 @@ function parseRetryAfter(value: string | null): number | undefined {
 export class BtServantClient {
   constructor(private readonly options: ClientOptions) {}
 
-  async *stream(
+  stream(
+    request: {
+      userId: string;
+      message: string;
+      responseLanguageHint: string;
+      history?: BtHistoryPair[];
+    },
+    signal?: AbortSignal
+  ): AsyncGenerator<BriefingEvent> {
+    return boundedAssistantEvents(
+      this.read(request, signal),
+      {
+        maxOutputBytes: this.options.maxOutputBytes,
+        maxRetainedBytes: this.options.maxRetainedBytes ?? ASSISTANT_SAFETY_LIMITS.retainedBytes,
+      },
+      this.options.warn,
+      signal
+    );
+  }
+
+  private async *read(
     request: {
       userId: string;
       message: string;
@@ -144,7 +169,6 @@ export class BtServantClient {
       let buffer = '';
       let previousWasCr = false;
       let accumulated = '';
-      let outputBytes = 0;
       idle = setTimeout(abortForDeadline, this.options.idleMs);
       for await (const bytes of response.body as unknown as AsyncIterable<Uint8Array>) {
         if (subscriberCancelled) return;
@@ -228,13 +252,6 @@ export class BtServantClient {
             idle = setTimeout(abortForDeadline, this.options.idleMs);
           }
           if (eventRecord.type === 'progress' && typeof eventRecord.text === 'string') {
-            outputBytes += Buffer.byteLength(eventRecord.text);
-            if (outputBytes > this.options.maxOutputBytes) {
-              terminal = true;
-              controller.abort();
-              yield failure('context_too_large', false);
-              return;
-            }
             accumulated += eventRecord.text;
             if (subscriberCancelled) return;
             if (deadlineExpired) {
@@ -243,6 +260,18 @@ export class BtServantClient {
               return;
             }
             yield { type: 'briefing_delta', delta: eventRecord.text };
+          } else if (eventRecord.type === 'retract') {
+            this.options.warn?.(
+              {
+                provider: 'bt-servant',
+                previousBytes: Buffer.byteLength(accumulated),
+                iterationValid: Number.isSafeInteger(eventRecord.iteration),
+                charsMatch: eventRecord.chars === accumulated.length,
+              },
+              'Assistant upstream retract'
+            );
+            accumulated = '';
+            yield { type: 'briefing_replace', markdown: '' };
           } else if (eventRecord.type === 'complete') {
             const responseRecord =
               eventRecord.response && typeof eventRecord.response === 'object'
@@ -254,33 +283,15 @@ export class BtServantClient {
                 ? responses.join('\n')
                 : null;
             terminal = true;
-            if (
-              typeof final !== 'string' ||
-              !final.trim() ||
-              (accumulated.length > 0 && final !== accumulated)
-            ) {
+            if (typeof final !== 'string' || !final.trim()) {
               yield failure('malformed_upstream_response', false);
             } else {
-              if (accumulated.length === 0 && final.length > 0) {
-                const finalBytes = Buffer.byteLength(final);
-                if (finalBytes > this.options.maxOutputBytes) {
-                  yield failure('context_too_large', false);
-                  return;
-                }
-                accumulated = final;
-                if (subscriberCancelled) return;
-                if (deadlineExpired) {
-                  yield failure('timed_out', true);
-                  return;
-                }
-                yield { type: 'briefing_delta', delta: final };
-              }
               if (subscriberCancelled) return;
               if (deadlineExpired) {
                 yield failure('timed_out', true);
                 return;
               }
-              yield { type: 'briefing_complete', markdown: accumulated };
+              yield { type: 'briefing_complete', markdown: final };
             }
             return;
           } else if (eventRecord.type === 'error') {

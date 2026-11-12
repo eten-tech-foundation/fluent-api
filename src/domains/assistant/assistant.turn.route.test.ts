@@ -227,12 +227,14 @@ describe('POST guarded turns', () => {
     expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
     expect(BtServantClient).toHaveBeenCalledTimes(1);
   });
-  it.each(['limit', 'replace', 'eof', 'throw', 'rate', 'timeout'])(
+  it.each(['limit', 'eof', 'throw', 'rate', 'timeout'])(
     'never publishes failed/partial %s output',
     async (mode) => {
       source(async function* () {
-        yield { type: 'briefing_delta', delta: mode === 'limit' ? 'x'.repeat(15001) : 'partial' };
-        if (mode === 'replace') yield { type: 'briefing_complete', markdown: 'replacement' };
+        yield {
+          type: 'briefing_delta',
+          delta: mode === 'limit' ? 'x'.repeat(8 * 1024 * 1024 + 1) : 'partial',
+        };
         if (mode === 'throw') throw new Error('private details');
         if (mode === 'timeout')
           yield { type: 'briefing_error', code: 'timed_out', retryable: true };
