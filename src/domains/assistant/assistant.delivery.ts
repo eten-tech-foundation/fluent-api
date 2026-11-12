@@ -2,7 +2,7 @@ import type { TurnContext } from './assistant.turn.types';
 import type { PublicBriefingEvent } from './assistant.types';
 
 import { loadReceiptKey, TurnReceipts } from './assistant.receipts';
-import { TURN_LIMITS, TURN_PROTOCOL } from './assistant.turn.types';
+import { TURN_PROTOCOL } from './assistant.turn.types';
 
 interface IntegrityMetadata {
   protocol?: typeof TURN_PROTOCOL;
@@ -14,8 +14,7 @@ interface IntegrityMetadata {
 
 /** Sign on authorized delivery, never in shared producers/cache artifacts.
  * First content is immediate; subsequent commits coalesce at 256 UTF-16 units.
- * At most 60 content signatures + completion per bounded 15,000-unit output;
- * fewer than 5.6 MB of canonical prefix hashing, including worst-case JSON escaping.
+ * Replacements commit the entire current answer immediately.
  * Terminal/error flushes commit pending text and its receipt atomically.
  */
 export async function* signBriefingDelivery(
@@ -26,7 +25,7 @@ export async function* signBriefingDelivery(
 ): AsyncGenerator<PublicBriefingEvent & IntegrityMetadata> {
   const key = loadReceiptKey();
   const receipts = key && context ? new TurnReceipts(key, actorId, context) : null;
-  let unavailable: IntegrityMetadata['continuationUnavailable'] = !key
+  const unavailable: IntegrityMetadata['continuationUnavailable'] = !key
     ? 'temporarily_unavailable'
     : !context
       ? 'context_too_large'
@@ -68,11 +67,6 @@ export async function* signBriefingDelivery(
       if (sequence > 0 && pending.length < 256) continue;
       markdown += pending;
       sequence++;
-      if (
-        markdown.length > TURN_LIMITS.outputChars ||
-        new TextEncoder().encode(markdown).byteLength > TURN_LIMITS.outputBytes
-      )
-        unavailable = 'context_too_large';
       yield { ...event, delta: pending, ...metadata(false) };
       pending = '';
       continue;
@@ -80,13 +74,14 @@ export async function* signBriefingDelivery(
     if (pending) {
       markdown += pending;
       sequence++;
-      if (
-        markdown.length > TURN_LIMITS.outputChars ||
-        new TextEncoder().encode(markdown).byteLength > TURN_LIMITS.outputBytes
-      )
-        unavailable = 'context_too_large';
       yield { type: 'briefing_delta', delta: pending, ...metadata(false) };
       pending = '';
+    }
+    if (event.type === 'briefing_replace') {
+      markdown = event.markdown;
+      sequence++;
+      yield { ...event, ...metadata(false) };
+      continue;
     }
     if (event.type === 'briefing_complete' && event.markdown !== markdown) {
       yield {
@@ -103,11 +98,6 @@ export async function* signBriefingDelivery(
   if (pending) {
     markdown += pending;
     sequence++;
-    if (
-      markdown.length > TURN_LIMITS.outputChars ||
-      new TextEncoder().encode(markdown).byteLength > TURN_LIMITS.outputBytes
-    )
-      unavailable = 'context_too_large';
     yield { type: 'briefing_delta', delta: pending, ...metadata(false) };
   }
 }

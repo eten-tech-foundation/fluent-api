@@ -83,7 +83,7 @@ describe('BT stream normalization'.toLowerCase(), () => {
     ]);
   });
 
-  it('rejects final/delta mismatch and unexpected EOF without provider content', async () => {
+  it('repairs final/delta mismatch and rejects unexpected EOF', async () => {
     const mismatch = new BtServantClient({
       ...options,
       fetch: async () =>
@@ -91,11 +91,10 @@ describe('BT stream normalization'.toLowerCase(), () => {
           'data: {"type":"progress","text":"a"}\n\ndata: {"type":"complete","response":{"responses":["b"]}}\n\n',
         ]),
     });
-    expect((await collect(mismatch)).at(-1)).toEqual({
-      type: 'briefing_error',
-      code: 'malformed_upstream_response',
-      retryable: false,
-    });
+    expect((await collect(mismatch)).slice(-2)).toEqual([
+      { type: 'briefing_replace', markdown: 'b' },
+      { type: 'briefing_complete', markdown: 'b' },
+    ]);
     const eof = new BtServantClient({
       ...options,
       fetch: async () => response(['data: {"type":"status"}\n\n']),
@@ -128,14 +127,14 @@ describe('BT stream normalization'.toLowerCase(), () => {
     expect(JSON.stringify(events)).not.toContain('bt-secret-limit');
   });
 
-  it('emits a complete-only BT response as one final delta before completion', async () => {
+  it('emits a complete-only BT response as one final replacement before completion', async () => {
     const client = new BtServantClient({
       ...options,
       fetch: async () =>
         response(['data: {"type":"complete","response":{"responses":["complete only"]}}\n\n']),
     });
     expect(await collect(client)).toEqual([
-      { type: 'briefing_delta', delta: 'complete only' },
+      { type: 'briefing_replace', markdown: 'complete only' },
       { type: 'briefing_complete', markdown: 'complete only' },
     ]);
   });
@@ -167,7 +166,7 @@ describe('BT stream normalization'.toLowerCase(), () => {
         response(['data: {"type":"complete","response":{"responses":["ab"]}}\n\n']),
     });
     expect(await collect(client)).toEqual([
-      { type: 'briefing_error', code: 'context_too_large', retryable: false },
+      { type: 'briefing_error', code: 'response_safety_limit', retryable: false },
     ]);
   });
 
@@ -185,7 +184,7 @@ describe('BT stream normalization'.toLowerCase(), () => {
       fetch: async () => response(['data: {"type":"progress","text":"ab"}\n\n']),
     });
     expect(await collect(overflow)).toEqual([
-      { type: 'briefing_error', code: 'context_too_large', retryable: false },
+      { type: 'briefing_error', code: 'response_safety_limit', retryable: false },
     ]);
     const exact = new BtServantClient({
       ...options,

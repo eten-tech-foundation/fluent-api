@@ -86,13 +86,12 @@ describe('turn v1 shared contract', () => {
   it('bounds exact input, receipt, output and identifier lengths without trimming', () => {
     const value = request();
     value.submission.input.text = ` ${'a'.repeat(TURN_LIMITS.inputChars - 2)} `;
-    value.briefing.markdown = 'a'.repeat(TURN_LIMITS.outputChars);
+    value.briefing.markdown = 'a'.repeat(60_001);
     value.contextReceipt = 'r'.repeat(TURN_LIMITS.receiptChars);
     value.submission.turnId = 'x'.repeat(64);
     expect(assistantTurnRequestSchema.parse(value)).toEqual(value);
     for (const oversized of [
       { ...value, contextReceipt: `${value.contextReceipt}x` },
-      { ...value, briefing: { ...value.briefing, markdown: `${value.briefing.markdown}x` } },
       { ...value, submission: { ...value.submission, turnId: 'x'.repeat(65) } },
       {
         ...value,
@@ -162,7 +161,10 @@ describe('turn v1 shared contract', () => {
     value.verses = Array.from({ length: 201 }, () => context().verses[0]);
     expect(turnContextSchema.safeParse(value).success).toBe(false);
     expect(
-      assistantTurnEventSchema.safeParse({ ...fixture.events[1], delta: 'x'.repeat(15001) }).success
+      assistantTurnEventSchema.safeParse({
+        ...fixture.events[1],
+        delta: 'x'.repeat(TURN_LIMITS.outputBytes + 1),
+      }).success
     ).toBe(false);
     expect(
       assistantTurnEventSchema.safeParse({ ...fixture.events[3], retryAfter: 86401 }).success
@@ -327,7 +329,7 @@ describe('verified provider projection', () => {
       suppress_memory: true,
     });
     expect(events).toEqual([
-      { type: 'briefing_delta', delta: 'answer' },
+      { type: 'briefing_replace', markdown: 'answer' },
       { type: 'briefing_complete', markdown: 'answer' },
     ]);
   });

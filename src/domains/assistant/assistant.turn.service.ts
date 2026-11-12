@@ -34,7 +34,7 @@ import { btUserId, SHARED_ASSISTANT_ACTIONS, WIDGET_CONTRACT_VERSION } from './a
 import { loadReceiptKey, TurnReceipts } from './assistant.receipts';
 import * as repo from './assistant.repository';
 import { verifyTurnTranscript } from './assistant.transcript';
-import { boundedTurnEvents, deliverTurn } from './assistant.turn.delivery';
+import { deliverTurn } from './assistant.turn.delivery';
 import { isSharedTurnEligible } from './assistant.turn.prompt';
 import {
   assistantTurnRequestSchema,
@@ -43,6 +43,7 @@ import {
 } from './assistant.turn.types';
 import { assistantFailure } from './assistant.types';
 import * as cacheRepo from './cache/assistant-cache.repository';
+import { boundedAssistantEvents } from './lib/output';
 
 interface TurnInput {
   projectId: number;
@@ -131,11 +132,14 @@ export async function createPassageTurn(
   const operationId = crypto.randomUUID();
   const warn = () => input.logger.warn({ operationId }, 'Assistant turn cache unavailable');
   const source = (signal: AbortSignal) =>
-    boundedTurnEvents(
+    boundedAssistantEvents(
       createAssistantClient(config, input.logger.warn.bind(input.logger), budgets).stream(
         providerRequest(projection.generationInput, btUserId(input.userId)),
         signal
-      )
+      ),
+      budgets,
+      input.logger.warn.bind(input.logger),
+      signal
     );
   const deliver = (
     events: AsyncIterable<BriefingEvent>,
@@ -158,7 +162,6 @@ export async function createPassageTurn(
         (!completed.markdown.trim() ||
           completed.outputContractVersion !== WIDGET_CONTRACT_VERSION ||
           completed.cacheEpoch !== config.cacheEpoch ||
-          completed.markdown.length > TURN_LIMITS.outputChars ||
           Buffer.byteLength(completed.markdown) > budgets.maxOutputBytes)
       ) {
         warn();

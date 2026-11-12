@@ -9,8 +9,7 @@ import { integrityDigest } from './assistant.receipts';
 export interface AssistantOutputConstraints {
   contractVersion: string;
   maxBytes: number;
-  maxChars?: number;
-  completionMustMatchStream: true;
+  completeIsAuthoritative: true;
   requireNonBlank: true;
 }
 
@@ -48,7 +47,7 @@ export function createBriefingGenerationInput(input: {
     outputConstraints: {
       contractVersion: WIDGET_CONTRACT_VERSION,
       maxBytes: input.maxOutputBytes,
-      completionMustMatchStream: true,
+      completeIsAuthoritative: true,
       requireNonBlank: true,
     },
     cacheEpoch: input.cacheEpoch,

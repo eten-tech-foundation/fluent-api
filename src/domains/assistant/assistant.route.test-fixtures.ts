@@ -107,7 +107,8 @@ export const config = {
     idleMs: 20,
     totalMs: 30,
     maxInputBytes: 20_000,
-    maxOutputBytes: 60_000,
+    maxOutputBytes: 8 * 1024 * 1024,
+    maxRetainedBytes: 64 * 1024 * 1024,
     maxFrameBytes: 1_000_000,
   },
 };

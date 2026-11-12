@@ -85,7 +85,7 @@ describe('actor-bound briefing prefix delivery', () => {
       expect(events.every((event) => event.continuationUnavailable === undefined)).toBe(true);
     }
   });
-  it('preserves ordinary oversized briefings while refusing unsigned continuation', async () => {
+  it('signs answers above the former arbitrary character limit', async () => {
     const events = await collect(['a', 'x'.repeat(15_000), 'tail']);
     expect(
       events
@@ -95,9 +95,8 @@ describe('actor-bound briefing prefix delivery', () => {
     ).toBe(`a${'x'.repeat(15_000)}tail`);
     expect(events.at(-1)).toMatchObject({
       type: 'briefing_complete',
-      continuationUnavailable: 'context_too_large',
     });
-    expect(events.at(-1)?.prefix).toBeUndefined();
+    expect(events.at(-1)?.prefix?.complete).toBe(true);
   });
   it('does not replace committed text with terminal-only text', async () => {
     const events = await collect(['visible'], 'replacement');
@@ -129,4 +128,36 @@ describe('actor-bound briefing prefix delivery', () => {
       continuationUnavailable: 'context_too_large',
     });
   });
+});
+
+it('signs each replacement and still verifies a pre-retract snapshot already in flight', async () => {
+  vi.spyOn(receiptModule, 'loadReceiptKey').mockReturnValue(key);
+  const raw = async function* (): AsyncGenerator<PublicBriefingEvent> {
+    yield started;
+    yield { type: 'briefing_delta', delta: 'visible provisional' };
+    yield { type: 'briefing_replace', markdown: '' };
+    yield { type: 'briefing_delta', delta: 'new answer' };
+    yield { type: 'briefing_replace', markdown: 'authoritative final' };
+    yield { type: 'briefing_complete', markdown: 'authoritative final' };
+  };
+  const events = await Array.fromAsync(signBriefingDelivery(raw(), 17, context));
+  const receipts = new receiptModule.TurnReceipts(key, 17, context);
+  let markdown = '';
+  for (const event of events) {
+    if (event.type === 'briefing_delta') markdown += event.delta;
+    if (event.type === 'briefing_replace') markdown = event.markdown;
+    expect(
+      receipts.verifyPrefix(
+        { markdown, ...event.prefix! },
+        receipts.briefingBinding('0'.repeat(64))
+      )
+    ).toBe(true);
+  }
+  expect(events.map((event) => event.prefix?.sequence)).toEqual([0, 1, 2, 3, 4, 4]);
+  expect(
+    receipts.verifyPrefix(
+      { markdown: 'visible provisional', ...events[1].prefix! },
+      receipts.briefingBinding('0'.repeat(64))
+    )
+  ).toBe(true);
 });

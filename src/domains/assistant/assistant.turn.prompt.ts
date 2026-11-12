@@ -109,8 +109,7 @@ Current question (JSON): ${safeJson(request.submission.input.text)}`;
     outputConstraints: {
       contractVersion: WIDGET_CONTRACT_VERSION,
       maxBytes: compatibility.maxOutputBytes,
-      maxChars: TURN_LIMITS.outputChars,
-      completionMustMatchStream: true,
+      completeIsAuthoritative: true,
       requireNonBlank: true,
     },
     cacheEpoch: compatibility.cacheEpoch,
