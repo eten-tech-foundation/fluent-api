@@ -138,11 +138,9 @@ The following table summarizes the five scheduled-query alert rules provisioned 
   | where name == 'worker_queue_size'
   | extend workerInstance = tostring(cloud_RoleInstance)
   | summarize sampleCount = count(),
-              earliest = arg_min(timestamp, value),
-              latest = arg_max(timestamp, value)
+              (earliestTimestamp, earliestValue) = arg_min(timestamp, value),
+              (latestTimestamp, latestValue) = arg_max(timestamp, value)
     by workerInstance
-  | extend earliestValue = todouble(earliest_value),
-           latestValue = todouble(latest_value)
   | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10
   ```
 - **Context**: A sustained upward trend in total queued/active/retry jobs across all queues suggests that work is arriving faster than the worker can process it, or that jobs are stalling.

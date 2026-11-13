@@ -181,7 +181,7 @@ az monitor scheduled-query create \
 
 # Rule 4: Queue backlog growing (Severity 2 / Warning, 30 min window)
 RULE_4_NAME="fluent-${ENVIRONMENT}-worker-queue-backlog-growing"
-RULE_4_KQL="customMetrics | where timestamp > ago(30m) | where name == 'worker_queue_size' | extend workerInstance = tostring(cloud_RoleInstance) | summarize sampleCount = count(), earliest = arg_min(timestamp, value), latest = arg_max(timestamp, value) by workerInstance | extend earliestValue = todouble(earliest_value), latestValue = todouble(latest_value) | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10"
+RULE_4_KQL="customMetrics | where timestamp > ago(30m) | where name == 'worker_queue_size' | extend workerInstance = tostring(cloud_RoleInstance) | summarize sampleCount = count(), (earliestTimestamp, earliestValue) = arg_min(timestamp, value), (latestTimestamp, latestValue) = arg_max(timestamp, value) by workerInstance | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10"
 
 echo "[4/5] Provisioning Rule 4: ${RULE_4_NAME}..."
 az monitor scheduled-query create \
