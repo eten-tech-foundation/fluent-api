@@ -217,8 +217,12 @@ describe('emitHeartbeatMetrics', () => {
         queueSize: null,
       })
     );
-    expect(logger.error).toHaveBeenCalledWith('Error in heartbeat queue inspection', {
-      error: dbError,
-    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'worker_heartbeat_queue_error',
+        error: dbError.message,
+      }),
+      'Error in heartbeat queue inspection'
+    );
   });
 });

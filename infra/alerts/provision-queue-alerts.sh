@@ -177,11 +177,11 @@ az monitor scheduled-query create \
   --severity 2 \
   --evaluation-frequency "5m" \
   --window-size "10m" \
-  --description "DLQ monitor error: the worker failed to sweep dead-letter queues (missing telemetry could mask failures)."
+  --description "DLQ monitor error: the API server failed to sweep dead-letter queues (missing telemetry could mask failures)."
 
 # Rule 4: Queue backlog growing (Severity 2 / Warning, 30 min window)
 RULE_4_NAME="fluent-${ENVIRONMENT}-worker-queue-backlog-growing"
-RULE_4_KQL="customMetrics | where timestamp > ago(30m) | where name == 'worker_queue_size' | extend workerInstance = tostring(cloud_RoleInstance) | sort by workerInstance asc, timestamp asc | summarize samples = make_list(value) by workerInstance | extend sampleCount = array_length(samples), earliestValue = todouble(samples[0]), latestValue = todouble(samples[array_length(samples) - 1]) | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10"
+RULE_4_KQL="customMetrics | where timestamp > ago(30m) | where name == 'worker_queue_size' | extend workerInstance = tostring(cloud_RoleInstance) | summarize sampleCount = count(), earliest = arg_min(timestamp, value), latest = arg_max(timestamp, value) by workerInstance | extend earliestValue = todouble(earliest_value), latestValue = todouble(latest_value) | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10"
 
 echo "[4/5] Provisioning Rule 4: ${RULE_4_NAME}..."
 az monitor scheduled-query create \
@@ -211,7 +211,7 @@ az monitor scheduled-query create \
   --severity 2 \
   --evaluation-frequency "5m" \
   --window-size "15m" \
-  --description "Worker memory high: the latest RSS memory sample exceeded ${MEMORY_THRESHOLD_MB} MB (~80% of plan)."
+  --description "Worker memory high: the latest RSS memory sample exceeded ${MEMORY_THRESHOLD_MB} MB (worker process ceiling on shared App Service plan)."
 
 echo ""
 echo "Successfully provisioned all 5 Azure Monitor queue alert rules for '${ENVIRONMENT}'."

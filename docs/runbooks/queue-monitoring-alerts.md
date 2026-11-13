@@ -12,13 +12,13 @@ This runbook covers the Azure Monitor scheduled-query alert rules configured for
 
 The following table summarizes the five scheduled-query alert rules provisioned for each environment. Detailed incident response procedures for each rule are provided below.
 
-| Name                                                                    | Signal                                 | KQL query                                                                                                                                                                | Threshold                                | Severity     | Window        | What it means                                                                                             | Response action                                                                                                                   |
-| ----------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | ------------ | ------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Worker heartbeat missing** (`fluent-<env>-worker-heartbeat-missing`)  | Custom metric `worker_rss_mb`          | `customMetrics \| where timestamp > ago(15m) \| where name == 'worker_rss_mb' \| summarize samples = count() \| where samples == 0`                                      | `samples == 0`                           | 0 (Critical) | 15m (freq 5m) | Worker process stopped sending 5m heartbeat metric; worker crashed, hung, or container terminated         | Check App Service / Container logs for crash/OOM; restart worker process; verify DB connectivity                                  |
-| **DLQ depth > 0** (`fluent-<env>-worker-dlq-depth`)                     | Custom metric `worker_dlq_depth`       | Latest sample per API instance and queue                                                                                                                                 | latest `value > 0`                       | 2 (Warning)  | 10m (freq 5m) | One or more dead-letter queues contain failed jobs after exhausting retries                               | Follow [Worker dead-letter queues](worker-dead-letter-queues.md) runbook: inspect payloads, resolve root cause, replay or resolve |
-| **DLQ monitor error** (`fluent-<env>-worker-dlq-monitor-error`)         | Trace event `worker_dlq_monitor_error` | `traces \| where timestamp > ago(10m) \| where tostring(customDimensions.event) == 'worker_dlq_monitor_error' \| summarize errorCount = count() \| where errorCount > 0` | `count > 0`                              | 2 (Warning)  | 10m (freq 5m) | API DLQ monitor sweep failed (database error, permissions, or connection timeout)                         | Query `worker_dlq_monitor_error` traces; verify PostgreSQL connectivity and permissions on `pgboss.job`                           |
-| **Queue backlog growing** (`fluent-<env>-worker-queue-backlog-growing`) | Custom metric `worker_queue_size`      | First vs. last sample per worker instance                                                                                                                                | last `value >` first and `> 10`          | 2 (Warning)  | 30m (freq 5m) | Total queue size increased over 30m and backlog exceeds 10 jobs; arrival rate exceeds processing capacity | Inspect active jobs, slow jobs, and external dependencies (R2, OpenAI, DBL); scale worker instances if needed                     |
-| **Worker memory high** (`fluent-<env>-worker-memory-high`)              | Custom metric `worker_rss_mb`          | Latest sample per worker instance                                                                                                                                        | latest `value > 450` (or plan threshold) | 2 (Warning)  | 15m (freq 5m) | Worker RSS memory exceeded 450 MB (~80% of 512MB Basic B1 plan); risk of OOM termination                  | Inspect memory leaks, heap vs RSS, and large in-flight job payloads; scale up App Service plan if workload demands it             |
+| Name                                                                    | Signal                                 | KQL query                                                                                                                                                                | Threshold                                | Severity     | Window        | What it means                                                                                                    | Response action                                                                                                                   |
+| ----------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- | ------------ | ------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Worker heartbeat missing** (`fluent-<env>-worker-heartbeat-missing`)  | Custom metric `worker_rss_mb`          | `customMetrics \| where timestamp > ago(15m) \| where name == 'worker_rss_mb' \| summarize samples = count() \| where samples == 0`                                      | `samples == 0`                           | 0 (Critical) | 15m (freq 5m) | Worker process stopped sending 5m heartbeat metric; worker crashed, hung, or container terminated                | Check App Service / Container logs for crash/OOM; restart worker process; verify DB connectivity                                  |
+| **DLQ depth > 0** (`fluent-<env>-worker-dlq-depth`)                     | Custom metric `worker_dlq_depth`       | Latest sample per API instance and queue                                                                                                                                 | latest `value > 0`                       | 2 (Warning)  | 10m (freq 5m) | One or more dead-letter queues contain failed jobs after exhausting retries                                      | Follow [Worker dead-letter queues](worker-dead-letter-queues.md) runbook: inspect payloads, resolve root cause, replay or resolve |
+| **DLQ monitor error** (`fluent-<env>-worker-dlq-monitor-error`)         | Trace event `worker_dlq_monitor_error` | `traces \| where timestamp > ago(10m) \| where tostring(customDimensions.event) == 'worker_dlq_monitor_error' \| summarize errorCount = count() \| where errorCount > 0` | `count > 0`                              | 2 (Warning)  | 10m (freq 5m) | API DLQ monitor sweep failed (database error, permissions, or connection timeout)                                | Query `worker_dlq_monitor_error` traces; verify PostgreSQL connectivity and permissions on `pgboss.job`                           |
+| **Queue backlog growing** (`fluent-<env>-worker-queue-backlog-growing`) | Custom metric `worker_queue_size`      | First vs. last sample per worker instance                                                                                                                                | last `value >` first and `> 10`          | 2 (Warning)  | 30m (freq 5m) | Total queue size increased over 30m and backlog exceeds 10 jobs; arrival rate exceeds processing capacity        | Inspect active jobs, slow jobs, and external dependencies (R2, OpenAI, DBL); scale worker instances if needed                     |
+| **Worker memory high** (`fluent-<env>-worker-memory-high`)              | Custom metric `worker_rss_mb`          | Latest sample per worker instance                                                                                                                                        | latest `value > 450` (or plan threshold) | 2 (Warning)  | 15m (freq 5m) | Worker RSS memory exceeded 450 MB (per-process ceiling on shared B1 1.75 GB plan); risk of OOM or API starvation | Inspect memory leaks, heap vs RSS, and large in-flight job payloads; scale up App Service plan if workload demands it             |
 
 ---
 
@@ -70,7 +70,7 @@ The following table summarizes the five scheduled-query alert rules provisioned 
   | summarize arg_max(timestamp, *) by workerInstance, queueName
   | where value > 0
   ```
-- **Context**: The dead-letter queue monitor runs as a periodic sweep inside the API server process (`startDeadLetterMonitor` in `src/index.ts`, with `cloud_RoleName` of `fluent-api`). When a background job (such as `usfm-export`, `ai-suggestions`, `usfm-import-materialize`, or `dbl-ingest-text`) exhausts all retry attempts, pg-boss moves it to its designated dead-letter queue (`<queue>-dlq`). Unconsumed jobs in a DLQ remain retained for at least 30 days.
+- **Context**: The dead-letter queue monitor runs as a periodic sweep inside the API server process (`startDeadLetterMonitor` in `src/index.ts`, with `cloud_RoleName` of `fluent-api`). When a background job (such as `usfm-export`, `ai-suggestions`, `usfm-import-materialize`, or `dbl-ingest-text`) exhausts all retry attempts, pg-boss moves it to its designated dead-letter queue (`<queue>-dlq`). New DLQ entries are retained for at least 30 days; pre-existing rows keep their original `keep_until` deadline (typically 14 days) — verify `keep_until` before assuming evidence is available.
 - **Operational response**:
   1. Follow the procedure in [Worker dead-letter queues](worker-dead-letter-queues.md).
   2. Query Application Insights for the specific failing queue and oldest job timestamp:
@@ -87,7 +87,7 @@ The following table summarizes the five scheduled-query alert rules provisioned 
      ```
   3. Using authorized, read-only database access, inspect the DLQ records in `pgboss.job`:
      ```sql
-     SELECT id, name, data, output, retrycount, created_on, keep_until
+     SELECT id, name, data, output, retry_count, created_on, started_on, keep_until
      FROM pgboss.job
      WHERE name = '<failing-queue-dlq>'
      ORDER BY created_on ASC
@@ -137,11 +137,12 @@ The following table summarizes the five scheduled-query alert rules provisioned 
   | where timestamp > ago(30m)
   | where name == 'worker_queue_size'
   | extend workerInstance = tostring(cloud_RoleInstance)
-  | sort by workerInstance asc, timestamp asc
-  | summarize samples = make_list(value) by workerInstance
-  | extend sampleCount = array_length(samples),
-           earliestValue = todouble(samples[0]),
-           latestValue = todouble(samples[array_length(samples) - 1])
+  | summarize sampleCount = count(),
+              earliest = arg_min(timestamp, value),
+              latest = arg_max(timestamp, value)
+    by workerInstance
+  | extend earliestValue = todouble(earliest_value),
+           latestValue = todouble(latest_value)
   | where sampleCount >= 2 and latestValue > earliestValue and latestValue > 10
   ```
 - **Context**: A sustained upward trend in total queued/active/retry jobs across all queues suggests that work is arriving faster than the worker can process it, or that jobs are stalling.
@@ -158,7 +159,10 @@ The following table summarizes the five scheduled-query alert rules provisioned 
      customMetrics
      | where timestamp > ago(1h)
      | where name == 'worker_active_jobs'
-     | summarize avg(value) by bin(timestamp, 5m)
+     | extend workerInstance = tostring(cloud_RoleInstance)
+     | summarize arg_max(timestamp, value) by workerInstance, bin(timestamp, 5m)
+     | summarize totalActiveJobs = sum(value) by timestamp
+     | order by timestamp asc
      ```
   2. Check whether a burst of imports or exports was triggered (e.g., bulk USFM project materialization).
   3. Check average job duration in the worker heartbeat logs to see if jobs are running slower than normal.
@@ -180,7 +184,7 @@ The following table summarizes the five scheduled-query alert rules provisioned 
   | summarize arg_max(timestamp, *) by workerInstance
   | where value > 450
   ```
-- **Context**: On an Azure App Service Basic B1 plan (512 MB total host memory), an RSS consumption of 450 MB represents ~80% utilization. If memory continues to grow, the container runtime will terminate the process with an OOM (Out Of Memory) kill.
+- **Context**: On an Azure App Service Basic B1 plan (1.75 GB total host memory), the API server and worker WebJob share the same VM. An RSS consumption of 450 MB for the worker process is a practical per-process ceiling: exceeding it risks memory pressure on the co-located API server, and sustained growth can lead to an OOM (Out Of Memory) kill by the container runtime. Adjust the threshold via `--memory-threshold-mb` based on the actual plan tier and co-located workloads.
 - **Operational response**:
   1. Check heap vs RSS metrics over time:
      ```kusto
@@ -267,6 +271,9 @@ customMetrics
 ```
 
 ```sql
+-- Note: pg-boss overwrites started_on on each retry pickup, so retried jobs
+-- would include prior execution time + retry backoff in the diff. Filter to
+-- retry_count = 0 for truthful initial queue-wait measurement.
 SELECT
   name AS queue_name,
   id,
@@ -275,6 +282,7 @@ SELECT
   started_on - created_on AS time_in_queue
 FROM pgboss.job
 WHERE started_on IS NOT NULL
+  AND retry_count = 0
 ORDER BY started_on DESC
 LIMIT 100;
 ```
@@ -351,6 +359,7 @@ The following custom metrics are emitted to Application Insights by the worker a
 In addition, the following traces and events are emitted:
 
 - `Worker heartbeat` (trace, info): Process heartbeat trace containing uptime, processed, failed, active, queueSize, and memory stats. Emitted unconditionally on boot and every 5m.
+- `worker_heartbeat_queue_error` (trace, error): Queue inspection failure during heartbeat on worker. Emitted when `countPendingQueueJobs` rejects; process vitals and the `Worker heartbeat` trace still emit, but `worker_queue_size` and per-queue metrics are absent.
 - `worker_dlq_depth` (trace, warn if depth > 0, info if 0): Detailed DLQ sweep summary with queueName, depth, oldestCreatedOn.
 - `worker_dlq_monitor_error` (trace, error): DLQ monitor query or discovery failure on API server.
 
@@ -378,17 +387,23 @@ Note the following semantic changes and improvements compared to initial worker 
 To manually verify the heartbeat alert in a development environment:
 
 1. **Trigger Missing Heartbeat**:
-   - Stop the worker continuous WebJob or App Service in dev:
+   - Stop the worker continuous WebJob in dev (do **not** use `az webapp stop`, which takes the co-located API offline):
      ```sh
-     az webapp stop --name <worker-app-name> --resource-group <rg-name>
+     az webapp webjob continuous stop \
+       --name <api-app-name> \
+       --resource-group <rg-name> \
+       --webjob-name worker
      ```
    - Wait 15 minutes.
    - In Application Insights / Azure Monitor Alerts, verify that alert `fluent-dev-worker-heartbeat-missing` fires (Severity 0 Critical alert notification received via Action Group).
 
 2. **Trigger Alert Resolution**:
-   - Restart the worker process:
+   - Restart the worker continuous WebJob:
      ```sh
-     az webapp start --name <worker-app-name> --resource-group <rg-name>
+     az webapp webjob continuous start \
+       --name <api-app-name> \
+       --resource-group <rg-name> \
+       --webjob-name worker
      ```
    - The worker emits an immediate initial heartbeat on boot (`worker_rss_mb` and `Worker heartbeat` trace).
-   - Within the next 5-minute evaluation cycle, Azure Monitor detects incoming `worker_rss_mb` metric samples (`samples > 0`) and resolves the alert.
+   - Stateful Azure Monitor scheduled query alerts resolve after the condition remains clear for **3 consecutive evaluation cycles** (~15 minutes for a 5-minute evaluation frequency). Allow sufficient time before concluding that recovery failed.

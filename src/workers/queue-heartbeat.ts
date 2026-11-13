@@ -30,6 +30,7 @@ const MONITORED_QUEUES = [
   QUEUE_NAMES.DBL_INGEST_TEXT_PRIORITY,
   QUEUE_NAMES.USFM_IMPORT_MATERIALIZE,
 ] as const;
+
 export async function emitHeartbeatMetrics(
   boss: PgBoss,
   metrics: WorkerMetricsSnapshot
@@ -73,7 +74,13 @@ export async function emitHeartbeatMetrics(
     queueSize = total;
     logger.metric('worker_queue_size', queueSize);
   } catch (error) {
-    logger.error('Error in heartbeat queue inspection', { error });
+    logger.error(
+      {
+        event: 'worker_heartbeat_queue_error',
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Error in heartbeat queue inspection'
+    );
   }
 
   // The 'Worker heartbeat' log trace is emitted on every heartbeat, providing
