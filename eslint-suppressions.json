@@ -587,9 +587,6 @@
     }
   },
   "src/lib/logger.ts": {
-    "eslint-comments/require-description": {
-      "count": 3
-    },
     "ts/no-explicit-any": {
       "count": 20
     }

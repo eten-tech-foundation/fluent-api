@@ -123,6 +123,9 @@ export async function reportDeadLetterQueues(boss: PgBoss): Promise<void> {
           } else {
             logger.info(properties, 'Worker dead-letter queue is empty');
           }
+
+          // Emit gauge metric for alerting — always, including zero depth.
+          logger.metric('worker_dlq_depth', stats.depth, { queueName });
         } catch (error) {
           logger.error(
             {
