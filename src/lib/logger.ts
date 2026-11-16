@@ -234,7 +234,26 @@ function createLogger(): AppLogger {
     const connectionString = env.APPLICATIONINSIGHTS_CONNECTION_STRING;
 
     if (connectionString) {
-      appInsights.setup(connectionString).start();
+      appInsights
+        .setup(connectionString)
+        // The SDK merges these options shallowly, so this repeats its defaults
+        // and changes only postgreSql. That instrumentation covers the `pg`
+        // driver, which only pg-boss uses (app queries go through postgres.js).
+        // Its spans were pg-boss polling and pool connects: ~90% of ingestion.
+        .setAzureMonitorOptions({
+          instrumentationOptions: {
+            http: { enabled: true },
+            azureSdk: { enabled: true },
+            mongoDb: { enabled: true },
+            mySql: { enabled: true },
+            redis: { enabled: true },
+            redis4: { enabled: true },
+            postgreSql: { enabled: false },
+            bunyan: { enabled: true },
+            winston: { enabled: true },
+          },
+        })
+        .start();
     } else {
       console.warn('Application Insights connection string not set. Telemetry will not be sent.');
     }
