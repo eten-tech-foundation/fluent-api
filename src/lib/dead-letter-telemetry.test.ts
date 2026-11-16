@@ -11,7 +11,10 @@ vi.mock('@/env', () => ({
   default: { NODE_ENV: 'production', APPLICATIONINSIGHTS_CONNECTION_STRING: 'test-only' },
 }));
 vi.mock('applicationinsights', () => ({
-  default: { setup: () => ({ start: vi.fn() }), defaultClient: client },
+  default: {
+    setup: () => ({ setAzureMonitorOptions: () => ({ start: () => {} }) }),
+    defaultClient: client,
+  },
 }));
 
 afterEach(() => vi.restoreAllMocks());

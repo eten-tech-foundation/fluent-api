@@ -14,8 +14,24 @@ vi.mock('@/env', () => ({
     APPLICATIONINSIGHTS_CONNECTION_STRING: 'test-only',
   },
 }));
+const sdkConfig = vi.hoisted(() => {
+  const calls: { options: unknown; order: number }[] = [];
+  let order = 0;
+  const config = {
+    calls,
+    startOrder: -1,
+    setAzureMonitorOptions(options: unknown) {
+      calls.push({ options, order: order++ });
+      return config;
+    },
+    start() {
+      config.startOrder = order++;
+    },
+  };
+  return config;
+});
 vi.mock('applicationinsights', () => ({
-  default: { setup: () => ({ start: vi.fn() }), defaultClient: client },
+  default: { setup: () => sdkConfig, defaultClient: client },
 }));
 
 beforeEach(() => {
@@ -26,6 +42,23 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+});
+
+describe('createLogger Application Insights setup', () => {
+  it('turns off only the pg instrumentation before starting', async () => {
+    sdkConfig.calls.length = 0;
+    await import('@/lib/logger');
+
+    expect(sdkConfig.calls).toHaveLength(1);
+    expect(sdkConfig.calls[0].options).toMatchObject({
+      instrumentationOptions: {
+        postgreSql: { enabled: false },
+        http: { enabled: true },
+        azureSdk: { enabled: true },
+      },
+    });
+    expect(sdkConfig.calls[0].order).toBeLessThan(sdkConfig.startOrder);
+  });
 });
 
 describe('logger metric() seam', () => {
