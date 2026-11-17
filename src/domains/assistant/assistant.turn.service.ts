@@ -25,17 +25,12 @@ import {
   createAssistantClient,
   releasePrivateGeneration,
 } from './assistant.generation';
-import {
-  createBriefingGenerationInput,
-  generationInputFingerprint,
-  providerRequest,
-} from './assistant.generation-input';
-import { btUserId, SHARED_ASSISTANT_ACTIONS, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
+import { generationInputFingerprint, providerRequest } from './assistant.generation-input';
+import { btUserId, WIDGET_CONTRACT_VERSION } from './assistant.prompt';
 import { loadReceiptKey, TurnReceipts } from './assistant.receipts';
 import * as repo from './assistant.repository';
 import { verifyTurnTranscript } from './assistant.transcript';
 import { deliverTurn } from './assistant.turn.delivery';
-import { isSharedTurnEligible } from './assistant.turn.prompt';
 import {
   assistantTurnRequestSchema,
   historyWindowSchema,
@@ -101,25 +96,10 @@ export async function createPassageTurn(
     totalMs: Math.min(config.budgets.totalMs, TURN_LIMITS.totalMs),
     maxOutputBytes: Math.min(config.budgets.maxOutputBytes, TURN_LIMITS.outputBytes),
   };
-  const canonicalBriefingFingerprint = generationInputFingerprint(
-    createBriefingGenerationInput({
-      operationVersion: config.operationVersion,
-      language: config.languages[request.outputLanguage],
-      resourceLanguage: grounding.resourceLanguage,
-      groundingInstruction: grounding.instruction,
-      sourceBible: passage.sourceBible,
-      sourceLanguageCode: passage.sourceLanguageCode,
-      verses: passage.verses,
-      actions: SHARED_ASSISTANT_ACTIONS,
-      maxOutputBytes: config.budgets.maxOutputBytes,
-      cacheEpoch: config.cacheEpoch,
-    })
-  );
   const receipts = new TurnReceipts(key, input.userId, context);
   const verified = verifyTurnTranscript(receipts, context, request, historyWindow, {
     cacheEpoch: config.cacheEpoch,
     maxOutputBytes: budgets.maxOutputBytes,
-    canonicalBriefingFingerprint,
   });
   if (!verified.ok) return fail(verified.code);
   if (Buffer.byteLength(verified.projection.generationInput.message) > config.budgets.maxInputBytes)
@@ -128,7 +108,9 @@ export async function createPassageTurn(
   const cacheProjection = verified.cachedProjection;
   const cacheKey = generationInputFingerprint((cacheProjection ?? projection).generationInput);
   const producerKey = cacheKey;
-  const sharedCache = isSharedTurnEligible(request, verified.sharedBriefing);
+  // dont_cache is a user-benefit preference, not an origin/depth/ancestry proof.
+  // Trust it after authorization and signed-transcript validation; the key is server-derived.
+  const sharedCache = !request.dont_cache;
   const operationId = crypto.randomUUID();
   const warn = () => input.logger.warn({ operationId }, 'Assistant turn cache unavailable');
   const source = (signal: AbortSignal) =>
@@ -154,6 +136,8 @@ export async function createPassageTurn(
   if (!producer) {
     const release = sharedCache ? beginGenerationCacheLookup(producerKey) : () => {};
     try {
+      // Even dont_cache:true may reuse an exact completed artifact for cost/latency savings.
+      // On a miss it cannot join or publish shared work, so it creates no shared state.
       completed = cacheProjection
         ? await cacheRepo.findCompletedArtifact(cacheKey, input.signal)
         : null;
