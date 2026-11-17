@@ -218,15 +218,18 @@ describe('POST guarded turns', () => {
     expect(shared.stream.mock.calls[0][0].message).not.toContain('HOSTILE PURPOSE');
     expect(privateClient.stream.mock.calls[0][0].message).toContain('HOSTILE PURPOSE');
   });
-  it('does not share arbitrary text merely labeled as a suggested question', async () => {
-    const body = request();
-    body.dont_cache = false;
-    body.submission.input.text = 'Client-invented question';
-    await events(await post(body));
-    expect(cache.findCompletedArtifact).not.toHaveBeenCalled();
-    expect(cache.publishCompletedArtifact).not.toHaveBeenCalled();
-    expect(BtServantClient).toHaveBeenCalledTimes(1);
-  });
+  it.each(['typed', 'suggested_question'] as const)(
+    'trusts false for arbitrary %s text',
+    async (origin) => {
+      const body = request();
+      body.dont_cache = false;
+      body.submission.input = { text: 'Client-invented question', origin };
+      await events(await post(body));
+      expect(cache.findCompletedArtifact).toHaveBeenCalledTimes(1);
+      expect(cache.publishCompletedArtifact).toHaveBeenCalledTimes(1);
+      expect(BtServantClient).toHaveBeenCalledTimes(1);
+    }
+  );
   it.each(['limit', 'eof', 'throw', 'rate', 'timeout'])(
     'never publishes failed/partial %s output',
     async (mode) => {
@@ -362,7 +365,7 @@ it('coalesces tiny deltas into bounded atomic signatures', async () => {
   expect(result.at(-1)?.type).toBe('turn_complete');
 });
 
-it('cache identity ignores execution and duplicate policy labels but rejects claimed arbitrary suggestions', async () => {
+it('cache identity ignores execution and duplicate policy labels but preserves exact question text', async () => {
   await events(await post(request()));
   const body = request();
   body.submission.turnId = 'other';
@@ -373,12 +376,12 @@ it('cache identity ignores execution and duplicate policy labels but rejects cla
   expect(vi.mocked(cache.findCompletedArtifact).mock.calls[1][0]).toBe(first);
   body.submission.input.text += ' ';
   await events(await post(body));
-  expect(cache.findCompletedArtifact).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(cache.findCompletedArtifact).mock.calls[2][0]).not.toBe(first);
   const old = config.resourcePolicyVersion;
   try {
     config.resourcePolicyVersion = 'changed';
     await events(await post(request()));
-    expect(vi.mocked(cache.findCompletedArtifact).mock.calls[2][0]).toBe(first);
+    expect(vi.mocked(cache.findCompletedArtifact).mock.calls[3][0]).toBe(first);
   } finally {
     config.resourcePolicyVersion = old;
   }

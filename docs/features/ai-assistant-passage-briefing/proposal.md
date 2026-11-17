@@ -124,8 +124,8 @@ Web owns generic action definitions and rendering/handlers. A private request ma
 `type`, `purpose`, and `template` entries, never JavaScript. API validates a maximum of 32 entries and
 32,768 serialized bytes, rejects duplicate types and unknown entry fields, and safely serializes the
 bounded private catalog. Shared-capable briefing and turn generation instead use API's fixed canonical
-`suggested_question` definition. Shared-capable initial briefings and cacheable pristine
-suggested-question turns therefore cannot be changed by a client-supplied catalog.
+`suggested_question` definition. Shared-capable initial briefings and cacheable
+turns therefore cannot be changed by a client-supplied catalog.
 
 The existing `{{fluent:v1:suggested_question|QUESTION}}` macro is preserved. Web dispatches only recognized actions to local behavior after a user click. Follow-up output carries the widget contract separately from the turn transport protocol. Unknown/malformed output remains inert. There is no BT contract negotiation or acknowledgment mechanism in this increment.
 
@@ -187,18 +187,14 @@ cleanup tags and are checked after lookup before replay. Publication remains fir
 database-clock expiry, bounded cleanup, and shutdown.
 
 The migration deliberately performs no data migration or legacy lookup. QA accepts a cold artifact
-cache and ephemeral receipt reset, and repopulation occurs through normal authorized generation. A
-shared artifact is eligible only when the exact provider input contains no user-authored,
-user-identifying, tenant-private, or pasted private material. API never hashes a scrubbed variant while
-sending private input; generic or private conversation generation remains no-write.
-
-For turns, `dont_cache` defaults true. An exact completed authorized match may still be read;
-a miss runs privately without joining or publishing a shared producer. `dont_cache: false` is
-insufficient to grant shared access. API must prove that the submitted text exactly matches a
-`suggested_question` action in the signed complete canonical briefing and that this is the pristine
-first turn, before it may read, join, or publish. Client origin labels are not proof. Later suggestions,
-typed messages, partial branches, and any failed proof are no-write. The briefing debug `ignore_cache`
-bypass is different: it skips reads, joining, and writes.
+cache and ephemeral receipt reset, and repopulation occurs through normal authorized generation. For turns, `dont_cache` defaults true. Exact completed artifacts may still be read; on a miss,
+true forbids in-flight joining and publication. API trusts this user-controlled preference after authorization,
+context resolution, and full signed-transcript verification. `dont_cache: false` permits
+exact-key reuse and publication at any conversation depth, without origin or ancestry gates.
+Web sends false for every new suggested-question click and true for typed submissions and
+retries. A modified client may opt its own typed content into caching. Shared generation uses
+server-canonical actions and the exact verified provider message and history as identity.
+The briefing debug `ignore_cache` bypass likewise skips reads, joining, and writes.
 Cross-replica miss duplication remains possible; no distributed coordinator is introduced.
 
 Conversation state exists only in browser memory, not localStorage, IndexedDB or briefing query data.

@@ -12,26 +12,6 @@ import { historyWindowSchema, TURN_LIMITS, turnContextSchema } from './assistant
 
 const byteLength = (value: string) => new TextEncoder().encode(value).byteLength;
 
-export function isSharedTurnEligible(
-  request: AssistantTurnRequest,
-  sharedBriefing = true
-): boolean {
-  const question = request.submission.input.text;
-  const canonicalAction =
-    question.trim().length > 0 &&
-    !/[{}\r\n]/.test(question) &&
-    request.briefing.markdown.includes(`{{fluent:v1:suggested_question|${question}}}`);
-  return (
-    sharedBriefing &&
-    !request.dont_cache &&
-    request.submission.kind === 'new' &&
-    request.submission.input.origin === 'suggested_question' &&
-    request.turns.length === 0 &&
-    request.briefing.complete &&
-    canonicalAction
-  );
-}
-
 // The service must authorize, resolve context and verify EVERY submitted
 // prefix/lineage before calling this helper, including exchanges omitted below.
 // Receipt/actor/execution identity is deliberately absent from the provider projection.
@@ -39,7 +19,7 @@ export function projectVerifiedTurn(
   context: TurnContext,
   request: AssistantTurnRequest,
   historyWindow: number,
-  compatibility: { cacheEpoch: string; maxOutputBytes: number; sharedBriefing?: boolean } = {
+  compatibility: { cacheEpoch: string; maxOutputBytes: number } = {
     cacheEpoch: '1',
     maxOutputBytes: TURN_LIMITS.outputBytes,
   }
@@ -86,9 +66,7 @@ export function projectVerifiedTurn(
     byteLength(JSON.stringify(history)) > TURN_LIMITS.historyBytes
   )
     return { ok: false, code: 'context_too_large' } as const;
-  const actions = isSharedTurnEligible(request, compatibility.sharedBriefing)
-    ? SHARED_ASSISTANT_ACTIONS
-    : request.actions;
+  const actions = !request.dont_cache ? SHARED_ASSISTANT_ACTIONS : request.actions;
   const message = `#default @${canonical.guidanceSlug}
 
 Fluent passage follow-up instruction: ${canonical.operationVersion}.

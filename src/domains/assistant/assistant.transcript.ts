@@ -3,7 +3,7 @@ import type { TurnContext } from './assistant.turn.types';
 
 import { generationInputFingerprint } from './assistant.generation-input';
 import { integrityDigest, visibleBranch } from './assistant.receipts';
-import { isSharedTurnEligible, projectVerifiedTurn } from './assistant.turn.prompt';
+import { projectVerifiedTurn } from './assistant.turn.prompt';
 import { assistantTurnRequestSchema, turnContextSchema } from './assistant.turn.types';
 import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
 
@@ -25,7 +25,6 @@ export function verifyTurnTranscript(
   compatibility?: {
     cacheEpoch: string;
     maxOutputBytes: number;
-    canonicalBriefingFingerprint: string;
   }
 ) {
   if (!receipts) return { ok: false, code: 'temporarily_unavailable' } as const;
@@ -51,10 +50,7 @@ export function verifyTurnTranscript(
   const resolvedCompatibility = compatibility ?? {
     cacheEpoch: context.epoch,
     maxOutputBytes: ASSISTANT_SAFETY_LIMITS.answerBytes,
-    canonicalBriefingFingerprint: briefingPayload.projectionDigest,
   };
-  const sharedBriefing =
-    briefingPayload.projectionDigest === resolvedCompatibility.canonicalBriefingFingerprint;
   if (
     receipts.verify(request.contextReceipt)?.kind !== 'context' ||
     !receipts.verifyPrefix(
@@ -105,7 +101,7 @@ export function verifyTurnTranscript(
         context,
         { ...historicalRequest, dont_cache: dontCache },
         historyWindow,
-        { ...resolvedCompatibility, sharedBriefing }
+        resolvedCompatibility
       );
       return historical.ok ? [projectionDigest(historical)] : [];
     });
@@ -116,24 +112,19 @@ export function verifyTurnTranscript(
         return changed;
     }
   }
-  const projection = projectVerifiedTurn(context, request, historyWindow, {
-    ...resolvedCompatibility,
-    sharedBriefing,
-  });
+  const projection = projectVerifiedTurn(context, request, historyWindow, resolvedCompatibility);
   if (!projection.ok) return projection;
-  const canonicalRequest = { ...request, dont_cache: false };
-  const cachedProjection = isSharedTurnEligible(canonicalRequest, sharedBriefing)
-    ? projectVerifiedTurn(context, canonicalRequest, historyWindow, {
-        ...resolvedCompatibility,
-        sharedBriefing,
-      })
-    : null;
+  const cachedProjection = projectVerifiedTurn(
+    context,
+    { ...request, dont_cache: false },
+    historyWindow,
+    resolvedCompatibility
+  );
   return {
     ok: true,
     request,
     projection,
-    cachedProjection: cachedProjection?.ok ? cachedProjection : null,
-    sharedBriefing,
+    cachedProjection: cachedProjection.ok ? cachedProjection : null,
     binding: {
       operation: 'turn' as const,
       parentDigest: request.submission.kind === 'retry' ? parents.at(-1)! : parent,

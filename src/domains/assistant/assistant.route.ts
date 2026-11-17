@@ -179,7 +179,7 @@ const turnRoute = createRoute({
   middleware: [...guards, admitTurnBody],
   summary: 'Stream a grounded passage follow-up',
   description:
-    'Verifies the complete visible transcript against freshly authorized source context. Reads exact completed artifacts; dont_cache defaults true and forbids sharing or publication on a miss. Only a pristine first turn matching a signed canonical suggested-question action can use the shared artifact path. Streams atomic text and actor-bound prefix receipts without terminal text replacement.',
+    'Verifies the complete visible transcript against freshly authorized source context. Reads exact completed artifacts; dont_cache defaults true and forbids in-flight joining or publication on a miss. Requests with dont_cache false may share exact server-derived generation inputs at any conversation depth. Streams atomic text and actor-bound prefix receipts without terminal text replacement.',
   request: {
     params: projectParams,
     body: jsonContentRequired(
