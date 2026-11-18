@@ -39,8 +39,13 @@ export function requireTranslatedVerseAccess(
     let parsedBody: TranslatedVerseAuthBody | undefined;
 
     if (source === PROJECT_UNIT_ID_SOURCES.VERSE_PARAM) {
-      const verseId = Number(c.req.param(verseParamName));
-      if (!verseId || Number.isNaN(verseId)) {
+      const raw = c.req.param(verseParamName);
+      if (!raw || !/^\d+$/.test(raw)) {
+        return c.json({ message: 'Missing verse ID' }, HttpStatusCodes.BAD_REQUEST);
+      }
+
+      const verseId = Number(raw);
+      if (!Number.isInteger(verseId) || verseId <= 0 || verseId > 2147483647) {
         return c.json({ message: 'Missing verse ID' }, HttpStatusCodes.BAD_REQUEST);
       }
 
@@ -56,13 +61,19 @@ export function requireTranslatedVerseAccess(
       c.set('translatedVerse', verseResult.data);
       projectUnitId = verseResult.data.projectUnitId;
     } else if (source === PROJECT_UNIT_ID_SOURCES.QUERY) {
-      projectUnitId = Number(c.req.query('projectUnitId'));
+      const raw = c.req.query('projectUnitId');
+      projectUnitId = raw && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
     } else if (source === PROJECT_UNIT_ID_SOURCES.BODY) {
       parsedBody = await c.req.json();
       projectUnitId = parsedBody?.projectUnitId;
     }
 
-    if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    if (
+      projectUnitId === undefined ||
+      !Number.isInteger(projectUnitId) ||
+      projectUnitId <= 0 ||
+      projectUnitId > 2147483647
+    ) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
@@ -109,12 +120,16 @@ export function requireTranslatedVerseAccess(
       }
 
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      const isProjectMember = unitResult.ok
-        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
-        : false;
-      const stages = unitResult.ok
-        ? await getWorkflowStagesByProjectId(unitResult.data.projectId)
-        : [];
+      if (!unitResult.ok) {
+        const status = getHttpStatus(unitResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: unitResult.error.message }, status as never);
+        }
+        return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+      const stages = await getWorkflowStagesByProjectId(unitResult.data.projectId);
 
       if (
         !ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)

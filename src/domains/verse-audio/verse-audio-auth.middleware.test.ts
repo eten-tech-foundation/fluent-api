@@ -7,7 +7,7 @@ import type { AppEnv } from '@/server/context.types';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { PERMISSIONS } from '@/lib/permissions';
-import { ErrorMessages } from '@/lib/types';
+import { err, ErrorCode, ErrorMessages } from '@/lib/types';
 
 import { requireReadVerseAudioAccess } from './verse-audio-auth.middleware';
 import { VERSE_AUDIO_ID_SOURCES } from './verse-audio.types';
@@ -33,7 +33,34 @@ function viewGrant(orgId: number | null, projectId: number | null) {
 const MANAGER = { id: 1, grants: [viewGrant(ORG, null)] };
 const OTHER_ORG_MANAGER = { id: 1, grants: [viewGrant(OTHER_ORG, null)] };
 
-const project = { id: PROJECT_ID, organization: ORG } as unknown as ProjectWithLanguageNames;
+function buildProject(overrides: Partial<ProjectWithLanguageNames> = {}): ProjectWithLanguageNames {
+  return {
+    id: PROJECT_ID,
+    name: 'Test Project',
+    organization: ORG,
+    sourceLanguageId: 1,
+    targetLanguageId: 2,
+    sourceLanguageName: 'English',
+    targetLanguageName: 'Spanish',
+    sourceName: 'Test Bible',
+    isActive: true,
+    status: 'active',
+    createdBy: 1,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    metadata: {},
+    sourceBibleId: null,
+    pericopeSetId: null,
+    lastActivityAt: null,
+    lastChapterActivity: null,
+    chapterStatusCounts: {},
+    milestoneCount: 0,
+    workflowConfig: [],
+    ...overrides,
+  };
+}
+
+const project = buildProject();
 
 function appFor(user: object) {
   const app = new Hono<AppEnv>();
@@ -99,10 +126,9 @@ describe('requireReadVerseAudioAccess', () => {
   });
 
   it('returns 404 when project unit is not found', async () => {
-    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
-      ok: false,
-      error: { code: 'PROJECT_UNIT_NOT_FOUND', message: 'Project unit not found' } as never,
-    });
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue(
+      err(ErrorCode.PROJECT_UNIT_NOT_FOUND)
+    );
 
     const res = await get(MANAGER);
 
@@ -115,10 +141,7 @@ describe('requireReadVerseAudioAccess', () => {
       ok: true,
       data: { projectId: PROJECT_ID },
     });
-    vi.mocked(projectService.getProjectById).mockResolvedValue({
-      ok: false,
-      error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found' } as never,
-    });
+    vi.mocked(projectService.getProjectById).mockResolvedValue(err(ErrorCode.PROJECT_NOT_FOUND));
 
     const res = await get(MANAGER);
 
@@ -127,15 +150,12 @@ describe('requireReadVerseAudioAccess', () => {
   });
 
   it('returns 500 when looking up the project unit fails with a database error', async () => {
-    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
-      ok: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } as never,
-    });
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
     const res = await get(MANAGER);
 
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(await res.json()).toEqual({ message: ErrorMessages[ErrorCode.INTERNAL_ERROR] });
     expect(projectService.getProjectById).not.toHaveBeenCalled();
   });
 
@@ -144,15 +164,12 @@ describe('requireReadVerseAudioAccess', () => {
       ok: true,
       data: { projectId: PROJECT_ID },
     });
-    vi.mocked(projectService.getProjectById).mockResolvedValue({
-      ok: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } as never,
-    });
+    vi.mocked(projectService.getProjectById).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
 
     const res = await get(MANAGER);
 
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(await res.json()).toEqual({ message: ErrorMessages[ErrorCode.INTERNAL_ERROR] });
   });
 
   it('denies user without access with 404', async () => {

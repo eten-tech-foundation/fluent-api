@@ -27,8 +27,13 @@ export function requireProjectUnitAccess(paramName = 'projectUnitId') {
       grants: user.grants,
     };
 
-    const projectUnitId = Number(c.req.param(paramName));
-    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+    const rawParam = c.req.param(paramName);
+    if (!rawParam || !/^\d+$/.test(rawParam)) {
+      return c.json({ message: `Missing ${paramName}` }, HttpStatusCodes.BAD_REQUEST);
+    }
+
+    const projectUnitId = Number(rawParam);
+    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0 || projectUnitId > 2147483647) {
       return c.json({ message: `Missing ${paramName}` }, HttpStatusCodes.BAD_REQUEST);
     }
 
