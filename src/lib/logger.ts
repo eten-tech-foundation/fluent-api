@@ -5,6 +5,15 @@ import pino from 'pino';
 
 import env from '@/env';
 
+/**
+ * Extends Pino's BaseLogger with a metric() method for emitting named numeric
+ * metrics with optional dimensions. Production sends them to Application
+ * Insights as custom metrics; development prints a visible log line.
+ */
+interface AppLogger extends BaseLogger {
+  metric: (name: string, value: number, dimensions?: Record<string, string>) => void;
+}
+
 // Locally defined SeverityLevel enum matching Application Insights
 enum SeverityLevel {
   Verbose = 0,
@@ -25,7 +34,7 @@ class AppInsightsLogger implements BaseLogger {
       this.client.trackTrace({ message, severity: SeverityLevel.Information as any, properties });
     }
 
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- App Insights traces must also remain visible in process logs.
     console.info(message);
   }
 
@@ -64,7 +73,7 @@ class AppInsightsLogger implements BaseLogger {
     if (this.client) {
       this.client.trackTrace({ message, severity: SeverityLevel.Verbose as any, properties });
     }
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- App Insights debug traces must also remain visible in process logs.
     console.debug(message);
   }
 
@@ -73,7 +82,7 @@ class AppInsightsLogger implements BaseLogger {
     if (this.client) {
       this.client.trackTrace({ message, severity: SeverityLevel.Verbose as any, properties });
     }
-    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console -- App Insights trace output must also remain visible in process logs.
     console.trace(message);
   }
 
@@ -85,6 +94,20 @@ class AppInsightsLogger implements BaseLogger {
   }
 
   silent(): void {}
+
+  metric(name: string, value: number, dimensions?: Record<string, string>): void {
+    if (this.client) {
+      this.client.trackMetric({
+        name,
+        value,
+        properties: dimensions,
+      });
+    }
+
+    // Keep production metrics visible in worker stdout alongside Application Insights telemetry.
+    // eslint-disable-next-line no-console -- Operational metrics need a local diagnostic fallback.
+    console.info(`[metric] ${name}=${value}`, dimensions ? JSON.stringify(dimensions) : '');
+  }
 
   private parseArgs(args: any[]): { message: string; properties?: Record<string, any> } {
     if (args.length === 0) {
@@ -206,12 +229,31 @@ class AppInsightsLogger implements BaseLogger {
   }
 }
 
-function createLogger(): BaseLogger {
+function createLogger(): AppLogger {
   if (env.NODE_ENV === 'production') {
     const connectionString = env.APPLICATIONINSIGHTS_CONNECTION_STRING;
 
     if (connectionString) {
-      appInsights.setup(connectionString).start();
+      appInsights
+        .setup(connectionString)
+        // The SDK merges these options shallowly, so this repeats its defaults
+        // and changes only postgreSql. That instrumentation covers the `pg`
+        // driver, which only pg-boss uses (app queries go through postgres.js).
+        // Its spans were pg-boss polling and pool connects: ~90% of ingestion.
+        .setAzureMonitorOptions({
+          instrumentationOptions: {
+            http: { enabled: true },
+            azureSdk: { enabled: true },
+            mongoDb: { enabled: true },
+            mySql: { enabled: true },
+            redis: { enabled: true },
+            redis4: { enabled: true },
+            postgreSql: { enabled: false },
+            bunyan: { enabled: true },
+            winston: { enabled: true },
+          },
+        })
+        .start();
     } else {
       console.warn('Application Insights connection string not set. Telemetry will not be sent.');
     }
@@ -221,8 +263,14 @@ function createLogger(): BaseLogger {
     return new AppInsightsLogger(client);
   }
 
-  // Use Pino in development
-  return pino({ level: 'debug', transport: { target: 'pino-pretty' } });
+  // Use Pino in development — attach metric() so dev runs show the same
+  // metric names production alerts on, as a visible log line.
+  const pinoLogger = pino({ level: 'debug', transport: { target: 'pino-pretty' } });
+  return Object.assign(pinoLogger, {
+    metric(name: string, value: number, dimensions?: Record<string, string>) {
+      pinoLogger.info({ metric: name, value, dimensions }, `[metric] ${name}=${value}`);
+    },
+  }) as AppLogger;
 }
 
-export const logger: BaseLogger = createLogger();
+export const logger: AppLogger = createLogger();

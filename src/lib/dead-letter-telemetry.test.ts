@@ -3,12 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { reportDeadLetterQueues } from '@/lib/dead-letter-queues';
 import { fakeBoss, queueResult } from '@/test/utils/test-helpers';
 
-const client = vi.hoisted(() => ({ trackTrace: vi.fn() }));
+const client = vi.hoisted(() => ({
+  trackTrace: vi.fn(),
+  trackMetric: vi.fn(),
+}));
 vi.mock('@/env', () => ({
   default: { NODE_ENV: 'production', APPLICATIONINSIGHTS_CONNECTION_STRING: 'test-only' },
 }));
 vi.mock('applicationinsights', () => ({
-  default: { setup: () => ({ start: vi.fn() }), defaultClient: client },
+  default: {
+    setup: () => ({ setAzureMonitorOptions: () => ({ start: () => {} }) }),
+    defaultClient: client,
+  },
 }));
 
 afterEach(() => vi.restoreAllMocks());
@@ -40,6 +46,14 @@ describe('dLQ Application Insights telemetry', () => {
         activeCount: 0,
         deferredCount: 0,
         oldestCreatedOn: null,
+      },
+    });
+
+    expect(client.trackMetric).toHaveBeenCalledWith({
+      name: 'worker_dlq_depth',
+      value: 1,
+      properties: {
+        queueName: 'usfm-export-dlq',
       },
     });
   });
