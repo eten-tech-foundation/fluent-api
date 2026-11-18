@@ -65,7 +65,7 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
 ## Setup
 
 1. **Prerequisites:**
-   - **Node.js 24.14.0** or higher
+   - **Node.js 26.13.0** or higher
    - PostgreSQL (local or cloud instance)
 
 2. **Clone and install dependencies:**
