@@ -90,11 +90,19 @@ export function requireReadVerseAudioAccess(source: VerseAudioIdSource) {
 
     const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
     if (!unitResult.ok) {
+      const status = getHttpStatus(unitResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: unitResult.error.message }, status as never);
+      }
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 
     const projectResult = await projectService.getProjectById(unitResult.data.projectId);
     if (!projectResult.ok) {
+      const status = getHttpStatus(projectResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: projectResult.error.message }, status as never);
+      }
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 

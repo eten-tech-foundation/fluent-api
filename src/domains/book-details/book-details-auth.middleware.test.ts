@@ -195,14 +195,45 @@ describe('requireBookDetailsAccess', () => {
   });
 
   it('rejects a malformed project unit ID without touching the database', async () => {
-    for (const projectUnitId of ['abc', '0', '-1', '1.5', '']) {
+    for (const projectUnitId of ['abc', '0', '-1', '1.5']) {
       const res = await get(MANAGER, projectUnitId);
 
-      expect(res.status, `projectUnitId=${JSON.stringify(projectUnitId)}`).toBe(DENIED.status);
+      expect(res.status, `projectUnitId=${JSON.stringify(projectUnitId)}`).toBe(400);
+      expect(await res.json()).toEqual({ message: 'Missing projectUnitId' });
       // The guard exists to keep NaN and fractional IDs away from an integer
       // column, so the lookups must not run at all.
       expect(projectService.getProjectIdByUnitId).not.toHaveBeenCalled();
     }
+  });
+
+  it('returns 500 when looking up the project unit fails with a database error', async () => {
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
+      ok: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } as never,
+    });
+
+    const res = await get(MANAGER);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(projectService.getProjectById).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when looking up the project fails with a database error', async () => {
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
+      ok: true,
+      data: { projectId: PROJECT_ID },
+    });
+    vi.mocked(projectService.getProjectById).mockResolvedValue({
+      ok: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } as never,
+    });
+
+    const res = await get(MANAGER);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(resolveIsProjectMember).not.toHaveBeenCalled();
   });
 
   it('answers every denial identically, so project units cannot be enumerated', async () => {

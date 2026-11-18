@@ -44,6 +44,10 @@ const getTranslatedVerseRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(translatedVerseResponseSchema, 'The translated verse'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
+      'Invalid parameters'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Translated verse not found'
@@ -183,6 +187,10 @@ const listTranslatedVersesRoute = createRoute({
     [HttpStatusCodes.OK]: jsonContent(
       translatedVerseResponseSchema.array().openapi('TranslatedVerses'),
       'The list of translated verses (optionally filtered)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
+      'Invalid query parameters'
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),

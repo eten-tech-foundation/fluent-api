@@ -76,6 +76,7 @@ const getExportableBooksRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema('Project not found'),
       'Project not found'

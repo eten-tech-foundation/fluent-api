@@ -6,6 +6,7 @@ import type { AppEnv } from '@/server/context.types';
 import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { getHttpStatus } from '@/lib/types';
 
 /**
  * Middleware that ensures the caller has access to read the project that owns
@@ -18,7 +19,8 @@ import { resolveIsProjectMember } from '@/domains/projects/users/project-users.s
  *
  * Returns 400 when `project_unit_id` is missing/malformed (this runs before the
  * route's Zod validator), and 404 on any unknown unit/project or unauthorized
- * access to prevent enumeration. On success, sets `project` for the handler.
+ * access to prevent enumeration. Lookup/database errors return their own status (500).
+ * On success, sets `project` for the handler.
  */
 export function requireAiToolsAccess() {
   return createMiddleware<AppEnv>(async (c, next) => {
@@ -47,6 +49,10 @@ export function requireAiToolsAccess() {
 
     const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
     if (!unitResult.ok) {
+      const status = getHttpStatus(unitResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: unitResult.error.message }, status as never);
+      }
       return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
     }
 
@@ -54,6 +60,10 @@ export function requireAiToolsAccess() {
 
     const projectResult = await projectService.getProjectById(projectId);
     if (!projectResult.ok) {
+      const status = getHttpStatus(projectResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: projectResult.error.message }, status as never);
+      }
       return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
     }
 

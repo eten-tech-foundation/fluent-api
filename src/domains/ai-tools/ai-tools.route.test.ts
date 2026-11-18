@@ -225,6 +225,34 @@ describe('pOST /ai/tools/greek-room/repeated-words', () => {
     expect(callRepeatedWords).not.toHaveBeenCalled();
   });
 
+  it('returns 500 when looking up the project unit fails with a database error', async () => {
+    asAuthenticatedUser(true);
+    vi.mocked(projectsService.getProjectIdByUnitId).mockResolvedValue({
+      ok: false,
+      error: { code: ErrorCode.INTERNAL_ERROR, message: 'Internal server error' },
+    });
+
+    const res = await postRepeatedWords(VALID_BODY);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when looking up the project fails with a database error', async () => {
+    asAuthenticatedUser(true);
+    vi.mocked(projectsService.getProjectById).mockResolvedValue({
+      ok: false,
+      error: { code: ErrorCode.INTERNAL_ERROR, message: 'Internal server error' },
+    });
+
+    const res = await postRepeatedWords(VALID_BODY);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: 'Internal server error' });
+    expect(callRepeatedWords).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the caller is not a member of the resolved project', async () => {
     asAuthenticatedUser(true, false);
     // Grants are scoped to project 1, so only membership could admit the

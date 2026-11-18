@@ -46,6 +46,10 @@ export function requireTranslatedVerseAccess(
 
       const verseResult = await translatedVersesService.getTranslatedVerseById(verseId);
       if (!verseResult.ok) {
+        const status = getHttpStatus(verseResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: verseResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
@@ -65,11 +69,19 @@ export function requireTranslatedVerseAccess(
     if (action === TRANSLATED_VERSE_ACTIONS.READ) {
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
       if (!unitResult.ok) {
+        const status = getHttpStatus(unitResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: unitResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
       const projectResult = await projectService.getProjectById(unitResult.data.projectId);
       if (!projectResult.ok) {
+        const status = getHttpStatus(projectResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: projectResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
