@@ -5,15 +5,15 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 
-it('creates the standalone completed-artifact table on a fresh database', async () => {
+it('upgrades 0041 to the empty unified artifact table without legacy lookup', async () => {
   const database = new PGlite();
   try {
-    const migration = await readFile(
-      new URL('./migrations/0041_assistant_artifacts.sql', import.meta.url),
-      'utf8'
+    const [oldMigration, unifiedMigration] = await Promise.all(
+      ['0041_assistant_artifacts.sql', '0042_assistant_artifacts.sql'].map((name) =>
+        readFile(new URL(`./migrations/${name}`, import.meta.url), 'utf8')
+      )
     );
-    await database.exec(migration);
-    const key = 'a'.repeat(64);
+    await database.exec(oldMigration);
     await database.query(
       `INSERT INTO assistant_briefing_artifacts (
         cache_key, markdown, operation_version, profile_version, resource_policy_version,
@@ -21,22 +21,16 @@ it('creates the standalone completed-artifact table on a fresh database', async 
         source_language_code, expires_at
       ) VALUES ($1, $2, 'briefing-v1', 'profile-v1', 'resources-v1', '1', 'widgets-v1',
         'en', 'en', 'eng', CURRENT_TIMESTAMP + INTERVAL '1 day')`,
-      [key, 'completed markdown']
+      ['a'.repeat(64), 'legacy markdown']
     );
-    const { rows } = await database.query(
-      `SELECT cache_key, markdown, created_at IS NOT NULL AS has_created,
-        completed_at IS NOT NULL AS has_completed, expires_at > CURRENT_TIMESTAMP AS unexpired
-       FROM assistant_briefing_artifacts`
+    await database.exec(unifiedMigration);
+    expect((await database.query('SELECT * FROM assistant_artifacts')).rows).toEqual([]);
+    const tables = await database.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name LIKE 'assistant%artifacts'
+       ORDER BY table_name`
     );
-    expect(rows).toEqual([
-      {
-        cache_key: key,
-        markdown: 'completed markdown',
-        has_created: true,
-        has_completed: true,
-        unexpired: true,
-      },
-    ]);
+    expect(tables.rows).toEqual([{ table_name: 'assistant_artifacts' }]);
   } finally {
     await database.close();
   }
@@ -49,12 +43,21 @@ it('applies the complete migration journal to a fresh PostgreSQL-compatible data
       migrationsFolder: fileURLToPath(new URL('./migrations', import.meta.url)),
     });
     const { rows } = await database.query(
-      `SELECT cache_key FROM assistant_briefing_artifacts WHERE expires_at > CURRENT_TIMESTAMP`
+      `SELECT cache_key FROM assistant_artifacts WHERE expires_at > CURRENT_TIMESTAMP`
     );
     expect(rows).toEqual([]);
-    expect((await database.query('SELECT cache_key FROM assistant_turn_artifacts')).rows).toEqual(
-      []
+    const columns = await database.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'assistant_artifacts' ORDER BY ordinal_position`
     );
+    expect(columns.rows.map((row) => row.column_name)).toEqual([
+      'cache_key',
+      'markdown',
+      'cache_epoch',
+      'output_contract_version',
+      'completed_at',
+      'expires_at',
+    ]);
   } finally {
     await database.close();
   }

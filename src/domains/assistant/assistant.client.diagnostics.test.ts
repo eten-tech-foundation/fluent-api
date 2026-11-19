@@ -1,6 +1,15 @@
+import { Buffer } from 'node:buffer';
 import { expect, it, vi } from 'vitest';
 
-import { BtServantClient } from './assistant.client';
+import { boundedEventType, BtServantClient } from './assistant.client';
+
+it('bounds event-type diagnostics by UTF-8 bytes without splitting a code point', () => {
+  expect(boundedEventType('a'.repeat(64))).toBe('a'.repeat(64));
+  expect(boundedEventType('a'.repeat(65))).toBe(`${'a'.repeat(61)}...`);
+  const multibyte = boundedEventType(`${'界'.repeat(21)}xx`);
+  expect(multibyte).toBe(`${'界'.repeat(20)}...`);
+  expect(Buffer.byteLength(multibyte)).toBe(63);
+});
 
 it('logs unsupported frames with event metadata while accepting comments and empty frames', async () => {
   const warn = vi.fn();

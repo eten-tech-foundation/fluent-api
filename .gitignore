@@ -97,10 +97,10 @@ bun.lock*
 # AI files
 .superpowers
 # Agent-created worktrees of other branches (full repo copies)
-.claude/worktrees/
+/.claude/worktrees/
 
 # Local browser-smoke screenshots (never committed)
 .playwright-mcp/
 
 # Local git worktrees nested under the repo
-worktrees/
+/worktrees/

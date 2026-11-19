@@ -113,11 +113,11 @@ it('force-destroys TLS sockets across repeated stalled postgres.js pool retireme
   process.on('unhandledRejection', onUnhandled);
 
   try {
-    const { assistantCacheOpenTransportCountForTests, findCompletedBriefing } =
+    const { assistantCacheOpenTransportCountForTests, findCompletedArtifact } =
       await import('./cache/assistant-cache.repository');
     for (let generation = 0; generation < 3; generation++) {
       const started = Date.now();
-      await expect(findCompletedBriefing(String(generation).repeat(64))).rejects.toThrow(
+      await expect(findCompletedArtifact(String(generation).repeat(64))).rejects.toThrow(
         'read_timeout'
       );
       expect(Date.now() - started).toBeLessThan(3_000);
@@ -185,13 +185,13 @@ it('prunes transports after repeated ordinary postgres.js TLS disconnects', asyn
     const {
       assistantCacheOpenTransportCountForTests,
       assistantCachePoolGenerationForTests,
-      findCompletedBriefing,
+      findCompletedArtifact,
     } = await import('./cache/assistant-cache.repository');
     const poolGeneration = assistantCachePoolGenerationForTests();
     for (let connection = 0; connection < 3; connection++) {
       let failure: unknown;
       try {
-        await findCompletedBriefing(String(connection).repeat(64));
+        await findCompletedArtifact(String(connection).repeat(64));
       } catch (error) {
         failure = error;
       }

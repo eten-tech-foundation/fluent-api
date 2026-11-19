@@ -11,8 +11,10 @@ Related requirements: fluent-web [#402](https://github.com/eten-tech-foundation/
 [#406](https://github.com/eten-tech-foundation/fluent-web/issues/406).
 Settings [#403](https://github.com/eten-tech-foundation/fluent-web/issues/403) and first-use notice
 [#407](https://github.com/eten-tech-foundation/fluent-web/issues/407) remain outside this increment.
-Durable conversation history, attachments, automatic draft access, generated edits/actions,
-background agents, dynamic MCP, and additional providers are also excluded.
+Durable conversation history, attachments, automatic draft access, generated passage edits,
+background agents, dynamic MCP, and additional providers are also excluded. Generic declarative
+action transport, prompting, parsing, and local dispatch are implemented, but only
+`suggested_question` is registered; there is no generated passage-edit action or endpoint.
 
 ## Current limitations and follow-up
 
@@ -41,8 +43,13 @@ acceptance must assess this limitation rather than infer compliance from parser 
 
 A question button submits its exact visible text through the same action as Enter/Send and preserves
 an existing unsent draft. Typed text is preserved apart from rejecting all-whitespace submissions;
-IME composition does not submit. A suggested-question validation or terminal submission failure restores the full original question to the composer, replacing an unsent draft without resubmission. Intermediate busy retries do not trigger that recovery; cancelled or superseded attempts cannot replace a newer conversation's draft. Typed submission waits for a complete briefing unless an early
-suggested-question click has already established a signed frozen branch. The draft remains editable.
+IME composition does not submit. An immediately rejected suggested question replaces that unsent
+draft with the full question. After admission, terminal and `context_changed` recovery restores the
+question only when the composer has not been edited since submission; newer edits are preserved.
+Intermediate busy retries do not trigger recovery, and cancelled, superseded, or stale attempts
+cannot replace a newer conversation's draft. Typed submission waits for a complete briefing unless
+an early suggested-question click has already established a signed frozen branch. The draft remains
+editable.
 
 A new question during generation freezes the visible prefix and starts a separate branch. Later
 output from the old attempt cannot alter that branch. Originally cacheable production may finish
@@ -57,8 +64,9 @@ or switching to Resources/Checks preserves the thread/draft and lets an already 
 finish. Same-pericope verse navigation preserves it. Pericope/project changes, language/grounding
 changes, and Force fresh create a new boundary; A→B→A does not restore the earlier thread. Unresolved
 navigation disables stale interactions until canonical context is known. Reload, logout and workspace
-exit discard the conversation. A server context change refreshes the briefing and restores the pending
-question as an unsent draft requiring deliberate resubmission.
+exit discard the conversation. A server context change refreshes the briefing and, when the composer
+is unchanged since submission, restores the pending question as an unsent draft requiring deliberate
+resubmission.
 
 New briefing generation starts while the pane is open. After a current foreground completion,
 Web may touch exactly the next pericope; historical completions do not trigger it and it never
@@ -66,7 +74,10 @@ recurses. This includes read-only users, whose completed outputs can also benefi
 
 ## Data flow and integrity
 
-Briefing requests contain canonical selectors, output language, bounded diagnostic choices and Web's declarative available-action catalog. Turn requests carry that catalog too.
+Briefing requests contain canonical selectors, output language, and bounded diagnostic choices.
+For any generation that can create, publish, or join a shared artifact, API supplies the fixed
+server-owned `suggested_question` action catalog and ignores the client catalog for prompting. A
+guaranteed no-write private turn may use Web's structurally bounded declarative catalog.
 Turn requests additionally contain the frozen briefing, bounded ordered visible exchanges, signed
 context/output receipts and the explicitly submitted message. API does not accept browser-selected
 provider identity, credentials, source Bible wording, system policy or automatic editor context.
@@ -109,31 +120,46 @@ Mandatory context that cannot fit returns `context_too_large` and preserves pend
 
 ## Action catalog and semantic identity
 
-Web owns action definitions and rendering/handlers. Each request supplies declarative `type`, `purpose` and `template` entries, never JavaScript. The API validates a maximum of 32 entries and 32,768 serialized bytes, rejects duplicate types/unknown entry fields, and safely serializes the catalog into both initial and follow-up prompts independently of retained history. The initial briefing's three-question layout remains separate from that generic capability.
+Web owns generic action definitions and rendering/handlers. A private request may supply declarative
+`type`, `purpose`, and `template` entries, never JavaScript. API validates a maximum of 32 entries and
+32,768 serialized bytes, rejects duplicate types and unknown entry fields, and safely serializes the
+bounded private catalog. Shared-capable briefing and turn generation instead use API's fixed canonical
+`suggested_question` definition. Shared-capable initial briefings and cacheable
+turns therefore cannot be changed by a client-supplied catalog.
 
 The existing `{{fluent:v1:suggested_question|QUESTION}}` macro is preserved. Web dispatches only recognized actions to local behavior after a user click. Follow-up output carries the widget contract separately from the turn transport protocol. Unknown/malformed output remains inert. There is no BT contract negotiation or acknowledgment mechanism in this increment.
 
-Catalogs are unsigned and not backend-allowlisted. A modified client can influence model-facing instructions and thereby shared generated content. This bounded risk is accepted for this increment; structural validation does not prove trusted provenance. Future side-effect actions would still require local supported handlers, explicit user intent, payload validation and server authorization. No editing action is introduced here.
+The generation identity is one canonical object containing the exact provider-visible current message,
+exact provider-visible history, exact response-language hint, output-validity and contract constraints,
+cache epoch, and an artifact-kind hash-domain separator. Its fingerprint is both the shared artifact
+key and the signed turn projection digest. User, project, and organization identity, endpoint,
+operation/request/receipt identifiers, and transport timing do not enter it. A separate receipt MAC
+continues to bind the authenticated actor and authorized context and prevents history tampering and
+cross-user reuse.
 
-Turn artifact keys and signed transcript projection digests use one typed semantic projection: authorized canonical context and versions, exact frozen briefing/completeness, exact question, selected history/completeness, history policy/limits, language and protocols. Static prompt formatting/location, action catalogs, provider endpoint/org, execution identity and actor identity do not enter that projection. Receipts separately retain authenticated actor and branch bindings.
-
-Replacing the literal-prompt digest recipe causes a one-time turn-cache namespace and conversation-receipt reset. The accumulated artifacts are development-only; no production cache is discarded by this transition. There is no legacy fallback. Adding catalog entries later does not invalidate paid generations. Operators can increment the epoch or purge selected artifacts when content changes require it.
+Provider-request construction consumes that same canonical object. An exact prompt, history, language,
+output constraint, kind, or epoch change intentionally produces a cold cache. There is no separate
+catalog digest: a catalog matters only through the exact provider prompt in the canonical generation
+input. The server canonical catalog protects shared generation, while bounded client catalog changes
+affect only guaranteed no-write private generation.
 
 A future syntax change can use expand/migrate/contract: support both forms in Web, teach the new form, retire old cached output safely, then remove old rendering support. Do not rewrite serialized output covered by a signature or digest without addressing that binding; purge/epoch is an alternative.
 
 ## Bounded contract and operations
 
-| Bound                                          | Turn contract maximum                    |
-| ---------------------------------------------- | ---------------------------------------- |
-| Raw request / serialized submitted turns       | 524,288 / 393,216 bytes                  |
-| Logical user turns / attempts per turn         | 50 / 4                                   |
-| Current input                                  | 4,000 characters and 16,000 UTF-8 bytes  |
-| Generated answer                               | 15,000 characters and 60,000 UTF-8 bytes |
-| Receipt                                        | 4,096 characters                         |
-| Canonical source / constructed current message | 32,000 / 48,000 bytes                    |
-| History field / serialized provider history    | 16,000 characters / 524,288 bytes        |
-| Frame                                          | 1,048,576 bytes                          |
-| Connect / idle / total                         | 10 / 45 / 180 seconds                    |
+| Bound                                              | Turn contract maximum                                           |
+| -------------------------------------------------- | --------------------------------------------------------------- |
+| Raw request / serialized submitted turns           | 524,288 / 393,216 bytes                                         |
+| Logical user turns / attempts per turn             | 50 / 4                                                          |
+| Current input                                      | 4,000 characters and 16,000 UTF-8 bytes                         |
+| Current answer emergency ceiling                   | `ASSISTANT_MAX_OUTPUT_BYTES`: 8 MiB default, 32 MiB maximum     |
+| Total retained normalized stream emergency ceiling | `ASSISTANT_MAX_RETAINED_BYTES`: 64 MiB default, 256 MiB maximum |
+| Receipt                                            | 4,096 characters                                                |
+| Canonical source / constructed current message     | 32,000 / 48,000 bytes                                           |
+| History field / serialized provider history        | 16,000 characters / 524,288 bytes                               |
+| Upstream BT frame                                  | `ASSISTANT_MAX_FRAME_BYTES`: 1 MiB default, 8 MiB maximum       |
+| Emitted whole SSE frame                            | 202,375,168 bytes (6 × 32 MiB answer + 1 MiB envelope reserve)  |
+| Connect / idle / total                             | 10 / 45 / 180 seconds                                           |
 
 Configured provider budgets may tighten these ceilings; the current message must also fit the
 configured input budget. Admission bounds apply before expensive receipt verification/provider use.
@@ -142,22 +168,33 @@ upstream 45-second idle and 180-second total budgets still apply. Blank completi
 not cached; pre-existing blank cache rows are ignored. Web automatically retries only explicit pre-stream `generation_busy` admission failures with bounded backoff and cancellation. It preserves the pending message and normal waiting UI until admission succeeds or the retry budget expires. Already-started streams are not automatically replayed.
 Only explicit validated completion means success; partial output stays readable on failure. Recoverable passage-context failures offer Retry; non-retryable failures provide localized next steps. All Assistant interface text uses the existing localization machinery.
 
-Production unhandled-error logging retains method/path/status instead of raw exceptions. Unknown or malformed upstream frames log useful event/type metadata without full provider payloads; valid comments and empty frames do not warn. Unused legacy request-ID/logger additions have been removed; production HTTP request-correlation integration is not part of this change. Independent canonical lookup work runs concurrently; dependent source reads preserve ordering.
+Production unhandled-error logging retains method/path/status instead of raw exceptions. Unknown or
+malformed upstream frames may log content-free event/type metadata such as reason and `textType`,
+never payload or content. Any logged event-type value is bounded to 64 UTF-8 bytes including its
+suffix; truncation reserves the final three bytes for ASCII `...` and stops on a Unicode code-point
+boundary. Valid comments and empty frames do not warn. Unused legacy request-ID/logger additions have
+been removed; production HTTP request-correlation integration is not part of this change. Independent
+canonical lookup work runs concurrently; dependent source reads preserve ordering.
 
 ## Artifact cache and retention
 
-Briefings and follow-up artifacts use distinct versioned storage. Generator-produced migration `0041_assistant_artifacts` creates both tables and expiry indexes, replacing the two unmerged migrations with an equivalent final schema. Environments that applied the old unmerged pair must reconcile their local migration state before applying this consolidated history; it must not be blindly replayed over existing tables. Keys hash authorized canonical scope and semantic generation inputs with explicit content versions/epoch. Execution ids, timestamps, signatures and user identity are
-excluded. Only successful completed generated Markdown and minimal version metadata are stored,
-with database-clock seven-day expiry, first-winner publication, bounded cleanup and shutdown.
-Inputs/transcripts, raw source blocks and receipts are not separately stored in these tables.
-Generated answers can quote source text or explicitly pasted input.
+Migration `0041_assistant_artifacts` remains unchanged as dated evidence. Generator-created
+`0042_assistant_artifacts` creates one `assistant_artifacts` table and drops the old briefing and turn
+tables. Application code supplies one generic repository for eligible briefing and turn artifacts. The
+unified row has exactly `cache_key`, `markdown`, `cache_epoch`, `output_contract_version`,
+`completed_at`, and `expires_at`. `cache_key` is the sole lookup identity; epoch and contract are stored
+cleanup tags and are checked after lookup before replay. Publication remains first-winner with
+database-clock expiry, bounded cleanup, and shutdown.
 
-For turns, `dont_cache` defaults true. An exact completed authorized match may still be read;
-a miss runs privately without joining or publishing a shared producer. False permits process-local
-same-key joining and successful-completion publication. Web sends false only for the first pristine
-suggested question after a completed briefing, before typed/partial interaction or earlier turns.
-Later suggestions, typed messages and partial branches are no-write. This hint is not authorization.
-The briefing debug `ignore_cache` bypass is different: it skips reads, joining and writes.
+The migration deliberately performs no data migration or legacy lookup. QA accepts a cold artifact
+cache and ephemeral receipt reset, and repopulation occurs through normal authorized generation. For turns, `dont_cache` defaults true. Exact completed artifacts may still be read; on a miss,
+true forbids in-flight joining and publication. API trusts this user-controlled preference after authorization,
+context resolution, and full signed-transcript verification. `dont_cache: false` permits
+exact-key reuse and publication at any conversation depth, without origin or ancestry gates.
+Web sends false for every new suggested-question click and true for typed submissions and
+retries. A modified client may opt its own typed content into caching. Shared generation uses
+server-canonical actions and the exact verified provider message and history as identity.
+The briefing debug `ignore_cache` bypass likewise skips reads, joining, and writes.
 Cross-replica miss duplication remains possible; no distributed coordinator is introduced.
 
 Conversation state exists only in browser memory, not localStorage, IndexedDB or briefing query data.
@@ -265,3 +302,41 @@ Feature flags advertise Web visibility, consistent with the existing advertise-o
 If pericope data does not cover the current verse, the exact-current-verse fallback remains unchanged pending product feedback. Whole-chapter fallback, or a minimal missing-context diagnostic, are discussion options; the nearest preceding pericope can omit the selected verse. The normal same-pericope retention guarantee remains, but uncovered-verse navigation can reset the conversation.
 
 API and Web are coordinated PRs; this document is the shared design narrative rather than a second provider framework.
+
+### Retractable provider progress
+
+BT progress appends Markdown; a `retract` replaces only the current assistant answer with an
+empty string. Optional `iteration` and `chars` metadata never control retraction. Complete is
+authoritative: a different final answer emits one full replacement before completion. Matching
+completion emits none. Initial `briefing_replace` and follow-up `turn_replace` carry `markdown`
+and the next signed sequence/receipt, committing the new full state immediately. Earlier turns,
+questions and composer drafts remain intact. Existing actor-bound signed snapshots remain valid
+after later replacements, including an interruption request already in flight.
+
+Shared producers retain all ordered normalized events, including discarded text and empty
+replacements, for late subscribers. Completed cache artifacts contain only final Markdown.
+Current-answer bytes are measured after replacement; retained bytes include serialized normalized
+events (including completion), without compaction. There is no character-count answer limit.
+The configurable emergency ceilings above are deliberately far beyond normal answers. Web uses
+the API configuration maxima, so it cannot impose a stricter answer ceiling. Frame and duration
+bounds remain independent. A `response_safety_limit` terminal preserves visible partial output
+and shows a localized warning that it may be incomplete and repeated failures should be reported
+to the deployment administrator. This is distinct from oversized input/context. Diagnostics include
+only byte counts, ceilings, provider and metadata-validity flags, never answer or diagnostic text.
+
+### Incremental snapshots and emitted framing
+
+Append accounting scans only new text and adjusts UTF-8 size for surrogate pairs split across
+deltas. Replacements reset accounting once. Streamed receipts sign a domain-separated SHA-256
+digest of exact UTF-16LE code units, marked by authenticated `outputDigestAlgorithm:
+"sha256-utf16le-v1"`. Hash-state copies produce exact prefix snapshots in constant work per
+commit; replacement starts a new hash. Lone surrogates remain distinguishable. Receipts without
+the marker retain the original canonical-JSON digest verification, and their canonical serialization
+is unchanged. Old valid snapshots therefore remain usable after newer receipts are issued.
+
+The emitted-frame ceiling counts the entire UTF-8 SSE frame, including JSON escaping, id/event/data
+fields and its terminating blank line. The factor of six covers worst-case JSON control-character
+escaping; the 1 MiB reserve covers bounded identity, receipt and metadata overhead. API serialization
+and Web parsing use the same 202,375,168-byte limit, independent of the configurable BT frame ceiling.
+Web HTTP JSON responses remain separately capped at 1 MiB. Both parsers scan only new fragments
+and assemble a full frame once, rather than rescanning a growing partial frame.

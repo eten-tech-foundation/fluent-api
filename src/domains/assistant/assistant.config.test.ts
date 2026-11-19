@@ -53,6 +53,7 @@ function config(languages = validateAssistantLanguages(rawLanguages)!) {
       totalMs: 1,
       maxInputBytes: 1,
       maxOutputBytes: 1,
+      maxRetainedBytes: 1,
       maxFrameBytes: 1,
     },
   };
@@ -113,7 +114,7 @@ describe('assistant language configuration', () => {
         idleMs: 45_000,
         totalMs: 180_000,
         maxInputBytes: 48_000,
-        maxOutputBytes: 96_000,
+        maxOutputBytes: 8 * 1024 * 1024,
         maxFrameBytes: 1_048_576,
       },
     });
@@ -207,4 +208,21 @@ describe('assistant language configuration', () => {
       })
     ).toBeNull();
   });
+});
+
+it('configures generous independent emergency byte ceilings within the browser-compatible maxima', () => {
+  expect(parseAssistantConfig(wiredEnv)?.budgets).toMatchObject({
+    maxOutputBytes: 8 * 1024 * 1024,
+    maxRetainedBytes: 64 * 1024 * 1024,
+  });
+  expect(
+    parseAssistantConfig({
+      ...wiredEnv,
+      ASSISTANT_MAX_OUTPUT_BYTES: '33554432',
+      ASSISTANT_MAX_RETAINED_BYTES: '268435456',
+    })?.budgets
+  ).toMatchObject({ maxOutputBytes: 33554432, maxRetainedBytes: 268435456 });
+  expect(parseAssistantConfig({ ...wiredEnv, ASSISTANT_MAX_OUTPUT_BYTES: '33554433' })).toBeNull();
+  for (const value of ['0', '-1', '1.5', '268435457'])
+    expect(parseAssistantConfig({ ...wiredEnv, ASSISTANT_MAX_RETAINED_BYTES: value })).toBeNull();
 });
