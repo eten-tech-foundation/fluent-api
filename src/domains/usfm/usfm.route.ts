@@ -1,6 +1,7 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { stream } from 'hono/streaming';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
+import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
@@ -13,6 +14,7 @@ import {
 } from '@/lib/blob-storage';
 import { logger } from '@/lib/logger';
 import { getQueue, isQueueReady, QUEUE_NAMES } from '@/lib/queue';
+import { validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -46,6 +48,27 @@ const errorSchema = z.object({
   details: z.string().optional(),
 });
 
+const badRequestExportSchema = z.union([
+  errorSchema,
+  createMessageObjectSchema('Missing projectUnitId'),
+  validationErrorSchema,
+]);
+
+const internalServerErrorExportSchema = z.union([
+  errorSchema,
+  createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+]);
+
+const serverErrorExportContent = jsonContent(
+  internalServerErrorExportSchema,
+  'Internal server error'
+);
+
+const badRequestExportContent = jsonContent(
+  badRequestExportSchema,
+  'Bad request, missing projectUnitId, or validation error'
+);
+
 const exportAsyncResponseSchema = z.object({
   jobId: z.string(),
   message: z.string(),
@@ -76,6 +99,10 @@ const getExportableBooksRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(exportableBooksResponseSchema, 'List of exportable books'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema('Missing projectUnitId'),
+      'Missing or invalid project unit ID'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema('Project not found'),
       'Project not found'
@@ -88,7 +115,7 @@ const getExportableBooksRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'User account is inactive'
     ),
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: serverErrorExportContent,
   },
 });
 
@@ -114,7 +141,7 @@ const exportProjectUSFMRoute = createRoute({
       createMessageObjectSchema('Project not found'),
       'Project not found'
     ),
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestExportContent,
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -123,7 +150,7 @@ const exportProjectUSFMRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'User account is inactive'
     ),
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: serverErrorExportContent,
   },
 });
 
@@ -150,7 +177,7 @@ const exportProjectUSFMAsyncRoute = createRoute({
       createMessageObjectSchema('Project not found'),
       'Project not found'
     ),
-    [HttpStatusCodes.BAD_REQUEST]: jsonContent(errorSchema, 'Bad request'),
+    [HttpStatusCodes.BAD_REQUEST]: badRequestExportContent,
     [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
       createMessageObjectSchema('Unauthorized'),
       'Authentication required'
@@ -159,7 +186,7 @@ const exportProjectUSFMAsyncRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'User account is inactive'
     ),
-    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(errorSchema, 'Internal server error'),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: serverErrorExportContent,
   },
 });
 

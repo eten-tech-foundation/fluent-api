@@ -9,6 +9,7 @@ import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
+import { MAX_POSTGRES_INT } from '@/lib/constants';
 import { getHttpStatus } from '@/lib/types';
 
 import type { ProjectUnitIdSource, TranslatedVerseAction } from './translated-verses.types';
@@ -39,37 +40,62 @@ export function requireTranslatedVerseAccess(
     let parsedBody: TranslatedVerseAuthBody | undefined;
 
     if (source === PROJECT_UNIT_ID_SOURCES.VERSE_PARAM) {
-      const verseId = Number(c.req.param(verseParamName));
-      if (!verseId || Number.isNaN(verseId)) {
+      const raw = c.req.param(verseParamName);
+      if (!raw || !/^\d+$/.test(raw)) {
+        return c.json({ message: 'Missing verse ID' }, HttpStatusCodes.BAD_REQUEST);
+      }
+
+      const verseId = Number(raw);
+      // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
+      if (!Number.isInteger(verseId) || verseId <= 0 || verseId > MAX_POSTGRES_INT) {
         return c.json({ message: 'Missing verse ID' }, HttpStatusCodes.BAD_REQUEST);
       }
 
       const verseResult = await translatedVersesService.getTranslatedVerseById(verseId);
       if (!verseResult.ok) {
+        const status = getHttpStatus(verseResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: verseResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
       c.set('translatedVerse', verseResult.data);
       projectUnitId = verseResult.data.projectUnitId;
     } else if (source === PROJECT_UNIT_ID_SOURCES.QUERY) {
-      projectUnitId = Number(c.req.query('projectUnitId'));
+      const raw = c.req.query('projectUnitId');
+      projectUnitId = raw && /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
     } else if (source === PROJECT_UNIT_ID_SOURCES.BODY) {
       parsedBody = await c.req.json();
       projectUnitId = parsedBody?.projectUnitId;
     }
 
-    if (!projectUnitId || Number.isNaN(projectUnitId)) {
+    // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
+    if (
+      projectUnitId === undefined ||
+      !Number.isInteger(projectUnitId) ||
+      projectUnitId <= 0 ||
+      projectUnitId > MAX_POSTGRES_INT
+    ) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }
 
     if (action === TRANSLATED_VERSE_ACTIONS.READ) {
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
       if (!unitResult.ok) {
+        const status = getHttpStatus(unitResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: unitResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
       const projectResult = await projectService.getProjectById(unitResult.data.projectId);
       if (!projectResult.ok) {
+        const status = getHttpStatus(projectResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: projectResult.error.message }, status as never);
+        }
         return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
       }
 
@@ -97,12 +123,16 @@ export function requireTranslatedVerseAccess(
       }
 
       const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
-      const isProjectMember = unitResult.ok
-        ? await resolveIsProjectMember(unitResult.data.projectId, user.id)
-        : false;
-      const stages = unitResult.ok
-        ? await getWorkflowStagesByProjectId(unitResult.data.projectId)
-        : [];
+      if (!unitResult.ok) {
+        const status = getHttpStatus(unitResult.error);
+        if (status !== HttpStatusCodes.NOT_FOUND) {
+          return c.json({ message: unitResult.error.message }, status as never);
+        }
+        return c.json({ message: 'Translated verse not found' }, HttpStatusCodes.NOT_FOUND);
+      }
+
+      const isProjectMember = await resolveIsProjectMember(unitResult.data.projectId, user.id);
+      const stages = await getWorkflowStagesByProjectId(unitResult.data.projectId);
 
       if (
         !ChapterAssignmentPolicy.edit(policyUser, assignmentResult.data, isProjectMember, stages)
