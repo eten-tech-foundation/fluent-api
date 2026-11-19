@@ -6,6 +6,7 @@ import type { AppEnv } from '@/server/context.types';
 import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
+import { MAX_POSTGRES_INT } from '@/lib/constants';
 import { getHttpStatus } from '@/lib/types';
 
 /**
@@ -33,7 +34,12 @@ export function requireProjectUnitAccess(paramName = 'projectUnitId') {
     }
 
     const projectUnitId = Number(rawParam);
-    if (!Number.isInteger(projectUnitId) || projectUnitId <= 0 || projectUnitId > 2147483647) {
+    // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
+    if (
+      !Number.isInteger(projectUnitId) ||
+      projectUnitId <= 0 ||
+      projectUnitId > MAX_POSTGRES_INT
+    ) {
       return c.json({ message: `Missing ${paramName}` }, HttpStatusCodes.BAD_REQUEST);
     }
 

@@ -218,7 +218,7 @@ describe('requireBookDetailsAccess', () => {
   });
 
   it('rejects a malformed project unit ID without touching the database', async () => {
-    for (const projectUnitId of ['abc', '0', '-1', '1.5']) {
+    for (const projectUnitId of ['abc', '0', '-1', '1.5', '2147483648', '0x10', '1e5']) {
       const res = await get(MANAGER, projectUnitId);
 
       expect(res.status, `projectUnitId=${JSON.stringify(projectUnitId)}`).toBe(400);

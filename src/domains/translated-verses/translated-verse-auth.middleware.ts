@@ -9,6 +9,7 @@ import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
+import { MAX_POSTGRES_INT } from '@/lib/constants';
 import { getHttpStatus } from '@/lib/types';
 
 import type { ProjectUnitIdSource, TranslatedVerseAction } from './translated-verses.types';
@@ -45,7 +46,8 @@ export function requireTranslatedVerseAccess(
       }
 
       const verseId = Number(raw);
-      if (!Number.isInteger(verseId) || verseId <= 0 || verseId > 2147483647) {
+      // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
+      if (!Number.isInteger(verseId) || verseId <= 0 || verseId > MAX_POSTGRES_INT) {
         return c.json({ message: 'Missing verse ID' }, HttpStatusCodes.BAD_REQUEST);
       }
 
@@ -68,11 +70,12 @@ export function requireTranslatedVerseAccess(
       projectUnitId = parsedBody?.projectUnitId;
     }
 
+    // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
     if (
       projectUnitId === undefined ||
       !Number.isInteger(projectUnitId) ||
       projectUnitId <= 0 ||
-      projectUnitId > 2147483647
+      projectUnitId > MAX_POSTGRES_INT
     ) {
       return c.json({ message: 'Missing projectUnitId' }, HttpStatusCodes.BAD_REQUEST);
     }

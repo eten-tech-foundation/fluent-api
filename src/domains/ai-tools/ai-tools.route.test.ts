@@ -260,14 +260,15 @@ describe('pOST /ai/tools/greek-room/repeated-words', () => {
     expect(callRepeatedWords).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when project_unit_id is missing', async () => {
+  it('returns 400 when project_unit_id is missing or invalid', async () => {
     asAuthenticatedUser(true);
-    const { project_unit_id: _omit, ...body } = VALID_BODY;
+    for (const project_unit_id of [undefined, 'abc', 0, -1, 1.5, 2147483648]) {
+      const body = { ...VALID_BODY, project_unit_id };
+      const res = await postRepeatedWords(body);
 
-    const res = await postRepeatedWords(body);
-
-    expect(res.status).toBe(400);
-    expect(callRepeatedWords).not.toHaveBeenCalled();
+      expect(res.status).toBe(400);
+      expect(callRepeatedWords).not.toHaveBeenCalled();
+    }
   });
 
   it('returns 400 when the body is invalid (empty verses)', async () => {
