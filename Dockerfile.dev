@@ -1,5 +1,5 @@
 # Use specific version for reproducibility and security updates
-FROM node:24.14.1-alpine3.23@sha256:8510330d3eb72c804231a834b1a8ebb55cb3796c3e4431297a24d246b8add4d5
+FROM node:26.13.0-alpine3.23@sha256:44a3247313f9bc069a4ec25d01b66254ed7dc4d0408727d8720dc827f0753423
 
 # Install security updates, build dependencies, and dumb-init for signal handling
 RUN apk update && \
