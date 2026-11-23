@@ -93,7 +93,7 @@ export function createServer() {
   async function proxyToAuth(c: Context<AppEnv>, betterAuthPath: string): Promise<Response> {
     const url = new URL(c.req.url);
     url.pathname = betterAuthPath;
-        const init: RequestInit = {
+    const init: RequestInit = {
       method: c.req.method,
       headers: c.req.raw.headers,
     };
