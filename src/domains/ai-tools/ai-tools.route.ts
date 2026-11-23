@@ -63,6 +63,10 @@ const repeatedWordsRoute = createRoute({
       createMessageObjectSchema('Project not found'),
       'Unknown project unit, or the caller cannot read its project'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema('Internal Server Error'),
+      'Internal server error'
+    ),
     [HttpStatusCodes.BAD_GATEWAY]: jsonContent(errorResponseSchema, 'Upstream fluent-ai error'),
   },
   summary: 'Run the Greek-Room repeated-words check',

@@ -12,6 +12,7 @@ import { ProjectPolicy } from '@/domains/projects/project.policy';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { getWorkflowStagesByProjectId } from '@/domains/projects/workflow-stages/workflow-stages.repository';
+import { MAX_POSTGRES_INT } from '@/lib/constants';
 import { ErrorMessages, getHttpStatus } from '@/lib/types';
 
 import type { VerseAudioIdSource } from './verse-audio.types';
@@ -35,12 +36,18 @@ function validateMiddlewareInputs(
   const user = c.get('user')!;
   const policyUser = { id: user.id, grants: user.grants };
 
-  const projectUnitId =
+  const raw =
     source === VERSE_AUDIO_ID_SOURCES.QUERY
-      ? Number(c.req.query('projectUnitId'))
-      : Number(c.req.param('projectUnitId'));
+      ? c.req.query('projectUnitId')
+      : c.req.param('projectUnitId');
 
-  if (!Number.isInteger(projectUnitId) || projectUnitId <= 0) {
+  if (!raw || !/^\d+$/.test(raw)) {
+    return undefined;
+  }
+
+  const projectUnitId = Number(raw);
+  // Guard against values exceeding PostgreSQL's 32-bit signed integer capacity (SQLSTATE 22P02 overflow).
+  if (!Number.isInteger(projectUnitId) || projectUnitId <= 0 || projectUnitId > MAX_POSTGRES_INT) {
     return undefined;
   }
 
@@ -90,11 +97,19 @@ export function requireReadVerseAudioAccess(source: VerseAudioIdSource) {
 
     const unitResult = await projectService.getProjectIdByUnitId(projectUnitId);
     if (!unitResult.ok) {
+      const status = getHttpStatus(unitResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: unitResult.error.message }, status as never);
+      }
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 
     const projectResult = await projectService.getProjectById(unitResult.data.projectId);
     if (!projectResult.ok) {
+      const status = getHttpStatus(projectResult.error);
+      if (status !== HttpStatusCodes.NOT_FOUND) {
+        return c.json({ message: projectResult.error.message }, status as never);
+      }
       return c.json({ message: NOT_FOUND_MESSAGE }, HttpStatusCodes.NOT_FOUND);
     }
 

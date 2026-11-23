@@ -1,12 +1,13 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
 import * as HttpStatusPhrases from 'stoker/http-status-phrases';
-import { jsonContent } from 'stoker/openapi/helpers';
+import { jsonContent, jsonContentOneOf } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
 import { insertTranslatedVersesSchema } from '@/db/schema';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getHttpStatus } from '@/lib/types';
+import { validationErrorSchema } from '@/lib/updated-after-query';
 import { authenticateUser, requirePermission } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
@@ -44,6 +45,10 @@ const getTranslatedVerseRoute = createRoute({
   },
   responses: {
     [HttpStatusCodes.OK]: jsonContent(translatedVerseResponseSchema, 'The translated verse'),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST),
+      'Invalid parameters'
+    ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),
       'Translated verse not found'
@@ -183,6 +188,10 @@ const listTranslatedVersesRoute = createRoute({
     [HttpStatusCodes.OK]: jsonContent(
       translatedVerseResponseSchema.array().openapi('TranslatedVerses'),
       'The list of translated verses (optionally filtered)'
+    ),
+    [HttpStatusCodes.BAD_REQUEST]: jsonContentOneOf(
+      [createMessageObjectSchema(HttpStatusPhrases.BAD_REQUEST), validationErrorSchema],
+      'Query validation error or missing parameter'
     ),
     [HttpStatusCodes.NOT_FOUND]: jsonContent(
       createMessageObjectSchema(HttpStatusPhrases.NOT_FOUND),

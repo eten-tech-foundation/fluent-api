@@ -7,6 +7,7 @@ import type { AppEnv } from '@/server/context.types';
 import * as projectService from '@/domains/projects/projects.service';
 import { resolveIsProjectMember } from '@/domains/projects/users/project-users.service';
 import { PERMISSIONS } from '@/lib/permissions';
+import { err, ErrorCode, ErrorMessages } from '@/lib/types';
 
 import { requireBookDetailsAccess } from './book-details-auth.middleware';
 
@@ -48,8 +49,34 @@ const OTHER_ORG_MANAGER = { id: 1, grants: [viewGrant(OTHER_ORG, null)] };
 // membership lookup can let them in (ProjectPolicy.read's fallback).
 const TRANSLATOR = { id: 2, grants: [viewGrant(ORG, OTHER_PROJECT)] };
 
-// Only `id` and `organization` are read, by ProjectPolicy.read.
-const project = { id: PROJECT_ID, organization: ORG } as unknown as ProjectWithLanguageNames;
+function buildProject(overrides: Partial<ProjectWithLanguageNames> = {}): ProjectWithLanguageNames {
+  return {
+    id: PROJECT_ID,
+    name: 'Test Project',
+    organization: ORG,
+    sourceLanguageId: 1,
+    targetLanguageId: 2,
+    sourceLanguageName: 'English',
+    targetLanguageName: 'Spanish',
+    sourceName: 'Test Bible',
+    isActive: true,
+    status: 'active',
+    createdBy: 1,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    metadata: {},
+    sourceBibleId: null,
+    pericopeSetId: null,
+    lastActivityAt: null,
+    lastChapterActivity: null,
+    chapterStatusCounts: {},
+    milestoneCount: 0,
+    workflowConfig: [],
+    ...overrides,
+  };
+}
+
+const project = buildProject();
 
 const DENIED = { status: 404, body: { message: 'Project not found' } };
 
@@ -165,10 +192,9 @@ describe('requireBookDetailsAccess', () => {
   });
 
   it('denies when the project unit does not exist', async () => {
-    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
-      ok: false,
-      error: { code: 'PROJECT_UNIT_NOT_FOUND', message: 'Project unit not found' } as never,
-    });
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue(
+      err(ErrorCode.PROJECT_UNIT_NOT_FOUND)
+    );
 
     const res = await get(MANAGER);
 
@@ -183,10 +209,7 @@ describe('requireBookDetailsAccess', () => {
       ok: true,
       data: { projectId: PROJECT_ID },
     });
-    vi.mocked(projectService.getProjectById).mockResolvedValue({
-      ok: false,
-      error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found' } as never,
-    });
+    vi.mocked(projectService.getProjectById).mockResolvedValue(err(ErrorCode.PROJECT_NOT_FOUND));
 
     const res = await get(MANAGER);
 
@@ -195,14 +218,39 @@ describe('requireBookDetailsAccess', () => {
   });
 
   it('rejects a malformed project unit ID without touching the database', async () => {
-    for (const projectUnitId of ['abc', '0', '-1', '1.5', '']) {
+    for (const projectUnitId of ['abc', '0', '-1', '1.5', '2147483648', '0x10', '1e5']) {
       const res = await get(MANAGER, projectUnitId);
 
-      expect(res.status, `projectUnitId=${JSON.stringify(projectUnitId)}`).toBe(DENIED.status);
+      expect(res.status, `projectUnitId=${JSON.stringify(projectUnitId)}`).toBe(400);
+      expect(await res.json()).toEqual({ message: 'Missing projectUnitId' });
       // The guard exists to keep NaN and fractional IDs away from an integer
       // column, so the lookups must not run at all.
       expect(projectService.getProjectIdByUnitId).not.toHaveBeenCalled();
     }
+  });
+
+  it('returns 500 when looking up the project unit fails with a database error', async () => {
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+    const res = await get(MANAGER);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: ErrorMessages[ErrorCode.INTERNAL_ERROR] });
+    expect(projectService.getProjectById).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when looking up the project fails with a database error', async () => {
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
+      ok: true,
+      data: { projectId: PROJECT_ID },
+    });
+    vi.mocked(projectService.getProjectById).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+    const res = await get(MANAGER);
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ message: ErrorMessages[ErrorCode.INTERNAL_ERROR] });
+    expect(resolveIsProjectMember).not.toHaveBeenCalled();
   });
 
   it('answers every denial identically, so project units cannot be enumerated', async () => {
@@ -217,10 +265,9 @@ describe('requireBookDetailsAccess', () => {
     projectUnitResolves(false);
     responses.push(await get(TRANSLATOR));
 
-    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue({
-      ok: false,
-      error: { code: 'PROJECT_UNIT_NOT_FOUND', message: 'Project unit not found' } as never,
-    });
+    vi.mocked(projectService.getProjectIdByUnitId).mockResolvedValue(
+      err(ErrorCode.PROJECT_UNIT_NOT_FOUND)
+    );
     responses.push(await get(MANAGER));
 
     for (const res of responses) {
