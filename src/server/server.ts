@@ -93,7 +93,16 @@ export function createServer() {
   async function proxyToAuth(c: Context<AppEnv>, betterAuthPath: string): Promise<Response> {
     const url = new URL(c.req.url);
     url.pathname = betterAuthPath;
-    return auth.handler(new Request(url, c.req.raw));
+        const init: RequestInit = {
+      method: c.req.method,
+      headers: c.req.raw.headers,
+    };
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.raw.body) {
+      init.body = c.req.raw.body;
+      // @ts-expect-error duplex is required by Fetch in Node for streaming request bodies
+      init.duplex = 'half';
+    }
+    return auth.handler(new Request(url, init));
   }
 
   app.post('/api/auth/password/set', async (c) => {
