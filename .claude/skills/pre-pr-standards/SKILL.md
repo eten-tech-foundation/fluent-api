@@ -20,6 +20,11 @@ the procedure for applying them to a branch.
    codebase for an existing helper, schema or constant for each new one the diff adds;
    FA-R3 means reading the OpenAPI descriptions, test titles and docs that touch the changed
    behavior. Done when every rule has a verdict backed by something you read.
-4. **Fix and re-verify.** Fix each violation, then rerun step 1.
-5. **Report.** Return the verdict table. Any violation left in place on purpose goes in the
+4. **Keep the agent docs current.** If the diff adds, moves or removes a domain, endpoint or
+   worker, update `docs/code-map.md`. If it changes a behavior that `docs/domain-rules.md`
+   describes, update that rule and its code and test citations. A change that breaks a rule on
+   purpose says so in the PR body. Done when both files match the diff. This step is not an
+   FA rule.
+5. **Fix and re-verify.** Fix each violation, then rerun step 1.
+6. **Report.** Return the verdict table. Any violation left in place on purpose goes in the
    PR body under **Standards exceptions**, with its ID and the reason.

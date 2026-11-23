@@ -1,5 +1,23 @@
 # AGENTS.md — Fluent API
 
+Fluent's backend, Hono and Drizzle on Postgres. It is the only backend for
+[fluent-web](https://github.com/eten-tech-foundation/fluent-web) and calls
+[fluent-ai](https://github.com/eten-tech-foundation/fluent-ai) over HTTP.
+
+## Read only what the task needs
+
+- Finding where a domain or endpoint lives, or what it calls: [docs/code-map.md](docs/code-map.md).
+- Changing permissions, scripture text, saving, async jobs, content protection or feature flags:
+  [docs/domain-rules.md](docs/domain-rules.md).
+- Writing code in `src/`: the [Code standards](#code-standards) below, and
+  [ARCHITECTURE.md](ARCHITECTURE.md) for how a domain module is shaped.
+- Roles, grants and the auth middleware chain in detail: [docs/permissions.md](docs/permissions.md).
+- Setup, migrations and the database: [CONTRIBUTING.md](CONTRIBUTING.md) and
+  [docs/db-provisioning-and-setup.md](docs/db-provisioning-and-setup.md).
+
+Never edit or rename a migration in `src/db/migrations/`. Generate a new one with
+`npm run db:generate <name>`.
+
 ## Docs
 
 See `docs/README.md` for the docs directory convention. Brainstorming and
