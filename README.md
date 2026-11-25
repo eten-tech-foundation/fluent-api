@@ -60,7 +60,9 @@ The backend/server for the Fluent ecosystem built with Hono and OpenAPI. This is
 
 - **[Authentication Migration](./docs/features/authentication-migration/design.md)** - Guide for BetterAuth migration and admin tools
 
-- **[Quick Reference](./docs/quick-reference.md)** - Common patterns and examples
+- **[Code Map](./docs/code-map.md)** - Where each domain, endpoint and worker lives, and what it calls
+
+- **[Domain Rules](./docs/domain-rules.md)** - Behavior the code and tests rely on, with the code and test behind each rule
 
 ## Setup
 
@@ -165,21 +167,10 @@ npm run db:studio             # Open Drizzle Studio
 
 ## Code Tour
 
-### Project Structure
-
-```
-src/
-├── routes/              # OpenAPI route definitions
-├── handlers/            # Business logic handlers
-├── db/                  # Database schema and configuration
-├── lib/                 # Utility functions and configuration
-├── middlewares/         # Custom middleware
-├── server/              # Server configuration
-├── test/                # Test utilities
-├── app.ts               # Main application setup
-├── index.ts             # Application entry point
-└── env.ts               # Environment configuration
-```
+[docs/code-map.md](./docs/code-map.md) shows where each domain, endpoint and worker lives and
+what it calls. [ARCHITECTURE.md](./ARCHITECTURE.md) explains how a domain module is built from a
+route, a service, a repository and a policy, and the Users domain
+([`src/domains/users/`](./src/domains/users/)) is the reference implementation.
 
 ### Key Files
 
@@ -190,51 +181,20 @@ src/
 - **[src/db/schema.ts](./src/db/schema.ts)** - Database schema definitions with Drizzle
 - **[src/lib/configure-open-api.ts](./src/lib/configure-open-api.ts)** - OpenAPI documentation setup
 
-### Architecture Pattern
-
-The project follows a **route-handler** architecture:
-
-1. **Routes** (`src/routes/`) - Define OpenAPI routes with validation schemas
-2. **Handlers** (`src/handlers/`) - Contain business logic and database operations
-3. **Database** (`src/db/`) - Schema definitions and database connection
-4. **Utilities** (`src/lib/`) - Shared utilities and configuration
-
-### Example Implementation
-
-The project includes a complete **Tasks** feature implementation demonstrating the architecture. See the following files for reference:
-
-- **Database Schema**: [`src/db/schema.ts`](./src/db/schema.ts) - Table definitions and Zod validation schemas
-- **Handler Functions**: [`src/handlers/task.handler.ts`](./src/handlers/task.handler.ts) - Business logic and database operations
-- **Route Definitions**: [`src/routes/task.route.ts`](./src/routes/task.route.ts) - OpenAPI route specifications
-- **Tests**: [`src/handlers/task.handler.test.ts`](./src/handlers/task.handler.test.ts) - Handler testing patterns
-
 ## API Endpoints
 
 ### Public Endpoints
 
-| Method | Path          | Description              |
-| ------ | ------------- | ------------------------ |
-| GET    | `/`           | API Index                |
-| GET    | `/health`     | Health Check             |
-| GET    | `/doc`        | OpenAPI Specification    |
-| GET    | `/reference`  | Scalar API Documentation |
-| GET    | `/api/public` | Public data (no auth)    |
+| Method | Path         | Description              |
+| ------ | ------------ | ------------------------ |
+| GET    | `/`          | API Index                |
+| GET    | `/health`    | Health Check             |
+| GET    | `/doc`       | OpenAPI Specification    |
+| GET    | `/reference` | Scalar API Documentation |
 
-### Protected Endpoints (Require valid BetterAuth session)
-
-| Method | Path             | Description         |
-| ------ | ---------------- | ------------------- |
-| GET    | `/api/protected` | Protected user data |
-
-### Task Management (Examples)
-
-| Method | Path          | Description           |
-| ------ | ------------- | --------------------- |
-| GET    | `/tasks`      | List all tasks        |
-| POST   | `/tasks`      | Create a task         |
-| GET    | `/tasks/{id}` | Get one task by id    |
-| PATCH  | `/tasks/{id}` | Update one task by id |
-| DELETE | `/tasks/{id}` | Delete one task by id |
+The running API documents every route at `/doc` and `/reference`. Most routes need a
+better-auth session: [docs/permissions.md](./docs/permissions.md) explains the checks, and the
+[code map](./docs/code-map.md) groups the routes by domain.
 
 ## Contributing
 
