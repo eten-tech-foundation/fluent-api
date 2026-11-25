@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import type { ChapterAssignmentStatus } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { DbTransaction, Result } from '@/lib/types';
@@ -306,27 +306,30 @@ export async function removeProjectUser(projectId: number, userId: number): Prom
   }
 }
 
+/**
+ * A user is a member of a project when they hold a role pinned to it under the
+ * project's own organization, or an org-wide role in that organization. The
+ * zero-permission Org Member anchor that every invitee gets doesn't count.
+ */
 export async function resolveIsProjectMember(projectId: number, userId: number): Promise<boolean> {
-  const [pinned] = await db
+  const [row] = await db
     .select({ id: user_roles.id })
     .from(user_roles)
-    .where(and(eq(user_roles.userId, userId), eq(user_roles.projectId, projectId)))
-    .limit(1);
-  if (pinned) return true;
-
-  const rows = await db
-    .select({ id: user_roles.id })
-    .from(user_roles)
-    .innerJoin(projects, eq(projects.id, projectId))
+    .innerJoin(projects, eq(projects.organization, user_roles.orgId))
+    .innerJoin(roles, eq(roles.id, user_roles.roleId))
     .where(
       and(
+        eq(projects.id, projectId),
         eq(user_roles.userId, userId),
-        eq(user_roles.orgId, projects.organization),
-        isNull(user_roles.projectId)
+        or(
+          eq(user_roles.projectId, projects.id),
+          and(isNull(user_roles.projectId), ne(roles.name, ROLES.ORG_MEMBER))
+        )
       )
     )
+    .orderBy(user_roles.id)
     .limit(1);
-  return rows.length > 0;
+  return row !== undefined;
 }
 
 export async function getProjectUserRole(

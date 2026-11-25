@@ -4,16 +4,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Grant } from '@/lib/types';
 import type { AppEnv } from '@/server/context.types';
 
+import { getProjectById } from '@/domains/projects/projects.service';
 import { PERMISSIONS } from '@/lib/permissions';
 import { ROLES } from '@/lib/roles';
+import { err, ErrorCode } from '@/lib/types';
 
 import { requireUserAccess } from './user-auth.middleware';
 import { USER_ACTIONS } from './users.types';
 
-// The CREATE branch reads the JSON body and calls canAssignRole — no DB access —
-// but the module-level imports pull in repositories, so the DB boundary is mocked.
+// The CREATE branch reads the JSON body, looks up a given project through the
+// projects service and calls canAssignRole. The module-level imports pull in
+// repositories, so the DB boundary is mocked.
 vi.mock('@/db', () => ({
   db: {},
+}));
+
+vi.mock('@/domains/projects/projects.service', () => ({
+  getProjectById: vi.fn(),
 }));
 
 vi.mock('@/lib/logger', () => ({
@@ -54,6 +61,20 @@ const PROJECT_PINNED_PM = {
       PERMISSIONS.USER_CREATE,
       PERMISSIONS.USER_VIEW,
       PERMISSIONS.ROLE_ASSIGN_PROJECT,
+    ]),
+  ],
+};
+
+// An org-wide Org Manager grant.
+const ORG_MANAGER = {
+  id: 3,
+  status: 'verified',
+  grants: [
+    grant(ORG, null, [
+      PERMISSIONS.USER_CREATE,
+      PERMISSIONS.USER_VIEW,
+      PERMISSIONS.ROLE_ASSIGN_PROJECT,
+      PERMISSIONS.ROLE_ASSIGN_ORG_MANAGER,
     ]),
   ],
 };
@@ -108,5 +129,28 @@ describe('requireUserAccess(USER_ACTIONS.CREATE)', () => {
     expect(await res.json()).toEqual({
       message: 'Forbidden: Insufficient privileges to assign this role.',
     });
+  });
+
+  it('answers 400 for a projectId that is not a positive whole number', async () => {
+    const res = await postInvite(ORG_MANAGER, {
+      orgId: ORG,
+      projectId: 1.5,
+      roleName: ROLES.PROJECT_TRANSLATOR,
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ message: 'Invalid project ID' });
+  });
+
+  it('passes a failed project lookup through with its own status', async () => {
+    vi.mocked(getProjectById).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+    const res = await postInvite(ORG_MANAGER, {
+      orgId: ORG,
+      projectId: PROJ,
+      roleName: ROLES.PROJECT_TRANSLATOR,
+    });
+
+    expect(res.status).toBe(500);
   });
 });
