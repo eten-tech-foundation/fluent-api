@@ -12,6 +12,16 @@ export default defineConfig({
     },
   },
   test: {
+    // Multiple PGlite WASM integration suites run in parallel at the start of a
+    // full run; capping worker forks and raising hookTimeout prevents cold
+    // PGlite bootstrap hooks and whole-app imports from starving under CPU/RAM
+    // contention without weakening any test assertions.
+    hookTimeout: 30_000,
+    poolOptions: {
+      forks: {
+        maxForks: 4,
+      },
+    },
     // Agent tooling checks out sibling branches into .claude/worktrees/<branch>/,
     // each a full copy of this repo. Without this exclude, vitest collects those
     // copies' suites too and reports another branch's failures as if they were

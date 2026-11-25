@@ -84,8 +84,9 @@ it('force-destroys TLS sockets across repeated stalled postgres.js pool retireme
     queryBytes.push(0);
     socket.on('error', () => undefined);
     socket.once('data', (sslRequest) => {
-      expect(sslRequest.readInt32BE(0)).toBe(8);
-      expect(sslRequest.readInt32BE(4)).toBe(80_877_103);
+      const request = Buffer.isBuffer(sslRequest) ? sslRequest : Buffer.from(sslRequest);
+      expect(request.readInt32BE(0)).toBe(8);
+      expect(request.readInt32BE(4)).toBe(80_877_103);
       socket.write('S');
       const tlsSocket = new TLSSocket(socket, { isServer: true, secureContext });
       encrypted.push(tlsSocket);
@@ -93,11 +94,12 @@ it('force-destroys TLS sockets across repeated stalled postgres.js pool retireme
       let startup = Buffer.alloc(0);
       let ready = false;
       tlsSocket.on('data', (chunk) => {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         if (ready) {
-          queryBytes[accepted.indexOf(socket)] += chunk.length;
+          queryBytes[accepted.indexOf(socket)] += bytes.length;
           return;
         }
-        startup = Buffer.concat([startup, chunk]);
+        startup = Buffer.concat([startup, bytes]);
         if (startup.length < 4 || startup.length < startup.readInt32BE(0)) return;
         ready = true;
         tlsSocket.write(postgresReadyPacket());
@@ -151,8 +153,9 @@ it('prunes transports after repeated ordinary postgres.js TLS disconnects', asyn
     queryBytes.push(0);
     socket.on('error', () => undefined);
     socket.once('data', (sslRequest) => {
-      expect(sslRequest.readInt32BE(0)).toBe(8);
-      expect(sslRequest.readInt32BE(4)).toBe(80_877_103);
+      const request = Buffer.isBuffer(sslRequest) ? sslRequest : Buffer.from(sslRequest);
+      expect(request.readInt32BE(0)).toBe(8);
+      expect(request.readInt32BE(4)).toBe(80_877_103);
       socket.write('S');
       const tlsSocket = new TLSSocket(socket, { isServer: true, secureContext });
       encrypted.push(tlsSocket);
@@ -160,12 +163,13 @@ it('prunes transports after repeated ordinary postgres.js TLS disconnects', asyn
       let startup = Buffer.alloc(0);
       let ready = false;
       tlsSocket.on('data', (chunk) => {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         if (ready) {
-          queryBytes[connection] += chunk.length;
+          queryBytes[connection] += bytes.length;
           tlsSocket.destroy();
           return;
         }
-        startup = Buffer.concat([startup, chunk]);
+        startup = Buffer.concat([startup, bytes]);
         if (startup.length < 4 || startup.length < startup.readInt32BE(0)) return;
         ready = true;
         tlsSocket.write(postgresReadyPacket());
