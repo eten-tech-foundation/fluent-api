@@ -30,17 +30,11 @@ it('rejects new shared and bypass work before streaming but permits cache hits w
       });
     }
     expect(assistantRouteMocks.BtServantClient).not.toHaveBeenCalled();
-    vi.mocked(assistantRouteMocks.findCompletedBriefing).mockResolvedValue({
+    vi.mocked(assistantRouteMocks.findCompletedArtifact).mockResolvedValue({
       cacheKey: 'a'.repeat(64),
       markdown: 'cached',
-      operationVersion: config.operationVersion,
-      profileVersion: config.profileVersion,
-      resourcePolicyVersion: config.resourcePolicyVersion,
       cacheEpoch: config.cacheEpoch,
       outputContractVersion: 'fluent-widgets-v1',
-      responseLanguageHint: 'en',
-      resourceLanguage: 'en',
-      sourceLanguageCode: 'eng',
     });
     const hit = await post(validBody);
     expect(hit.status).toBe(200);
@@ -48,7 +42,7 @@ it('rejects new shared and bypass work before streaming but permits cache hits w
   } finally {
     release();
   }
-  vi.mocked(assistantRouteMocks.findCompletedBriefing).mockResolvedValue(null);
+  vi.mocked(assistantRouteMocks.findCompletedArtifact).mockResolvedValue(null);
   expect(await (await post(validBody)).text()).toContain('event: briefing_complete');
 });
 
@@ -72,9 +66,9 @@ it('isolates admission by authenticated user and reuses a released slot safely',
   }
 });
 
-it('validates and forwards client templates without changing the briefing artifact key', async () => {
+it('validates client templates, isolates them from shared prompting, and uses them privately', async () => {
   await (await post(validBody)).text();
-  const key = vi.mocked(assistantRouteMocks.findCompletedBriefing).mock.calls[0][0];
+  const key = vi.mocked(assistantRouteMocks.findCompletedArtifact).mock.calls[0][0];
   const actions = [
     {
       type: 'suggested_question',
@@ -83,9 +77,13 @@ it('validates and forwards client templates without changing the briefing artifa
     },
   ];
   await (await post({ ...validBody, actions })).text();
-  expect(vi.mocked(assistantRouteMocks.findCompletedBriefing).mock.calls[1][0]).toBe(key);
-  const instance = vi.mocked(assistantRouteMocks.BtServantClient).mock.results[1].value;
-  expect(instance.stream.mock.calls[0][0].message).toContain(JSON.stringify(actions));
+  expect(vi.mocked(assistantRouteMocks.findCompletedArtifact).mock.calls[1][0]).toBe(key);
+  const shared = vi.mocked(assistantRouteMocks.BtServantClient).mock.results[1].value;
+  expect(shared.stream.mock.calls[0][0].message).not.toContain(JSON.stringify(actions));
+
+  await (await post({ ...validBody, actions, ignore_cache: true })).text();
+  const privateGeneration = vi.mocked(assistantRouteMocks.BtServantClient).mock.results[2].value;
+  expect(privateGeneration.stream.mock.calls[0][0].message).toContain(JSON.stringify(actions));
   const invalid = await post({ ...validBody, actions: [{ ...actions[0], handler: 'code' }] });
   expect(invalid.status).toBe(400);
 });

@@ -1,6 +1,9 @@
 import { z } from '@hono/zod-openapi';
 
 import { assistantActionsSchema, assistantErrorSchema } from './assistant.types';
+import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
+import { OUTPUT_DIGEST_ALGORITHM } from './lib/output-digest';
+import { ASSISTANT_FRAME_BYTES } from './lib/wire';
 
 export const historyWindowSchema = z.number().int().min(1).max(50);
 
@@ -12,14 +15,13 @@ export const TURN_LIMITS = {
   attemptsPerTurn: 4,
   inputChars: 4_000,
   inputBytes: 16_000,
-  outputChars: 15_000,
-  outputBytes: 60_000,
+  outputBytes: ASSISTANT_SAFETY_LIMITS.maximumAnswerBytes,
   receiptChars: 4_096,
   sourceBytes: 32_000,
   messageBytes: 48_000,
   historyFieldChars: 16_000,
   historyBytes: 524_288,
-  frameBytes: 1_048_576,
+  frameBytes: ASSISTANT_FRAME_BYTES,
   connectMs: 10_000,
   idleMs: 45_000,
   totalMs: 180_000,
@@ -48,7 +50,9 @@ const receipt = z
   .min(1)
   .max(TURN_LIMITS.receiptChars)
   .regex(/^[\w.-]+$/);
-const markdown = text(TURN_LIMITS.outputChars, TURN_LIMITS.outputBytes);
+const markdown = z
+  .string()
+  .refine((value) => new TextEncoder().encode(value).byteLength <= TURN_LIMITS.outputBytes);
 const input = z
   .object({
     text: text(TURN_LIMITS.inputChars, TURN_LIMITS.inputBytes).refine(
@@ -173,7 +177,8 @@ export const turnContextSchema = z
 export type TurnContext = z.infer<typeof turnContextSchema>;
 
 // Canonical signing bytes are UTF-8 JSON.stringify(schema.parse(payload)); schema field
-// order is protocol order. No optional keys, timestamps, cache ids, or execution ids.
+// order is protocol order. The optional authenticated digest algorithm is absent in legacy
+// receipts. No timestamps, cache ids, or execution ids are signed.
 const binding = {
   protocol: z.literal(TURN_PROTOCOL),
   keyId: id,
@@ -193,6 +198,7 @@ export const turnReceiptPayloadSchema = z.discriminatedUnion('kind', [
       outputDigest: digest,
       sequence: integer,
       complete: z.boolean(),
+      outputDigestAlgorithm: z.literal(OUTPUT_DIGEST_ALGORITHM).optional(),
     })
     .strict(),
 ]);
@@ -235,6 +241,15 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z
+    .object({
+      ...eventBinding,
+      type: z.literal('turn_replace'),
+      markdown,
+      sequence: integer,
+      receipt,
+    })
+    .strict(),
+  z
     .object({ ...eventBinding, type: z.literal('turn_complete'), sequence: integer, receipt })
     .strict(),
   z
@@ -247,8 +262,9 @@ export const assistantTurnEventSchema = z.discriminatedUnion('type', [
   z.object({ protocol: z.literal(TURN_PROTOCOL), type: z.literal('context_changed') }).strict(),
 ]);
 
-// Add alongside existing briefing_started/delta/complete fields. A delivery with no
-// signing configuration or oversized context/output instead sets continuationUnavailable.
+// Add alongside existing briefing_started/delta/replace/complete fields. A delivery with no
+// signing configuration or oversized context instead sets continuationUnavailable.
+// Generation output safety limits terminate with response_safety_limit, retaining visible text.
 // Never use a previously signed prefix with later unsigned text.
 export const briefingIntegrityMetadataSchema = z
   .object({

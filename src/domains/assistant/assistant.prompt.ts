@@ -2,6 +2,14 @@ import type { AssistantLanguage } from './assistant.config';
 import type { AssistantActions } from './assistant.types';
 
 export const WIDGET_CONTRACT_VERSION = 'fluent-widgets-v1';
+export const SHARED_ASSISTANT_ACTIONS: AssistantActions = [
+  {
+    type: 'suggested_question',
+    purpose:
+      'Offer a useful question that the user can click to ask the Assistant. Available throughout the conversation.',
+    template: '{{fluent:v1:suggested_question|QUESTION}}',
+  },
+];
 export function actionInstructions(actions: AssistantActions = []): string {
   return `Available client actions (declarative JSON catalog): ${safeJson(actions)}.
 Use these exact templates when offering an appropriate user action, including in follow-up answers. Replace template placeholders with useful content in the requested output language. Actions may appear inline wherever useful. Only emit action types listed in this catalog; never emit executable code. These capabilities are independent of the initial briefing layout.`;

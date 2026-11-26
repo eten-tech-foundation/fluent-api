@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -208,7 +208,7 @@ describe('full bounded transcript verification', () => {
       input: value.turns[0].input,
     };
     const retry = verifyTurnTranscript(receipts, context, value, 2);
-    expect(retry.ok && retry.projection.history).toEqual([]);
+    expect(retry.ok && retry.projection.generationInput.history).toEqual([]);
     append(value, 'replacement complete');
     append(value, 'later answer');
     append(value, 'third answer');
@@ -224,7 +224,7 @@ describe('full bounded transcript verification', () => {
     for (const output of [null, '', 'partial']) {
       const value = append(request(), output, false);
       const before = verifyTurnTranscript(receipts, context, value, 2);
-      expect(before.ok && before.projection.history.length).toBe(output ? 1 : 0);
+      expect(before.ok && before.projection.generationInput.history.length).toBe(output ? 1 : 0);
       append(value);
       expect(verifyTurnTranscript(receipts, context, value, 2).ok).toBe(true);
       value.turns.splice(0, 1);
@@ -291,7 +291,7 @@ describe('full bounded transcript verification', () => {
   });
 });
 
-it('accepts existing signed history after client action templates or inventory change', () => {
+it('rejects private signed history after its exact provider action catalog changes', () => {
   const value = request();
   value.actions = [
     {
@@ -305,9 +305,66 @@ it('accepts existing signed history after client action templates or inventory c
   const before = verifyTurnTranscript(receipts, context, value, 2);
   value.actions = [{ type: 'future_action', purpose: 'A new action', template: 'future template' }];
   const after = verifyTurnTranscript(receipts, context, value, 2);
-  expect(before.ok && after.ok).toBe(true);
-  if (before.ok && after.ok) {
-    expect(after.binding.projectionDigest).toBe(before.binding.projectionDigest);
-    expect(after.projection.message).not.toBe(before.projection.message);
+  expect(before.ok).toBe(true);
+  expect(after).toEqual({ ok: false, code: 'context_changed' });
+});
+
+it('verifies legacy golden receipts alongside incremental snapshots without weakening exact text binding', () => {
+  expect(
+    receipts.verifyPrefix(
+      { ...golden.prefix, receipt: golden.prefixToken },
+      receipts.briefingBinding()
+    )
+  ).toBe(true);
+  const binding = receipts.briefingBinding();
+  const signer = receipts.prefixSigner(binding);
+  let markdown = '';
+  const oldSnapshots: Array<{
+    markdown: string;
+    sequence: number;
+    complete: boolean;
+    receipt: string;
+  }> = [];
+  for (const part of ['a', '\uD83D', '\uDE00', '\u0000', '\uD800']) {
+    markdown += part;
+    signer.append(part);
+    const prefix = {
+      markdown,
+      sequence: oldSnapshots.length + 1,
+      complete: false,
+      receipt: signer.receipt(oldSnapshots.length + 1, false),
+    };
+    expect(receipts.verifyPrefix(prefix, binding)).toBe(true);
+    expect(receipts.verify(prefix.receipt)).toMatchObject({
+      outputDigestAlgorithm: 'sha256-utf16le-v1',
+      outputDigest: createHash('sha256')
+        .update('fluent-turn-v1:output:utf16le-v1\0')
+        .update(Buffer.from(markdown, 'utf16le'))
+        .digest('hex'),
+    });
+    expect(receipts.verifyPrefix({ ...prefix, markdown: `${markdown}x` }, binding)).toBe(false);
+    oldSnapshots.push(prefix);
   }
+  // UTF-8 replacement would collapse these distinct JS strings; the new digest does not.
+  expect(
+    receipts.verifyPrefix(
+      { ...oldSnapshots.at(-1)!, markdown: `${markdown.slice(0, -1)}\uFFFD` },
+      binding
+    )
+  ).toBe(false);
+  signer.replace('');
+  signer.append('replacement');
+  expect(
+    receipts.verifyPrefix(
+      { markdown: 'replacement', sequence: 6, complete: true, receipt: signer.receipt(6, true) },
+      binding
+    )
+  ).toBe(true);
+  for (const prefix of oldSnapshots) expect(receipts.verifyPrefix(prefix, binding)).toBe(true);
+  const token = signer.receipt(6, true);
+  const [payload, mac] = token.split('.');
+  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  delete decoded.outputDigestAlgorithm;
+  const altered = Buffer.from(JSON.stringify(decoded)).toString('base64url');
+  expect(receipts.verify(`${altered}.${mac}`)).toBeNull();
 });

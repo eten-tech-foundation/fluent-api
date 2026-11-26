@@ -1,14 +1,16 @@
 import type { TurnReceipts } from './assistant.receipts';
 import type { TurnContext } from './assistant.turn.types';
 
+import { generationInputFingerprint } from './assistant.generation-input';
 import { integrityDigest, visibleBranch } from './assistant.receipts';
 import { projectVerifiedTurn } from './assistant.turn.prompt';
 import { assistantTurnRequestSchema, turnContextSchema } from './assistant.turn.types';
+import { ASSISTANT_SAFETY_LIMITS } from './lib/output';
 
 function projectionDigest(
   projection: Extract<ReturnType<typeof projectVerifiedTurn>, { ok: true }>
 ) {
-  return integrityDigest('semantic-turn-projection-v1', projection.semanticIdentity);
+  return generationInputFingerprint(projection.generationInput);
 }
 
 /** Call only after the route guards and fresh canonical resolution. No cache-row dependency.
@@ -19,7 +21,11 @@ export function verifyTurnTranscript(
   receipts: TurnReceipts | null,
   context: TurnContext,
   body: unknown,
-  historyWindow: number
+  historyWindow: number,
+  compatibility?: {
+    cacheEpoch: string;
+    maxOutputBytes: number;
+  }
 ) {
   if (!receipts) return { ok: false, code: 'temporarily_unavailable' } as const;
   const parsed = assistantTurnRequestSchema.safeParse(body);
@@ -39,9 +45,18 @@ export function verifyTurnTranscript(
     )
   )
     return changed;
+  const briefingPayload = receipts.verify(request.briefing.receipt);
+  if (briefingPayload?.kind !== 'prefix') return changed;
+  const resolvedCompatibility = compatibility ?? {
+    cacheEpoch: context.epoch,
+    maxOutputBytes: ASSISTANT_SAFETY_LIMITS.answerBytes,
+  };
   if (
     receipts.verify(request.contextReceipt)?.kind !== 'context' ||
-    !receipts.verifyPrefix(request.briefing, receipts.briefingBinding())
+    !receipts.verifyPrefix(
+      request.briefing,
+      receipts.briefingBinding(briefingPayload.projectionDigest)
+    )
   )
     return changed;
   let parent = visibleBranch(receipts.contextDigest, null, request.briefing);
@@ -68,36 +83,48 @@ export function verifyTurnTranscript(
     const selected = turn.attempts.find((attempt) => attempt.attemptId === turn.selectedAttemptId)!;
     parent = visibleBranch(parent, turn.input, selected.prefix);
   }
-  // Verify exact semantic projections only after the full chain and output MACs passed.
+  // Each historical answer remains bound to the exact provider input that produced it. The
+  // signed digest must match either its server-canonical shared form or its bounded private form.
   for (const [index, turn] of request.turns.entries()) {
-    const historical = projectVerifiedTurn(
-      context,
-      {
-        ...request,
-        turns: request.turns.slice(0, index),
-        submission: {
-          kind: 'new',
-          turnId: turn.turnId,
-          attemptId: turn.selectedAttemptId,
-          input: turn.input,
-        },
+    const historicalRequest = {
+      ...request,
+      turns: request.turns.slice(0, index),
+      submission: {
+        kind: 'new' as const,
+        turnId: turn.turnId,
+        attemptId: turn.selectedAttemptId,
+        input: turn.input,
       },
-      historyWindow
-    );
-    if (!historical.ok) return historical;
-    const digest = projectionDigest(historical);
+    };
+    const candidates = [true, false].flatMap((dontCache) => {
+      const historical = projectVerifiedTurn(
+        context,
+        { ...historicalRequest, dont_cache: dontCache },
+        historyWindow,
+        resolvedCompatibility
+      );
+      return historical.ok ? [projectionDigest(historical)] : [];
+    });
     for (const attempt of turn.attempts) {
       if (!attempt.prefix) continue;
       const payload = receipts.verify(attempt.prefix.receipt);
-      if (payload?.kind !== 'prefix' || payload.projectionDigest !== digest) return changed;
+      if (payload?.kind !== 'prefix' || !candidates.includes(payload.projectionDigest))
+        return changed;
     }
   }
-  const projection = projectVerifiedTurn(context, request, historyWindow);
+  const projection = projectVerifiedTurn(context, request, historyWindow, resolvedCompatibility);
   if (!projection.ok) return projection;
+  const cachedProjection = projectVerifiedTurn(
+    context,
+    { ...request, dont_cache: false },
+    historyWindow,
+    resolvedCompatibility
+  );
   return {
     ok: true,
     request,
     projection,
+    cachedProjection: cachedProjection.ok ? cachedProjection : null,
     binding: {
       operation: 'turn' as const,
       parentDigest: request.submission.kind === 'retry' ? parents.at(-1)! : parent,
