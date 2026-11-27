@@ -2,18 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UserResponse } from '@/domains/users/users.types';
 import type { Permission } from '@/lib/permissions';
-import type { Grant } from '@/lib/types';
+import type { Grant, User } from '@/lib/types';
 
-import { db } from '@/db';
-import * as schema from '@/db/schema';
-import { findGrantsByUserId } from '@/domains/user-roles/user-roles.repository';
-import { getUserByEmail } from '@/domains/users/users.service';
-import { auth } from '@/lib/auth';
-import { ok } from '@/lib/types';
+import { setActiveOrg } from '@/domains/users/users.service';
+import { err, ErrorCode, ok } from '@/lib/types';
 import { server } from '@/server/server';
 import '@/domains/users/users.active-org.route';
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
+
+const SESSION_ID = 'session-xyz';
+const signedIn = vi.hoisted(() => ({ user: null as User | null }));
 
 vi.mock('@/lib/auth', () => ({
   auth: {
@@ -22,24 +21,18 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-const mockTxUpdateWhere = vi.fn().mockResolvedValue([]);
-const mockTxUpdateSet = vi.fn().mockReturnValue({ where: mockTxUpdateWhere });
-const mockTxUpdate = vi.fn().mockReturnValue({ set: mockTxUpdateSet });
-const mockTx = {
-  update: mockTxUpdate,
-};
-
-vi.mock('@/db', () => {
-  const mockQueryBuilder = {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue([{ activeOrgId: 1 }]),
-  };
+// The global authenticate middleware reads auth_session through @/db. Stub it with the
+// signed-in user so this suite mocks the users service instead of @/db (FA-L7).
+vi.mock('@/middlewares/authenticate', async () => {
+  const { createMiddleware } = await import('hono/factory');
   return {
-    db: {
-      select: vi.fn(() => mockQueryBuilder),
-      transaction: vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx)),
-    },
+    authenticate: createMiddleware(async (c, next) => {
+      if (signedIn.user) {
+        c.set('session', { session: { id: SESSION_ID } });
+        c.set('user', signedIn.user);
+      }
+      await next();
+    }),
   };
 });
 
@@ -48,11 +41,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 vi.mock('@/domains/users/users.service', () => ({
-  getUserByEmail: vi.fn(),
-}));
-
-vi.mock('@/domains/user-roles/user-roles.repository', () => ({
-  findGrantsByUserId: vi.fn(),
+  setActiveOrg: vi.fn(),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -77,35 +66,7 @@ const APP_USER: UserResponse = {
 };
 
 function authenticateAs(user: UserResponse | null, grants: Grant[] = [grant(1), grant(2)]) {
-  if (!user) {
-    vi.mocked(auth.api.getSession).mockResolvedValue(null);
-    return;
-  }
-
-  const now = new Date();
-  vi.mocked(auth.api.getSession).mockResolvedValue({
-    session: {
-      id: 'session-xyz',
-      userId: 'auth-user-42',
-      token: 'mock-token',
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: new Date(Date.now() + 1e9),
-    },
-    user: {
-      id: 'auth-user-42',
-      name: user.username,
-      email: user.email,
-      emailVerified: true,
-      banned: false,
-      twoFactorEnabled: false,
-      createdAt: now,
-      updatedAt: now,
-    },
-  });
-
-  vi.mocked(getUserByEmail).mockResolvedValue(ok(user));
-  vi.mocked(findGrantsByUserId).mockResolvedValue(ok(grants));
+  signedIn.user = user ? { ...user, grants } : null;
 }
 
 function patchActiveOrg(body: unknown) {
@@ -118,12 +79,10 @@ function patchActiveOrg(body: unknown) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('pATCH /users/me/active-org', () => {
+describe('PATCH /users/me/active-org', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockTxUpdate.mockReturnValue({ set: mockTxUpdateSet });
-    mockTxUpdateSet.mockReturnValue({ where: mockTxUpdateWhere });
-    mockTxUpdateWhere.mockResolvedValue([]);
+    vi.mocked(setActiveOrg).mockResolvedValue(ok(undefined));
   });
 
   describe('authentication & user status', () => {
@@ -176,34 +135,41 @@ describe('pATCH /users/me/active-org', () => {
       expect(res.status).toBe(403);
       const json = await res.json();
       expect(json).toEqual({ message: 'User does not belong to this organization' });
-      expect(db.transaction).not.toHaveBeenCalled();
+      expect(setActiveOrg).not.toHaveBeenCalled();
     });
   });
 
   describe('successful active org update', () => {
-    it('updates session activeOrgId and user lastActiveOrgId atomically and returns 200', async () => {
+    it("sets the active org for the caller's user and session and returns 200", async () => {
       authenticateAs(APP_USER, [grant(1), grant(2)]);
 
       const res = await patchActiveOrg({ orgId: 2 });
 
       expect(res.status).toBe(200);
-      expect(db.transaction).toHaveBeenCalledTimes(1);
-
-      // Verify updates inside the transaction
-      expect(mockTxUpdate).toHaveBeenCalledWith(schema.authSession);
-      expect(mockTxUpdateSet).toHaveBeenCalledWith({ activeOrgId: 2 });
-
-      expect(mockTxUpdate).toHaveBeenCalledWith(schema.users);
-      expect(mockTxUpdateSet).toHaveBeenCalledWith({ lastActiveOrgId: 2 });
+      expect(setActiveOrg).toHaveBeenCalledTimes(1);
+      expect(setActiveOrg).toHaveBeenCalledWith(42, SESSION_ID, 2);
     });
 
     it('allows selecting any organization the user belongs to', async () => {
       authenticateAs(APP_USER, [grant(10), grant(20)]);
 
       const res = await patchActiveOrg({ orgId: 10 });
+
       expect(res.status).toBe(200);
-      expect(mockTxUpdateSet).toHaveBeenCalledWith({ activeOrgId: 10 });
-      expect(mockTxUpdateSet).toHaveBeenCalledWith({ lastActiveOrgId: 10 });
+      expect(setActiveOrg).toHaveBeenCalledWith(42, SESSION_ID, 10);
+    });
+  });
+
+  describe('database failure', () => {
+    it('returns 500 with the standard error body when the update fails', async () => {
+      authenticateAs(APP_USER, [grant(1), grant(2)]);
+      vi.mocked(setActiveOrg).mockResolvedValue(err(ErrorCode.INTERNAL_ERROR));
+
+      const res = await patchActiveOrg({ orgId: 2 });
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json).toEqual({ message: 'An unexpected error occurred' });
     });
   });
 });

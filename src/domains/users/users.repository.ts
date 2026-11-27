@@ -1,9 +1,9 @@
 import { eq, inArray, or } from 'drizzle-orm';
 
-import type { Result } from '@/lib/types';
+import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
-import { user_roles, users } from '@/db/schema';
+import { authSession, user_roles, users } from '@/db/schema';
 import { handleConstraintError } from '@/lib/db-errors';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
@@ -147,6 +147,20 @@ export async function update(id: number, input: UpdateUserInput): Promise<Result
   } catch (error) {
     return handleConstraintError(error);
   }
+}
+
+/**
+ * Sets the session's active org and the user's last active org. Runs in the caller's
+ * transaction: a failed write throws, so both roll back together.
+ */
+export async function updateActiveOrg(
+  userId: number,
+  sessionId: string,
+  orgId: number,
+  tx: DbTransaction
+): Promise<void> {
+  await tx.update(authSession).set({ activeOrgId: orgId }).where(eq(authSession.id, sessionId));
+  await tx.update(users).set({ lastActiveOrgId: orgId }).where(eq(users.id, userId));
 }
 
 export async function remove(id: number): Promise<Result<void>> {
