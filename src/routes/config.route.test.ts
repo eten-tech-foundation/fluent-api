@@ -75,7 +75,7 @@ function getFeatures() {
   return server.request('/config/features', { method: 'GET' });
 }
 
-describe('gET /config/features', () => {
+describe('GET /config/features', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

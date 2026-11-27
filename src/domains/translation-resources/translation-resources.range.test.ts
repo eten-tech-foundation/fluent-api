@@ -68,7 +68,7 @@ describe('translation-resources verse-range routes', () => {
     vi.clearAllMocks();
   });
 
-  describe('gET notes range', () => {
+  describe('GET notes range', () => {
     it('returns empty items when Aquifer has no notes in the range', async () => {
       asAuthenticatedUser();
       asProjectMember();
@@ -187,7 +187,7 @@ describe('translation-resources verse-range routes', () => {
     });
   });
 
-  describe('gET questions range', () => {
+  describe('GET questions range', () => {
     it('returns empty items when none exist', async () => {
       asAuthenticatedUser();
       asProjectMember();
@@ -221,7 +221,7 @@ describe('translation-resources verse-range routes', () => {
     });
   });
 
-  describe('gET images range', () => {
+  describe('GET images range', () => {
     it('returns deduped image items for the verse range', async () => {
       asAuthenticatedUser();
       asProjectMember();

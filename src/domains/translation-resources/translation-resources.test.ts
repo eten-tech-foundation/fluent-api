@@ -110,7 +110,7 @@ describe('translation-resources routes', () => {
     });
   });
 
-  describe('gET notes', () => {
+  describe('GET notes', () => {
     it('returns empty items when Aquifer has no notes', async () => {
       asAuthenticatedUser();
       asProjectMember();
@@ -204,7 +204,7 @@ describe('translation-resources routes', () => {
     });
   });
 
-  describe('gET questions', () => {
+  describe('GET questions', () => {
     it('returns empty items when none exist', async () => {
       asAuthenticatedUser();
       asProjectMember();
@@ -231,7 +231,7 @@ describe('translation-resources routes', () => {
     });
   });
 
-  describe('gET images', () => {
+  describe('GET images', () => {
     it('returns image items with urls and omits fabricated thumbnailUrl', async () => {
       asAuthenticatedUser();
       asProjectMember();

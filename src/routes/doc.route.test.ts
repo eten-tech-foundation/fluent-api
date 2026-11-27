@@ -41,7 +41,7 @@ vi.mock('@/lib/logger', () => ({
 // type"). This test renders the real, fully-assembled document and asserts it
 // succeeds, so that class of break fails CI instead of production.
 
-describe('gET /doc (OpenAPI document)', () => {
+describe('GET /doc (OpenAPI document)', () => {
   // The whole-app dynamic import below pays the full transform cost of every
   // registered route module while other suites collect in parallel, so its
   // wall-clock grows with each new domain and with machine load. The default

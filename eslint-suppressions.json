@@ -41,7 +41,7 @@
   },
   "src/domains/ai-suggestions/ai-suggestions.internal.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 3
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 6
@@ -90,7 +90,7 @@
   },
   "src/domains/ai-tools/ai-tools.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 2
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 8
@@ -98,12 +98,12 @@
   },
   "src/domains/ai-tools/tts.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 4
+      "count": 1
     }
   },
   "src/domains/aquifer-resources/aquifer-resources.test.ts": {
     "no-restricted-syntax": {
-      "count": 9
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 5
@@ -152,7 +152,7 @@
   },
   "src/domains/book-details/book-details.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 2
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 4
@@ -201,7 +201,7 @@
   },
   "src/domains/chapter-assignments/chapter-assignments.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 3
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 7
@@ -282,7 +282,7 @@
   },
   "src/domains/pericopes/pericopes.test.ts": {
     "no-restricted-syntax": {
-      "count": 3
+      "count": 1
     }
   },
   "src/domains/playback-audio/playback-audio.dbl-reference.test.ts": {
@@ -417,7 +417,7 @@
   },
   "src/domains/translation-resources/translation-resources.range.test.ts": {
     "no-restricted-syntax": {
-      "count": 4
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 1
@@ -430,7 +430,7 @@
   },
   "src/domains/translation-resources/translation-resources.test.ts": {
     "no-restricted-syntax": {
-      "count": 4
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 2
@@ -657,7 +657,7 @@
   },
   "src/routes/config.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 2
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 4
@@ -665,7 +665,7 @@
   },
   "src/routes/doc.route.test.ts": {
     "no-restricted-syntax": {
-      "count": 2
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 1
@@ -673,7 +673,7 @@
   },
   "src/server/server.test.ts": {
     "no-restricted-syntax": {
-      "count": 4
+      "count": 1
     },
     "ts/no-explicit-any": {
       "count": 7

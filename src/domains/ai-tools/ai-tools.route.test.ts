@@ -168,7 +168,7 @@ function postRepeatedWords(body: unknown, headers: Record<string, string> = {}) 
   });
 }
 
-describe('pOST /ai/tools/greek-room/repeated-words', () => {
+describe('POST /ai/tools/greek-room/repeated-words', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
