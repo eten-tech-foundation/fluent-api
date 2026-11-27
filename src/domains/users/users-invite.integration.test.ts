@@ -50,8 +50,13 @@ async function insertPerson(username: string): Promise<Person> {
 
 function grantsOf(userId: number) {
   return database
-    .select({ orgId: schema.user_roles.orgId, projectId: schema.user_roles.projectId })
+    .select({
+      orgId: schema.user_roles.orgId,
+      projectId: schema.user_roles.projectId,
+      role: schema.roles.name,
+    })
     .from(schema.user_roles)
+    .innerJoin(schema.roles, eq(schema.roles.id, schema.user_roles.roleId))
     .where(eq(schema.user_roles.userId, userId));
 }
 
@@ -136,10 +141,12 @@ describe('inviting users onto a project', () => {
       });
 
       expect(res.status).toBe(200);
-      expect(await grantsOf(invitee.id)).toEqual(
+      const grants = await grantsOf(invitee.id);
+      expect(grants).toHaveLength(2);
+      expect(grants).toEqual(
         expect.arrayContaining([
-          { orgId, projectId: null },
-          { orgId, projectId: ownProjectId },
+          { orgId, projectId: null, role: ROLES.ORG_MEMBER },
+          { orgId, projectId: ownProjectId, role: ROLES.PROJECT_TRANSLATOR },
         ])
       );
     });
