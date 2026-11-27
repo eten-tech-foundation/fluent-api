@@ -4,6 +4,7 @@ import type { AppPolicyUser, DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
 import { bible_books, bible_texts, pericope_sets } from '@/db/schema';
+import { runInTransaction } from '@/db/transaction';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { logger } from '@/lib/logger';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -88,11 +89,12 @@ export function getProjectIdByUnitId(projectUnitId: number) {
   return repo.getProjectIdByUnitId(projectUnitId);
 }
 
-// Update project activity timestamp on chapter assignment changes.
+// Update project activity timestamp on chapter assignment changes. Callers return its error
+// from their runInTransaction, so their own writes roll back with it.
 export async function touchProjectActivity(
   projectUnitId: number,
   tx: DbTransaction
-): Promise<void> {
+): Promise<Result<void>> {
   const result = await repo.getProjectIdByUnitId(projectUnitId, tx);
 
   if (!result.ok) {
@@ -100,23 +102,24 @@ export async function touchProjectActivity(
       message: 'Failed to resolve project for last-activity update',
       context: { projectUnitId, error: result.error },
     });
-    throw new Error(`Failed to resolve project for activity update: ${String(result.error)}`);
+    return err(ErrorCode.INTERNAL_ERROR);
   }
 
   await repo.touchLastActivity(result.data.projectId, tx);
+  return ok(undefined);
 }
 
 /** Activate a not_assigned project and bump lastActivityAt when a chapter is first assigned. */
 export async function recordProjectAssignmentActivity(
   projectUnitId: number,
   tx: DbTransaction
-): Promise<void> {
+): Promise<Result<void>> {
   const projectIds = await projectChapterAssignmentsRepo.findNotAssignedProjectIds(
     [projectUnitId],
     tx
   );
   await projectChapterAssignmentsRepo.activateProjects(projectIds, tx);
-  await touchProjectActivity(projectUnitId, tx);
+  return touchProjectActivity(projectUnitId, tx);
 }
 
 const MILESTONE_NAME_MAX_LENGTH = 255;
@@ -202,7 +205,7 @@ export async function createProject(
     }
 
     let createdProjectUnitId: number | null = null;
-    const result = await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       const {
         bibleId,
         bookId,
@@ -244,9 +247,7 @@ export async function createProject(
           tx
         );
 
-      if (!assignmentsResult.ok) {
-        throw new Error(assignmentsResult.error.message || 'Failed to create chapter assignments');
-      }
+      if (!assignmentsResult.ok) return assignmentsResult;
 
       if (importedFiles) {
         await repo.insertUsfmImports(
@@ -338,9 +339,9 @@ export async function createProject(
         // }
       } catch (error) {
         logger.error('Failed to enqueue text ingestion job', { error });
-        // #419: only an import depends on the job to ever produce its verses. A blank project
-        // keeps the pre-existing behaviour of being created anyway.
-        if (importedFiles) throw error;
+        // #419: only an import depends on the job to ever produce its verses, so it rolls back.
+        // A blank project keeps the pre-existing behaviour of being created anyway.
+        if (importedFiles) return err(ErrorCode.INTERNAL_ERROR);
       }
 
       return ok(project);

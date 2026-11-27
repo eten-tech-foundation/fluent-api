@@ -241,7 +241,7 @@ export async function createChapterAssignment(data: CreateChapterAssignmentData)
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 
 export async function createProject(input: CreateProjectInput) {
-  return db.transaction(async (tx) => {
+  return runInTransaction(async (tx) => {
     const project = await repo.insert(input, tx);
 
     // Delegate to chapter-assignments domain via its service
@@ -253,7 +253,7 @@ export async function createProject(input: CreateProjectInput) {
     );
 
     // Here the error is err(ErrorCode.INTERNAL_ERROR) from the chapter-assignments service
-    if (!result.ok) return result; // return the appropriate error code
+    if (!result.ok) return result; // rolls the project back; the error passes through unchanged
 
     return ok(project);
   });

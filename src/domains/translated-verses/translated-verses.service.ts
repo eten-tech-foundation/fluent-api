@@ -1,7 +1,7 @@
 import type { DbTransaction, Result } from '@/lib/types';
 
-import { db } from '@/db';
 import { verseMarkersSchema } from '@/db/schema';
+import { runInTransaction } from '@/db/transaction';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
@@ -53,18 +53,26 @@ export async function updateTranslatedVerse(id: number, input: UpdateTranslatedV
 export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
   // #417: whether this is the save that takes the project family over the AI activation threshold
   // can only be decided inside the transaction doing the writing, so the save runs under the claim.
-  const { written, crossed } = await db.transaction(async (tx) =>
-    aiSuggestionsService.claimActivationCrossing(tx, input.projectUnitId, async () => {
-      const upserted = await translatedVersesRepo.upsert(input, tx);
-      if (!upserted.ok) return upserted;
-      // Update the last activity timestamp for the associated project when a translated verse is upserted
-      await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
+  const saved = await runInTransaction(async (tx) => {
+    const { written, crossed } = await aiSuggestionsService.claimActivationCrossing(
+      tx,
+      input.projectUnitId,
+      async () => {
+        const upserted = await translatedVersesRepo.upsert(input, tx);
+        if (!upserted.ok) return upserted;
+        // Update the last activity timestamp for the associated project when a translated verse is upserted
+        const touched = await projectsService.touchProjectActivity(upserted.data.projectUnitId, tx);
+        if (!touched.ok) return touched;
 
-      return upserted;
-    })
-  );
+        return upserted;
+      }
+    );
+    if (!written.ok) return written;
+    return ok({ verse: written.data, crossed });
+  });
 
-  if (!written.ok) return written;
+  if (!saved.ok) return saved;
+  const { verse, crossed } = saved.data;
 
   // The crossing save backfills the queuing that assignment-time never got to do. Deliberately
   // after the transaction has committed, and a failure here must not turn an already-saved draft
@@ -72,16 +80,16 @@ export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
   if (crossed) {
     try {
       const backfill = await aiSuggestionsService.handleThresholdCrossed(
-        written.data.projectUnitId,
-        written.data.bibleTextId
+        verse.projectUnitId,
+        verse.bibleTextId
       );
       if (!backfill.ok) {
         logger.error({
           cause: backfill.error,
           message: 'AI threshold backfill failed after crossing save; no automatic retry',
           context: {
-            projectUnitId: written.data.projectUnitId,
-            bibleTextId: written.data.bibleTextId,
+            projectUnitId: verse.projectUnitId,
+            bibleTextId: verse.bibleTextId,
           },
         });
       }
@@ -90,14 +98,14 @@ export async function upsertTranslatedVerse(input: CreateTranslatedVerseInput) {
         cause: error,
         message: 'AI threshold backfill failed after crossing save; no automatic retry',
         context: {
-          projectUnitId: written.data.projectUnitId,
-          bibleTextId: written.data.bibleTextId,
+          projectUnitId: verse.projectUnitId,
+          bibleTextId: verse.bibleTextId,
         },
       });
     }
   }
 
-  return ok(toTranslatedVerseResponse(written.data));
+  return ok(toTranslatedVerseResponse(verse));
 }
 
 export async function listTranslatedVerses(filters: TranslatedVersesFilters = {}) {

@@ -218,11 +218,6 @@
       "count": 5
     }
   },
-  "src/domains/chapter-assignments/chapter-assignments.service.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/domains/languages/import/enrich-localized-names.test.ts": {
     "no-restricted-syntax": {
       "count": 1
@@ -260,11 +255,8 @@
     }
   },
   "src/domains/milestones/milestones.service.ts": {
-    "no-restricted-syntax": {
-      "count": 8
-    },
     "ts/no-explicit-any": {
-      "count": 3
+      "count": 1
     }
   },
   "src/domains/organizations/users/org-users.route.ts": {
@@ -327,11 +319,6 @@
     },
     "ts/no-explicit-any": {
       "count": 8
-    }
-  },
-  "src/domains/projects/projects.service.ts": {
-    "no-restricted-syntax": {
-      "count": 3
     }
   },
   "src/domains/projects/projects.service.usfm-import.test.ts": {
@@ -442,11 +429,6 @@
     },
     "ts/no-explicit-any": {
       "count": 4
-    }
-  },
-  "src/domains/user-roles/user-roles.service.ts": {
-    "no-restricted-syntax": {
-      "count": 1
     }
   },
   "src/domains/users/chapter-assignments/users-chapter-assignments.route.test.ts": {
