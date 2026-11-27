@@ -238,7 +238,7 @@ describe('createProject from USFM files (#419)', () => {
 
     const result = await createProject({ ...BASE, usfmFiles: FILES });
 
-    // The enqueue runs inside the creating transaction, so the throw rolls the project back.
+    // The enqueue runs inside the creating transaction, so the failure rolls the project back.
     expect(result).toMatchObject({ ok: false, error: { code: ErrorCode.INTERNAL_ERROR } });
     expect(usfmImportService.materializePendingUsfmImports).not.toHaveBeenCalled();
   });

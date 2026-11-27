@@ -70,6 +70,7 @@ export async function getRoleId(name: string): Promise<number> {
   const cached = roleIdCache.get(name);
   if (cached) return cached;
   const [row] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, name)).limit(1);
+  // eslint-disable-next-line no-restricted-syntax -- missing seed data is a deploy error
   if (!row) throw new Error(`Role not found: ${name}`);
   roleIdCache.set(name, row.id);
   return row.id;

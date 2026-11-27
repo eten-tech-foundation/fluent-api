@@ -1,6 +1,7 @@
 import type { Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { runInTransaction } from '@/db/transaction';
 import * as chapterAssignmentsService from '@/domains/chapter-assignments/chapter-assignments.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
@@ -27,7 +28,7 @@ export async function createMilestone(
       return err(ErrorCode.INVALID_BIBLE_BOOKS);
     }
 
-    const result = await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       await projectsService.lockProjectById(projectId, tx);
 
       const milestone = await repo.insertMilestoneRecord(
@@ -48,7 +49,7 @@ export async function createMilestone(
       );
       const activeAssignments = existingAssignments.filter((a) => !a.deletedAt);
       if (activeAssignments.length > 0) {
-        throw new Error('BOOKS_ALREADY_ASSIGNED');
+        return err(ErrorCode.VALIDATION_ERROR);
       }
 
       const softDeletedAssignments = existingAssignments.filter((a) => a.deletedAt);
@@ -83,19 +84,18 @@ export async function createMilestone(
             tx
           );
 
-        if (!chapterAssignmentsResult.ok) {
-          throw new Error(chapterAssignmentsResult.error.code);
-        }
+        if (!chapterAssignmentsResult.ok) return chapterAssignmentsResult;
 
         const assignedBookIds = new Set(chapterAssignmentsResult.data.map((a) => a.bookId));
         booksToIngest = newBooks.filter((id) => !assignedBookIds.has(id));
       }
 
-      return { milestone, booksToIngest };
+      return ok({ milestone, booksToIngest });
     });
+    if (!result.ok) return result;
 
-    if (result.booksToIngest.length > 0) {
-      const bookRecords = await repo.getBooksByIds(result.booksToIngest);
+    if (result.data.booksToIngest.length > 0) {
+      const bookRecords = await repo.getBooksByIds(result.data.booksToIngest);
 
       let boss;
       try {
@@ -114,7 +114,7 @@ export async function createMilestone(
               {
                 bibleId: sourceBibleId,
                 bookCodes: [book.code],
-                projectUnitId: result.milestone.id,
+                projectUnitId: result.data.milestone.id,
               },
               { priority: 10 }
             );
@@ -133,14 +133,11 @@ export async function createMilestone(
       });
     }
 
-    const enrichedMilestone = await repo.getByIdForProject(projectId, result.milestone.id);
+    const enrichedMilestone = await repo.getByIdForProject(projectId, result.data.milestone.id);
     if (!enrichedMilestone) return err(ErrorCode.NOT_FOUND);
 
     return ok(enrichedMilestone);
-  } catch (error: any) {
-    if (error.message === 'BOOKS_ALREADY_ASSIGNED') return err(ErrorCode.VALIDATION_ERROR);
-    if (Object.values(ErrorCode).includes(error.message as ErrorCode))
-      return err(error.message as ErrorCode);
+  } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to create milestone',
@@ -208,10 +205,10 @@ export async function updateMilestone(
 
     let booksToIngestIds: number[] = [];
 
-    await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       await projectsService.lockProjectById(projectId, tx);
       const current = await repo.getByIdForProject(projectId, milestoneId, tx);
-      if (!current) throw new Error(ErrorCode.NOT_FOUND);
+      if (!current) return err(ErrorCode.NOT_FOUND);
 
       await repo.updateMilestoneRecord(milestoneId, updates, tx);
 
@@ -220,11 +217,11 @@ export async function updateMilestone(
         const sourceBookIds = new Set(current.bookIds);
         for (const move of moveBooks) {
           if (!sourceBookIds.has(move.bookId)) {
-            throw new Error('INVALID_BIBLE_BOOKS');
+            return err(ErrorCode.INVALID_BIBLE_BOOKS);
           }
           const targetMilestone = await repo.getMilestoneById(move.targetMilestoneId, tx);
           if (!targetMilestone || targetMilestone.projectId !== projectId) {
-            throw new Error('CROSS_PROJECT_MOVE');
+            return err(ErrorCode.FORBIDDEN);
           }
         }
 
@@ -238,7 +235,7 @@ export async function updateMilestone(
       if (addBooks && addBooks.length > 0 && sourceBibleId) {
         const validBookIds = await repo.getValidBookIdsForBible(sourceBibleId, addBooks, tx);
         if (validBookIds.length !== addBooks.length) {
-          throw new Error('INVALID_BIBLE_BOOKS');
+          return err(ErrorCode.INVALID_BIBLE_BOOKS);
         }
 
         const existingAssignments = await repo.getExistingBookAssignmentsForProject(
@@ -248,7 +245,7 @@ export async function updateMilestone(
         );
         const activeAssignments = existingAssignments.filter((a) => !a.deletedAt);
         if (activeAssignments.length > 0) {
-          throw new Error('BOOKS_ALREADY_ASSIGNED');
+          return err(ErrorCode.VALIDATION_ERROR);
         }
 
         const softDeletedAssignments = existingAssignments.filter((a) => a.deletedAt);
@@ -280,9 +277,7 @@ export async function updateMilestone(
               trulyNewBooks,
               tx
             );
-          if (!chapterAssignmentsResult.ok) {
-            throw new Error(chapterAssignmentsResult.error.code);
-          }
+          if (!chapterAssignmentsResult.ok) return chapterAssignmentsResult;
 
           const assignedBookIds = new Set(chapterAssignmentsResult.data.map((a) => a.bookId));
           booksToIngestIds = trulyNewBooks.filter((id) => !assignedBookIds.has(id));
@@ -293,7 +288,10 @@ export async function updateMilestone(
         // Soft delete the book links, retaining translated data and chapter assignments
         await repo.deleteBibleBookLinks(milestoneId, removeBooks, tx);
       }
+
+      return ok(undefined);
     });
+    if (!result.ok) return result;
 
     if (booksToIngestIds.length > 0) {
       const enqueueBooksForIngestion = await repo.getBooksByIds(booksToIngestIds);
@@ -331,12 +329,7 @@ export async function updateMilestone(
     const updated = await repo.getByIdForProject(projectId, milestoneId);
     if (!updated) return err(ErrorCode.NOT_FOUND);
     return ok(updated);
-  } catch (error: any) {
-    if (error.message === 'CROSS_PROJECT_MOVE') return err(ErrorCode.FORBIDDEN);
-    if (error.message === 'INVALID_BIBLE_BOOKS') return err(ErrorCode.INVALID_BIBLE_BOOKS);
-    if (error.message === 'BOOKS_ALREADY_ASSIGNED') return err(ErrorCode.VALIDATION_ERROR);
-    if (Object.values(ErrorCode).includes(error.message as ErrorCode))
-      return err(error.message as ErrorCode);
+  } catch (error) {
     logger.error({
       cause: error,
       message: 'Failed to update milestone',

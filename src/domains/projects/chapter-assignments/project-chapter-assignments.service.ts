@@ -4,7 +4,6 @@ import type {
 } from '@/domains/chapter-assignments/chapter-assignments.types';
 import type { Result } from '@/lib/types';
 
-import { db } from '@/db';
 import { runInTransaction } from '@/db/transaction';
 import * as chapterAssignmentService from '@/domains/chapter-assignments/chapter-assignments.service';
 import { CHAPTER_ASSIGNMENT_STATUS } from '@/domains/chapter-assignments/chapter-assignments.types';
@@ -86,7 +85,7 @@ export async function assignAllProjectChapterAssignmentsToUser(
   projectId: number,
   assignmentData: AssignUserInput
 ) {
-  return db.transaction(async (tx) => {
+  return runInTransaction(async (tx) => {
     const projectResult = await projectsService.getProjectById(projectId);
     if (!projectResult.ok) return err(ErrorCode.PROJECT_NOT_FOUND);
     const projectOrgId = projectResult.data.organization;
@@ -126,7 +125,7 @@ export async function assignSelectedChapters(
   }
 
   try {
-    return await db.transaction(async (tx) => {
+    return await runInTransaction(async (tx) => {
       const chapterAssignmentIds = assignments.map((a) => a.chapterAssignmentId);
       const invalidAssignmentIds = await projectRepo.findAssignmentIdsNotInProject(
         projectId,

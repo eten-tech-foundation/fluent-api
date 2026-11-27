@@ -1,6 +1,7 @@
 import type { DbTransaction, Result } from '@/lib/types';
 
 import { db } from '@/db';
+import { runInTransaction } from '@/db/transaction';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
 import {
@@ -212,7 +213,8 @@ export async function updateChapterAssignment(
     await recordStatusChange(tx, current, updated);
     const shouldTriggerAi = await recordUserAssignmentChanges(tx, current, updated, data);
 
-    await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+    const touched = await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+    if (!touched.ok) return touched;
 
     return ok({
       response: await buildChapterAssignmentResponse(updated, tx),
@@ -225,7 +227,7 @@ export async function updateChapterAssignment(
     result = await exec(externalTx);
   } else {
     try {
-      result = await db.transaction(exec);
+      result = await runInTransaction(exec);
     } catch (error) {
       logger.error({
         cause: error,
@@ -327,7 +329,8 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
         status: nextStatus,
         submittedTime,
       });
-      await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+      const touched = await projectsService.touchProjectActivity(updated.projectUnitId, tx);
+      if (!touched.ok) return touched;
       return ok(await buildChapterAssignmentResponse(updated, tx));
     }
 
@@ -346,7 +349,7 @@ export async function submitChapterAssignment(chapterAssignmentId: number, userI
   };
 
   try {
-    return await db.transaction(exec);
+    return await runInTransaction(exec);
   } catch (error) {
     logger.error({
       cause: error,
@@ -363,7 +366,7 @@ export function deleteChapterAssignment(id: number) {
 
 export async function claimChapterAssignment(id: number, userId: number) {
   try {
-    const result = await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       const { claimed, record } = await repo.claimIfUnassigned(id, userId, tx);
 
       if (claimed && record) {
@@ -375,7 +378,11 @@ export async function claimChapterAssignment(id: number, userId: number) {
           'drafter',
           CHAPTER_ASSIGNMENT_STATUS.DRAFT
         );
-        await projectsService.recordProjectAssignmentActivity(record.projectUnitId, tx);
+        const activity = await projectsService.recordProjectAssignmentActivity(
+          record.projectUnitId,
+          tx
+        );
+        if (!activity.ok) return activity;
         return ok({
           response: await buildChapterAssignmentResponse(record, tx),
           shouldTriggerAi: true,
@@ -479,57 +486,39 @@ export async function updateChapterAssignmentAiStatus(
   isAiEnabled: boolean
 ): Promise<Result<void>> {
   try {
-    let assignmentProjectUnitId = 0;
-    let assignmentBibleId = 0;
-    let assignmentBookId = 0;
-    let assignmentChapterNumber = 0;
-
-    await db.transaction(async (tx) => {
+    const result = await runInTransaction(async (tx) => {
       const assignment = await repo.findById(assignmentId, tx);
-      if (!assignment) {
-        throw new Error(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-      }
+      if (!assignment) return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
 
-      assignmentProjectUnitId = assignment.projectUnitId;
-      assignmentBibleId = assignment.bibleId;
-      assignmentBookId = assignment.bookId;
-      assignmentChapterNumber = assignment.chapterNumber;
-
-      if (assignment.isAiEnabled === isAiEnabled) {
-        return;
+      if (assignment.isAiEnabled !== isAiEnabled) {
+        await repo.update(assignmentId, { isAiEnabled }, tx);
       }
-      await repo.update(assignmentId, { isAiEnabled }, tx);
+      return ok(assignment);
     });
+    if (!result.ok) return result;
 
     if (isAiEnabled) {
+      const { projectUnitId, bibleId, bookId, chapterNumber } = result.data;
       try {
         // Runs after the isAiEnabled update has committed (not inside a transaction);
         // catch errors so a failed AI trigger doesn't affect the already-saved status.
         await aiSuggestionsService.handleChapterAssigned(
-          assignmentProjectUnitId,
-          assignmentBibleId,
-          assignmentBookId,
-          assignmentChapterNumber
+          projectUnitId,
+          bibleId,
+          bookId,
+          chapterNumber
         );
       } catch (error) {
         logger.error({
           cause: error,
           message: 'Failed to enqueue AI suggestions after toggling AI status',
-          context: {
-            projectUnitId: assignmentProjectUnitId,
-            bibleId: assignmentBibleId,
-            bookId: assignmentBookId,
-            chapterNumber: assignmentChapterNumber,
-          },
+          context: { projectUnitId, bibleId, bookId, chapterNumber },
         });
       }
     }
 
     return ok(undefined);
   } catch (error) {
-    if (error instanceof Error && error.message === ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND) {
-      return err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND);
-    }
     logger.error({
       cause: error,
       message: 'Failed to toggle AI status for chapter assignment',

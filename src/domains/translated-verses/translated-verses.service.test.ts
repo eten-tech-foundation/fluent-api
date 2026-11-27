@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Result } from '@/lib/types';
 
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
+import * as projectsService from '@/domains/projects/projects.service';
 import { logger } from '@/lib/logger';
 import { err, ErrorCode, ok } from '@/lib/types';
 
@@ -89,6 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.committed = false;
   vi.mocked(repo.upsert).mockResolvedValue(ok(SAVED));
+  vi.mocked(projectsService.touchProjectActivity).mockResolvedValue(ok(undefined));
   vi.mocked(aiSuggestionsService.handleThresholdCrossed).mockResolvedValue(ok(undefined));
   claimWith(false, false);
 });
@@ -152,6 +154,19 @@ describe('upsertTranslatedVerse (#417)', () => {
     const result = await service.upsertTranslatedVerse(INPUT);
 
     expect(result.ok).toBe(false);
+    expect(aiSuggestionsService.handleThresholdCrossed).not.toHaveBeenCalled();
+  });
+
+  it('rolls the save back and backfills nothing when the project activity cannot be stamped', async () => {
+    claimWith(false, true);
+    vi.mocked(projectsService.touchProjectActivity).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+
+    const result = await service.upsertTranslatedVerse(INPUT);
+
+    expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
+    expect(state.committed).toBe(false);
     expect(aiSuggestionsService.handleThresholdCrossed).not.toHaveBeenCalled();
   });
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '@/db';
 import * as aiSuggestionsService from '@/domains/ai-suggestions/ai-suggestions.service';
 import * as projectsService from '@/domains/projects/projects.service';
-import { ErrorCode } from '@/lib/types';
+import { err, ErrorCode, ok } from '@/lib/types';
 
 import type { ChapterAssignmentRecord } from './chapter-assignments.types';
 
@@ -13,6 +13,7 @@ import {
   submitChapterAssignment,
   toChapterAssignmentResponse,
   updateChapterAssignment,
+  updateChapterAssignmentAiStatus,
 } from './chapter-assignments.service';
 import { CHAPTER_ASSIGNMENT_STATUS } from './chapter-assignments.types';
 
@@ -61,8 +62,8 @@ vi.mock('./chapter-assignments.repository', () => ({
 }));
 
 vi.mock('@/domains/projects/projects.service', () => ({
-  touchProjectActivity: vi.fn(),
-  recordProjectAssignmentActivity: vi.fn(),
+  touchProjectActivity: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
+  recordProjectAssignmentActivity: vi.fn().mockResolvedValue({ ok: true, data: undefined }),
 }));
 
 vi.mock('@/domains/ai-suggestions/ai-suggestions.service', () => ({
@@ -72,6 +73,20 @@ vi.mock('@/domains/ai-suggestions/ai-suggestions.service', () => ({
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+
+/**
+ * A stand-in transaction that records whether the work let it commit. Work that fails has to
+ * throw out of the callback, which is what makes a real driver roll back.
+ */
+function trackCommit() {
+  const transaction = { committed: false };
+  vi.mocked(db.transaction).mockImplementation(async (cb) => {
+    const result = await cb(mockTx);
+    transaction.committed = true;
+    return result;
+  });
+  return transaction;
+}
 
 const baseRecord: ChapterAssignmentRecord = {
   id: 1,
@@ -127,6 +142,25 @@ describe('claimChapterAssignment', () => {
     expect(repo.flagClaimConflict).not.toHaveBeenCalled();
     expect(aiSuggestionsService.handleChapterAssigned).toHaveBeenCalledWith(10, 1, 1, 1);
     expect(projectsService.recordProjectAssignmentActivity).toHaveBeenCalledWith(10, mockTx);
+  });
+
+  it('rolls the claim back and queues no AI when the project activity cannot be recorded', async () => {
+    const transaction = trackCommit();
+    const claimedRecord = {
+      ...baseRecord,
+      assignedUserId: 5,
+      status: CHAPTER_ASSIGNMENT_STATUS.DRAFT,
+    };
+    vi.mocked(repo.claimIfUnassigned).mockResolvedValue({ claimed: true, record: claimedRecord });
+    vi.mocked(projectsService.recordProjectAssignmentActivity).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+
+    const result = await claimChapterAssignment(1, 5);
+
+    expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
+    expect(transaction.committed).toBe(false);
+    expect(aiSuggestionsService.handleChapterAssigned).not.toHaveBeenCalled();
   });
 
   it('is idempotent when the same user claims again', async () => {
@@ -656,6 +690,39 @@ describe('submitChapterAssignment open Peer Check', () => {
     );
   });
 
+  it('rolls the submission back when the project activity cannot be stamped', async () => {
+    const transaction = trackCommit();
+    const submitted = {
+      ...peerCheckRecord,
+      peerCheckerId: 7,
+      status: CHAPTER_ASSIGNMENT_STATUS.COMMUNITY_REVIEW,
+      submittedTime: new Date('2026-01-02'),
+    };
+    vi.mocked(repo.findById).mockResolvedValue(peerCheckRecord);
+    vi.mocked(repo.submitPeerCheckIfEligible).mockResolvedValue(submitted);
+    vi.mocked(projectsService.touchProjectActivity).mockResolvedValueOnce(
+      err(ErrorCode.INTERNAL_ERROR)
+    );
+
+    const result = await submitChapterAssignment(1, 7);
+
+    expect(result).toEqual(err(ErrorCode.INTERNAL_ERROR));
+    expect(transaction.committed).toBe(false);
+  });
+
+  it('rolls the snapshot back when the chapter is gone by the time it is moved on', async () => {
+    const transaction = trackCommit();
+    const draft = { ...baseRecord, assignedUserId: 7, status: CHAPTER_ASSIGNMENT_STATUS.DRAFT };
+    vi.mocked(repo.findById).mockResolvedValue(draft);
+    vi.mocked(repo.update).mockResolvedValue(null);
+
+    const result = await submitChapterAssignment(1, 7);
+
+    expect(result).toEqual(err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND));
+    expect(repo.insertSnapshot).toHaveBeenCalledOnce();
+    expect(transaction.committed).toBe(false);
+  });
+
   it('keeps an existing peerCheckerId when the assigned checker submits', async () => {
     const assigned = { ...peerCheckRecord, peerCheckerId: 88 };
     const submitted = {
@@ -730,5 +797,48 @@ describe('submitChapterAssignment open Peer Check', () => {
       .map((r) => (r.ok ? r.data.peerCheckerId : null));
     expect(new Set(peerIds)).toEqual(new Set([row.peerCheckerId]));
     expect([7, 8]).toContain(row.peerCheckerId);
+  });
+});
+
+describe('updateChapterAssignmentAiStatus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(db.transaction).mockImplementation(async (cb) => cb(mockTx));
+  });
+
+  it('returns CHAPTER_ASSIGNMENT_NOT_FOUND and writes nothing for a missing assignment', async () => {
+    vi.mocked(repo.findById).mockResolvedValue(null);
+
+    const result = await updateChapterAssignmentAiStatus(1, true);
+
+    expect(result).toEqual(err(ErrorCode.CHAPTER_ASSIGNMENT_NOT_FOUND));
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(aiSuggestionsService.handleChapterAssigned).not.toHaveBeenCalled();
+  });
+
+  it('saves the flag and queues AI suggestions for the chapter when AI is turned on', async () => {
+    vi.mocked(repo.findById).mockResolvedValue({
+      ...baseRecord,
+      projectUnitId: 10,
+      bibleId: 2,
+      bookId: 40,
+      chapterNumber: 3,
+    });
+
+    const result = await updateChapterAssignmentAiStatus(1, true);
+
+    expect(result).toEqual(ok(undefined));
+    expect(repo.update).toHaveBeenCalledWith(1, { isAiEnabled: true }, mockTx);
+    expect(aiSuggestionsService.handleChapterAssigned).toHaveBeenCalledWith(10, 2, 40, 3);
+  });
+
+  it('leaves an unchanged flag alone and queues nothing when AI stays off', async () => {
+    vi.mocked(repo.findById).mockResolvedValue({ ...baseRecord, isAiEnabled: false });
+
+    const result = await updateChapterAssignmentAiStatus(1, false);
+
+    expect(result).toEqual(ok(undefined));
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(aiSuggestionsService.handleChapterAssigned).not.toHaveBeenCalled();
   });
 });
