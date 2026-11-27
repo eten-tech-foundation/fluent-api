@@ -141,7 +141,7 @@ describe('server Route Handlers', () => {
 
   // ─── POST /api/auth/forget-password ────────────────────────────────────────
 
-  describe('pOST /api/auth/forget-password', () => {
+  describe('POST /api/auth/forget-password', () => {
     it('should proxy to auth.handler with path rewritten to /api/auth/request-password-reset', async () => {
       (auth.handler as any).mockResolvedValue(
         new Response(JSON.stringify({ success: true }), {
@@ -181,7 +181,7 @@ describe('server Route Handlers', () => {
 
   // ─── POST /api/auth/password/set ───────────────────────────────────────────
 
-  describe('pOST /api/auth/password/set', () => {
+  describe('POST /api/auth/password/set', () => {
     it('should call auth.api.setPassword, fetch session, and update user status to verified', async () => {
       (auth.api.setPassword as any).mockResolvedValue(undefined);
       (auth.api.getSession as any).mockResolvedValue({
@@ -241,7 +241,7 @@ describe('server Route Handlers', () => {
 
   // ─── POST /api/auth/sign-out ────────────────────────────────────────────────
 
-  describe('pOST /api/auth/sign-out', () => {
+  describe('POST /api/auth/sign-out', () => {
     it('bearer sign-out: deletes session from DB and returns { success: true } without calling auth.handler', async () => {
       const sessionRow = { id: 'sess-abc', userId: 'user-123' };
       mockDb.select.mockReturnValue(mockDbQueryBuilder([sessionRow]));

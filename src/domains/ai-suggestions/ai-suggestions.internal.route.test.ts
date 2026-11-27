@@ -71,7 +71,7 @@ describe('ai-suggestions internal routes', () => {
 
   // ─── POST /ai-suggestions/internal/context ────────────────────────────────
 
-  describe('pOST /ai-suggestions/internal/context', () => {
+  describe('POST /ai-suggestions/internal/context', () => {
     it('returns 400 on invalid body (missing required fields)', async () => {
       const res = await postContext({ projectUnitId: 1 });
       expect(res.status).toBe(400);
@@ -138,7 +138,7 @@ describe('ai-suggestions internal routes', () => {
 
   // ─── POST /ai-suggestions/internal/results ────────────────────────────────
 
-  describe('pOST /ai-suggestions/internal/results', () => {
+  describe('POST /ai-suggestions/internal/results', () => {
     const heading = {
       projectUnitId: 1,
       bibleTextId: 10,

@@ -74,7 +74,7 @@ describe('pericopes router & service integrations', () => {
 
   // ─── GET /pericope-sets ─────────────────────────────────────────────────────
 
-  describe('gET /pericope-sets', () => {
+  describe('GET /pericope-sets', () => {
     it('returns 401 when the user is not authenticated', async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
 
@@ -120,7 +120,7 @@ describe('pericopes router & service integrations', () => {
 
   // ─── GET /projects/:id/pericopes/:bookCode/:chapter ─────────────────────────
 
-  describe('gET /projects/:id/pericopes/:bookCode/:chapter', () => {
+  describe('GET /projects/:id/pericopes/:bookCode/:chapter', () => {
     it('returns 401 when the user is not authenticated', async () => {
       vi.mocked(auth.api.getSession).mockResolvedValue(null);
 

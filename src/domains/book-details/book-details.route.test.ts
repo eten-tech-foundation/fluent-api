@@ -114,7 +114,7 @@ function patchBookDetails(body: unknown, headers: Record<string, string> = {}) {
   });
 }
 
-describe('pATCH /project-units/{projectUnitId}/book-details/{bookId}', () => {
+describe('PATCH /project-units/{projectUnitId}/book-details/{bookId}', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

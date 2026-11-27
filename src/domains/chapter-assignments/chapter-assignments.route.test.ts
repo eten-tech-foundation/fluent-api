@@ -109,7 +109,7 @@ function claimChapter(chapterAssignmentId: number) {
   });
 }
 
-describe('pOST /chapter-assignments/:id/claim', () => {
+describe('POST /chapter-assignments/:id/claim', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     allowClaimAccess.value = true;
@@ -232,7 +232,7 @@ describe('pOST /chapter-assignments/:id/claim', () => {
   });
 });
 
-describe('pATCH /chapter-assignments/:id/submit', () => {
+describe('PATCH /chapter-assignments/:id/submit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     allowClaimAccess.value = true;

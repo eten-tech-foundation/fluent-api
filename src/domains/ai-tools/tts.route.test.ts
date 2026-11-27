@@ -203,7 +203,7 @@ describe('tTS proxy authorization', () => {
 
 // ─── POST /ai/tts/generate ─────────────────────────────────────────────────────
 
-describe('pOST /ai/tts/generate', () => {
+describe('POST /ai/tts/generate', () => {
   it('passes the response body through unmodified, including unknown fields', async () => {
     asAuthenticatedUser(true);
     // The extra key stands in for a field a future fluent-ai adds. The response
@@ -316,7 +316,7 @@ describe('pOST /ai/tts/generate', () => {
 
 // ─── GET|HEAD /ai/tts/audio/{file} ─────────────────────────────────────────────
 
-describe('gET /ai/tts/audio/{file}', () => {
+describe('GET /ai/tts/audio/{file}', () => {
   it('relays a 302 with Location intact and does not follow it', async () => {
     asAuthenticatedUser(true);
     const target = 'https://audio.example.org/tts/9f2ac1d47bfe3a5c8e1d0b6a4f7c2e91.ogg';
@@ -469,7 +469,7 @@ describe('audio streaming', () => {
   });
 });
 
-describe('hEAD /ai/tts/audio/{file}', () => {
+describe('HEAD /ai/tts/audio/{file}', () => {
   it('answers with status and headers but no body', async () => {
     asAuthenticatedUser(true);
     upstreamOk(200, { 'content-type': 'audio/wav', 'content-length': '1024' });

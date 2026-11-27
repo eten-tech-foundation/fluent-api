@@ -99,7 +99,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/languages', () => {
+  describe('GET /aquifer/languages', () => {
     it('returns languages and sets Cache-Control header', async () => {
       authenticateUserMock();
       const mockLanguages = [
@@ -135,7 +135,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/languages/available-resources', () => {
+  describe('GET /aquifer/languages/available-resources', () => {
     it('returns available resource counts for query params', async () => {
       authenticateUserMock();
       const mockCounts = [
@@ -160,7 +160,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/resources/collections/{code}', () => {
+  describe('GET /aquifer/resources/collections/{code}', () => {
     it('returns resource collection details with Cache-Control', async () => {
       authenticateUserMock();
       const mockCollection = {
@@ -182,7 +182,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/resources/search', () => {
+  describe('GET /aquifer/resources/search', () => {
     it('returns search results', async () => {
       authenticateUserMock();
       const mockSearch = {
@@ -224,7 +224,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/resources/{contentId}', () => {
+  describe('GET /aquifer/resources/{contentId}', () => {
     it('returns resource details by contentId', async () => {
       authenticateUserMock();
       const mockDetails = {
@@ -245,7 +245,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/resources/{parentResourceId}/associations', () => {
+  describe('GET /aquifer/resources/{parentResourceId}/associations', () => {
     it('returns resource associations', async () => {
       authenticateUserMock();
       const mockAssoc = {
@@ -262,7 +262,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/bibles', () => {
+  describe('GET /aquifer/bibles', () => {
     it('returns bibles for language query', async () => {
       authenticateUserMock();
       const mockBibles = [{ id: 1, name: 'BSB', abbreviation: 'BSB' }];
@@ -277,7 +277,7 @@ describe('aquifer-resources routes', () => {
     });
   });
 
-  describe('gET /aquifer/bibles/{bibleId}/texts', () => {
+  describe('GET /aquifer/bibles/{bibleId}/texts', () => {
     it('returns bible texts', async () => {
       authenticateUserMock();
       const mockText = {
