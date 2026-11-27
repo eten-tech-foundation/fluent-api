@@ -1,14 +1,14 @@
 import { createRoute } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
 import * as HttpStatusCodes from 'stoker/http-status-codes';
+import * as HttpStatusPhrases from 'stoker/http-status-phrases';
 import { jsonContent } from 'stoker/openapi/helpers';
 import { createMessageObjectSchema } from 'stoker/openapi/schemas';
 
-import { db } from '@/db';
-import * as schema from '@/db/schema';
+import { getHttpStatus } from '@/lib/types';
 import { authenticateUser } from '@/middlewares/role-auth';
 import { server } from '@/server/server';
 
+import * as userService from './users.service';
 import { updateActiveOrgRequestSchema } from './users.types';
 
 // ─── PATCH /users/me/active-org ───────────────────────────────────────────────
@@ -25,9 +25,17 @@ const updateActiveOrgRoute = createRoute({
     [HttpStatusCodes.OK]: {
       description: 'Active org updated',
     },
+    [HttpStatusCodes.UNAUTHORIZED]: jsonContent(
+      createMessageObjectSchema('Unauthorized'),
+      'Authentication required'
+    ),
     [HttpStatusCodes.FORBIDDEN]: jsonContent(
       createMessageObjectSchema('Forbidden'),
       'User does not belong to this organization'
+    ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
     ),
   },
   summary: 'Update active organization',
@@ -48,18 +56,10 @@ server.openapi(updateActiveOrgRoute, async (c) => {
     );
   }
 
-  // Update session and user default atomically in a single transaction
-  await db.transaction(async (tx) => {
-    await tx
-      .update(schema.authSession)
-      .set({ activeOrgId: orgId })
-      .where(eq(schema.authSession.id, session.session.id));
-
-    await tx
-      .update(schema.users)
-      .set({ lastActiveOrgId: orgId })
-      .where(eq(schema.users.id, currentUser.id));
-  });
+  const result = await userService.setActiveOrg(currentUser.id, session.session.id, orgId);
+  if (!result.ok) {
+    return c.json({ message: result.error.message }, getHttpStatus(result.error) as never);
+  }
 
   return c.body(null, HttpStatusCodes.OK);
 });

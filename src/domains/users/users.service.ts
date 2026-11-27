@@ -1,5 +1,6 @@
 import type { AppPolicyUser, Result } from '@/lib/types';
 
+import { runInTransaction } from '@/db/transaction';
 import * as organizationsRepo from '@/domains/organizations/organizations.repository';
 import { findRoleGrantsByUserIds } from '@/domains/user-roles/user-roles.repository';
 import { logger } from '@/lib/logger';
@@ -185,4 +186,28 @@ export async function updateUser(
 
 export async function deleteUser(id: number): Promise<Result<void>> {
   return repo.remove(id);
+}
+
+/**
+ * Sets the active org for this session and saves it as the user's default for new
+ * sessions. Both writes commit or roll back together.
+ */
+export async function setActiveOrg(
+  userId: number,
+  sessionId: string,
+  orgId: number
+): Promise<Result<void>> {
+  try {
+    return await runInTransaction(async (tx) => {
+      await repo.updateActiveOrg(userId, sessionId, orgId, tx);
+      return ok(undefined);
+    });
+  } catch (error) {
+    logger.error({
+      cause: error,
+      message: 'Failed to set active org',
+      context: { userId, orgId },
+    });
+    return err(ErrorCode.INTERNAL_ERROR);
+  }
 }

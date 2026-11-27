@@ -472,16 +472,6 @@
       "count": 1
     }
   },
-  "src/domains/users/users.active-org.route.test.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
-  "src/domains/users/users.active-org.route.ts": {
-    "no-restricted-imports": {
-      "count": 2
-    }
-  },
   "src/domains/users/users.repository.ts": {
     "ts/no-explicit-any": {
       "count": 2
