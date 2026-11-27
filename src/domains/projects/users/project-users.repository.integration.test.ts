@@ -33,6 +33,11 @@ let pinnedUserId: number;
 let unpinnedUserId: number;
 // User pinned to otherProjectId (not to projectId)
 let elsewhereUserId: number;
+// User whose only row is the zero-permission Org Member anchor in orgId
+let anchorOnlyUserId: number;
+// User with a row that names projectId but was recorded under another organization
+let otherOrgRowUserId: number;
+let otherOrgId: number;
 
 // Role IDs populated after schema + roles seed
 let pmRoleId: number;
@@ -175,6 +180,31 @@ describe('project-users repository (PGlite integration)', () => {
       { userId: pinnedUserId, orgId, projectId: null, roleId: memberRole.id },
       { userId: elsewhereUserId, orgId, projectId: null, roleId: memberRole.id },
     ]);
+
+    const [otherOrg] = await database
+      .insert(schema.organizations)
+      .values({ name: 'Other Org' })
+      .returning();
+    otherOrgId = otherOrg.id;
+
+    const [anchorOnly] = await database
+      .insert(schema.users)
+      .values({ username: 'anchor_only_user', email: 'anchor-only@example.com' })
+      .returning();
+    anchorOnlyUserId = anchorOnly.id;
+
+    const [otherOrgRow] = await database
+      .insert(schema.users)
+      .values({ username: 'other_org_row_user', email: 'other-org-row@example.com' })
+      .returning();
+    otherOrgRowUserId = otherOrgRow.id;
+
+    await database.insert(schema.user_roles).values([
+      { userId: anchorOnlyUserId, orgId, projectId: null, roleId: memberRole.id },
+      // Names projectId, but under otherOrgId instead of the project's own organization.
+      { userId: otherOrgRowUserId, orgId: otherOrgId, projectId, roleId: pmRoleId },
+      { userId: otherOrgRowUserId, orgId: otherOrgId, projectId: null, roleId: memberRole.id },
+    ]);
   }, 30_000);
 
   afterAll(async () => {
@@ -218,6 +248,33 @@ describe('project-users repository (PGlite integration)', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe(ErrorCode.PROJECT_NOT_FOUND);
+    });
+  });
+
+  // ── resolveIsProjectMember ─────────────────────────────────────────────────
+  describe('resolveIsProjectMember', () => {
+    it('counts a role pinned to the project', async () => {
+      expect(await repo.resolveIsProjectMember(projectId, pinnedUserId)).toBe(true);
+    });
+
+    it('counts an org-wide role that carries permissions (Org Manager)', async () => {
+      expect(await repo.resolveIsProjectMember(projectId, unpinnedUserId)).toBe(true);
+    });
+
+    it('does not count the Org Member anchor on its own', async () => {
+      expect(await repo.resolveIsProjectMember(projectId, anchorOnlyUserId)).toBe(false);
+    });
+
+    it('does not count a role pinned to another project of the same organization', async () => {
+      expect(await repo.resolveIsProjectMember(projectId, elsewhereUserId)).toBe(false);
+    });
+
+    it("does not count a row that names the project under another organization's id", async () => {
+      expect(await repo.resolveIsProjectMember(projectId, otherOrgRowUserId)).toBe(false);
+    });
+
+    it('returns false for a project that does not exist', async () => {
+      expect(await repo.resolveIsProjectMember(99999, pinnedUserId)).toBe(false);
     });
   });
 

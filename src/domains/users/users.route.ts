@@ -106,6 +106,10 @@ const createUserRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Insufficient permissions'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'The projectId is not a project of orgId'
+    ),
     [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
       z.object({
         success: z.boolean(),
@@ -124,7 +128,8 @@ const createUserRoute = createRoute({
     ),
   },
   summary: 'Create a new user',
-  description: 'Creates a new user with the provided data. Project Manager only.',
+  description:
+    'Creates a new user with the provided data. Project Manager only. A projectId must be a project of orgId.',
 });
 
 server.openapi(createUserRoute, async (c) => {
@@ -216,6 +221,10 @@ const createUserWithInvitationRoute = createRoute({
       createMessageObjectSchema('Forbidden'),
       'Insufficient permissions'
     ),
+    [HttpStatusCodes.NOT_FOUND]: jsonContent(
+      createMessageObjectSchema('Project not found'),
+      'The projectId is not a project of orgId'
+    ),
     [HttpStatusCodes.UNPROCESSABLE_ENTITY]: jsonContent(
       z.object({
         success: z.boolean(),
@@ -228,10 +237,14 @@ const createUserWithInvitationRoute = createRoute({
       }),
       'The validation error'
     ),
+    [HttpStatusCodes.INTERNAL_SERVER_ERROR]: jsonContent(
+      createMessageObjectSchema(HttpStatusPhrases.INTERNAL_SERVER_ERROR),
+      'Internal server error'
+    ),
   },
   summary: 'Create user and send invitation',
   description:
-    'Creates a new user in database and sends magic link invitation email. Returns 201 when a new Fluent account is created (magic link sent) and 200 when an existing account is added to the org (login link sent).',
+    'Creates a new user in database and sends magic link invitation email. Returns 201 when a new Fluent account is created (magic link sent) and 200 when an existing account is added to the org (login link sent). A projectId must be a project of orgId; otherwise the request returns 404 and nothing is written.',
 });
 
 server.openapi(createUserWithInvitationRoute, async (c) => {

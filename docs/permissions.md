@@ -341,6 +341,8 @@ export function canAssignRole(
 | `Project Translator` | `role:assign:project`                                               | `projectId` must not be null                                        |
 | `Project Observer`   | `role:assign:project`                                               | `projectId` must not be null                                        |
 
+`canAssignRole` takes `orgId` and `projectId` as given. On `POST /users` and `POST /users/invite`, `requireUserAccess(CREATE)` first checks that a given `projectId` belongs to `orgId`; a missing project and a project of another organization both return `404 Project not found`.
+
 ---
 
 ## Domain Policies
@@ -353,14 +355,18 @@ They are called after the coarse `requirePermission()` gate and always receive t
 
 [`src/domains/projects/project.policy.ts`](../src/domains/projects/project.policy.ts)
 
-| Method                                      | Logic                                                                                                                                                           |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list(user)`                                | True if user holds `project:view` in any grant.                                                                                                                 |
-| `read(user, project, isAssignedToProject?)` | `project:view` at `{orgId, projectId}` scope, OR the user is assigned to the project (allows translators to see their own projects without a broad view grant). |
-| `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                 |
-| `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                 |
+| Method                                      | Logic                                                                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list(user)`                                | True if user holds `project:view` in any grant.                                                                                                                                 |
+| `read(user, project, isAssignedToProject?)` | `project:view` at `{orgId, projectId}` scope, OR the user is a [project member](#project-membership) (allows translators to see their own projects without a broad view grant). |
+| `update(user, project)`                     | `project:update` at `{orgId, projectId}` scope.                                                                                                                                 |
+| `delete(user, project)`                     | `project:delete` at `{orgId, projectId}` scope.                                                                                                                                 |
 
 Enforced via `requireProjectAccess(action)` in [`project-auth.middleware.ts`](../src/domains/projects/project-auth.middleware.ts). A failed check currently returns `404 Project not found` for every action. Under [FA-R4](guides/code-standards.md#403-or-404), `read` keeps the 404 and `update`/`delete` return `403` when the caller can read the project; that change is in its own PR (see [Follow-up PRs](guides/code-standards.md#follow-up-prs)).
+
+#### Project membership
+
+`resolveIsProjectMember` in [`project-users.repository.ts`](../src/domains/projects/users/project-users.repository.ts) answers "is this user a member of this project?" for `ProjectPolicy.read` and the `isProjectMember` checks in `ChapterAssignmentPolicy`. A user is a member when they hold a role pinned to the project under the project's own organization, or an org-wide role in that organization. The `Org Member` anchor doesn't count, so belonging to an org doesn't make someone a member of its projects. A row that names the project under a different `orgId` doesn't count either.
 
 ### UserPolicy
 
@@ -470,6 +476,8 @@ When a user is added to an organization — whether as a brand-new user or an ex
 2. **Caller-specified role** (`grantRole`) — the actual role the inviter chose (e.g. `Project Translator` scoped to a specific project, or `Org Manager` scoped to the org).
 
 The anchor row is always written first. If `grantRole` subsequently fails, the anchor is not rolled back for existing users (they retain org membership). For new users, both the user record and the auth identity are fully rolled back.
+
+A project-scoped role must be on a project of the organization it is granted in. When the request names a `projectId` outside `orgId`, the request stops in `requireUserAccess(CREATE)` with `404 Project not found` before either grant is written or any user is created.
 
 ### New User Flow (`createUserWithInvitation`)
 

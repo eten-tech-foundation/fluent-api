@@ -3,7 +3,9 @@ import * as HttpStatusCodes from 'stoker/http-status-codes';
 
 import type { AppEnv } from '@/server/context.types';
 
+import * as projectService from '@/domains/projects/projects.service';
 import { findOrgIdsForUser } from '@/domains/user-roles/user-roles.repository';
+import { MAX_POSTGRES_INT } from '@/lib/constants';
 import { getHttpStatus } from '@/lib/types';
 
 import type { UserAction } from './users.types';
@@ -39,6 +41,24 @@ export function requireUserAccess(action: UserAction, paramName = 'id') {
 
       if (!Number.isFinite(orgId)) {
         return c.json({ message: 'Missing organization ID' }, HttpStatusCodes.BAD_REQUEST);
+      }
+
+      // canAssignRole trusts that projectId belongs to orgId, so check that first.
+      // A missing project and one from another organization get the same 404.
+      if (projectId !== null) {
+        if (!Number.isInteger(projectId) || projectId <= 0 || projectId > MAX_POSTGRES_INT) {
+          return c.json({ message: 'Invalid project ID' }, HttpStatusCodes.BAD_REQUEST);
+        }
+        const projectResult = await projectService.getProjectById(projectId);
+        if (!projectResult.ok) {
+          const status = getHttpStatus(projectResult.error);
+          if (status !== HttpStatusCodes.NOT_FOUND) {
+            return c.json({ message: projectResult.error.message }, status as never);
+          }
+        }
+        if (!projectResult.ok || projectResult.data.organization !== orgId) {
+          return c.json({ message: 'Project not found' }, HttpStatusCodes.NOT_FOUND);
+        }
       }
 
       if (!canAssignRole(policyUser, targetRoleName, orgId, projectId)) {
